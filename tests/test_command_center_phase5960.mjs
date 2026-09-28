@@ -29,7 +29,7 @@ function cut(startMark, endMark) {
 
 const subtab = cut(
   "const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys'];",
-  "  if (name === 'webhook') loadWebhookAlerts();\n}",
+  "    if (name === 'webhook') loadWebhookAlerts();\n  }\n}",
 );
 
 const secrets = cut(
@@ -41,6 +41,7 @@ const webhookCard = cut("const CC_WEBHOOK_SEVERITY = {", "    + `</div>`;\n}");
 
 // Khung DOM tối thiểu + hàm phụ trợ mà app.js thực sự dùng.
 const harness = `
+  const window = globalThis;
 const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
 const API_BASE = '';
 const CC_CONNECTORS_CONST = CC_CONNECTORS;

@@ -9103,6 +9103,8 @@ function onEnter() {
 
 // Hằng số dùng chung cho toàn bộ khối Phase 59/60.
 const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
+// Extensions registered by enterprise plugins (populated at runtime).
+let _ccExtensions = [];
 // Tên trường bí mật — KHÔNG bao giờ chép vào value của <input>, chỉ ghi "đã lưu".
 const CC_SECRET_FIELDS = ['secret_access_key', 'api_token', 'client_secret', 'access_key_id'];
 
@@ -9118,25 +9120,486 @@ function _ccSetStatus(el, ok, okText, idleText) {
 
 // ── Sub-tab của khối "Trung Tâm Tích Hợp Doanh Nghiệp" ───────────────────
 const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys'];
+// Daftar sub-tab có thể mở rộng bởi enterprise plugins.
+let _ccSubTabExtensions = [];
+let _ccSubTabConfig = {};
+
+// Đăng ký sub-tab mở rộng từ enterprise plugin.
+// Mỗi extension cung cấp: id (ký tự duy nhất), title (hiển thị), loadFn (hàm tải dữ liệu).
+function registerCcSubTabExtension(id, cfg) {
+  _ccSubTabExtensions.push(id);
+  _ccSubTabConfig[id] = cfg;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── DATA SOURCE REGISTRY (Enterprise Reporting Apps) ──────────────────────
+// Mục đích: Cho phép tích hợp thêm các ứng dụng doanh nghiệp (ERP, CRM, HR, BI...)
+// để lấy dữ liệu báo cáo. Mỗi data source tự định nghĩa:
+//   - id: mã định danh duy nhất
+//   - title: tên hiển thị
+//   - icon: SVG hoặc emoji
+//   - color: màu theme
+//   - category: 'connector' | 'reporting' | 'analytics' | 'custom'
+//   - endpoints: { health, data, config, actions }
+//   - renderFn: hàm render UI (tự động gọi khi sub-tab được mở)
+//   - subTabId: id của sub-tab nơi hiển thị (tự tạo nếu chưa có)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const _ccDataSourceRegistry = {};
+
+// Danh mục mặc định cho data source
+const CC_DATA_SOURCE_CATEGORIES = {
+  connector: { label: 'Kết Nối', color: 'primary', icon: '🔗' },
+  reporting: { label: 'Báo Cáo', color: 'emerald', icon: '📊' },
+  analytics: { label: 'Phân Tích', color: 'violet', icon: '📈' },
+  custom: { label: 'Tùy Chỉnh', color: 'amber', icon: '⚙️' }
+};
+
+/**
+ * Đăng ký một data source mới (Enterprise App).
+ * Ví dụ:
+ *   registerCcDataSource('sap-erp', {
+ *     title: 'SAP ERP',
+ *     icon: '🏢',
+ *     color: '#0FAAFF',
+ *     category: 'reporting',
+ *     endpoints: {
+ *       health: '/api/v1/enterprise/sap/health',
+ *       data: '/api/v1/enterprise/sap/report',
+ *       config: '/api/v1/enterprise/sap/config'
+ *     },
+ *     renderFn: async (container) => { ... },
+ *     subTabId: 'reporting'
+ *   });
+ */
+function registerCcDataSource(id, cfg) {
+  if (!cfg || !cfg.title) {
+    console.warn('[CC Registry] Data source must have a title');
+    return false;
+  }
+  const defaults = {
+    category: 'custom',
+    endpoints: {},
+    renderFn: null,
+    subTabId: 'reporting',
+    icon: '📦',
+    color: '#64748b',
+    description: '',
+    actions: []
+  };
+  _ccDataSourceRegistry[id] = { ...defaults, ...cfg, id };
+  
+  // Tự động đăng ký sub-tab nếu chưa có
+  if (cfg.subTabId && !_ccSubTabExtensions.includes(cfg.subTabId)) {
+    registerCcSubTabExtension(cfg.subTabId, {
+      title: CC_DATA_SOURCE_CATEGORIES[cfg.category]?.label || cfg.category,
+      loadFn: () => loadCcDataSourceTab(cfg.subTabId)
+    });
+  }
+  return true;
+}
+
+/**
+ * Lấy danh sách data source theo category.
+ */
+function getCcDataSourcesByCategory(category) {
+  return Object.values(_ccDataSourceRegistry).filter(ds => ds.category === category);
+}
+
+/**
+ * Lấy data source theo ID.
+ */
+function getCcDataSource(id) {
+  return _ccDataSourceRegistry[id];
+}
+
+/**
+ * Load tab data source (gọi khi sub-tab được mở).
+ */
+async function loadCcDataSourceTab(subTabId) {
+  // Skip 'conn' tab - it's handled by the legacy connector-card HTML system.
+  if (subTabId === 'conn') return;
+
+  const sources = getCcDataSourcesByCategory(subTabId);
+  if (sources.length === 0) return;
+
+  // Get or create container
+  let container = _ccGet(`cc-int-${subTabId}`);
+  if (!container) {
+    const mainPane = _ccGet('tab-system-integration');
+    if (!mainPane) return;
+
+    container = document.createElement('div');
+    container.id = `cc-int-${subTabId}`;
+    container.className = 'p-4 hidden';
+    mainPane.appendChild(container);
+
+    // Register the sub-tab if not already registered
+    if (!_ccSubTabExtensions.includes(subTabId)) {
+      _ccSubTabExtensions.push(subTabId);
+    }
+    if (!CC_SUBTABS.includes(subTabId)) {
+      CC_SUBTABS.push(subTabId);
+    }
+
+    // Add button to the sub-tab bar if not exists
+    const subTabBar = document.querySelector('.ml-auto.flex.flex-wrap.items-center.gap-1');
+    if (subTabBar && !document.querySelector('[data-cc-subtab="' + subTabId + '"]')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('data-cc-subtab', subTabId);
+      btn.onclick = () => switchCcSubTab(subTabId);
+      btn.className = 'px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition';
+      const catInfo = CC_DATA_SOURCE_CATEGORIES[subTabId] || { label: subTabId, icon: '📦' };
+      btn.innerHTML = '<span class="text-xl mr-1">' + catInfo.icon + '</span>' + catInfo.label;
+      subTabBar.appendChild(btn);
+    }
+  }
+
+  if (!container) return;
+
+  // Render header
+  const catInfo = CC_DATA_SOURCE_CATEGORIES[subTabId] || { label: subTabId, icon: '📦', color: 'slate' };
+  container.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">${catInfo.icon}</span>
+        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">${catInfo.label}</h3>
+        <span class="text-[9px] text-slate-400 dark:text-slate-500">${sources.length} nguồn dữ liệu</span>
+      </div>
+      <button type="button" onclick="openAddDataSourceModal('${subTabId}')"
+        class="px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition">
+        + Thêm nguồn dữ liệu
+      </button>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="cc-ds-grid-${subTabId}"></div>
+  `;
+
+  const grid = _ccGet(`cc-ds-grid-${subTabId}`);
+  if (!grid) return;
+
+  // Render each data source card
+  for (const ds of sources) {
+    const card = document.createElement('div');
+    card.className = 'cc-ds-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800/60';
+    card.innerHTML = `
+      <div class="flex items-center justify-between gap-2 mb-2">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">${ds.icon}</span>
+          <div>
+            <div class="text-xs font-bold text-slate-800 dark:text-slate-100">${_esc(ds.title)}</div>
+            <div class="text-[9px] text-slate-400 dark:text-slate-500">${_esc(ds.description || 'Nguồn dữ liệu doanh nghiệp')}</div>
+          </div>
+        </div>
+        <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="${ds.id}-health"></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button" onclick="runDataSourceHealth('${ds.id}')"
+          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">
+          Kiểm tra sức khoẻ
+        </button>
+        <button type="button" onclick="runDataSourceAction('${ds.id}', 'sync')"
+          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition"
+          ${!ds.endpoints.data ? 'disabled' : ''}>
+          Đồng bộ dữ liệu
+        </button>
+      </div>
+      ${ds.actions && ds.actions.length > 0 ? `
+        <div class="mt-2 flex flex-wrap gap-1">
+          ${ds.actions.map(a => `<button type="button" onclick="runDataSourceAction('${ds.id}', '${a.id}')" class="px-2 py-1 text-[9px] rounded bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">${_esc(a.label)}</button>`).join('')}
+        </div>
+      ` : ''}
+    `;
+    grid.appendChild(card);
+  }
+
+  // Auto-run health check for all
+  for (const ds of sources) {
+    runDataSourceHealth(ds.id);
+  }
+}
+
+/**
+ * Kiểm tra sức khoẻ một data source.
+ */
+async function runDataSourceHealth(id) {
+  const ds = _ccDataSourceRegistry[id];
+  if (!ds || !ds.endpoints.health) return;
+  
+  const indicator = _ccGet(`${id}-health`);
+  if (indicator) {
+    indicator.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+    indicator.title = 'Đang kiểm tra…';
+  }
+  
+  try {
+    const res = await apiFetch(`${API_BASE}${ds.endpoints.health}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+    });
+    const d = await res.json();
+    const success = d?.status === 'success' || d?.ok === true || d?.healthy === true;
+    
+    if (indicator) {
+      indicator.className = success 
+        ? 'w-2 h-2 rounded-full bg-emerald-500' 
+        : 'w-2 h-2 rounded-full bg-rose-500';
+      indicator.title = success ? 'OK' : (d?.error || 'Thất bại');
+    }
+  } catch (err) {
+    if (indicator) {
+      indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
+      indicator.title = `Lỗi: ${err.message}`;
+    }
+  }
+}
+
+/**
+ * Chạy action trên data source (sync, custom action...).
+ */
+async function runDataSourceAction(id, actionId) {
+  const ds = _ccDataSourceRegistry[id];
+  if (!ds) return;
+  
+  // Nếu là action 'sync' và có endpoint data
+  if (actionId === 'sync' && ds.endpoints.data) {
+    const btn = event?.target;
+    const original = btn?.innerHTML;
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<svg class="animate-spin" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang đồng bộ...`;
+    }
+    
+    try {
+      const res = await apiFetch(`${API_BASE}${ds.endpoints.data}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+        body: JSON.stringify({ action: 'sync' })
+      });
+      const d = await res.json();
+      if (res.ok) {
+        showToast(`✅ ${ds.title}: Đã đồng bộ dữ liệu`, 'success');
+      } else {
+        showToast(`❌ ${ds.title}: ${d.detail || 'Lỗi đồng bộ'}`, 'error');
+      }
+    } catch (err) {
+      showToast(`❌ ${ds.title}: ${err.message}`, 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = original;
+      }
+    }
+  }
+  
+  // Custom actions
+  const action = ds.actions?.find(a => a.id === actionId);
+  if (action && action.handler) {
+    await action.handler(ds);
+  }
+}
+
+/**
+ * Mở modal thêm data source mới (chỉ manager+).
+ */
+function openAddDataSourceModal(category) {
+  // TODO: Implement modal UI for adding new data source
+  showToast('Tính năng thêm nguồn dữ liệu đang phát triển', 'info');
+}
+
+// Đăng ký các data source mặc định (backward compat)
+function registerDefaultDataSources() {
+  // AWS
+  registerCcDataSource('aws', {
+    title: 'AWS',
+    icon: '☁️',
+    color: '#FF9900',
+    category: 'connector',
+    subTabId: 'conn',
+    description: 'Cost Explorer · EC2 · CloudWatch',
+    endpoints: {
+      health: '/api/v1/enterprise/connectors/health/aws',
+      config: '/api/v1/enterprise/connectors/config/aws'
+    },
+    actions: [
+      { id: 'cost', label: 'Chi phí', handler: () => runIntegrationTool('check_aws_cost', {}) },
+      { id: 'instances', label: 'EC2', handler: () => runIntegrationTool('check_aws_instances', {}) }
+    ]
+  });
+  
+  // OCI
+  registerCcDataSource('oci', {
+    title: 'OCI',
+    icon: '☁️',
+    color: '#E81123',
+    category: 'connector',
+    subTabId: 'conn',
+    description: 'Compute · Monitoring · Object Storage',
+    endpoints: {
+      health: '/api/v1/enterprise/connectors/health/oci',
+      config: '/api/v1/enterprise/connectors/config/oci'
+    },
+    actions: [
+      { id: 'instances', label: 'Instances', handler: () => runIntegrationTool('check_oci_instances', {}) },
+      { id: 'metrics', label: 'Metrics', handler: () => runIntegrationTool('check_oci_metrics', {}) }
+    ]
+  });
+  
+  // Paperless
+  registerCcDataSource('paperless', {
+    title: 'Paperless-ngx',
+    icon: '📄',
+    color: '#3B82F6',
+    category: 'connector',
+    subTabId: 'conn',
+    description: 'Tìm kiếm · OCR · Quản lý tài liệu',
+    endpoints: {
+      health: '/api/v1/enterprise/connectors/health/paperless',
+      config: '/api/v1/enterprise/connectors/config/paperless'
+    },
+    actions: [
+      { id: 'search', label: 'Tìm tài liệu', handler: () => runIntegrationTool('search_paperless_documents', {query: ''}) }
+    ]
+  });
+  
+  // eInvoice
+  registerCcDataSource('einvoice', {
+    title: 'eInvoice',
+    icon: '🧾',
+    color: '#10B981',
+    category: 'connector',
+    subTabId: 'conn',
+    description: 'Hóa đơn điện tử · Tra cứu · Thống kê',
+    endpoints: {
+      health: '/api/v1/enterprise/connectors/health/einvoice',
+      config: '/api/v1/enterprise/connectors/config/einvoice'
+    },
+    actions: [
+      { id: 'daily', label: 'Thống kê ngày', handler: () => runIntegrationTool('check_einvoice_daily', {}) },
+      { id: 'search', label: 'Tra cứu HĐĐT', handler: () => runIntegrationTool('search_einvoices', {}) }
+    ]
+  });
+  
+  // Plugin Registry (reporting)
+  registerCcDataSource('plugin-registry', {
+    title: 'Plugin Registry',
+    icon: '🔌',
+    color: '#8B5CF6',
+    category: 'reporting',
+    subTabId: 'reporting',
+    description: '11 công cụ, circuit breaker, độ trễ',
+    endpoints: {
+      health: '/api/v1/enterprise/plugin-registry/stats',
+      data: '/api/v1/enterprise/plugin-registry/stats'
+    }
+  });
+  
+  // Background Tasks (analytics)
+  registerCcDataSource('background-tasks', {
+    title: 'Tác Vụ Nền',
+    icon: '⚙️',
+    color: '#06B6D4',
+    category: 'analytics',
+    subTabId: 'analytics',
+    description: 'Enterprise Orchestrator jobs',
+    endpoints: {
+      health: '/api/v1/enterprise/background-tasks',
+      data: '/api/v1/enterprise/background-tasks'
+    }
+  });
+  
+  // Webhooks (analytics)
+  registerCcDataSource('webhooks', {
+    title: 'Webhook Events',
+    icon: '🔗',
+    color: '#F59E0B',
+    category: 'analytics',
+    subTabId: 'analytics',
+    description: 'Cảnh báo từ hệ thống ngoài',
+    endpoints: {
+      health: '/api/v1/enterprise/webhooks/recent',
+      data: '/api/v1/enterprise/webhooks/recent'
+    }
+  });
+  
+  // Cashflow Health (reporting)
+  registerCcDataSource('cashflow-health', {
+    title: 'Sức Khoẻ Quỹ',
+    icon: '💰',
+    color: '#10B981',
+    category: 'reporting',
+    subTabId: 'reporting',
+    description: 'Dòng tiền · Dự báo · Cảnh báo',
+    endpoints: {
+      health: '/api/v1/enterprise/analytics/cashflow-health',
+      data: '/api/v1/enterprise/analytics/cashflow-health'
+    }
+  });
+}
+
+// Khởi tạo registry khi load tab system-integration
+function initCcDataSourceRegistry() {
+  registerDefaultDataSources();
+  // Load sub-tab 'conn' mặc định (kết nối)
+  loadCcDataSourceTab('conn');
+}
+
+// Export cho window
+window.registerCcDataSource = registerCcDataSource;
+window.getCcDataSourcesByCategory = getCcDataSourcesByCategory;
+window.getCcDataSource = getCcDataSource;
+window.loadCcDataSourceTab = loadCcDataSourceTab;
+window.runDataSourceHealth = runDataSourceHealth;
+window.runDataSourceAction = runDataSourceAction;
+window.initCcDataSourceRegistry = initCcDataSourceRegistry;
+window._ccDataSourceRegistry = _ccDataSourceRegistry;
+window._ccSubTabConfig = _ccSubTabConfig;
+window._ccSubTabExtensions = _ccSubTabExtensions;
+window.CC_SUBTABS = CC_SUBTABS;
+window.CC_DATA_SOURCE_CATEGORIES = CC_DATA_SOURCE_CATEGORIES;
 
 function switchCcSubTab(name) {
-  if (!CC_SUBTABS.includes(name)) return;
+  // Chỉ chạy nếu name là tab hợp lệ (cốt lõi hoặc extension).
+  if (!CC_SUBTABS.includes(name) && !_ccSubTabExtensions.includes(name)) return;
 
+  // Cập nhật button active state.
   document.querySelectorAll('[data-cc-subtab]').forEach((b) => {
     const on = b.dataset.ccSubtab === name;
     b.className = on
       ? 'px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-primary-600 text-white shadow-sm transition'
       : 'px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition';
   });
-  CC_SUBTABS.forEach((k) => {
+
+  // Hide/show sub-tab panes (cả CC_SUBTABS lẫn extensions).
+  [...CC_SUBTABS, ..._ccSubTabExtensions].forEach((k) => {
     const pane = _ccGet('cc-int-' + k);
     if (pane) pane.classList.toggle('hidden', k !== name);
   });
 
-  // Chỉ tải dữ liệu của tab đang mở — tải sẵn 5 tab là 5 lượt gọi API vô ích.
-  if (name === 'config') loadConnectorConfigAll();
-  if (name === 'sys') { loadPluginRegistryStats(); loadBackgroundTasks(); }
-  if (name === 'webhook') loadWebhookAlerts();
+  // Đổ title vào header nếu có cấu hình trong registry _ccSubTabConfig.
+  const cfg = _ccSubTabConfig[name];
+  if (cfg && cfg.title) {
+    const header = document.querySelector('#cc-int-header h3');
+    if (header) header.textContent = cfg.title;
+  }
+
+  // Tải dữ liệu cho tab đang mở.
+  // Với extension tab (reporting, analytics) mà pane chưa tồn tại,
+  // gọi loadFn để TẠO pane trước khi hide/show.
+  const pane = _ccGet('cc-int-' + name);
+  const isExtension = _ccSubTabExtensions.includes(name);
+  const cfg2 = _ccSubTabConfig[name];
+
+  if (isExtension && cfg2 && cfg2.loadFn) {
+    // Gọi loadFn để tạo/populate pane cho extension tab.
+    cfg2.loadFn();
+  } else if (pane && !pane.classList.contains('hidden')) {
+    // Với tab cốt lõi: chỉ load khi pane đã tồn tại và đang hiển thị.
+    if (name === 'config') loadConnectorConfigAll();
+    if (name === 'sys') { loadPluginRegistryStats(); loadBackgroundTasks(); }
+    if (name === 'webhook') loadWebhookAlerts();
+  }
 }
 
 // ── Dải KPI ───────────────────────────────────────────────────────────────
@@ -9169,7 +9632,7 @@ function syncIntegrationKpi() {
   // tra KHÔNG tính là sẵn sàng — nếu tính thì con số này chỉ phản ánh "đã tạo
   // 4 thẻ", không phản ánh hệ thống có dùng được hay không.
   let healthy = 0;
-  CC_CONNECTORS.forEach((n) => {
+  [...CC_CONNECTORS, ..._ccExtensions].forEach((n) => {
     if (_ccGet(`${n}-health-indicator`)?.classList.contains('bg-emerald-500')) healthy += 1;
   });
   const kpiConn = _ccGet('cc-kpi-connectors');
@@ -9193,6 +9656,10 @@ function syncIntegrationKpi() {
 // tự tải lại khi bấm vào (xem `switchCcSubTab`) để không đốt 4 lượt gọi API
 // cho những màn hình người dùng không mở.
 function loadSystemIntegration() {
+  // Khởi tạo Data Source Registry (hệ thống mới có thể mở rộng).
+  initCcDataSourceRegistry();
+  
+  // Giữ tương thích ngược: vẫn load 4 nhóm dữ liệu Phase 59/60.
   loadPluginRegistryStats();
   loadBackgroundTasks();
   loadWebhookAlerts();
