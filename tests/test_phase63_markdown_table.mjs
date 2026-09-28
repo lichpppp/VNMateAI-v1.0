@@ -128,6 +128,26 @@ check('khối code trong câu có bảng vẫn nguyên', (() => {
 })(), 'mất một trong hai phần');
 
 // ══ 3. Không làm hỏng nội dung hợp lệ ════════════════════════════════════
+console.log('\n▸ Đường kẻ ngang (LLM hay dùng --- để tách mục)');
+check('--- thành <hr>', render('a\n\n---\n\nb').includes('<hr'));
+check('*** thành <hr>', render('***').includes('<hr'));
+check('___ thành <hr>', render('___').includes('<hr'));
+check('--- trong nhiều dòng vẫn bị bỏ qua', !render('| --- | --- |').includes('<hr'));
+check('dòng kẻ trong bảng KHÔNG sinh <hr>', (() => {
+  const t = render('| a | b |\n| --- | --- |\n| 1 | 2 |');
+  return !t.includes('<hr') && t.includes('<table');
+})(), 'sinh hr nhầm trong bảng');
+check('gạch ngang trong câu văn không bị nhầm', !render('giá --- 100').includes('<hr'));
+check('chuỗi ---- (4 gạch) cũng là kẻ', render('----').includes('<hr'));
+check('- là mục danh sách, KHÔNG phải kẻ', (() => {
+  const l = render('- Mục một');
+  return !l.includes('<hr') && l.includes('Mục một');
+})(), '3 gạch ngang liền nhau bị nhầm');
+check('kẻ trước bảng không phá bảng', (() => {
+  const t = render('---\n\n| a |\n| --- |\n| 1 |');
+  return t.includes('<hr') && t.includes('<table');
+})());
+
 console.log('\n▸ Không phá nội dung hợp lệ');
 check('văn bản thường', render('Xin chào, tôi cần báo cáo.').includes('Xin chào'));
 check('in đậm', render('**quan trọng**').includes('<strong'));

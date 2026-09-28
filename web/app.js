@@ -2843,7 +2843,18 @@ function renderPortalMarkdown(rawText) {
         inTable = false;
         tableHtml = '';
       }
-      outputLines.push(escapePortalHtml(line));
+      // Đường kẻ ngang: `---`, `***`, `___` (tối thiểu 3 ký tự).
+      // LLM rất hay dùng `---` để tách mục, và không có nhánh này thì người
+      // đọc thấy ba gạch ngang thô xen giữa văn bản.
+      //
+      // Dòng kẻ trong bảng (`| --- | --- |`) đã bị bỏ qua ở nhánh bảng phía
+      // trên nên không đụng tới; dấu `>` trong `>` chỉ bị escape ở nhánh
+      // dòng thường nên không giả được.
+      if (/^([-*_])\1{2,}$/.test(line)) {
+        outputLines.push('<hr class="my-3 border-slate-200 dark:border-slate-700" />');
+      } else {
+        outputLines.push(escapePortalHtml(line));
+      }
     }
   }
   if (inTable) {

@@ -322,7 +322,7 @@
     "attr": "prepare_data_source_export",
     "meta": {
       "name": "prepare_data_source_export",
-      "description": "Tạo file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Dùng khi người dùng nói 'xuất ra Excel', 'gửi tôi file CSV', 'tải báo cáo tồn kho cho tôi'.\n\nCÁCH TRẢ LỜI — BẮT BUỘC: bạn KHÔNG cần và KHÔNG nên đọc nội dung file. Chỉ cần báo cho người dùng là đã sẵn sàng, nêu định dạng, số dòng dự kiến, và đưa `user_instructions` (kèm `download_url`) cho họ. Đừng tự dựng lại bảng trong câu trả lời — dữ liệu trong file đầy đủ hơn phần bạn vừa xem trước đó.",
+      "description": "Chuẩn bị file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Dùng khi người dùng nói 'xuất ra Excel', 'gửi tôi file CSV', 'tải báo cáo tồn kho cho tôi'.\n\nCÁCH TRẢ LỜI — BẮT BUỘC: bạn KHÔNG cần và KHÔNG nên đọc nội dung file. Hãy nói người dùng file đã sẵn sàng và dẫn họ đúng chỗ: bấm nút «Xuất» trên thẻ nguồn dữ liệu ở tab Tích Hợp. TUYỆT ĐỐI KHÔNG đưa `download_url` hay bất kỳ đường dẫn API nào cho người dùng — endpoint đó yêu cầu token xác thực, bấm vào sẽ báo lỗi 401. Đừng tự dựng lại bảng trong câu trả lời: dữ liệu trong file đầy đủ hơn phần bạn vừa xem trước đó.",
       "parameters": {
         "type": "object",
         "properties": {

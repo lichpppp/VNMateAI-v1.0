@@ -260,12 +260,14 @@ async def fetch_data_source(
 @export_skill(
     name="prepare_data_source_export",
     description=(
-        "Tạo file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Dùng khi người dùng nói "
+        "Chuẩn bị file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Dùng khi người dùng nói "
         "'xuất ra Excel', 'gửi tôi file CSV', 'tải báo cáo tồn kho cho tôi'.\n\n"
-        "CÁCH TRẢ LỜI — BẮT BUỘC: bạn KHÔNG cần và KHÔNG nên đọc nội dung file. Chỉ cần "
-        "báo cho người dùng là đã sẵn sàng, nêu định dạng, số dòng dự kiến, và đưa "
-        "`user_instructions` (kèm `download_url`) cho họ. Đừng tự dựng lại bảng trong "
-        "câu trả lời — dữ liệu trong file đầy đủ hơn phần bạn vừa xem trước đó."
+        "CÁCH TRẢ LỜI — BẮT BUỘC: bạn KHÔNG cần và KHÔNG nên đọc nội dung file. Hãy nói "
+        "người dùng file đã sẵn sàng và dẫn họ đúng chỗ: bấm nút «Xuất» trên thẻ nguồn dữ "
+        "liệu ở tab Tích Hợp. TUYỆT ĐỐI KHÔNG đưa `download_url` hay bất kỳ đường dẫn API "
+        "nào cho người dùng — endpoint đó yêu cầu token xác thực, bấm vào sẽ báo lỗi 401. "
+        "Đừng tự dựng lại bảng trong câu trả lời: dữ liệu trong file đầy đủ hơn phần bạn "
+        "vừa xem trước đó."
     ),
     parameters_schema={
         "type": "object",
@@ -356,9 +358,18 @@ async def prepare_data_source_export(
         "download_url": download_url,
         "requested_rows": rows,
         "available_rows": check.get("total") or 0,
+        # KHÔNG được đưa `download_url` cho người dùng như một link bấm được.
+        # Endpoint đó đòi Bearer token mà trình duyệt không tự gắn khi bấm
+        # link thường -> người dùng bấm xong gặp 401, tệ hơn là không báo gì.
+        # Đã kiểm chứng: GET và POST không kèm token đều trả 401.
         "user_instructions": (
-            f"Báo cáo '{report or source.get('default_path')}' của {title} đã sẵn sàng. "
-            f"Nhấn nút «Xuất {fmt.upper()}» trên thẻ nguồn dữ liệu trong tab Tích Hợp để tải, "
-            f"hoặc mở đường dẫn: {download_url}"
+            f"Báo cáo '{report or source.get('default_path')}' của {title} đã sẵn sàng, "
+            f"dự kiến {check.get('total') or 'nhiều'} dòng. "
+            f"Hãy bảo người dùng vào tab «Tích Hợp Hệ Thống Báo Cáo» → «Kết Nối», "
+            f"tìm thẻ «{title}» rồi nhấn nút «Xuất {fmt.upper()}» để tải file về máy. "
+            f"TUYỆT ĐỐI KHÔNG đưa người dùng đường dẫn API kèm token, và KHÔNG nói rằng "
+            f"họ có thể mở link đó trực tiếp — link đó cần xác thực nên sẽ báo lỗi 401."
         ),
+        # Đường dẫn chỉ để hệ thống đối chiếu, LLM không nên trích ra cho người dùng.
+        "_download_path_for_logging": download_url,
     }
