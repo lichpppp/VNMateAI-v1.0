@@ -9252,7 +9252,7 @@ async function loadCcDataSourceTab(subTabId) {
       btn.onclick = () => switchCcSubTab(subTabId);
       btn.className = 'px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition';
       const catInfo = CC_DATA_SOURCE_CATEGORIES[subTabId] || { label: subTabId, icon: '📦' };
-      btn.innerHTML = '<span class="text-xl mr-1">' + catInfo.icon + '</span>' + catInfo.label;
+      btn.innerHTML = '<span class="text-xl mr-1">' + catInfo.icon + '</span> ' + catInfo.label;
       subTabBar.appendChild(btn);
     }
   }
