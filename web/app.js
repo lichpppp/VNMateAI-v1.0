@@ -9150,10 +9150,10 @@ const _ccDataSourceRegistry = {};
 
 // Danh mục mặc định cho data source
 const CC_DATA_SOURCE_CATEGORIES = {
-  connector: { label: 'Kết Nối', color: 'primary', icon: '🔗' },
-  reporting: { label: 'Báo Cáo', color: 'emerald', icon: '📊' },
-  analytics: { label: 'Phân Tích', color: 'violet', icon: '📈' },
-  custom: { label: 'Tùy Chỉnh', color: 'amber', icon: '⚙️' }
+  connector: { label: 'Kết Nối', color: 'primary', icon: '🔗', where: 'tab Kết Nối' },
+  reporting: { label: 'Báo Cáo', color: 'emerald', icon: '📊', where: 'tab Báo Cáo' },
+  analytics: { label: 'Phân Tích', color: 'violet', icon: '📈', where: 'tab Phân Tích' },
+  custom: { label: 'Tùy Chỉnh', color: 'amber', icon: '⚙️', where: 'tab Kết Nối' }
 };
 
 /**
@@ -9217,12 +9217,273 @@ function getCcDataSource(id) {
 /**
  * Load tab data source (gọi khi sub-tab được mở).
  */
+/**
+ * Mẫu ứng dụng doanh nghiệp phổ biến.
+ *
+ * Người dùng không biết path API của MISA/Odoo là gì, và cũng không nên phải
+ * tra tài liệu mỗi khi thêm một app. Mẫu chỉ điền sẵn phần *hình dạng* — đường
+ * dẫn tương đối và kiểu xác thực — còn domain + khoá thì khách tự điền vì
+ * mỗi hệ thống lại một.
+ */
+const CC_APP_PRESETS = [
+  { id: 'misa', label: 'MISA', icon: '📒', base_url: 'https://<ten-cong-ty>.misa.com.vn',
+    default_path: '/api/v1/', auth_type: 'basic',
+    paths: { 'sổ cái': '/api/v1/hr/payroll', 'tồn kho': '/api/v1/inventory/stock' },
+    note: 'MISA AMH — thay <ten-cong-ty> bằng tenant của bạn' },
+  { id: 'odoo', label: 'Odoo', icon: '🧩', base_url: 'https://<domain>.odoo.com',
+    default_path: '/json/1', auth_type: 'basic',
+    paths: { 'bán hàng': '/json/1/sale.order', 'khách hàng': '/json/1/res.partner' },
+    note: 'Odoo Online — user:pass, endpoint JSON-RPC' },
+  { id: 'kiotviet', label: 'KiotViet', icon: '🏪', base_url: 'https://<shop>.kiotviet.vn',
+    default_path: '/api/', auth_type: 'header', auth_header: 'Retailer-Token',
+    paths: { 'đơn hàng': 'orders', 'tồn kho': 'inventory' },
+    note: 'KiotViet — token lấy ở trang quản trị, gửi qua header Retailer-Token' },
+  { id: 'shopee', label: 'Shopee', icon: '🛒', base_url: 'https://partner.shopeee.vn',
+    default_path: '/api/v2/order/get_order_list', auth_type: 'query', auth_query: 'sign',
+    paths: { 'đơn hàng': '/api/v2/order/get_order_list' },
+    note: 'Shopee Partner — ký SHA-256, phức tạp hơn dạng REST thuần' },
+  { id: 'google-sheets', label: 'Google Sheets', icon: '📗', base_url: 'https://sheets.googleapis.com/v4/spreadsheets',
+    default_path: '/<id-file>/values/A1', auth_type: 'bearer',
+    paths: { 'dữ liệu': '/<id-file>/values/A1' },
+    note: 'Google Sheets API — bearer token có sẵn trong config.json' },
+  { id: 'erp-noi-bo', label: 'ERP nội bộ', icon: '🏢', base_url: 'http://erp-noi-bo.congty.vn/api',
+    default_path: '/reports', auth_type: 'bearer',
+    paths: {},
+    note: 'Khuôn chung cho hệ thống nội bộ — chỉ cần URL và khoá' },
+];
+
+/**
+ * Vẽ phần nguồn tùy chỉnh trong tab Kết Nối, nằm DƯỚI 4 card connector cốt lõi.
+ * Không đụng vào card nào trong HTML — chúng dùng `runConnectorHealth` riêng.
+ */
+function renderConnCustomSources() {
+  let box = _ccGet('cc-conn-custom');
+  if (!box) {
+    const connPane = _ccGet('cc-int-conn');
+    if (!connPane) return;
+
+    box = document.createElement('div');
+    box.id = 'cc-conn-custom';
+    box.className = 'mt-5 pt-4 border-t border-slate-200 dark:border-slate-700';
+    connPane.appendChild(box);
+  }
+
+  // Nguồn nhóm "connector" mà người dùng tự khai = kết nối mới của họ.
+  // Nhóm khác (báo cáo/phân tích) đã có chỗ riêng, không nhân bản ở đây.
+  const custom = Object.values(_ccDataSourceRegistry).filter(
+    ds => ds.isRemote && (ds.category === 'connector' || ds.category === 'custom')
+  );
+
+  box.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="text-base">🔌</span>
+        <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100">Kết nối tùy chỉnh</h4>
+        <span class="text-[9px] text-slate-400 dark:text-slate-500">
+          ${custom.length ? `${custom.length} nguồn` : 'chưa có nguồn nào'}
+        </span>
+      </div>
+      <button type="button" onclick="openAddDataSourceModal('connector')"
+        class="px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition">
+        + Thêm kết nối
+      </button>
+    </div>
+
+    ${custom.length === 0 ? _ccPresetPicker() : `
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="cc-conn-custom-grid"></div>
+      <button type="button" onclick="toggleCcPresetPicker()"
+        class="mt-3 text-[10px] font-medium text-primary-600 dark:text-primary-400 hover:underline transition">
+        + Thêm từ mẫu ứng dụng
+      </button>
+    `}
+  `;
+
+  if (custom.length === 0) return;
+
+  const grid = _ccGet('cc-conn-custom-grid');
+  if (!grid) return;
+
+  for (const ds of custom) {
+    const card = document.createElement('div');
+    card.className = 'cc-ds-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800/60';
+    card.dataset.dsId = ds.id;
+    card.innerHTML = `
+      <div class="flex items-start justify-between gap-2 mb-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xl shrink-0">${ds.icon || '🔌'}</span>
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">${_esc(ds.title)}</div>
+            <div class="text-[9px] text-slate-400 dark:text-slate-500 truncate font-mono">${_esc(ds.baseUrlLabel || '')}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button type="button" onclick="openAddDataSourceModal('connector', '${_esc(ds.id)}')"
+            class="text-slate-400 hover:text-primary-500 transition" title="Sửa cấu hình">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>
+          <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="${ds.id}-health"></span>
+        </div>
+      </div>
+      ${!ds.hasAuth ? `
+        <div class="mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+          <p class="text-[9px] text-amber-800 dark:text-amber-200 leading-snug">Chưa có khoá xác thực — mọi lời gọi sẽ thất bại.</p>
+        </div>` : ''}
+      <div id="${ds.id}-preview" class="mb-2"></div>
+      <div class="flex items-center gap-2">
+        <button type="button" onclick="runDataSourceHealth('${_esc(ds.id)}')"
+          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
+        <button type="button" onclick="runDataSourceAction('${_esc(ds.id)}', 'sync')"
+          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition disabled:opacity-40">
+          Xem dữ liệu
+        </button>
+      </div>
+    `;
+    grid.appendChild(card);
+  }
+
+  for (const ds of custom) runDataSourceHealth(ds.id);
+}
+
+/** Thêm nút sub-tab vào thanh điều hướng, nếu chưa có. */
+function _ccAddSubTabButton(subTabId) {
+  const subTabBar = document.querySelector('.ml-auto.flex.flex-wrap.items-center.gap-1');
+  if (!subTabBar || document.querySelector(`[data-cc-subtab="${subTabId}"]`)) return;
+
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.setAttribute('data-cc-subtab', subTabId);
+  btn.onclick = () => switchCcSubTab(subTabId);
+  btn.className = 'px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition';
+  const catInfo = CC_DATA_SOURCE_CATEGORIES[subTabId] || { label: subTabId, icon: '📦' };
+  btn.innerHTML = '<span class="text-xl mr-1">' + catInfo.icon + '</span> ' + catInfo.label;
+  subTabBar.appendChild(btn);
+}
+
+/** Dải mẫu ứng dụng, hiện khi chưa có kết nối tùy chỉnh nào. */
+function _ccPresetPicker() {
+  return `
+    <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2.5 leading-relaxed">
+      Bấm một mẫu để điền sẵn đường dẫn và kiểu xác thực — chỉ cần sửa domain và
+      khoá của hệ thống bạn đang dùng. Muốn tự khai từ đầu thì bấm
+      <strong>+ Thêm kết nối</strong>.
+    </p>
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      ${CC_APP_PRESETS.map(p => `
+        <button type="button" onclick="applyCcPreset('${p.id}')" title="${_esc(p.note)}"
+          class="cc-preset-btn flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 hover:border-primary-400 dark:hover:border-primary-600 hover:bg-primary-50 dark:hover:bg-primary-900/20 transition text-left">
+          <span class="text-base shrink-0">${p.icon}</span>
+          <span class="min-w-0">
+            <span class="block text-[10px] font-bold text-slate-700 dark:text-slate-200 truncate">${_esc(p.label)}</span>
+            <span class="block text-[8px] text-slate-400 dark:text-slate-500 truncate">${_esc(p.note)}</span>
+          </span>
+        </button>`).join('')}
+    </div>
+    <button type="button" onclick="openAddDataSourceModal('connector')"
+      class="mt-3 text-[10px] font-medium text-primary-600 dark:text-primary-400 hover:underline transition">
+      Không có trong danh sách? Tự khai từ đầu →
+    </button>`;
+}
+
+/** Mở/ẩy dải mẫu khi đã có ít nhất một kết nối tùy chỉnh. */
+function toggleCcPresetPicker() {
+  const box = _ccGet('cc-conn-custom');
+  if (!box) return;
+  const existing = box.querySelector('.cc-preset-grid');
+  if (existing) { existing.remove(); return; }
+
+  const grid = document.createElement('div');
+  grid.className = 'cc-preset-grid mt-3';
+  grid.innerHTML = `<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+    ${CC_APP_PRESETS.map(p => `
+      <button type="button" onclick="applyCcPreset('${p.id}')" title="${_esc(p.note)}"
+        class="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 hover:border-primary-400 dark:hover:border-primary-600 transition text-left">
+        <span class="text-base shrink-0">${p.icon}</span>
+        <span class="min-w-0">
+          <span class="block text-[10px] font-bold text-slate-700 dark:text-slate-200 truncate">${_esc(p.label)}</span>
+          <span class="block text-[8px] text-slate-400 dark:text-slate-500 truncate">${_esc(p.note)}</span>
+        </span>
+      </button>`).join('')}
+  </div>`;
+  box.appendChild(grid);
+}
+
+/**
+ * Mở modal đã điền sẵn từ mẫu ứng dụng.
+ * Mã nguồn sinh từ tên mẫu để không phải gõ tay, nhưng vẫn sửa được trong modal.
+ */
+function applyCcPreset(presetId) {
+  const preset = CC_APP_PRESETS.find(p => p.id === presetId);
+  if (!preset) {
+    showToast('Không tìm thấy mẫu ứng dụng này', 'error');
+    return null;
+  }
+
+  const paths = {};
+  Object.entries(preset.paths || {}).forEach(([k, v]) => { paths[k] = v; });
+
+  return _ccDataSourceModal({
+    id: preset.id,
+    title: preset.label,
+    description: preset.note,
+    category: 'connector',
+    base_url: preset.base_url,
+    default_path: preset.default_path,
+    auth_type: preset.auth_type,
+    auth_header: preset.auth_header || 'X-Api-Key',
+    auth_query: preset.auth_query || 'api_key',
+    method: 'GET',
+    timeout_seconds: 10,
+    row_limit: 50,
+    enabled: true,
+    has_auth: false,
+  });
+}
+
+/**
+ * Khung cho nhóm chưa có nguồn nào — vẫn phải hiện nút thêm, nếu không người
+ * dùng mới vào app sẽ thấy nhóm trống trơn mà không có lối vào.
+ */
+function renderEmptyDataSourceTab(subTabId) {
+  let container = _ccGet(`cc-int-${subTabId}`);
+  if (!container) {
+    const mainPane = _ccGet('tab-system-integration');
+    if (!mainPane) return;
+    container = document.createElement('div');
+    container.id = `cc-int-${subTabId}`;
+    container.className = 'p-4 hidden';
+    mainPane.appendChild(container);
+    if (!_ccSubTabExtensions.includes(subTabId)) _ccSubTabExtensions.push(subTabId);
+    if (!CC_SUBTABS.includes(subTabId)) CC_SUBTABS.push(subTabId);
+    _ccAddSubTabButton(subTabId);
+  }
+  if (!container || container.dataset.emptyRendered === '1') return;
+
+  const cat = CC_DATA_SOURCE_CATEGORIES[subTabId] || { label: subTabId, icon: '📦' };
+  container.dataset.emptyRendered = '1';
+  container.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">${cat.icon}</span>
+        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">${_esc(cat.label)}</h3>
+        <span class="text-[9px] text-slate-400 dark:text-slate-500">chưa có nguồn dữ liệu</span>
+      </div>
+      <button type="button" onclick="openAddDataSourceModal('${_esc(subTabId)}')"
+        class="px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition">
+        + Thêm nguồn dữ liệu
+      </button>
+    </div>`;
+}
+
 async function loadCcDataSourceTab(subTabId) {
-  // Skip 'conn' tab - it's handled by the legacy connector-card HTML system.
-  if (subTabId === 'conn') return;
+  // Tab 'conn' đã có 4 card connector cốt lõi trong HTML. Không vẽ đè lên
+  // chúng — chỉ bổ sung phần nguồn tùy chỉnh vào dưới.
+  if (subTabId === 'conn') return renderConnCustomSources();
 
   const sources = getCcDataSourcesByCategory(subTabId);
-  if (sources.length === 0) return;
+  // Nhóm không có nguồn nào: vẫn giữ lại khung + nút thêm, để người dùng
+  // biết chỗ này dùng để làm gì. Trả sớm sẽ khiến nhóm biến mất lúc khởi
+  // tạo, và không có lối vào để thêm nguồn đầu tiên.
+  if (sources.length === 0) return renderEmptyDataSourceTab(subTabId);
 
   // Get or create container
   let container = _ccGet(`cc-int-${subTabId}`);
@@ -9244,17 +9505,7 @@ async function loadCcDataSourceTab(subTabId) {
     }
 
     // Add button to the sub-tab bar if not exists
-    const subTabBar = document.querySelector('.ml-auto.flex.flex-wrap.items-center.gap-1');
-    if (subTabBar && !document.querySelector('[data-cc-subtab="' + subTabId + '"]')) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.setAttribute('data-cc-subtab', subTabId);
-      btn.onclick = () => switchCcSubTab(subTabId);
-      btn.className = 'px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition';
-      const catInfo = CC_DATA_SOURCE_CATEGORIES[subTabId] || { label: subTabId, icon: '📦' };
-      btn.innerHTML = '<span class="text-xl mr-1">' + catInfo.icon + '</span> ' + catInfo.label;
-      subTabBar.appendChild(btn);
-    }
+    _ccAddSubTabButton(subTabId);
   }
 
   if (!container) return;
@@ -9530,14 +9781,22 @@ function _ccDataSourceModal(existing, category) {
     base_url: '', default_path: '/', auth_type: 'none', auth_header: 'X-Api-Key',
     auth_query: 'api_key', method: 'GET', timeout_seconds: 10, row_limit: 50, enabled: true,
   };
-  const isEdit = !!existing;
+  // Mẫu ứng dụng truyền vào một object nhưng KHÔNG phải nguồn đã lưu — mã
+  // nguồn phải sửa được, vì một khách hàng có thể cần nhiều app cùng loại
+  // (ERP bán hàng + ERP kế toán chẳng hạn).
+  const isEdit = !!existing && existing.__saved === true;
 
   const authOptions = Object.entries(CC_AUTH_TYPE_LABELS)
     .map(([k, label]) => `<option value="${k}"${ds.auth_type === k ? ' selected' : ''}>${label}</option>`)
     .join('');
 
   const catOptions = Object.entries(CC_DATA_SOURCE_CATEGORIES)
-    .map(([k, c]) => `<option value="${k}"${ds.category === k ? ' selected' : ''}>${c.icon} ${c.label}</option>`)
+    .map(([k, c]) => {
+      // Nhãn phải nói *nơi hiển thị*, không chỉ tên nhóm — "Kết Nối" mới
+      // giúp người dùng biết nguồn sẽ hiện ở đâu sau khi lưu.
+      const where = c.where || '';
+      return `<option value="${k}"${ds.category === k ? ' selected' : ''}>${c.icon} ${c.label}${where ? ` — ${where}` : ''}</option>`;
+    })
     .join('');
 
   const html = `
@@ -9614,7 +9873,7 @@ function _ccDataSourceModal(existing, category) {
             </label>
             <label class="block">
               <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Khoá / Token</span>
-              <input id="cc-ds-auth-value" type="password" value="" placeholder="${ds.has_auth ? '•••••••• (đã lưu — để trống để giữ nguyên)' : 'Nhập khoá API'}"
+              <input id="cc-ds-auth-value" type="password" value="" placeholder="${(ds.hasAuth ?? ds.has_auth) ? '•••••••• (đã lưu — để trống để giữ nguyên)' : 'Nhập khoá API'}"
                 autocomplete="new-password"
                 class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono" />
             </label>
@@ -9624,11 +9883,12 @@ function _ccDataSourceModal(existing, category) {
 
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <label class="block">
-              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Nhóm</span>
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Hiển thị ở</span>
               <select id="cc-ds-category"
                 class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
                 ${catOptions}
               </select>
+              <span class="text-[9px] text-slate-400 mt-1 block">Nơi nguồn này xuất hiện trong tab.</span>
             </label>
             <label class="block">
               <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Số dòng tối đa</span>
@@ -9811,17 +10071,24 @@ async function syncRemoteDataSources() {
     for (const src of remote) {
       if (!src?.id) continue;
       seen.add(src.id);
+      const category = src.category || 'custom';
       registerCcDataSource(src.id, {
         title: src.title,
         description: src.description || '',
-        category: src.category || 'custom',
-        subTabId: 'reporting',
-        icon: CC_DATA_SOURCE_CATEGORIES[src.category || 'custom']?.icon || '🔗',
+        category,
+        // Nhóm `connector` hiển thị ở tab Kết Nối (render riêng), các nhóm
+        // còn lại ở tab Báo Cáo/Phân Tích. Gán `subTabId` cốt lõi để không
+        // sinh thêm sub-tab mới cho nguồn người dùng tự tạo.
+        subTabId: category === 'connector' || category === 'custom' ? 'conn' : category,
+        icon: CC_DATA_SOURCE_CATEGORIES[category]?.icon || '🔗',
         color: '#0F172A',
         enabled: src.enabled !== false,
         hasAuth: !!src.has_auth,
         isRemote: true,
+        __saved: true,
         availablePaths: src.available_paths || [],
+        // Card tab Kết Nối hiện domain để dễ nhận ra nguồn nào là nguồn nào.
+        baseUrlLabel: src.base_url || '',
         // Probe gọi ra app ngoài nên dùng POST; endpoint `health` của nguồn
         // tĩnh (plugin-registry, webhooks...) là GET nên để nguyên mặc định.
         healthMethod: 'POST',
@@ -9838,6 +10105,8 @@ async function syncRemoteDataSources() {
       const ds = _ccDataSourceRegistry[id];
       if (ds.isRemote && !seen.has(id)) delete _ccDataSourceRegistry[id];
     }
+
+    return seen.size;
   } catch (err) {
     // Im lặng: registry cũ vẫn dùng được, và lỗi mạng đã hiện ở nơi khác.
     console.warn('[DataSource] không nạp được danh sách từ server:', err?.message);
@@ -9987,7 +10256,12 @@ function initCcDataSourceRegistry() {
   // `reloadActive` mặc định false vì `loadSystemIntegration()` vừa render xong —
   // render lại ở đây sẽ xoá kết quả các hàm load khác vừa ghi vào cùng pane.
   syncRemoteDataSources().then((n) => {
-    if (n > 0) console.info(`[DataSource] Đã nạp ${n} nguồn tùy chỉnh từ máy chủ`);
+    if (!n) return;
+    // Nguồn vừa nạp có thể thuộc tab đang mở -> vẽ lại để không phải bấm
+    // qua tab khác rồi quay lại mới thấy.
+    renderConnCustomSources();
+    const active = document.querySelector('[data-cc-subtab].bg-primary-600')?.dataset.ccSubtab;
+    if (active && active !== 'conn') loadCcDataSourceTab(active);
   });
 }
 
@@ -10006,6 +10280,10 @@ window.saveCcDataSource = saveCcDataSource;
 window.deleteCcDataSource = deleteCcDataSource;
 window.previewDataSource = previewDataSource;
 window.toggleCcDsAuthFields = toggleCcDsAuthFields;
+window.renderConnCustomSources = renderConnCustomSources;
+window.toggleCcPresetPicker = toggleCcPresetPicker;
+window.applyCcPreset = applyCcPreset;
+window.CC_APP_PRESETS = CC_APP_PRESETS;
 window._ccDataSourceRegistry = _ccDataSourceRegistry;
 window._ccSubTabConfig = _ccSubTabConfig;
 window._ccSubTabExtensions = _ccSubTabExtensions;

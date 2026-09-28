@@ -44,23 +44,46 @@ function registerCcSubTabExtension(id, cfg) {
 // DOM tối thiểu: đủ để dựng modal và đọc giá trị form.
 let _capturedHtmlStr = '';
 const _formValues = {};
-const _fakeEl = (id) => ({
-  id,
-  value: _formValues[id] ?? '',
-  innerHTML: '',
-  textContent: '',
-  disabled: false,
-  dataset: {},
-  style: {},
-  focus() {},
-  remove() {},
-  appendChild() {},
-  querySelectorAll: () => [],
-  querySelector: () => null,
-  getAttribute: () => null,
-  setAttribute() {},
-  insertAdjacentHTML(_pos, html) { _capturedHtmlStr += html; },
-});
+const _fakeEl = (id) => {
+  const el = {
+    id,
+    value: _formValues[id] ?? '',
+    _innerHTML: '',
+    textContent: '',
+    disabled: false,
+    dataset: {},
+    style: {},
+    children: [],
+    childrenLength: 0,
+    focus() {},
+    appendChild(child) {
+      // Nối cây DOM giả để _ccGet() tìm thấy phần tử vừa dựng, giống trình duyệt.
+      if (child && child.id) $store[child.id] = child;
+      if (child && child._innerHTML) _capturedHtmlStr += child._innerHTML;
+      this.children.push(child);
+      this.childrenLength = this.children.length;
+      return child;
+    },
+    remove() { delete $store[this.id]; },
+    set innerHTML(v) {
+      this._innerHTML = v;
+      _capturedHtmlStr += v;
+      // Trình duyệt thật parse HTML nên _ccGet() tìm thấy mọi id bên trong.
+      // DOM giả phải làm thế, nếu không các hàm render sẽ luôn tưởng thiếu
+      // phần tử và dừng giữa chừng — test sẽ báo lỗi giả.
+      for (const m of String(v).matchAll(/id="([A-Za-z0-9_-]+)"/g)) {
+        if (!$store[m[1]]) $store[m[1]] = _fakeEl(m[1]);
+      }
+    },
+    get innerHTML() { return this._innerHTML; },
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    getAttribute: (k) => el.dataset[k.replace('data-', '').replace(/-(\w)/g, (_, c) => c.toUpperCase())],
+    setAttribute() {},
+    insertAdjacentHTML(_pos, html) { _capturedHtmlStr += html; },
+  };
+  return el;
+};
 const document = {
   body: { insertAdjacentHTML: (_p, html) => { _capturedHtmlStr += html; }, style: {} },
   getElementById: (id) => (id === 'cc-ds-modal' ? _fakeEl(id) : _fakeEl(id)),
@@ -68,6 +91,10 @@ const document = {
   querySelector: () => null,
   querySelectorAll: () => [],
 };
+// Tab Kết Nối tồn tại sẵn trong HTML thật; DOM giả phải có nó để render chạy được.
+$store['cc-int-conn'] = _fakeEl('cc-int-conn');
+$store['tab-system-integration'] = _fakeEl('tab-system-integration');
+
 const confirm = () => true;
 function _setForm(vals) { Object.assign(_formValues, vals); }
 function _resetModal() { _capturedHtmlStr = ''; }
@@ -108,6 +135,13 @@ const registry2 = cut(
   'function getCcDataSource(id) {\n  return _ccDataSourceRegistry[id];\n}',
 );
 
+// Tab Kết Nối: mẫu ứng dụng + render nguồn tùy chỉnh.
+// Cắt tới trước `loadCcDataSourceTab` rồi bỏ dòng mốc đi (nó thuộc tabLoader).
+const connTab = cut(
+  'const CC_APP_PRESETS = [',
+  'async function loadCcDataSourceTab(subTabId) {',
+).replace('async function loadCcDataSourceTab(subTabId) {', '');
+
 const tabLoader = cut(
   'async function loadCcDataSourceTab(subTabId) {',
   '  // Auto-run health check for all\n  for (const ds of sources) {\n    runDataSourceHealth(ds.id);\n  }\n}',
@@ -120,14 +154,14 @@ const ui62 = cut(
   '// Đăng ký các data source mặc định (backward compat)',
 );
 
-const code = harness + '\n' + registry + '\n' + registry2 + '\n' + [tabLoader, ui62]
+const code = harness + '\n' + registry + '\n' + registry2 + '\n' + [tabLoader, ui62, connTab]
   .filter(Boolean).join('\n\n') + '\n\nexport {\n'
   + '  registerCcDataSource, getCcDataSourcesByCategory, getCcDataSource,\n'
   + '  runDataSourceHealth, runDataSourceAction, loadCcDataSourceTab,\n'
   + '  openAddDataSourceModal, syncRemoteDataSources, previewDataSource,\n'
   + '  _ccRenderPreview, _ccDataSourceRegistry,\n'
   + '  _resetProbe, _setResponses, _toasts, _lastCall, CC_DATA_SOURCE_CATEGORIES,\n'
-  + '  _capturedHtml, _resetModal, _setForm, saveCcDataSource, _callTo,\n  _ccHealthVerdict\n};\n';
+  + '  _capturedHtml, _resetModal, _setForm, saveCcDataSource, _callTo,\n  _ccHealthVerdict, CC_APP_PRESETS, renderConnCustomSources, applyCcPreset,\n  toggleCcPresetPicker, _ccPresetPicker\n};\n';
 
 const dir = mkdtempSync(join(tmpdir(), 'ds62-'));
 const file = join(dir, 'm.mjs');
@@ -228,11 +262,19 @@ check('modal có ô chọn cách xác thực', modalHtml.includes('cc-ds-auth-ty
 check('modal có nút lưu gọi saveCcDataSource', modalHtml.includes('saveCcDataSource()'));
 check('modal có giải thích cho người dùng', modalHtml.includes('không cần sửa mã nguồn'));
 
-// Thêm mới: ô mã nguồn phải mở khoá; sửa: khoá vì không cho đổi id.
+// Thêm mới: ô mã nguồn mở khoá. Sửa nguồn ĐÃ LƯU: khoá vì id đã là khoá lưu trữ.
 m._resetModal();
-m.openAddDataSourceModal('reporting', 'ds-a');
-check('sửa nguồn -> khoá ô mã nguồn', m._capturedHtml().includes('cc-ds-id" type="text" value="ds-a"'), 'chưa khoá');
-check('sửa nguồn -> có nút xoá', m._capturedHtml().includes('deleteCcDataSource'));
+m.registerCcDataSource('ds-luu', { title: 'Đã lưu', __saved: true, isRemote: true, hasAuth: true });
+m.openAddDataSourceModal('reporting', 'ds-luu');
+const editHtml = m._capturedHtml();
+check('sửa nguồn đã lưu -> điền sẵn mã nguồn', editHtml.includes('value="ds-luu"'));
+// Thuộc tính `disabled` nằm ở dòng riêng sau `placeholder`; class Tailwind
+// `disabled:opacity-60` không được tính nhầm là thuộc tính.
+check('sửa nguồn đã lưu -> khoá ô mã nguồn',
+  /value="ds-luu"[\s\S]{0,120}?\n\s+disabled\s*\n/.test(editHtml), 'chưa khoá');
+check('sửa nguồn đã lưu -> có nút xoá', editHtml.includes('deleteCcDataSource'), 'thiếu nút xoá');
+check('sửa nguồn -> giữ khoá cũ khi để trống',
+  editHtml.includes('để trống để giữ nguyên'), 'không có chú thích giữ khoá');
 
 // Nguồn không tồn tại -> báo lỗi, không mở modal.
 m._resetModal();
@@ -332,6 +374,83 @@ check('HTTP lỗi, payload rỗng -> đỏ', V({}, false).success === false);
 check('HTTP lỗi -> nêu lý do chung', V({}, false).reason.length > 0);
 check('lý do bị cắt còn 120 ký tự', V({ healthy: false, error: 'x'.repeat(400) }, true).reason.length === 120);
 check('healthy lấy trước ok', V({ healthy: true, ok: false }, true).success === true);
+
+// ══ 8. Tab Kết Nối ══════════════════════════════════════════════════════
+console.log('\n▸ Tab Kết Nối — mẫu ứng dụng dùng sẵn');
+check('có danh sách mẫu', m.CC_APP_PRESETS.length >= 5, `${m.CC_APP_PRESETS.length} mẫu`);
+check('mẫu có id/label/base_url/default_path',
+  m.CC_APP_PRESETS.every(p => p.id && p.label && p.base_url && p.default_path),
+  JSON.stringify(m.CC_APP_PRESETS.find(p => !(p.id && p.label && p.base_url && p.default_path)) || {}));
+check('mẫu có ghi chú giải thích',
+  m.CC_APP_PRESETS.every(p => typeof p.note === 'string' && p.note.length > 0));
+check('auth_type của mẫu đều hợp lệ',
+  m.CC_APP_PRESETS.every(p => ['none','bearer','basic','header','query'].includes(p.auth_type)),
+  JSON.stringify(m.CC_APP_PRESETS.filter(p => !['none','bearer','basic','header','query'].includes(p.auth_type)).map(p=>p.id)));
+check('không mẫu nào trùng id',
+  new Set(m.CC_APP_PRESETS.map(p => p.id)).size === m.CC_APP_PRESETS.length);
+check('mẫu có icon để nhận ra nhanh', m.CC_APP_PRESETS.every(p => p.icon && p.icon.length > 0));
+check('có MISA và Odoo', ['misa','odoo'].every(id => m.CC_APP_PRESETS.some(p => p.id === id)));
+
+console.log('\n▸ Mở modal từ mẫu');
+m._resetModal();
+const presetModal = m.applyCcPreset('misa');
+const misaHtml = m._capturedHtml();
+check('mẫu MISA mở được modal', !!presetModal);
+check('modal điền sẵn tên MISA', misaHtml.includes('value="MISA"'), 'thiếu tên');
+check('modal điền sẵn kiểu basic', misaHtml.includes('value="basic" selected'), 'thiểu auth type');
+check('modal điền sẵn domain mẫu', misaHtml.includes('misa.com.vn'), 'thiếu domain');
+check('modal điền sẵn nhóm Kết Nối', misaHtml.includes('value="connector" selected'), 'thiếu category');
+check('mẫu không lộ khoá nào', !misaHtml.includes('auth_value') || misaHtml.includes('type="password"'));
+
+// Mã nguồn điền sẵn nhưng vẫn sửa được — người dùng có thể thêm 2 app cùng loại.
+m._resetModal();
+m.applyCcPreset('odoo');
+check('ô mã nguồn không bị khoá khi thêm mới',
+  !/value="odoo"[\s\S]{0,120}?\n\s+disabled\s*\n/.test(m._capturedHtml()), 'bị khoá');
+
+m._resetModal();
+const r404 = m.applyCcPreset('khong-co');
+check('mẫu không tồn tại -> báo lỗi', m._toasts.some(t => t.kind === 'error'), JSON.stringify(m._toasts));
+check('mẫu không tồn tại -> không mở modal', m._capturedHtml().length === 0);
+
+console.log('\n▸ Render nguồn tùy chỉnh trong tab Kết Nối');
+m._resetModal();
+m._ccDataSourceRegistry['cong-ty-abc'] = {
+  id: 'cong-ty-abc', title: 'ERP Công ty ABC', category: 'connector',
+  isRemote: true, hasAuth: true, baseUrlLabel: 'https://erp.abc.vn/api',
+  endpoints: { health: '/h', data: '/d' }, healthMethod: 'POST',
+};
+m.renderConnCustomSources();
+const connHtml = m._capturedHtml();
+check('render nguồn nhóm connector', connHtml.includes('ERP Công ty ABC'), 'chưa thấy card');
+check('hiện domain để nhận ra nguồn', connHtml.includes('erp.abc.vn'));
+check('có nút thêm kết nối', connHtml.includes("openAddDataSourceModal('connector')"));
+check('có nút sửa', connHtml.includes("openAddDataSourceModal('connector', 'cong-ty-abc')"));
+check('có nút xem dữ liệu', connHtml.includes("runDataSourceAction('cong-ty-abc', 'sync')"));
+
+// Nhóm khác KHÔNG được nhân bản sang tab Kết Nối — đã có chỗ riêng.
+m._resetModal();
+m._ccDataSourceRegistry['bao-cao-xyz'] = { id: 'bao-cao-xyz', title: 'Báo cáo XYZ', category: 'reporting', isRemote: true, endpoints: {} };
+m.renderConnCustomSources();
+check('nguồn nhóm báo cáo KHÔNG lọt sang tab Kết Nối',
+  !m._capturedHtml().includes('Báo cáo XYZ'), m._capturedHtml().slice(0, 120));
+
+// Nguồn thiếu khoá -> phải cảnh báo ngay trên card.
+m._resetModal();
+m._ccDataSourceRegistry['chua-co-khoa'] = { id: 'chua-co-khoa', title: 'Chưa có khoá', category: 'connector', isRemote: true, hasAuth: false, endpoints: {} };
+m.renderConnCustomSources();
+check('nguồn chưa có khoá -> cảnh báo trên card',
+  m._capturedHtml().includes('Chưa có khoá xác thực'));
+delete m._ccDataSourceRegistry['chua-co-khoa'];
+
+// Khi chưa có nguồn nào -> hiện dải mẫu, có lối vào để thêm.
+delete m._ccDataSourceRegistry['cong-ty-abc'];
+delete m._ccDataSourceRegistry['bao-cao-xyz'];
+m._resetModal();
+m.renderConnCustomSources();
+const emptyHtml = m._capturedHtml();
+check('chưa có nguồn -> hiện dải mẫu', emptyHtml.includes('cc-preset-btn'), 'thiếu mẫu');
+check('chưa có nguồn -> vẫn có nút tự khai', emptyHtml.includes('Tự khai từ đầu'));
 
 console.log('\n▸ An toàn nội dung');
 const badTitle = m.getCcDataSource('xss') ? null : m.registerCcDataSource('xss', {
