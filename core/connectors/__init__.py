@@ -23,6 +23,14 @@ from core.connectors.oci_connector import OCIConnector, oci_connector
 from core.connectors.paperless_connector import PaperlessConnector, paperless_connector
 from core.connectors.einvoice_connector import EInvoiceConnector, einvoice_connector
 
+# Phase 62: connector động — khai báo qua JSON, không cần code mới cho mỗi app.
+from core.connectors import custom_registry
+from core.connectors.generic_connector import (
+    GenericConnector,
+    fetch_data_source,
+    probe_data_source,
+)
+
 # Registry of all available connectors
 CONNECTOR_REGISTRY: dict = {
     "aws": aws_connector,
@@ -44,6 +52,9 @@ CONNECTOR_RISK_LEVELS: dict = {
     "einvoice:daily_summary": 1,
     "einvoice:search": 1,
     "einvoice:details": 1,
+    # Phase 62: data source tùy chỉnh — chỉ đọc, không mở rộng bề mặt tấn công.
+    "datasource:fetch": 1,
+    "datasource:probe": 1,
 }
 
 __all__ = [
@@ -60,6 +71,11 @@ __all__ = [
     "paperless_connector",
     "EInvoiceConnector",
     "einvoice_connector",
+    # Phase 62: data source tùy chỉnh
+    "GenericConnector",
+    "custom_registry",
+    "fetch_data_source",
+    "probe_data_source",
     # Registry
     "CONNECTOR_REGISTRY",
     "CONNECTOR_RISK_LEVELS",

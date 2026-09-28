@@ -83,3 +83,4 @@ Thumbs.db
 *.sublime-workspace
 *.sublime-project
 .gemini/
+config/data_sources.json

@@ -5713,6 +5713,180 @@ async def api_connectors_health(
         return {"status": "error", "error": str(e)}
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ── Phase 62: Data source tùy chỉnh ────────────────────────────────────────
+# Cho phép khai báo app doanh nghiệp mới (MISA, Odoo, KiotViet, SAP...) chỉ
+# bằng API, không cần viết connector Python. Xem `core/connectors/
+# custom_registry.py` để hiểu vì sao lưu file riêng thay vì nhét config.json.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.get(
+    "/api/v1/enterprise/data-sources",
+    summary="Phase 62: Danh sách data source tùy chỉnh (đã che secret)",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_list(
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Trả về data source người dùng đã khai báo, kèm 4 connector có sẵn.
+
+    Secret KHÔNG bao giờ nằm trong phản hồi — `custom_registry.mask_source`
+    thay `auth_value` bằng cờ `has_auth`. Endpoint này cũng gom sẵn 4 connector
+    Phase 59 để UI chỉ cần một lệnh gọi cho toàn bộ danh sách nguồn dữ liệu.
+    """
+    try:
+        from core.connectors import custom_registry
+        from core.connectors.base_connector import missing_required_fields
+
+        custom = custom_registry.list_sources(include_secrets=False)
+
+        builtin: Dict[str, Any] = {}
+        for name in ("aws", "oci", "paperless", "einvoice"):
+            missing = missing_required_fields(name)
+            builtin[name] = {
+                "id": name,
+                "title": name.upper(),
+                "kind": "builtin",
+                "enabled": True,
+                "has_auth": not missing,
+                "missing_fields": missing,
+            }
+
+        return {
+            "status": "success",
+            "custom": custom,
+            "builtin": builtin,
+            "total": len(custom) + len(builtin),
+        }
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("[Phase62] list data sources lỗi")
+        return {"status": "error", "error": str(e)}
+
+
+@app.post(
+    "/api/v1/enterprise/data-sources",
+    summary="Phase 62: Tạo/cập nhật data source tùy chỉnh",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_upsert(
+    payload: Dict[str, Any],
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Tạo mới hoặc cập nhật một data source.
+
+    `id` lấy từ payload. Ô `auth_value` để trống nghĩa là GIỮ khoá đang lưu
+    (giống form cấu hình connector) — nên sửa `title` không buộc phải nhập lại
+    mật khẩu. Trả 400 kèm lý do cụ thể khi khai báo không dùng được, vì người
+    vận hành cần biết sửa ô nào chứ không phải một lỗi chung chung.
+    """
+    try:
+        from core.connectors import custom_registry
+
+        source_id = str(payload.get("id") or "").strip().lower()
+        record = custom_registry.upsert_source(source_id, payload)
+        return {"status": "success", "data_source": record}
+    except ValueError as exc:
+        return {"status": "error", "error": str(exc)}
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("[Phase62] upsert data source lỗi")
+        return {"status": "error", "error": str(e)}
+
+
+@app.delete(
+    "/api/v1/enterprise/data-sources/{source_id}",
+    summary="Phase 62: Xoá data source tùy chỉnh",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_delete(
+    source_id: str,
+    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    """Xoá một data source. Chỉ admin — xoá là mất cấu hình, không hoàn lại được."""
+    try:
+        from core.connectors import custom_registry
+
+        if not custom_registry.delete_source(source_id):
+            return {"status": "error", "error": f"Không tìm thấy nguồn '{source_id}'"}
+        return {"status": "success", "deleted": source_id}
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("[Phase62] xoá data source lỗi")
+        return {"status": "error", "error": str(e)}
+
+
+@app.post(
+    "/api/v1/enterprise/data-sources/{source_id}/probe",
+    summary="Phase 62: Kiểm tra kết nối tới data source",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_probe(
+    source_id: str,
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Gọi thật 1 request tới app để xác nhận URL/khoá đúng.
+
+    Endpoint này CỐ TÌNH gọi ra ngoài — khác `connectors/health` chỉ đọc cấu
+    hình trong bộ nhớ. Nhưng chỉ manager+ mới gọi được, và request chỉ mang
+    `limit=1` nên không kéo nặng app của khách.
+    """
+    try:
+        from core.connectors import probe_data_source
+
+        result = await probe_data_source(source_id)
+        return {
+            "status": "success",
+            "healthy": result.success,
+            "latency_ms": round(result.latency_ms, 1),
+            "error": result.error,
+            "detail": result.data,
+        }
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("[Phase62] probe data source lỗi")
+        return {"status": "error", "error": str(e)}
+
+
+@app.post(
+    "/api/v1/enterprise/data-sources/{source_id}/fetch",
+    summary="Phase 62: Lấy dữ liệu báo cáo từ data source",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_fetch(
+    source_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Kéo dữ liệu báo cáo, chuẩn hoá về `{rows, columns, total}`.
+
+    `payload` tuỳ chọn: `{"path": "doanh thu"}` (tên path đã khai báo hoặc URL
+    tương đối), `{"query": {...}}`, `{"limit": 100}`. Không có path thì dùng
+    `default_path` của khai báo.
+    """
+    try:
+        from core.connectors import fetch_data_source
+
+        result = await fetch_data_source(source_id, payload or {})
+        if not result.success:
+            return {
+                "status": "error",
+                "error": result.error,
+                "latency_ms": round(result.latency_ms, 1),
+            }
+
+        return {
+            "status": "success",
+            "data": result.data,
+            "latency_ms": round(result.latency_ms, 1),
+            "metadata": result.metadata,
+        }
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("[Phase62] fetch data source lỗi")
+        return {"status": "error", "error": str(e)}
+
+
 @app.get(
     "/api/v1/enterprise/plugin-registry/stats",
     summary="Phase 60: Thống kê Plugin Registry + trạng thái circuit breaker",

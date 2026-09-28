@@ -9283,26 +9283,47 @@ async function loadCcDataSourceTab(subTabId) {
   for (const ds of sources) {
     const card = document.createElement('div');
     card.className = 'cc-ds-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800/60';
+    card.dataset.dsId = ds.id;
     card.innerHTML = `
-      <div class="flex items-center justify-between gap-2 mb-2">
-        <div class="flex items-center gap-2">
-          <span class="text-xl">${ds.icon}</span>
-          <div>
-            <div class="text-xs font-bold text-slate-800 dark:text-slate-100">${_esc(ds.title)}</div>
-            <div class="text-[9px] text-slate-400 dark:text-slate-500">${_esc(ds.description || 'Nguồn dữ liệu doanh nghiệp')}</div>
+      <div class="flex items-start justify-between gap-2 mb-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="text-xl shrink-0">${ds.icon}</span>
+          <div class="min-w-0">
+            <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">${_esc(ds.title)}</div>
+            <div class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(ds.description || 'Nguồn dữ liệu doanh nghiệp')}</div>
           </div>
         </div>
-        <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="${ds.id}-health"></span>
+        <div class="flex items-center gap-1.5 shrink-0">
+          ${ds.isRemote ? `<button type="button" onclick="openAddDataSourceModal('${_esc(ds.category || 'custom')}', '${_esc(ds.id)}')"
+            class="text-slate-400 hover:text-primary-500 transition" title="Sửa cấu hình nguồn này">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          </button>` : ''}
+          <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="${ds.id}-health"></span>
+        </div>
       </div>
+
+      ${ds.isRemote && !ds.hasAuth ? `
+        <div class="mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+          <p class="text-[9px] text-amber-800 dark:text-amber-200 leading-snug">Chưa có khoá xác thực — mọi lời gọi sẽ thất bại.</p>
+        </div>` : ''}
+
+      ${ds.availablePaths && ds.availablePaths.length > 0 ? `
+        <div class="mb-2 flex flex-wrap gap-1">
+          ${ds.availablePaths.map(p => `<button type="button" onclick="previewDataSource('${_esc(ds.id)}', '${_esc(p)}')"
+            class="px-1.5 py-0.5 text-[9px] rounded bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">${_esc(p)}</button>`).join('')}
+        </div>` : ''}
+
+      <div id="${ds.id}-preview" class="mb-2"></div>
+
       <div class="flex items-center gap-2">
         <button type="button" onclick="runDataSourceHealth('${ds.id}')"
           class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">
-          Kiểm tra sức khoẻ
+          Kiểm tra
         </button>
         <button type="button" onclick="runDataSourceAction('${ds.id}', 'sync')"
-          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition"
+          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition disabled:opacity-40 disabled:cursor-not-allowed"
           ${!ds.endpoints.data ? 'disabled' : ''}>
-          Đồng bộ dữ liệu
+          Xem dữ liệu
         </button>
       </div>
       ${ds.actions && ds.actions.length > 0 ? `
@@ -9321,6 +9342,107 @@ async function loadCcDataSourceTab(subTabId) {
 }
 
 /**
+ * Dựng bảng xem trước từ `{rows, columns, total}` mà server chuẩn hoá về.
+ *
+ * Server đã cắt bảng và báo `truncated`, nên phải nói rõ "còn N dòng" — hiện
+ * mấy dòng mà không nói tổng sẽ khiến người đọc tưởng đó là toàn bộ báo cáo.
+ */
+function _ccRenderPreview(container, data, sourceTitle) {
+  if (!container) return;
+  const rows = Array.isArray(data?.rows) ? data.rows : [];
+  const columns = Array.isArray(data?.columns) && data.columns.length
+    ? data.columns
+    : Object.keys(rows[0] || {}).slice(0, 8);
+
+  if (!rows.length) {
+    container.innerHTML = `<p class="text-[9px] text-slate-400 dark:text-slate-500">${_esc(sourceTitle)}: không có bản ghi nào.</p>`;
+    return;
+  }
+
+  const head = columns
+    .map(c => `<th class="px-2 py-1 text-left font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">${_esc(c)}</th>`)
+    .join('');
+  const body = rows.slice(0, 8).map(row => `
+    <tr class="border-t border-slate-100 dark:border-slate-700/60">
+      ${columns.map(c => `<td class="px-2 py-1 text-slate-700 dark:text-slate-300 max-w-[160px] truncate">${_esc(_ccCell(row?.[c]))}</td>`).join('')}
+    </tr>`).join('');
+
+  const total = data.total ?? rows.length;
+  const shown = data.returned ?? rows.length;
+  const more = data.truncated && total > shown
+    ? `<span class="text-amber-600 dark:text-amber-400">đang hiện ${shown}/${total} dòng</span>`
+    : `<span>${total} dòng</span>`;
+
+  container.innerHTML = `
+    <div class="rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+      <div class="px-2 py-1 bg-slate-50 dark:bg-slate-700/40 text-[9px] text-slate-500 dark:text-slate-400 flex justify-between gap-2">
+        <span class="truncate font-medium">${_esc(sourceTitle)}</span>${more}
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-[9px]">
+          <thead class="bg-slate-50 dark:bg-slate-700/40">${head ? `<tr>${head}</tr>` : ''}</thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+/** Rút giá trị ô về chuỗi ngắn, gọn — bảng báo cáo thường có object lồng. */
+function _ccCell(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') return JSON.stringify(v);
+  const s = String(v);
+  return s.length > 60 ? `${s.slice(0, 60)}…` : s;
+}
+
+/**
+ * Xem trước dữ liệu của một nguồn, gọi tới `previewPath` (nếu có).
+ * Kết quả chèn thẳng vào card tương ứng.
+ */
+async function previewDataSource(id, previewPath) {
+  const ds = _ccDataSourceRegistry[id];
+  if (!ds || !ds.endpoints.data) return;
+
+  const box = _ccGet(`${id}-preview`);
+  if (box) box.innerHTML = '<p class="text-[9px] text-slate-400">Đang tải dữ liệu…</p>';
+
+  try {
+    const res = await apiFetch(`${API_BASE}${ds.endpoints.data}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+      body: JSON.stringify(previewPath ? { path: previewPath } : {})
+    });
+    const d = await res.json().catch(() => ({}));
+
+    if (d?.status === 'error' || !res.ok) {
+      if (box) box.innerHTML = `<p class="text-[9px] text-rose-600 dark:text-rose-400 leading-snug">${_esc(d?.error || `HTTP ${res.status}`)}</p>`;
+      return;
+    }
+    _ccRenderPreview(_ccGet(`${id}-preview`), d.data, ds.title);
+  } catch (err) {
+    if (box) box.innerHTML = `<p class="text-[9px] text-rose-600 dark:text-rose-400">${_esc(err.message)}</p>`;
+  }
+}
+
+/**
+ * Chốt kết luận sức khoẻ từ phản hồi của endpoint.
+ *
+ * Tách riêng để kiểm thử được: đây là chỗ dễ sai nhất của màn hình này.
+ * Endpoint probe trả `{"status":"success","healthy":false}` khi app đã chết —
+ * `status: success` chỉ có nghĩa "probe đã chạy xong". Đọc `status` trước sẽ
+ * đánh dấu xanh cho cả app đã tắt, tức báo cáo sai lệch khiến người vận
+ * hành tin nhầm là hệ thống đang chạy.
+ */
+function _ccHealthVerdict(payload, httpOk) {
+  const d = payload || {};
+  const hasVerdict = typeof d.healthy === 'boolean' || typeof d.ok === 'boolean';
+  const success = hasVerdict ? (d.healthy ?? d.ok) === true : d.status === 'success';
+  let reason = d.error || d.detail;
+  if (!reason) reason = httpOk === false ? 'Máy chủ từ chối yêu cầu' : 'Thất bại';
+  return { success: success === true, reason: String(reason).slice(0, 120) };
+}
+
+/**
  * Kiểm tra sức khoẻ một data source.
  */
 async function runDataSourceHealth(id) {
@@ -9334,18 +9456,20 @@ async function runDataSourceHealth(id) {
   }
   
   try {
+    // Probe của data source tùy chỉnh là POST (nó gọi ra app ngoài — GET sẽ
+    // khiến proxy/cache tự kích hoạt). Nguồn chỉ đọc trạng thái vẫn là GET.
     const res = await apiFetch(`${API_BASE}${ds.endpoints.health}`, {
-      method: 'GET',
+      method: ds.healthMethod || 'GET',
       headers: { 'Authorization': `Bearer ${getAuthToken()}` }
     });
-    const d = await res.json();
-    const success = d?.status === 'success' || d?.ok === true || d?.healthy === true;
-    
+    const d = await res.json().catch(() => ({}));
+    const { success, reason } = _ccHealthVerdict(d, res.ok);
+
     if (indicator) {
-      indicator.className = success 
-        ? 'w-2 h-2 rounded-full bg-emerald-500' 
+      indicator.className = success
+        ? 'w-2 h-2 rounded-full bg-emerald-500'
         : 'w-2 h-2 rounded-full bg-rose-500';
-      indicator.title = success ? 'OK' : (d?.error || 'Thất bại');
+      indicator.title = success ? 'OK' : reason;
     }
   } catch (err) {
     if (indicator) {
@@ -9361,39 +9485,14 @@ async function runDataSourceHealth(id) {
 async function runDataSourceAction(id, actionId) {
   const ds = _ccDataSourceRegistry[id];
   if (!ds) return;
-  
-  // Nếu là action 'sync' và có endpoint data
+
+  // Action mặc định: xem dữ liệu. Card có sẵn khung xem trước nên kết quả
+  // hiện tại chỗ — toast chỉ để báo lỗi, không thay cho dữ liệu.
   if (actionId === 'sync' && ds.endpoints.data) {
-    const btn = event?.target;
-    const original = btn?.innerHTML;
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = `<svg class="animate-spin" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang đồng bộ...`;
-    }
-    
-    try {
-      const res = await apiFetch(`${API_BASE}${ds.endpoints.data}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
-        body: JSON.stringify({ action: 'sync' })
-      });
-      const d = await res.json();
-      if (res.ok) {
-        showToast(`✅ ${ds.title}: Đã đồng bộ dữ liệu`, 'success');
-      } else {
-        showToast(`❌ ${ds.title}: ${d.detail || 'Lỗi đồng bộ'}`, 'error');
-      }
-    } catch (err) {
-      showToast(`❌ ${ds.title}: ${err.message}`, 'error');
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.innerHTML = original;
-      }
-    }
+    await previewDataSource(id);
   }
-  
-  // Custom actions
+
+  // Action riêng do từng nguồn định nghĩa (Phase 59 connector dùng cái này).
   const action = ds.actions?.find(a => a.id === actionId);
   if (action && action.handler) {
     await action.handler(ds);
@@ -9403,9 +9502,346 @@ async function runDataSourceAction(id, actionId) {
 /**
  * Mở modal thêm data source mới (chỉ manager+).
  */
-function openAddDataSourceModal(category) {
-  // TODO: Implement modal UI for adding new data source
-  showToast('Tính năng thêm nguồn dữ liệu đang phát triển', 'info');
+// ═══════════════════════════════════════════════════════════════════════════
+// ── PHASE 62: UI quản lý data source tùy chỉnh ─────────────────────────────
+// Điền form → POST /api/v1/enterprise/data-sources → nguồn mới hiện ngay.
+// Không cần sửa code cho mỗi app doanh nghiệp mới.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Bảng tra cứu nhãn tiếng Việt cho các kiểu xác thực. */
+const CC_AUTH_TYPE_LABELS = {
+  none: 'Không cần (app công khai)',
+  bearer: 'Bearer Token',
+  basic: 'Basic (user:pass)',
+  header: 'Header tuỳ chỉnh',
+  query: 'Tham số trên URL'
+};
+
+/**
+ * Dựng (hoặc lấy lại) modal thêm/sửa nguồn dữ liệu.
+ * `existing` = null -> thêm mới; có object -> sửa nguồn đó.
+ */
+function _ccDataSourceModal(existing, category) {
+  const MODAL_ID = 'cc-ds-modal';
+  let modal = document.getElementById(MODAL_ID);
+
+  const ds = existing || {
+    id: '', title: '', description: '', category: category || 'custom',
+    base_url: '', default_path: '/', auth_type: 'none', auth_header: 'X-Api-Key',
+    auth_query: 'api_key', method: 'GET', timeout_seconds: 10, row_limit: 50, enabled: true,
+  };
+  const isEdit = !!existing;
+
+  const authOptions = Object.entries(CC_AUTH_TYPE_LABELS)
+    .map(([k, label]) => `<option value="${k}"${ds.auth_type === k ? ' selected' : ''}>${label}</option>`)
+    .join('');
+
+  const catOptions = Object.entries(CC_DATA_SOURCE_CATEGORIES)
+    .map(([k, c]) => `<option value="${k}"${ds.category === k ? ' selected' : ''}>${c.icon} ${c.label}</option>`)
+    .join('');
+
+  const html = `
+    <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm" id="${MODAL_ID}">
+      <div class="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-800 shadow-2xl border border-slate-200 dark:border-slate-700">
+        <div class="flex items-center justify-between px-5 py-3.5 border-b border-slate-200 dark:border-slate-700">
+          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">
+            ${isEdit ? 'Sửa nguồn dữ liệu' : 'Thêm nguồn dữ liệu doanh nghiệp'}
+          </h3>
+          <button type="button" onclick="closeCcDataSourceModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition" aria-label="Đóng">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div class="px-5 py-4 space-y-4">
+          <div class="rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 px-3.5 py-2.5">
+            <p class="text-[10px] text-primary-800 dark:text-primary-200 leading-relaxed">
+              Chỉ cần biết <strong>URL</strong> và <strong>cách xác thực</strong> của app là tích hợp được —
+              không cần sửa mã nguồn. MISA, Odoo, KiotViet, SAP, sổ kho nội bộ… đều dùng chung khuôn này.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Mã nguồn *</span>
+              <input id="cc-ds-id" type="text" value="${_esc(ds.id)}" placeholder="misa-amh"
+                ${isEdit ? 'disabled' : ''}
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 disabled:opacity-60" />
+              <span class="text-[9px] text-slate-400 mt-1 block">Chữ thường, số, gạch dưới. Không khoảng trắng.</span>
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Tên hiển thị *</span>
+              <input id="cc-ds-title" type="text" value="${_esc(ds.title)}" placeholder="MISA AMH"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
+            </label>
+          </div>
+
+          <label class="block">
+            <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Mô tả</span>
+            <input id="cc-ds-description" type="text" value="${_esc(ds.description)}" placeholder="Kế toán — sổ cái, doanh thu"
+              class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
+          </label>
+
+          <label class="block">
+            <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Địa chỉ API *</span>
+            <input id="cc-ds-base-url" type="url" value="${_esc(ds.base_url)}" placeholder="https://erp.congty.vn/api"
+              class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono" />
+            <span class="text-[9px] text-slate-400 mt-1 block">Phần còn lại của endpoint báo cáo điền ở "Đường dẫn".</span>
+          </label>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Đường dẫn báo cáo</span>
+              <input id="cc-ds-default-path" type="text" value="${_esc(ds.default_path)}" placeholder="/reports/salary"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono" />
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Phương thức</span>
+              <select id="cc-ds-method"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                <option value="GET"${ds.method === 'GET' ? ' selected' : ''}>GET — chỉ đọc</option>
+                <option value="POST"${ds.method === 'POST' ? ' selected' : ''}>POST — app cần body</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Cách xác thực</span>
+              <select id="cc-ds-auth-type" onchange="toggleCcDsAuthFields()"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                ${authOptions}
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Khoá / Token</span>
+              <input id="cc-ds-auth-value" type="password" value="" placeholder="${ds.has_auth ? '•••••••• (đã lưu — để trống để giữ nguyên)' : 'Nhập khoá API'}"
+                autocomplete="new-password"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono" />
+            </label>
+          </div>
+
+          <div id="cc-ds-auth-extra" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Nhóm</span>
+              <select id="cc-ds-category"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+                ${catOptions}
+              </select>
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Số dòng tối đa</span>
+              <input id="cc-ds-row-limit" type="number" min="1" max="500" value="${ds.row_limit || 50}"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Timeout (giây)</span>
+              <input id="cc-ds-timeout" type="number" min="1" max="60" value="${ds.timeout_seconds || 10}"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
+            </label>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 px-5 py-3.5 border-t border-slate-200 dark:border-slate-700">
+          <div>
+            ${isEdit ? `<button type="button" onclick="deleteCcDataSource('${_esc(ds.id)}')"
+              class="px-3 py-2 text-[10px] font-semibold rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition">Xoá nguồn</button>` : ''}
+          </div>
+          <div class="flex items-center gap-2">
+            <button type="button" onclick="closeCcDataSourceModal()"
+              class="px-3.5 py-2 text-[10px] font-semibold rounded-lg border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition">Huỷ</button>
+            <button type="button" id="cc-ds-save-btn" onclick="saveCcDataSource()"
+              class="px-3.5 py-2 text-[10px] font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition">Lưu nguồn</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (modal) modal.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.body.style.overflow = 'hidden';
+  toggleCcDsAuthFields();
+
+  const first = document.getElementById(isEdit ? 'cc-ds-title' : 'cc-ds-id');
+  if (first) first.focus();
+  return document.getElementById(MODAL_ID);
+}
+
+/** Ẩn/hiện ô phụ tuỳ kiểu xác thực — chỉ hỏi đúng thứ cần điền. */
+function toggleCcDsAuthFields() {
+  const type = document.getElementById('cc-ds-auth-type')?.value;
+  const box = document.getElementById('cc-ds-auth-extra');
+  if (!box) return;
+
+  if (type === 'header' || type === 'query') {
+    const label = type === 'header' ? 'Tên header' : 'Tên tham số';
+    const def = type === 'header' ? 'X-Api-Key' : 'api_key';
+    const val = document.getElementById('cc-ds-auth-header-name')?.value || def;
+    box.innerHTML = `
+      <label class="block">
+        <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">${label}</span>
+        <input id="cc-ds-auth-header-name" type="text" value="${_esc(val)}" placeholder="${def}"
+          class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono" />
+      </label>
+      <div></div>`;
+  } else {
+    box.innerHTML = '';
+  }
+}
+
+function closeCcDataSourceModal() {
+  const modal = document.getElementById('cc-ds-modal');
+  if (modal) modal.remove();
+  document.body.style.overflow = '';
+}
+
+/**
+ * Mở modal thêm/sửa nguồn dữ liệu.
+ * `sourceId` rỗng -> thêm mới; có id -> sửa nguồn đang có trong registry.
+ */
+function openAddDataSourceModal(category, sourceId) {
+  if (sourceId) {
+    const ds = getCcDataSource(sourceId);
+    if (!ds) {
+      showToast(`Không tìm thấy nguồn "${sourceId}"`, 'error');
+      return null;
+    }
+    return _ccDataSourceModal(ds, category);
+  }
+  return _ccDataSourceModal(null, category);
+}
+
+/** Gom dữ liệu form thành payload cho API. */
+function _ccDataSourceFormPayload() {
+  const val = (id) => document.getElementById(id)?.value?.trim() ?? '';
+  const authType = val('cc-ds-auth-type') || 'none';
+  const extraName = val('cc-ds-auth-header-name');
+
+  return {
+    id: val('cc-ds-id'),
+    title: val('cc-ds-title'),
+    description: val('cc-ds-description'),
+    base_url: val('cc-ds-base-url'),
+    default_path: val('cc-ds-default-path') || '/',
+    method: val('cc-ds-method') || 'GET',
+    auth_type: authType,
+    // Để trống = giữ khoá đang lưu (xử lý phía server).
+    auth_value: document.getElementById('cc-ds-auth-value')?.value?.trim() ?? '',
+    auth_header: authType === 'header' ? (extraName || 'X-Api-Key') : 'X-Api-Key',
+    auth_query: authType === 'query' ? (extraName || 'api_key') : 'api_key',
+    category: val('cc-ds-category') || 'custom',
+    row_limit: parseInt(val('cc-ds-row-limit'), 10) || 50,
+    timeout_seconds: parseFloat(val('cc-ds-timeout')) || 10,
+  };
+}
+
+/** Lưu nguồn dữ liệu rồi nạp lại danh sách. */
+async function saveCcDataSource() {
+  const payload = _ccDataSourceFormPayload();
+  const btn = document.getElementById('cc-ds-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang lưu…'; }
+
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/enterprise/data-sources`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+      body: JSON.stringify(payload)
+    });
+    const d = await res.json().catch(() => ({}));
+    if (d?.status === 'error' || !res.ok) {
+      throw new Error(d?.error || `HTTP ${res.status}`);
+    }
+
+    closeCcDataSourceModal();
+    showToast(`✔ Đã lưu nguồn "${payload.title || payload.id}"`, 'success');
+    await syncRemoteDataSources();
+    // Mở lại sub-tab đang xem để card mới hiện ngay.
+    const active = document.querySelector('[data-cc-subtab].bg-primary-600')?.dataset.ccSubtab;
+    if (active) await loadCcDataSourceTab(active);
+  } catch (err) {
+    showToast(`✖ Lưu thất bại: ${err.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Lưu nguồn'; }
+  }
+}
+
+/** Xoá một nguồn dữ liệu. Chỉ admin — endpoint server tự chặn. */
+async function deleteCcDataSource(sourceId) {
+  if (!sourceId) return;
+  if (!confirm(`Xoá nguồn "${sourceId}"? Cấu hình sẽ mất và không khôi phục được.`)) return;
+
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/enterprise/data-sources/${encodeURIComponent(sourceId)}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+    });
+    const d = await res.json().catch(() => ({}));
+    if (d?.status === 'error' || !res.ok) throw new Error(d?.error || `HTTP ${res.status}`);
+
+    closeCcDataSourceModal();
+    showToast(`✔ Đã xoá nguồn "${sourceId}"`, 'success');
+    await syncRemoteDataSources();
+    const active = document.querySelector('[data-cc-subtab].bg-primary-600')?.dataset.ccSubtab;
+    if (active) await loadCcDataSourceTab(active);
+  } catch (err) {
+    showToast(`✖ Xoá thất bại: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Nạp data source từ server vào registry.
+ *
+ * Nguồn do người dùng khai báo nằm ở máy chủ, nên phải nạp lại mỗi lần vào
+ * tab — registry trong JS chỉ là bản sao để render. Nếu server lỗi thì giữ
+ * nguyên registry cũ: xoá sạch rồi báo lỗi sẽ làm mất hết card đang hiện.
+ */
+async function syncRemoteDataSources() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/enterprise/data-sources`, {
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d?.status === 'error') return;
+
+    const remote = Array.isArray(d.custom) ? d.custom : [];
+    const seen = new Set();
+
+    for (const src of remote) {
+      if (!src?.id) continue;
+      seen.add(src.id);
+      registerCcDataSource(src.id, {
+        title: src.title,
+        description: src.description || '',
+        category: src.category || 'custom',
+        subTabId: 'reporting',
+        icon: CC_DATA_SOURCE_CATEGORIES[src.category || 'custom']?.icon || '🔗',
+        color: '#0F172A',
+        enabled: src.enabled !== false,
+        hasAuth: !!src.has_auth,
+        isRemote: true,
+        availablePaths: src.available_paths || [],
+        // Probe gọi ra app ngoài nên dùng POST; endpoint `health` của nguồn
+        // tĩnh (plugin-registry, webhooks...) là GET nên để nguyên mặc định.
+        healthMethod: 'POST',
+        endpoints: {
+          health: `/api/v1/enterprise/data-sources/${encodeURIComponent(src.id)}/probe`,
+          data: `/api/v1/enterprise/data-sources/${encodeURIComponent(src.id)}/fetch`
+        }
+      });
+    }
+
+    // Gỡ nguồn từ chừa đã bị xoá trên server — nếu không, xoá xong reload
+    // trang vẫn thấy card cũ và tưởng chưa xoá.
+    for (const id of Object.keys(_ccDataSourceRegistry)) {
+      const ds = _ccDataSourceRegistry[id];
+      if (ds.isRemote && !seen.has(id)) delete _ccDataSourceRegistry[id];
+    }
+  } catch (err) {
+    // Im lặng: registry cũ vẫn dùng được, và lỗi mạng đã hiện ở nơi khác.
+    console.warn('[DataSource] không nạp được danh sách từ server:', err?.message);
+  }
 }
 
 // Đăng ký các data source mặc định (backward compat)
@@ -9546,6 +9982,13 @@ function initCcDataSourceRegistry() {
   // Tạo trước pane/button cho reporting và analytics
   loadCcDataSourceTab('reporting');
   loadCcDataSourceTab('analytics');
+  // Nguồn do người dùng khai báo nằm ở máy chủ -> nạp thêm để không mất khi reload.
+  // Gọi nền, không chặn: tab phải hiện ngay, nguồn tuỳ chỉnh thêm vào sau.
+  // `reloadActive` mặc định false vì `loadSystemIntegration()` vừa render xong —
+  // render lại ở đây sẽ xoá kết quả các hàm load khác vừa ghi vào cùng pane.
+  syncRemoteDataSources().then((n) => {
+    if (n > 0) console.info(`[DataSource] Đã nạp ${n} nguồn tùy chỉnh từ máy chủ`);
+  });
 }
 
 // Export cho window
@@ -9556,6 +9999,13 @@ window.loadCcDataSourceTab = loadCcDataSourceTab;
 window.runDataSourceHealth = runDataSourceHealth;
 window.runDataSourceAction = runDataSourceAction;
 window.initCcDataSourceRegistry = initCcDataSourceRegistry;
+window.syncRemoteDataSources = syncRemoteDataSources;
+window.openAddDataSourceModal = openAddDataSourceModal;
+window.closeCcDataSourceModal = closeCcDataSourceModal;
+window.saveCcDataSource = saveCcDataSource;
+window.deleteCcDataSource = deleteCcDataSource;
+window.previewDataSource = previewDataSource;
+window.toggleCcDsAuthFields = toggleCcDsAuthFields;
 window._ccDataSourceRegistry = _ccDataSourceRegistry;
 window._ccSubTabConfig = _ccSubTabConfig;
 window._ccSubTabExtensions = _ccSubTabExtensions;

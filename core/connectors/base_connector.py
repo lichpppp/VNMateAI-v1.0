@@ -382,6 +382,7 @@ class BaseConnector(abc.ABC):
 
         timeout = timeout or self.config.timeout_seconds
         last_error = None
+        metadata: Dict[str, Any] = {}
 
         for attempt in range(self.config.retry_count + 1):
             try:
@@ -402,6 +403,7 @@ class BaseConnector(abc.ABC):
                             data=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
                             latency_ms=latency,
                             source=self.config.name,
+                            metadata={"http_status": response.status_code},
                         )
                     else:
                         last_error = f"HTTP {response.status_code}: {response.text[:200]}"
@@ -409,6 +411,19 @@ class BaseConnector(abc.ABC):
                             "[%s] Request failed (attempt %d/%d): %s",
                             self.config.name, attempt + 1, self.config.retry_count + 1, last_error,
                         )
+                        # 4xx (trừ 429) là lỗi của request, không phải lỗi
+                        # tạm thời: token sai, path sai, không đủ quyền — thử
+                        # lại y hệt sẽ cho cùng kết quả. Retry ở đây chỉ tốn
+                        # thêm thời gian chờ và bắn thêm request vào hệ thống
+                        # ngoài (đã thấy: 401 bị thử 3 lần, mất ~3s).
+                        if 400 <= response.status_code < 500 and response.status_code != 429:
+                            return ConnectorResult(
+                                success=False,
+                                error=last_error,
+                                latency_ms=latency,
+                                source=self.config.name,
+                                metadata={"http_status": response.status_code},
+                            )
 
             except httpx.TimeoutException:
                 last_error = f"Timeout after {timeout}s"
@@ -428,6 +443,7 @@ class BaseConnector(abc.ABC):
             error=last_error or "Unknown error after retries",
             latency_ms=0.0,
             source=self.config.name,
+            metadata=metadata,
         )
 
     def __repr__(self) -> str:
