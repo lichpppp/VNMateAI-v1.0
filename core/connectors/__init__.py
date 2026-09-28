@@ -52,9 +52,13 @@ CONNECTOR_RISK_LEVELS: dict = {
     "einvoice:daily_summary": 1,
     "einvoice:search": 1,
     "einvoice:details": 1,
-    # Phase 62: data source tùy chỉnh — chỉ đọc, không mở rộng bề mặt tấn công.
-    "datasource:fetch": 1,
-    "datasource:probe": 1,
+    # Phase 63: tool AI Ly Ly đọc/xuất báo cáo từ nguồn tùy chỉnh.
+    # Gọi ra hệ thống ngoài của khách hàng nên risk 2 (đi qua cổng HITL,
+    # tự động nếu đã được tin cậy). Không có khoá này thì `_risk_for()`
+    # mặc định 1 — tức tự động chạy, mất đúng lớp phòng thủ đó.
+    "datasource:list": 1,
+    "datasource:fetch": 2,
+    "datasource:export": 2,
 }
 
 __all__ = [

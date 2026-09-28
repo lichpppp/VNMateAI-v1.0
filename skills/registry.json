@@ -269,6 +269,91 @@
     },
     "enabled": true
   },
+  "fetch_data_source": {
+    "module": "skills.data_source_tools",
+    "attr": "fetch_data_source",
+    "meta": {
+      "name": "fetch_data_source",
+      "description": "Lấy dữ liệu báo cáo từ một nguồn đã khai báo (ERP, kế toán, CRM...). Trả về các dòng dữ liệu và tên cột. Dùng để trả lời câu hỏi cần số liệu, ví dụ 'doanh thu tháng này bao nhiêu'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Mã nguồn dữ liệu (ví dụ: 'misa-amh'). Xem qua list_data_sources."
+          },
+          "report": {
+            "type": "string",
+            "description": "Tên báo cáo đã khai báo (ví dụ: 'doanh thu'). Bỏ trống = dùng báo cáo mặc định."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Số dòng tối đa cần xem. Mặc định 200, tối đa 200."
+          }
+        },
+        "required": [
+          "source_id"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "list_data_sources": {
+    "module": "skills.data_source_tools",
+    "attr": "list_data_sources",
+    "meta": {
+      "name": "list_data_sources",
+      "description": "Liệt kê các nguồn dữ liệu doanh nghiệp đã được khai báo (MISA, Odoo, SAP, ERP nội bộ...) kèm các báo cáo mỗi nguồn cung cấp. Gọi tool này TRƯỚC khi muốn lấy báo cáo, để biết chính xác tên nguồn và tên báo cáo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "category": {
+            "type": "string",
+            "description": "Lọc theo nhóm: 'connector', 'reporting', 'analytics'. Bỏ trống = tất cả."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "prepare_data_source_export": {
+    "module": "skills.data_source_tools",
+    "attr": "prepare_data_source_export",
+    "meta": {
+      "name": "prepare_data_source_export",
+      "description": "Tạo file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Trả về đường dẫn tải — bạn KHÔNG cần đọc nội dung file, chỉ cần đưa đường dẫn đó cho người dùng. Dùng khi user nói 'xuất ra Excel', 'gửi tôi file CSV'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Mã nguồn dữ liệu. Xem qua list_data_sources."
+          },
+          "report": {
+            "type": "string",
+            "description": "Tên báo cáo đã khai báo. Bỏ trống = dùng báo cáo mặc định."
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "xlsx",
+              "csv"
+            ],
+            "description": "Định dạng file. Mặc định 'xlsx'."
+          },
+          "max_rows": {
+            "type": "integer",
+            "description": "Số dòng tối đa. Mặc định 1000, tối đa 10000."
+          }
+        },
+        "required": [
+          "source_id"
+        ]
+      }
+    },
+    "enabled": true
+  },
   "lookup_domain_info": {
     "module": "skills.domain_alert_skills",
     "attr": "lookup_domain_info",
