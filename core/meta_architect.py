@@ -127,7 +127,13 @@ class MetaArchitect:
                 candidate_models.append(m)
 
         if not candidate_models:
-            candidate_models = ["ag/gemini-3.8-flash", "ag/gemini-3.7-flash-medium", "ag/gemini-3-flash"]
+            # Trước đây chỗ này điền cứng 3 model của một provider, nên khi
+            # provider đó chết, MetaArchitect vẫn "chạy được" rồi hỏng im
+            # lặng. Nay nói thẳng ra để lỗi hiện đúng chỗ.
+            raise ValueError(
+                "MetaArchitect chưa có model nào để dùng. Cấu hình model ở tab "
+                "Quản Lý Trợ Lý AI > Bộ Não & Xử Lý Ngôn Ngữ."
+            )
 
         client = OpenAI(
             base_url=base_url,

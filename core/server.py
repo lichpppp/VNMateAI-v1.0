@@ -34,6 +34,8 @@ import subprocess
 import time
 import traceback
 import unicodedata
+import urllib.error
+import urllib.request
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -777,7 +779,7 @@ class ConfigSaveResponse(BaseModel):
 class LLMTestRequest(BaseModel):
     """Payload for POST /api/v1/llm/test."""
     base_url: Optional[str] = Field(default=None, description="URL proxy 9router (VD: http://localhost:20128/v1)")
-    model_name: Optional[str] = Field(default=None, description="Tên mô hình cần kiểm tra (VD: ag/gemini-3.8-flash)")
+    model_name: Optional[str] = Field(default=None, description="Tên mô hình cần kiểm tra")
     api_key: Optional[str] = Field(default=None, description="Khóa API")
     tier: Optional[str] = Field(default="primary", description="Tên cấp (backward compat)")
     provider_model: Optional[str] = Field(default=None, description="Tên mô hình (backward compat)")
@@ -1872,7 +1874,7 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
 
     cfg_llm = getattr(settings, "llm", None)
     default_base = getattr(cfg_llm, "base_url", "http://localhost:20128/v1") if cfg_llm else "http://localhost:20128/v1"
-    default_model = getattr(cfg_llm, "model_name", "ag/gemini-3.8-flash") if cfg_llm else "ag/gemini-3.8-flash"
+    default_model = (getattr(cfg_llm, "model_name", "") if cfg_llm else "") or ""
     default_key = getattr(cfg_llm, "api_key", "sk-dummy") if cfg_llm else "sk-dummy"
 
     base_url = (payload.base_url or payload.api_base or default_base).strip()
@@ -1920,12 +1922,9 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     # ═════════════════════════════════════════════════════════════════════
     # Phase 46.3: Auto-Fallback Demonstration in Diagnostic Test
     # ═════════════════════════════════════════════════════════════════════
-    fallback_candidates = [
-        "ag/gemini-3.8-flash",
-        "ag/gemini-3.7-flash-medium",
-        "ag/gemini-3.6-flash-medium",
-        "ag/gemini-3-flash",
-    ]
+    # Phase 68: hỏi router thay vì ghi cứng. Danh sách ghi cứng từng khiến
+    # màn hình chẩn đoán báo "dự phòng OK" cho những model không tồn tại.
+    fallback_candidates = [m for m in await _router_model_pool() if m != model_name][:4]
     for fb_model in fallback_candidates:
         if fb_model == model_name:
             continue
@@ -1965,7 +1964,7 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     if "404" in err_msg or "not found" in err_msg.lower() or "no active credentials" in err_msg.lower():
         suggestion = (
             f"Model '{model_name}' không tìm thấy trên proxy 9router. "
-            "Hãy kiểm tra lại tên model trong 9router (VD: ag/gemini-3.8-flash)."
+            "Hãy kiểm tra lại danh sách model mà router đang phục vụ."
         )
     elif "401" in err_msg or "invalid" in err_msg.lower() or "api_key" in err_msg.lower():
         suggestion = "Khóa API không hợp lệ. Kiểm tra lại API Key trong 9router."
@@ -1974,7 +1973,7 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     elif "unsupported model" in err_msg.lower() or "400" in err_msg:
         suggestion = (
             f"Mô hình '{model_name}' không được nhà cung cấp hỗ trợ hoặc đã ngừng cung cấp. "
-            "👉 Khuyên dùng: Nhấn nút [⚡ Gemini 3.8] (ag/gemini-3.8-flash) để kết nối trực tiếp."
+            "👉 Khuyên dùng: chọn một model trong danh sách router đang phục vụ."
         )
     return {
         "success": False,
@@ -2074,7 +2073,7 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
             old_primary = data.get("routing", {}).get("primary", {})
             data["llm"] = {
                 "base_url": old_primary.get("api_base") or data.get("BASE_URL", "http://localhost:20128/v1"),
-                "model_name": old_primary.get("provider_model") or data.get("MODEL_NAME", "ag/gemini-3.8-flash"),
+                "model_name": old_primary.get("provider_model") or data.get("MODEL_NAME", ""),
                 "api_key": old_primary.get("api_key") or data.get("API_KEY", "sk-dummy"),
             }
 
@@ -2106,6 +2105,70 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
         raise HTTPException(status_code=500, detail=f"config.json is malformed: {exc}")
 
 
+async def _router_model_pool() -> List[str]:
+    """
+    Hỏi router đang phục vụ model nào, trả về danh sách dùng làm dự phòng.
+
+    Router là nguồn sự thật: nó chỉ liệt kê model tới được từ provider đang bật
+    và còn hạn mức. Hardcode tên model trong code nghĩa là chỉ đúng vào một
+    thời điểm — hôm sau provider hết tiền, cấu hình lưu xuống lại toàn model
+    chết và hệ thống cứ thử chết trước khi tới model thật.
+
+    Bỏ qua mọi thứ không phải model chat: combo do người dùng đặt (tên không
+    có dấu "/"), và các loại khác nếu router có trả về.
+    """
+    from core.config_loader import settings  # import cục bộ như các hàm khác
+    base = (getattr(settings.llm, "base_url", "") if settings else "") or ""
+    if not base:
+        return []
+    try:
+        root = base.rsplit("/v1", 1)[0] if "/v1" in base else base.rstrip("/")
+        key = (getattr(settings.llm, "api_key", "") if settings else "") or ""
+        req = urllib.request.Request(
+            f"{root}/v1/models",
+            headers={"Authorization": f"Bearer {key}"} if key else {},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = _json.loads(resp.read().decode("utf-8"))
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("[Config] Không đọc được danh sách model từ router: %s", exc)
+        return []
+
+    out: List[str] = []
+    for entry in payload.get("data") or []:
+        mid = entry.get("id") if isinstance(entry, dict) else None
+        # Combo của người dùng (ví dụ "VN-MateAi") không có dấu "/" — đưa vào
+        # danh sách dự phòng thì gọi lại chính nó, tức lặp vô hạn.
+        if mid and "/" in mid and mid not in out:
+            out.append(mid)
+    return out
+
+
+@app.get(
+    "/api/v1/config/models",
+    summary="Danh sách model router đang phục vụ",
+    tags=["Config"],
+)
+async def list_available_models(
+    user: dict = Depends(require_roles(["admin", "operator"])),
+) -> Dict[str, Any]:
+    """
+    Trả về model mà router thực sự phục vụ, để giao diện không phải ghi cứng.
+
+    Trước đây danh sách gợi ý trong UI ghi cứng tên model của một provider.
+    Khi provider đó hết tiền, giao diện vẫn hiện các nút bấm chết và người
+    dùng bấm vào rồi mới biết là chết — trải nghiệm rất tệ. Nay danh sách lấy
+    từ router mỗi lần mở, nên bấm là chạy.
+    """
+    from core.config_loader import settings
+    models = await _router_model_pool()
+    return {
+        "models": models,
+        "count": len(models),
+        "base_url": (getattr(settings.llm, "base_url", "") if settings else "") or "",
+    }
+
+
 @app.post(
     "/api/v1/config",
     response_model=ConfigSaveResponse,
@@ -2134,23 +2197,30 @@ async def save_config(
             except Exception:  # pylint: disable=broad-except
                 pass
 
-        # Phase 22 Thin Client: Map 'llm' block or convert legacy routing
-        # Phase 22 & Phase 46.3 Thin Client: Map 'llm' block with auto-fallback lists
-        DEFAULT_ROUTER_FALLBACKS = [
-            "ag/gemini-3.8-flash",
-            "ag/gemini-3.7-flash-medium",
-            "ag/gemini-3.6-flash-medium",
-            "ag/gemini-3-flash",
-        ]
-        DEFAULT_SPECIALIST_FALLBACKS = [
-            "ag/claude-sonnet-4-6",
-            "ag/gemini-pro-agent",
-            "ag/gemini-3.1-pro-low",
-        ]
+        # Phase 68: danh sách dự phòng lấy TỪ ROUTER thay vì hardcode.
+        #
+        # Trước đây danh sách này ghi cứng tên model của một provider cụ thể
+        # (`ag/...`). Khi provider đó hết tiền hoặc mất khoá, mọi lần lưu cấu
+        # hình lại ghi 3 model chết vào config — khiến vòng lặp dự phòng gọi
+        # 3 lần vào chỗ chết trước khi tới model thật, và làm chuyển giao
+        # chuyên gia hỏng hoàn toàn.
+        #
+        # Nay hỏi router xem nó đang phục vụ model nào, rồi dùng chính những
+        # model đó. Tự lành khi bạn nạp tiền provider, và không cần sửa code
+        # khi đổi nhà cung cấp.
+        pool = await _router_model_pool()
+        if not pool:
+            # Router không trả lời — không đoán, để trống cho tới lần lưu sau.
+            logger.warning(
+                "[Config] Router không trả danh sách model — bỏ trống danh sách dự phòng "
+                "thay vì ghi model chết."
+            )
+        DEFAULT_ROUTER_FALLBACKS = list(pool)
+        DEFAULT_SPECIALIST_FALLBACKS = list(pool)
 
         if "llm" in payload and isinstance(payload["llm"], dict):
             existing_llm = existing.get("llm", {})
-            new_model = payload["llm"].get("model_name", existing_llm.get("model_name", "ag/gemini-3.8-flash"))
+            new_model = payload["llm"].get("model_name", existing_llm.get("model_name", "")) or ""
             r_models = payload["llm"].get("router_models", existing_llm.get("router_models", []))
             if not isinstance(r_models, list) or not r_models:
                 r_models = DEFAULT_ROUTER_FALLBACKS
@@ -2167,7 +2237,7 @@ async def save_config(
         elif "routing" in payload and isinstance(payload["routing"], dict):
             # If incoming is legacy routing, extract primary into 'llm'
             primary = payload["routing"].get("primary", {})
-            new_model = primary.get("provider_model", "ag/gemini-3.8-flash")
+            new_model = primary.get("provider_model", "") or ""
             payload["llm"] = {
                 "base_url": primary.get("api_base", "http://localhost:20128/v1"),
                 "model_name": new_model,
@@ -2177,7 +2247,7 @@ async def save_config(
             }
         elif "MODEL_NAME" in payload or "BASE_URL" in payload:
             existing_llm = existing.get("llm", {})
-            new_model = payload.get("MODEL_NAME", existing_llm.get("model_name", "ag/gemini-3.8-flash"))
+            new_model = payload.get("MODEL_NAME", existing_llm.get("model_name", "")) or ""
             payload["llm"] = {
                 "base_url": payload.get("BASE_URL", existing_llm.get("base_url", "http://localhost:20128/v1")),
                 "model_name": new_model,

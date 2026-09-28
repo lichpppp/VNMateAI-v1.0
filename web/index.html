@@ -2421,7 +2421,7 @@
             </div>
             <div class="min-w-0">
               <div class="text-[10px] text-slate-400 uppercase font-semibold">MÔ HÌNH CHÍNH</div>
-              <div id="ai-status-active-model" class="text-xs font-mono font-bold text-cyan-400 truncate">ag/gemini-3.8-flash</div>
+              <div id="ai-status-active-model" class="text-xs font-mono font-bold text-cyan-400 truncate">—</div>
             </div>
           </div>
           <span id="ai-status-llm-badge" class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">ONLINE</span>
@@ -2513,29 +2513,24 @@
               </label>
               <input type="text" id="ai-llm-model" list="ai-models-list"
                 class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
-                placeholder="ag/gemini-3.8-flash" />
-              <datalist id="ai-models-list">
-                <option value="ag/gemini-3.8-flash">Google Gemini 3.8 Flash (Khuyên dùng)</option>
-                <option value="ag/gemini-3.8-flash-low">Gemini 3.8 Flash Low (Tiết kiệm)</option>
-                <option value="ag/gemini-3.7-flash-high">Gemini 3.7 Flash High</option>
-                <option value="ag/claude-sonnet-4-6">Claude Sonnet 4.6 (Thinking)</option>
-                <option value="ag/deepseek-chat">DeepSeek Chat V3</option>
-                <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
-                <option value="qwen2.5">Ollama Qwen 2.5</option>
-              </datalist>
+                placeholder="VD: VN-MateAi hoặc openrouter/ling-3.0-flash-fin:free" />
+              <!-- Phase 68: danh sách gợi ý nạp từ router, không ghi cứng.
+                   Trước đây 7 tên model ghi thẳng vào HTML; khi provider hết
+                   tiền, giao diện vẫn gợi ý những model không gọi được. -->
+              <datalist id="ai-models-list"></datalist>
               <div id="ai-proxy-model-picker-wrap" class="hidden mt-1">
                 <select id="ai-proxy-model-select" onchange="document.getElementById('ai-llm-model').value = this.value; if(typeof onModelChanged === 'function') onModelChanged();" class="input-dark text-[11px] font-mono w-full">
                   <option value="">-- Chọn mô hình từ 9router --</option>
                 </select>
               </div>
 
-              <!-- Quick Model Selector Chips -->
-              <div class="flex flex-wrap gap-1 pt-0.5">
-                <button type="button" onclick="selectQuickModel('ag/gemini-3.8-flash')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition">⚡ Gemini 3.8</button>
-                <button type="button" onclick="selectQuickModel('ag/gemini-3.8-flash-low')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition">🌱 Flash Low</button>
-                <button type="button" onclick="selectQuickModel('ag/claude-sonnet-4-6')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 transition">🧠 Claude 4.6</button>
-                <button type="button" onclick="selectQuickModel('ag/deepseek-chat')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 transition">💡 DeepSeek</button>
-                <button type="button" onclick="selectQuickModel('gpt-4o-mini')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition">🎯 GPT-4o-mini</button>
+              <!-- Quick Model Selector Chips
+                   Phase 68: sinh từ danh sách router đang phục vụ, không ghi cứng.
+                   5 nút này từng trỏ model của provider đã hết tiền — bấm là
+                   không có phản hồi, và người dùng không có cách nào biết vì sao
+                   trừ khi tự mở log. Nay chỉ hiện model router thực sự phục vụ. -->
+              <div id="ai-quick-models" class="flex flex-wrap gap-1 pt-0.5">
+                <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
               </div>
             </div>
 
@@ -3764,20 +3759,17 @@
             </label>
             <input type="text" id="cfg-llm-model" list="models-list" oninput="onConfigModelChanged()"
               class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
-              placeholder="ag/gemini-3.8-flash" />
+              placeholder="VD: VN-MateAi hoặc openrouter/ling-3.0-flash-fin:free" />
             <div id="proxy-model-picker-wrap" class="hidden mt-1">
               <select id="proxy-model-select" onchange="document.getElementById('cfg-llm-model').value = this.value; if(typeof onConfigModelChanged === 'function') onConfigModelChanged();"
                 class="input-dark text-[11px] font-mono w-full">
                 <option value="">-- Chọn mô hình từ 9router --</option>
               </select>
             </div>
-            <!-- Quick Model Selector Chips for Tab Config -->
-            <div class="flex flex-wrap gap-1 pt-1">
-              <button type="button" onclick="selectConfigQuickModel('ag/gemini-3.8-flash')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 transition">⚡ Gemini 3.8</button>
-              <button type="button" onclick="selectConfigQuickModel('ag/gemini-3.8-flash-low')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition">🌱 Flash Low</button>
-              <button type="button" onclick="selectConfigQuickModel('ag/claude-sonnet-4-6')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 transition">🧠 Claude 4.6</button>
-              <button type="button" onclick="selectConfigQuickModel('ag/deepseek-chat')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 hover:bg-blue-500/20 text-blue-300 border border-blue-500/30 transition">💡 DeepSeek</button>
-              <button type="button" onclick="selectConfigQuickModel('gpt-4o-mini')" class="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 transition">🎯 GPT-4o-mini</button>
+            <!-- Quick Model Selector Chips for Tab Config
+                 Phase 68: sinh từ router — xem giải thích ở ai-quick-models. -->
+            <div id="cfg-quick-models" class="flex flex-wrap gap-1 pt-1">
+              <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
             </div>
           </div>
 
@@ -3831,13 +3823,7 @@
                 <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Active</span>
               </div>
               <div class="text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-1.5 font-mono">
-                <span class="text-cyan-600 dark:text-cyan-400 font-semibold" id="cfg-chain-primary">ag/gemini-3.8-flash</span>
-                <span class="text-slate-400">➔</span>
-                <span class="text-emerald-600 dark:text-emerald-400">ag/gemini-3.7-flash-medium</span>
-                <span class="text-slate-400">➔</span>
-                <span class="text-slate-500">ag/gemini-3.6-flash-medium</span>
-                <span class="text-slate-400">➔</span>
-                <span class="text-slate-500">ag/gemini-3-flash</span>
+                <span id="cfg-fallback-chain" class="text-slate-500">Chưa nạp — đang đọc danh sách từ router…</span>
               </div>
             </div>
           </div>
@@ -3861,16 +3847,8 @@
       </div>
 
       <!-- Datalist gợi ý mô hình phổ biến -->
-      <datalist id="models-list">
-        <option value="ag/gemini-3.8-flash">Google Gemini 3.8 Flash (Khuyên dùng - 9router)</option>
-        <option value="ag/gemini-3.7-flash-high">Google Gemini 3.7 Flash High (9router)</option>
-        <option value="ag/gemini-2.5-flash">Google Gemini 2.5 Flash (9router)</option>
-        <option value="ag/claude-3-7-sonnet">Claude 3.7 Sonnet (9router)</option>
-        <option value="ag/deepseek-chat">DeepSeek Chat V3 (9router)</option>
-        <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
-        <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
-        <option value="qwen2.5">Ollama Qwen 2.5</option>
-      </datalist>
+      <!-- Phase 68: nạp từ router — xem giải thích ở ai-models-list. -->
+      <datalist id="models-list"></datalist>
 
       <!-- System & Runtime Settings Card -->
       <div class="glass-panel p-6 space-y-5">

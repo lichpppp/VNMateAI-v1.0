@@ -70,7 +70,7 @@ SYSTEM_HEALTH_CACHE: Dict[str, Any] = {
             "status": "UNKNOWN",
             "latency": 0.0,
             "latency_ms": 0.0,
-            "model": "ag/gemini-3.7-flash-low",
+            "model": "",
             "detail": "Đang khởi tạo...",
         },
         "active_directory": {
@@ -391,7 +391,7 @@ async def _external_api_worker(interval: float = 30.0) -> None:
                 else "http://localhost:20128/v1"
             ).rstrip("/")
             models_url = f"{base_url}/models"
-            model_name = getattr(cfg_llm, "model_name", "ag/gemini-3.7-flash-low")
+            model_name = getattr(cfg_llm, "model_name", "") or ""
 
             # 1. Ping 9router with short 2s timeout
             llm_result: Dict[str, Any] = {

@@ -81,6 +81,78 @@ function updateThemeUI(isDark) {
 
 // ─── Trạng thái ứng dụng ──────────────────────────────────────────────────
 let currentConfig = {};
+
+/* Phase 68: danh sách model lấy từ router đang phục vụ, thay cho danh sách
+   ghi cứng trong mã. Danh sách ghi cứng chỉ đúng vào một thời điểm — khi
+   provider hết tiền, nút bấm trên giao diện vẫn hiện nhưng bấm vào chết,
+   và người dùng phải tự phát hiện. Nay bấm là chạy. */
+let routerModelList = [];
+
+/** Model nào router thực sự phục vụ. Rỗng thì trả mảng rỗng, không đoán. */
+async function loadRouterModels() {
+  try {
+    // apiFetch trả về Response — phải .json() mới đọc được body.
+    const res = await apiFetch('/api/v1/config/models');
+    const d = res instanceof Response ? await res.json() : res;
+    routerModelList = Array.isArray(d?.models) ? d.models : [];
+  } catch (e) {
+    routerModelList = [];
+  }
+  // Nạp vào cả hai ô nhập model, để gợi ý luôn khớp với router.
+  const opts = routerModelList
+    .map(m => `<option value="${m}">${m}</option>`).join('');
+  for (const id of ['ai-models-list', 'models-list']) {
+    const dl = document.getElementById(id);
+    if (dl) dl.innerHTML = opts;
+  }
+  // Nút bấm nhanh: chỉ hiện model router thực sự phục vụ.
+  const chip = (m, i, fn) => {
+    const tone = ['cyan','emerald','purple','blue','amber'][i % 5];
+    return `<button type="button" onclick="${fn}('${m}')" `
+      + `class="px-2 py-0.5 rounded text-[10px] font-mono bg-${tone}-500/10 `
+      + `hover:bg-${tone}-500/20 text-${tone}-400 border border-${tone}-500/30 `
+      + `transition" title="${m}">${m.split('/').pop()}</button>`;
+  };
+  const quick = document.getElementById('ai-quick-models');
+  const quick2 = document.getElementById('cfg-quick-models');
+  if (quick2) {
+    quick2.innerHTML = routerModelList.length
+      ? routerModelList.map((m, i) => chip(m, i, 'selectConfigQuickModel')).join('')
+      : '<span class="text-[10px] text-amber-400 font-mono">Router chưa phục vụ model nào — kiểm tra khoá API.</span>';
+  }
+  if (quick) {
+    quick.innerHTML = routerModelList.length
+      ? routerModelList.map((m, i) => chip(m, i, 'selectQuickModel')).join('')
+      : '<span class="text-[10px] text-amber-400 font-mono">Router chưa phục vụ model nào — kiểm tra khoá API.</span>';
+  }
+  renderFallbackChain();
+  const sel = document.getElementById('ai-proxy-model-select');
+  if (sel && routerModelList.length) {
+    sel.innerHTML = '<option value="">-- Chọn mô hình đang phục vụ --</option>' + opts;
+    const wrap = document.getElementById('ai-proxy-model-picker-wrap');
+    if (wrap) wrap.classList.remove('hidden');
+  }
+  return routerModelList;
+}
+
+/** Vẽ chuỗi auto-fallback: đúng thứ tự sẽ được thử khi model chính lỗi. */
+function renderFallbackChain() {
+  const chain = document.getElementById('cfg-fallback-chain');
+  if (!chain) return;
+  const cur = (document.getElementById('cfg-llm-model')?.value || '').trim();
+  const all = cur ? [cur, ...routerModelList.filter(m => m !== cur)] : routerModelList;
+  chain.innerHTML = all.length
+    ? all.slice(0, 5).map((m, i) => `<span class="${i === 0
+        ? 'text-cyan-600 dark:text-cyan-400 font-semibold'
+        : 'text-slate-500'}">${i ? '➔ ' : ''}${m}</span>`).join('<span class="text-slate-400"> </span>')
+    : 'Chưa cấu hình model nào.';
+}
+
+/** Danh sách dự phòng, model chính luôn đứng đầu. */
+function fallbackModels(primary) {
+  const rest = routerModelList.filter(m => m !== primary);
+  return primary ? [primary, ...rest] : rest;
+}
 let skillsData = {};
 let devicesData = [];
 let selectedClientId = '';
@@ -826,7 +898,7 @@ async function fetchAndRenderHealthDashboard() {
   if (data.services) {
     const llm = data.services.llm_9router;
     if (llm && !llm.detail) {
-      llm.detail = `Model: ${llm.model || 'ag/gemini'} (${llm.latency_ms || 0}ms)`;
+      llm.detail = `Model: ${llm.model || 'chưa đặt'} (${llm.latency_ms || 0}ms)`;
     }
     updateServiceBadge('svc-llm-badge', 'svc-llm-detail', llm);
 
@@ -3230,6 +3302,7 @@ async function loadConfig() {
   const cfg = await apiGetConfig();
   if (!cfg) return;
   currentConfig = cfg;
+  loadRouterModels();
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
@@ -3254,7 +3327,7 @@ async function loadConfig() {
   const primary = routing.primary || {};
 
   const baseUrl = llm.base_url || primary.api_base || cfg.BASE_URL || 'http://localhost:20128/v1';
-  const modelName = llm.model_name || primary.provider_model || primary.model || cfg.MODEL_NAME || 'ag/gemini-3.8-flash';
+  const modelName = llm.model_name || primary.provider_model || primary.model || cfg.MODEL_NAME || '';
   const apiKey = llm.api_key || (primary.api_keys && primary.api_keys[0]) || primary.api_key || cfg.API_KEY || '';
 
   // Populate Thin Client 9router form
@@ -3321,7 +3394,7 @@ async function saveFullConfig() {
   const isAutoExec = autoExecEl ? autoExecEl.classList.contains('on') : autoExecState;
 
   const baseUrl = getVal('cfg-llm-base') || getVal('cfg-route-primary-base') || 'http://localhost:20128/v1';
-  const modelName = getVal('cfg-llm-model') || getVal('cfg-route-primary-model') || 'ag/gemini-3.8-flash';
+  const modelName = getVal('cfg-llm-model') || getVal('cfg-route-primary-model') || '';
   const apiKey = getVal('cfg-llm-key') || getVal('cfg-route-primary-key') || 'sk-dummy';
 
   const tgAdminsRaw = getVal('cfg-tg-admins');
@@ -3341,8 +3414,9 @@ async function saveFullConfig() {
       api_key: apiKey,
       router_models: (currentConfig?.llm?.router_models && currentConfig.llm.router_models.length > 0)
         ? [modelName, ...currentConfig.llm.router_models.filter(m => m !== modelName)]
-        : [modelName, "ag/gemini-3.8-flash", "ag/gemini-3.7-flash-medium", "ag/gemini-3.6-flash-medium", "ag/gemini-3-flash"],
-      specialist_models: currentConfig?.llm?.specialist_models || ["ag/claude-sonnet-4-6", "ag/gemini-pro-agent", "ag/gemini-3.1-pro-low"],
+        : fallbackModels(modelName),
+      specialist_models: (currentConfig?.llm?.specialist_models?.length)
+        ? currentConfig.llm.specialist_models : fallbackModels(modelName).slice(0, 4),
     },
     routing: {
       ...(currentConfig?.routing || {}),
@@ -3418,7 +3492,7 @@ async function loadAIManagerConfig() {
   const routing = cfg.routing || {};
   const primary = routing.primary || {};
   const baseUrl = llm.base_url || primary.api_base || cfg.BASE_URL || 'http://localhost:20128/v1';
-  const modelName = llm.model_name || primary.provider_model || cfg.MODEL_NAME || 'ag/gemini-3.8-flash';
+  const modelName = llm.model_name || primary.provider_model || cfg.MODEL_NAME || '';
   const apiKey = llm.api_key || (primary.api_keys && primary.api_keys[0]) || cfg.API_KEY || '';
   setVal('ai-llm-base', baseUrl);
   setVal('ai-llm-model', modelName);
@@ -3501,7 +3575,7 @@ async function saveAIConfig() {
   const isOn = id => { const el = document.getElementById(id); return el ? el.classList.contains('on') : false; };
 
   const baseUrl = getVal('ai-llm-base') || 'http://localhost:20128/v1';
-  const modelName = getVal('ai-llm-model') || 'ag/gemini-3.8-flash';
+  const modelName = getVal('ai-llm-model') || '';
   const apiKey = getVal('ai-llm-key') || '';
   const streaming = isOn('ai-switch-streaming');
 
@@ -3537,8 +3611,9 @@ async function saveAIConfig() {
       streaming: streaming,
       router_models: (currentConfig?.llm?.router_models && currentConfig.llm.router_models.length > 0)
         ? [modelName, ...currentConfig.llm.router_models.filter(m => m !== modelName)]
-        : [modelName, "ag/gemini-3.8-flash", "ag/gemini-3.7-flash-medium", "ag/gemini-3.6-flash-medium", "ag/gemini-3-flash"],
-      specialist_models: currentConfig?.llm?.specialist_models || ["ag/claude-sonnet-4-6", "ag/gemini-pro-agent", "ag/gemini-3.1-pro-low"],
+        : fallbackModels(modelName),
+      specialist_models: (currentConfig?.llm?.specialist_models?.length)
+        ? currentConfig.llm.specialist_models : fallbackModels(modelName).slice(0, 4),
     },
     persona: {
       ai_name: aiName,
@@ -3664,7 +3739,7 @@ async function testAILLMConnection() {
   const btn = document.getElementById('btn-ai-test-llm');
   const statusEl = document.getElementById('ai-status-test-llm');
   const baseUrl = document.getElementById('ai-llm-base')?.value?.trim() || 'http://localhost:20128/v1';
-  const modelName = document.getElementById('ai-llm-model')?.value?.trim() || 'ag/gemini-3.8-flash';
+  const modelName = document.getElementById('ai-llm-model')?.value?.trim() || '';
   const apiKey = document.getElementById('ai-llm-key')?.value?.trim() || '';
 
   if (!btn || !statusEl) return;
@@ -3758,7 +3833,7 @@ function updateAIManagerTelemetry() {
   const wakeEl = document.getElementById('ai-status-wake-phrase');
   const latencyEl = document.getElementById('ai-status-latency');
 
-  const curModel = document.getElementById('ai-llm-model')?.value?.trim() || currentConfig?.llm?.model_name || currentConfig?.MODEL_NAME || 'ag/gemini-3.8-flash';
+  const curModel = document.getElementById('ai-llm-model')?.value?.trim() || currentConfig?.llm?.model_name || currentConfig?.MODEL_NAME || '';
   if (modelEl) modelEl.textContent = curModel;
 
   const rawVoice = document.getElementById('ai-tts-voice')?.value || currentConfig?.audio?.tts_voice || currentConfig?.TTS_VOICE || 'vi-VN-HoaiMyNeural';
@@ -4416,7 +4491,7 @@ async function testLLMConnection() {
   const keyInput = document.getElementById('cfg-llm-key');
 
   const baseUrl = (baseInput ? baseInput.value.trim() : '') || 'http://localhost:20128/v1';
-  const modelName = (modelInput ? modelInput.value.trim() : '') || 'ag/gemini-3.8-flash';
+  const modelName = (modelInput ? modelInput.value.trim() : '') || '';
   const apiKey = (keyInput ? keyInput.value.trim() : '') || 'sk-dummy';
 
   if (!modelName) {
@@ -4529,11 +4604,7 @@ function selectConfigQuickModel(modelId) {
  * Sync the auto-fallback chain preview whenever model input changes.
  */
 function onConfigModelChanged() {
-  const modelInput = document.getElementById('cfg-llm-model');
-  const chainEl = document.getElementById('cfg-chain-primary');
-  if (modelInput && chainEl) {
-    chainEl.textContent = modelInput.value.trim() || 'ag/gemini-3.8-flash';
-  }
+  renderFallbackChain();
 }
 
 

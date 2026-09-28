@@ -38,9 +38,9 @@ CONFIG_PATH: Path = _PROJECT_ROOT / "config.json"
 _DEFAULT_CONFIG: dict = {
     "llm": {
         "base_url": "http://localhost:20128/v1",
-        "router_model": "ag/gemini-3.7-flash-low",
-        "specialist_model": "ag/claude-sonnet-4-6",
-        "model_name": "ag/gemini-3.7-flash-low",
+        "router_model": "",
+        "specialist_model": "",
+        "model_name": "",
         "api_key": "sk-dummy",
     },
     "auto_execute": False,
@@ -92,32 +92,25 @@ class LLMConfig(BaseModel):
         description="Base URL of the OpenAI-compatible proxy (9router, LMStudio, Ollama, etc.).",
     )
     router_models: List[str] = Field(
-        default_factory=lambda: [
-            "ag/gemini-3.8-flash",
-            "ag/gemini-3.7-flash-medium",
-            "ag/gemini-3.6-flash-medium",
-            "ag/gemini-3-flash",
-        ],
-        description="Priority list of router models for auto-fallback (Phase 46.3).",
+        default_factory=list,
+        description="Priority list of router models for auto-fallback. Empty = no fallback; "
+                    "populated from the live router when config is saved (Phase 68).",
     )
     specialist_models: List[str] = Field(
-        default_factory=lambda: [
-            "ag/claude-sonnet-4-6",
-            "ag/gemini-pro-agent",
-            "ag/gemini-3.1-pro-low",
-        ],
-        description="Priority list of specialist models for auto-fallback (Phase 46.3).",
+        default_factory=list,
+        description="Priority list of specialist models for auto-fallback. Empty = no fallback; "
+                    "populated from the live router when config is saved (Phase 68).",
     )
     router_model: str = Field(
-        default="ag/gemini-3.8-flash",
+        default="",
         description="Fast router model for primary conversational interaction (e.g. Gemini 3.8 Flash).",
     )
     specialist_model: str = Field(
-        default="ag/claude-sonnet-4-6",
+        default="",
         description="High-capability specialist model for deep troubleshooting and analysis.",
     )
     model_name: str = Field(
-        default="ag/gemini-3.8-flash",
+        default="",
         description="Active or default model ID for backward compatibility.",
     )
     api_key: str = Field(
@@ -134,18 +127,20 @@ class LLMConfig(BaseModel):
                 if f in data and isinstance(data[f], str):
                     data[f] = data[f].strip()
 
-            # Define robust default fallback chains (Phase 46.3)
-            DEFAULT_ROUTER = [
-                "ag/gemini-3.8-flash",
-                "ag/gemini-3.7-flash-medium",
-                "ag/gemini-3.6-flash-medium",
-                "ag/gemini-3-flash",
-            ]
-            DEFAULT_SPECIALIST = [
-                "ag/claude-sonnet-4-6",
-                "ag/gemini-pro-agent",
-                "ag/gemini-3.1-pro-low",
-            ]
+            # Phase 68: KHÔNG ghi cứng tên model của bất kỳ provider nào.
+            #
+            # Trước đây danh sách dự phòng ghi cứng `ag/...`. Khi provider đó
+            # mất khoá hoặc hết tiền, mọi câu hỏi đều thử 3-4 model chết trước
+            # khi tới model thật — mỗi lần một lần gọi ra ngoài rồi báo lỗi.
+            # Người dùng thấy "chậm" trong khi thực ra hệ thống đang lãng phí
+            # thời gian gọi vào những model không tồn tại.
+            #
+            # Nay để trống. Danh sách dự phòng lấy từ router lúc lưu cấu hình
+            # (xem _router_model_pool), và router chỉ liệt kê model thật. Không
+            # có cấu hình thì không có model dự phòng — thà báo lỗi thật còn hơn
+            # gọi vào chỗ chết.
+            DEFAULT_ROUTER: list = []
+            DEFAULT_SPECIALIST: list = []
 
             # Normalize router_models (convert string to list if necessary)
             rm = data.get("router_models")
@@ -296,7 +291,7 @@ class AppSettings(BaseSettings):
     # Legacy compatibility fields (synced from llm config)
     API_KEY: str = Field(default="")
     BASE_URL: str = Field(default="http://localhost:20128/v1")
-    MODEL_NAME: str = Field(default="ag/gemini-3.8-flash")
+    MODEL_NAME: str = Field(default="")
     AUTO_EXECUTE_UNVERIFIED_CODE: bool = Field(default=False)
 
     # Server settings
@@ -347,13 +342,13 @@ class AppSettings(BaseSettings):
             if isinstance(primary, dict) and primary:
                 data["llm"] = {
                     "base_url": primary.get("api_base") or primary.get("base_url") or "http://localhost:20128/v1",
-                    "model_name": primary.get("provider_model") or primary.get("model") or "ag/gemini-3.8-flash",
+                    "model_name": primary.get("provider_model") or primary.get("model") or "",
                     "api_key": primary.get("api_key") or "sk-dummy",
                 }
             elif data.get("MODEL_NAME") or data.get("API_KEY"):
                 data["llm"] = {
                     "base_url": data.get("BASE_URL", "http://localhost:20128/v1"),
-                    "model_name": data.get("MODEL_NAME", "ag/gemini-3.8-flash"),
+                    "model_name": data.get("MODEL_NAME", ""),
                     "api_key": data.get("API_KEY", "sk-dummy"),
                 }
 

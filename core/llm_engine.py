@@ -651,18 +651,19 @@ class LLMEngine:
         await self._ensure_shared_client()
         client = self._client  # type: ignore[assignment]
 
-        DEFAULT_ROUTER = [
-            "ag/gemini-3.8-flash",
-            "ag/gemini-3.7-flash-medium",
-            "ag/gemini-3.6-flash-medium",
-            "ag/gemini-3-flash",
-        ]
-        active_m = (settings.llm.model_name or "ag/gemini-3.8-flash").strip()
+        # Phase 68: không ghi cứng tên model provider — xem giải thích ở
+        # core/config_loader.py. Danh sách dự phòng do router cấp lúc lưu
+        # cấu hình; rỗng thì thử đúng một model đang bật.
+        DEFAULT_ROUTER: List[str] = []
+        active_m = (settings.llm.model_name or "").strip()
         configured_list = getattr(settings.llm, "router_models", []) or []
         if isinstance(configured_list, str):
             configured_list = [configured_list.strip()]
 
-        models: List[str] = [active_m]
+        # Bỏ tên rỗng: gọi model "" chỉ tốn một vòng gọi ra ngoài rồi báo lỗi
+        # chung chung, khiến thông báo lỗi khó hiểu hơn nhiều so với nói thẳng
+        # là chưa cấu hình model.
+        models: List[str] = [active_m] if active_m else []
         for m in configured_list:
             clean = str(m).strip()
             if clean and clean not in models:
@@ -670,6 +671,12 @@ class LLMEngine:
         for dm in DEFAULT_ROUTER:
             if dm not in models:
                 models.append(dm)
+
+        if not models:
+            raise ValueError(
+                "Chưa cấu hình model nào. Mở tab Quản Lý Trợ Lý AI > Bộ Não & "
+                "Xử Lý Ngôn Ngữ và chọn model đang hoạt động."
+            )
 
         last_error = None
         for model_name in models:
@@ -1496,18 +1503,16 @@ class LLMEngine:
         tools = self._enrich_tools_with_target_client(raw_tools)
 
         # Phase 46.3: Auto-fallback loop for streaming connection
-        DEFAULT_ROUTER = [
-            "ag/gemini-3.8-flash",
-            "ag/gemini-3.7-flash-medium",
-            "ag/gemini-3.6-flash-medium",
-            "ag/gemini-3-flash",
-        ]
-        active_m = (settings.llm.model_name or "ag/gemini-3.8-flash").strip()
+        # Phase 68: không ghi cứng tên model provider — xem giải thích ở
+        # core/config_loader.py. Danh sách dự phòng do router cấp lúc lưu
+        # cấu hình; rỗng thì thử đúng một model đang bật.
+        DEFAULT_ROUTER: List[str] = []
+        active_m = (settings.llm.model_name or "").strip()
         configured_list = getattr(settings.llm, "router_models", []) or []
         if isinstance(configured_list, str):
             configured_list = [configured_list.strip()]
 
-        models: List[str] = [active_m]
+        models: List[str] = [active_m] if active_m else []
         for m in configured_list:
             clean = str(m).strip()
             if clean and clean not in models:
@@ -1515,6 +1520,12 @@ class LLMEngine:
         for dm in DEFAULT_ROUTER:
             if dm not in models:
                 models.append(dm)
+
+        if not models:
+            raise ValueError(
+                "Chưa cấu hình model nào. Mở tab Quản Lý Trợ Lý AI > Bộ Não & "
+                "Xử Lý Ngôn Ngữ và chọn model đang hoạt động."
+            )
 
         stream = None
         used_model = None
