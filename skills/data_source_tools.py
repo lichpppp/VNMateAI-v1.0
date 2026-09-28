@@ -260,14 +260,14 @@ async def fetch_data_source(
 @export_skill(
     name="prepare_data_source_export",
     description=(
-        "Chuẩn bị file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Dùng khi người dùng nói "
-        "'xuất ra Excel', 'gửi tôi file CSV', 'tải báo cáo tồn kho cho tôi'.\n\n"
-        "CÁCH TRẢ LỜI — BẮT BUỘC: bạn KHÔNG cần và KHÔNG nên đọc nội dung file. Hãy nói "
-        "người dùng file đã sẵn sàng và dẫn họ đúng chỗ: bấm nút «Xuất» trên thẻ nguồn dữ "
-        "liệu ở tab Tích Hợp. TUYỆT ĐỐI KHÔNG đưa `download_url` hay bất kỳ đường dẫn API "
-        "nào cho người dùng — endpoint đó yêu cầu token xác thực, bấm vào sẽ báo lỗi 401. "
-        "Đừng tự dựng lại bảng trong câu trả lời: dữ liệu trong file đầy đủ hơn phần bạn "
-        "vừa xem trước đó."
+        "Dựng file báo cáo để tải xuống (Excel .xlsx hoặc CSV) và đưa vào hàng đợi "
+        "tải. Dùng khi người dùng nói 'xuất ra Excel', 'gửi tôi file CSV', 'tải báo cáo "
+        "tồn kho cho tôi'.\n\n"
+        "CÁCH TRẢ LỜI — BẮT BUỘC: file được dựng ngay và giao diện sẽ TỰ ĐỘNG tải về máy "
+        "người dùng, họ không cần bấm gì. Vì vậy bạn chỉ cần nói ngắn gọn: đã xuất bao "
+        "nhiêu dòng, định dạng gì, tên file là gì, và đường dẫn file lưu ở đâu trên máy "
+        "họ. TUYỆT ĐỐI KHÔNG tự dựng lại bảng dữ liệu trong câu trả lời — file đã đầy "
+        "đủ hơn phần bạn xem trước đó, in ra lại chỉ làm rối."
     ),
     parameters_schema={
         "type": "object",
@@ -300,11 +300,18 @@ async def prepare_data_source_export(
     max_rows: int = 1000,
 ) -> Dict[str, Any]:
     """
-    Tool: chuẩn bị file báo cáo để người dùng tải.
+    Tool: dựng file báo cáo và bàn giao cho giao diện tải tự động.
 
-    KHÔNG sinh file ngay ở đây. Endpoint export cần token đăng nhập, và token
-    đó không được đưa vào kết quả trả về cho LLM. Thay vào đó trả đường dẫn
-    để giao diện tải giúp bằng phiên đăng nhập sẵn có.
+    Dựng file NGAY TẠI ĐÂY thay vì trả một URL cho người dùng mở. Ba lý do:
+
+      - URL có token thì bấm vào bằng trình duyệt vẫn 401 (đã kiểm chứng).
+      - Câu trả lời của bạn được lưu vào lịch sử hội thoại rồi gửi lại cho nhà
+        cung cấp LLM ở lượt sau — URL có token nằm trong đó là rò bí mật ra
+        ngoài, dù token có hạn.
+      - Người dùng phải bấm chuột thì vẫn không đúng nghĩa "ra lệnh là xong".
+
+    Thay bằng `job_id` — mã ngẫu nhiên, không phải bí mật, vô dụng nếu không có
+    phiên đăng nhập. Giao diện thấy job trong hàng đợi là tự tải về máy.
     """
     from core.connectors import custom_registry
 
@@ -320,56 +327,75 @@ async def prepare_data_source_export(
     if fmt not in ("xlsx", "csv"):
         return {"success": False, "error": "format chỉ nhận 'xlsx' hoặc 'csv'"}
 
-    rows = max(1, min(10000, int(max_rows or 1000)))
-
-    # Kiểm tra nguồn còn sống TRƯỚC khi hứa sẽ có file. Nếu app chết, nói
-    # ngay thà không có file, còn hơn đưa đường dẫn tải về rồi báo lỗi.
-    async def _executor() -> Dict[str, Any]:
-        from core.connectors import fetch_data_source as _fetch
-        result = await _fetch(source_id, {"path": report} if report else {"limit": 1})
-        if not result.success:
-            return {
-                "success": False,
-                "error": f"Không lấy được dữ liệu để xuất: {result.error}",
-            }
-        return {"ok": True, "total": ((result.data or {}).get("total") or 0)}
-
-    check = await _run_with_hitl(
-        action_name="data_source_export_check",
-        params={"source_id": source_id, "report": report},
-        executor=_executor,
-        description=f"AI Ly Ly kiểm tra nguồn {source.get('title')} trước khi xuất file",
-    )
-    if check.get("awaiting_approval"):
-        return check
-    if not check.get("success") and check.get("error"):
-        return {"success": False, "error": check["error"]}
-
-    from urllib.parse import quote
-
+    rows_cap = max(1, min(10000, int(max_rows or 1000)))
+    report_name = report or source.get("default_path") or "/"
     title = source.get("title") or source_id
-    download_url = f"/api/v1/enterprise/data-sources/{quote(source_id, safe='')}/export"
 
-    return {
-        "success": True,
-        "source": title,
-        "report": report or source.get("default_path"),
-        "format": fmt,
-        "download_url": download_url,
-        "requested_rows": rows,
-        "available_rows": check.get("total") or 0,
-        # KHÔNG được đưa `download_url` cho người dùng như một link bấm được.
-        # Endpoint đó đòi Bearer token mà trình duyệt không tự gắn khi bấm
-        # link thường -> người dùng bấm xong gặp 401, tệ hơn là không báo gì.
-        # Đã kiểm chứng: GET và POST không kèm token đều trả 401.
-        "user_instructions": (
-            f"Báo cáo '{report or source.get('default_path')}' của {title} đã sẵn sàng, "
-            f"dự kiến {check.get('total') or 'nhiều'} dòng. "
-            f"Hãy bảo người dùng vào tab «Tích Hợp Hệ Thống Báo Cáo» → «Kết Nối», "
-            f"tìm thẻ «{title}» rồi nhấn nút «Xuất {fmt.upper()}» để tải file về máy. "
-            f"TUYỆT ĐỐI KHÔNG đưa người dùng đường dẫn API kèm token, và KHÔNG nói rằng "
-            f"họ có thể mở link đó trực tiếp — link đó cần xác thực nên sẽ báo lỗi 401."
-        ),
-        # Đường dẫn chỉ để hệ thống đối chiếu, LLM không nên trích ra cho người dùng.
-        "_download_path_for_logging": download_url,
-    }
+    async def _executor() -> Dict[str, Any]:
+        from core.connectors.generic_connector import GenericConnector
+        from core.server import (
+            _content_disposition,
+            _rows_to_csv,
+            _rows_to_xlsx,
+            _safe_filename,
+        )
+        from core.download_queue import download_queue
+        from datetime import datetime
+
+        record = custom_registry.get_source(source_id, include_secrets=True)
+        if not record:
+            return {"success": False, "error": f"Không tìm thấy nguồn '{source_id}'"}
+
+        # Gọi trực tiếp connector, không qua HTTP: cùng một dữ liệu nhưng không
+        # cần token, không cần vòng gọi mạng về chính máy đang chạy.
+        params: Dict[str, Any] = {"limit": rows_cap}
+        if report:
+            params["path"] = report
+        result = await GenericConnector(record).fetch_data(params)
+
+        if not result.success:
+            return {"success": False, "error": result.error}
+
+        data = result.data or {}
+        data_rows = data.get("rows") or []
+        columns = data.get("columns") or (list(data_rows[0].keys()) if data_rows else [])
+        if not data_rows:
+            return {"success": False, "error": "Nguồn dữ liệu không có bản ghi nào để xuất"}
+
+        payload = (
+            _rows_to_csv(data_rows, columns)
+            if fmt == "csv"
+            else _rows_to_xlsx(data_rows, columns, _safe_filename(title))
+        )
+        stamp = datetime.utcnow().strftime("%Y%m%d-%H%M")
+        filename = f"{_safe_filename(title)}-{stamp}.{fmt}"
+        disposition = _content_disposition(title, stamp, fmt)
+
+        job = download_queue.put(
+            source_id=source_id,
+            source_title=title,
+            report=report_name,
+            fmt=fmt,
+            title=title,
+            filename=filename,
+            payload=payload,
+            row_count=len(data_rows),
+        )
+
+        return {
+            "success": True,
+            "job_id": job.job_id,
+            "filename": job.filename,
+            "format": fmt,
+            "rows": len(data_rows),
+            "total_available": data.get("total", len(data_rows)),
+            "expires_in": 900,
+            "content_disposition": disposition,
+        }
+
+    return await _run_with_hitl(
+        action_name="data_source_export",
+        params={"source_id": source_id, "report": report, "format": fmt, "max_rows": rows_cap},
+        executor=_executor,
+        description=f"AI Ly Ly dựng file {fmt.upper()} báo cáo '{report_name}' từ nguồn {title}",
+    )

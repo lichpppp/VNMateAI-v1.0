@@ -2921,6 +2921,7 @@ async function sendVoiceCommand() {
     if (card && textEl) {
       card.classList.remove('hidden');
       textEl.innerHTML = renderPortalMarkdown(res.reply || 'Đã hoàn thành tác vụ yêu cầu.');
+      scheduleAiDownloadCheck();
     }
 
     if (res.audio_base64) {
@@ -7162,6 +7163,7 @@ function initPortalWebSocket() {
       if (card && textEl) {
         card.classList.remove('hidden');
         textEl.innerHTML = renderPortalMarkdown(replyMsg);
+        scheduleAiDownloadCheck();
       }
       showToast(`✅ Đã phê duyệt: ${replyMsg.slice(0, 80)}`, 'success');
       document.getElementById('pending-action-banner')?.classList.add('hidden');
@@ -7180,6 +7182,7 @@ function initPortalWebSocket() {
       if (card && textEl) {
         card.classList.remove('hidden');
         textEl.innerHTML = renderPortalMarkdown(msg.reply || msg.speech_reply || 'Đã hoàn thành tác vụ yêu cầu.');
+        scheduleAiDownloadCheck();
       }
       if (msg.audio_base64) {
         lastAudioBase64 = msg.audio_base64;
@@ -9785,6 +9788,100 @@ function _ccExportButtons(id) {
         CSV
       </button>
     </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── Phase 64: Tự động tải file AI đã dựng ─────────────────────────────────
+//
+// AI xuất báo cáo xong sẽ xếp file vào hàng đợi trên máy chủ. Giao diện poll
+// hàng đợi rồi tự tải về — người dùng chỉ cần ra lệnh, không phải bấm gì.
+//
+// Vì sao không đưa link có token cho người dùng:
+//   - link đó cần Bearer token, trình duyệt không gắn token khi bấm link
+//     thường -> đã kiểm chứng là 401;
+//   - link còn nằm trong lịch sử hội thoại và được gửi lại cho nhà cung cấp
+//     LLM ở lượt sau, tức rò bí mật ra ngoài dù token có hạn.
+// Ở đây dùng `job_id` — mã ngẫu nhiên, không phải bí mật.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Các job đã xử lý, để không tải trùng mỗi lần poll. */
+const _ccDownloadedJobs = new Set();
+
+/**
+ * Tải một job về máy.
+ *
+ * Gọi bằng phiên đăng nhập sẵn có (Bearer token trong localStorage) — cùng
+ * cơ chế với mọi lệnh gọi khác, không cần mở tab mới.
+ */
+async function _ccDownloadJob(job) {
+  try {
+    const res = await apiFetch(
+      `${API_BASE}/api/v1/enterprise/downloads/${encodeURIComponent(job.job_id)}`,
+      { headers: { 'Authorization': `Bearer ${getAuthToken()}` } }
+    );
+
+    if (!res.ok) {
+      // Job hết hạn giữa chừng là chuyện bình thường, không phải lỗi hệ thống.
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (_) { /* không phải JSON */ }
+      showToast(`⚠ Không tải được "${job.filename}": ${msg}`, 'error');
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = job.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Giải phóng muộn: thả sớm thì một số trình duyệt tải về file rỗng.
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+
+    showToast(
+      `✔ Đã tải "${job.filename}" — ${job.row_count} dòng, định dạng ${(job.format || '').toUpperCase()}`,
+      'success'
+    );
+  } catch (err) {
+    showToast(`✖ Tải file lỗi: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Kiểm tra hàng đợi tải và tự động tải những file mới.
+ *
+ * Gọi sau mỗi câu trả lời của AI. Job đã xử lý được đánh dấu nên poll lặp lại
+ * không tải trùng — nếu không, mỗi vòng poll sẽ tải lại cùng một file.
+ */
+async function pollAiDownloads() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/enterprise/downloads/pending`, {
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok || d?.status === 'error' || !Array.isArray(d.jobs)) return;
+
+    for (const job of d.jobs) {
+      if (!job?.job_id || _ccDownloadedJobs.has(job.job_id)) continue;
+      _ccDownloadedJobs.add(job.job_id);
+      await _ccDownloadJob(job);
+    }
+  } catch (_) {
+    // Im lặng: không có mạng thì không tải được, nhưng người dùng vẫn đọc
+    // được câu trả lời của AI. Báo lỗi ở đây sẽ thành nhiễu mỗi lượt chat.
+  }
+}
+
+/**
+ * Gọi sau khi AI trả lời: chờ một nhịp cho tool chạy xong rồi kiểm tra hàng đợi.
+ *
+ * Tool `prepare_data_source_export` đẩy job vào hàng đợi ngay trước khi LLM
+ * sinh câu trả lời, nên khi câu trả lời tới nơi thì job đã có mặt. Nhịp chờ
+ * ngắn chỉ để chắc chắn thứ tự mạng không đảo chiều.
+ */
+function scheduleAiDownloadCheck() {
+  setTimeout(pollAiDownloads, 700);
 }
 
 /** Rút giá trị ô về chuỗi ngắn, gọn — bảng báo cáo thường có object lồng. */

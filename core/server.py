@@ -6078,6 +6078,91 @@ def _rows_to_xlsx(rows: List[Dict[str, Any]], columns: List[str], sheet_title: s
     return bio.getvalue()
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ── Phase 64: Hàng đợi tải file (AI xuất báo cáo, giao diện tự tải) ────────
+# AI dựng file rồi xếp vào hàng đợi; giao diện thấy là tải về máy bằng phiên
+# đăng nhập sẵn có. Không có endpoint nào ở đây trả nội dung file trong JSON —
+# xem `core/download_queue.py` để hiểu vì sao không đưa link có token cho AI.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.get(
+    "/api/v1/enterprise/downloads/pending",
+    summary="Phase 64: Các file AI đã dựng, chờ giao diện tải",
+    tags=["Enterprise OS Phase 64"],
+)
+async def api_downloads_pending(
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Giao diện poll endpoint này sau mỗi câu trả lời của AI.
+
+    Chỉ trả metadata, KHÔNG kèm nội dung file: dữ liệu báo cáo phải đi qua
+    endpoint tải có xác thực, không nằm lẫn trong phản hồi poll.
+    """
+    from core.download_queue import download_queue
+
+    jobs = download_queue.pending()
+    return {"status": "success", "jobs": jobs, "count": len(jobs)}
+
+
+@app.get(
+    "/api/v1/enterprise/downloads/{job_id}",
+    summary="Phase 64: Tải file AI đã dựng",
+    tags=["Enterprise OS Phase 64"],
+)
+async def api_download_file(
+    job_id: str,
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+):
+    """
+    Trả file về máy và XOÁ job khỏi hàng đợi ngay lúc lấy.
+
+    Xoá sớm là cố ý: job chỉ tải được một lần. Đổi lại không có dữ liệu báo
+    cáo nào nằm lại trong RAM quá thời hạn.
+    """
+    from core.download_queue import download_queue
+
+    job = download_queue.take(job_id)
+    if job is None:
+        # Trả 404 chứ không phải 403: job hết hạn và job không tồn tại là cùng
+        # một việc với người dùng, và phân biệt chỉ giúp kẻ đoán mò.
+        return {"status": "error", "error": "File đã hết hạn hoặc đã được tải"}
+
+    from fastapi.responses import Response as FastAPIResponse
+
+    media = (
+        "text/csv; charset=utf-8"
+        if job.format == "csv"
+        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    return FastAPIResponse(
+        content=job.payload,
+        media_type=media,
+        headers={
+            # `job.filename` đã đi qua `_safe_filename` nên chỉ còn ASCII an
+            # toàn; header này không cần `filename*` vì tên đã bỏ dấu.
+            "Content-Disposition": f'attachment; filename="{job.filename}"',
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.post(
+    "/api/v1/enterprise/downloads/clear",
+    summary="Phase 64: Xoá toàn bộ file đang chờ tải",
+    tags=["Enterprise OS Phase 64"],
+)
+async def api_downloads_clear(
+    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    """Bỏ mọi job đang chờ. Chỉ admin — dùng khi đổi máy hoặc cần dọn."""
+    from core.download_queue import download_queue
+
+    n = download_queue.drop_all()
+    return {"status": "success", "cleared": n}
+
+
 @app.get(
     "/api/v1/enterprise/plugin-registry/stats",
     summary="Phase 60: Thống kê Plugin Registry + trạng thái circuit breaker",
