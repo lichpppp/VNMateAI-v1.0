@@ -9543,6 +9543,9 @@ function initCcDataSourceRegistry() {
   registerDefaultDataSources();
   // Load sub-tab 'conn' mặc định (kết nối)
   loadCcDataSourceTab('conn');
+  // Tạo trước pane/button cho reporting và analytics
+  loadCcDataSourceTab('reporting');
+  loadCcDataSourceTab('analytics');
 }
 
 // Export cho window
