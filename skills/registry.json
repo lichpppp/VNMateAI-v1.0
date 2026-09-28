@@ -1,0 +1,2074 @@
+{
+  "delegate_to_multi_agent": {
+    "module": "skills.agent_orchestrator",
+    "attr": "delegate_to_multi_agent",
+    "meta": {
+      "name": "delegate_to_multi_agent",
+      "description": "Ủy quyền yêu cầu cho Hệ thống Đa tác nhân (Multi-Agent Enterprise OS). Tự động phân loại tới CFO Agent (Tài chính), HR Agent (Nhân sự/Chính sách) hoặc CTO Agent (Hạ tầng kỹ thuật).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Nội dung chỉ đạo của CEO hoặc người dùng (ví dụ: 'Tháng này chi phí server tăng không?', 'Ai đang làm việc năng suất nhất?')."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "get_executive_standup_briefing": {
+    "module": "skills.agent_orchestrator",
+    "attr": "get_executive_standup_briefing",
+    "meta": {
+      "name": "get_executive_standup_briefing",
+      "description": "Tạo báo cáo Họp Giao Ban Tự Động (Executive Daily Standup) tóm tắt tình hình toàn diện công ty trong 24h qua (Dòng tiền CFO, Tiến độ HR, Hạ tầng CTO). Dùng khi CEO yêu cầu báo cáo tình hình bằng giọng nói.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "enabled": true
+  },
+  "delegate_to_specialist": {
+    "module": "skills.ai_delegation",
+    "attr": "delegate_to_specialist",
+    "meta": {
+      "name": "delegate_to_specialist",
+      "description": "Ủy quyền (delegate) bài toán phức tạp cho Chuyên gia Hệ thống cấp cao (Claude) phân tích sâu, viết mã nguồn, chẩn đoán nguyên nhân gốc rễ (Root Cause) hoặc lập kế hoạch kiến trúc.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_description": {
+            "type": "string",
+            "description": "Mô tả chi tiết bài toán, lỗi hoặc yêu cầu kỹ thuật cần chuyên gia Claude xử lý."
+          },
+          "context_data": {
+            "type": "string",
+            "description": "Ngữ cảnh chi tiết, file log, đoạn mã nguồn, cấu hình hoặc dữ liệu điều tra liên quan."
+          },
+          "target_client": {
+            "type": "string",
+            "description": "ID hoặc tên máy trạm liên quan nếu có (mặc định: 'master')."
+          }
+        },
+        "required": [
+          "task_description"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "check_cashflow_predictive_health": {
+    "module": "skills.analytics_engine",
+    "attr": "check_cashflow_predictive_health",
+    "meta": {
+      "name": "check_cashflow_predictive_health",
+      "description": "Chạy thuật toán dự báo dòng tiền và tốc độ đốt tiền (Burn Rate & Runway). Nếu phát hiện quỹ công ty cạn kiệt trong vòng dưới 15 ngày, tự động kích hoạt CẢNH BÁO ĐỎ.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "enabled": true
+  },
+  "generate_dynamic_sql_chart": {
+    "module": "skills.analytics_engine",
+    "attr": "generate_dynamic_sql_chart",
+    "meta": {
+      "name": "generate_dynamic_sql_chart",
+      "description": "Chuyển đổi yêu cầu phân tích dữ liệu kinh doanh của CEO (ví dụ: 'Vẽ biểu đồ chi phí', 'Thống kê task theo phòng ban', 'Biểu đồ dòng tiền') thành câu lệnh SQL an toàn và sinh cấu hình Chart.js hiển thị ngay trên Web.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Câu lệnh hoặc yêu cầu phân tích (ví dụ: 'Vẽ biểu đồ chi phí theo danh mục', 'Tỷ lệ trạng thái task')."
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "get_attendance_report": {
+    "module": "skills.business_tools",
+    "attr": "get_attendance_report",
+    "meta": {
+      "name": "get_attendance_report",
+      "description": "Tra cứu danh sách chấm công hôm nay hoặc theo ngày cụ thể.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date_str": {
+            "type": "string",
+            "description": "Ngày cần tra cứu dạng YYYY-MM-DD (bỏ trống để lấy hôm nay)."
+          }
+        }
+      }
+    },
+    "enabled": true
+  },
+  "get_executive_leaderboard": {
+    "module": "skills.business_tools",
+    "attr": "get_executive_leaderboard",
+    "meta": {
+      "name": "get_executive_leaderboard",
+      "description": "Lấy bảng xếp hạng thi đua công việc (Leaderboard) toàn công ty, vinh danh nhân viên hoàn thành nhiều task nhất.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Số lượng nhân viên top đầu cần lấy (mặc định: 5).",
+            "default": 5
+          }
+        }
+      }
+    },
+    "enabled": true
+  },
+  "get_financial_summary": {
+    "module": "skills.business_tools",
+    "attr": "get_financial_summary",
+    "meta": {
+      "name": "get_financial_summary",
+      "description": "Lấy báo cáo tổng hợp dòng tiền (Cashflow, Thu, Chi, Số dư quỹ, Tốc độ đốt tiền Burn Rate, Runway) của doanh nghiệp.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "description": "Số ngày phân tích gần nhất (mặc định: 30 ngày).",
+            "default": 30
+          }
+        }
+      }
+    },
+    "enabled": true
+  },
+  "record_attendance_skill": {
+    "module": "skills.business_tools",
+    "attr": "record_attendance_skill",
+    "meta": {
+      "name": "record_attendance_skill",
+      "description": "Ghi nhận lượt chấm công hoặc điểm danh cho nhân viên.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "employee_identifier": {
+            "type": "string",
+            "description": "Tên, email hoặc ID của nhân viên cần điểm danh."
+          },
+          "status": {
+            "type": "string",
+            "description": "Trạng thái: 'present' (Có mặt), 'late' (Đi muộn), 'early_leave' (Về sớm), 'remote' (Làm từ xa).",
+            "default": "present"
+          },
+          "check_out": {
+            "type": "boolean",
+            "description": "Nếu là điểm danh ra về (Check-out) thì đặt true, ngược lại vào ca là false.",
+            "default": false
+          }
+        },
+        "required": [
+          "employee_identifier"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "record_expense": {
+    "module": "skills.business_tools",
+    "attr": "record_expense",
+    "meta": {
+      "name": "record_expense",
+      "description": "Ghi nhận khoản chi tiêu (chi phí) vào Sổ quỹ tài chính doanh nghiệp. Dùng khi CEO hoặc quản lý ra lệnh chi tiền hoặc báo cáo chi phí.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Số tiền chi tiêu tính bằng VND (ví dụ: 15000000, 500000)."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Lý do hoặc mô tả chi tiết khoản chi (ví dụ: 'Mua bàn ghế văn phòng', 'Chi phí server AWS')."
+          },
+          "category": {
+            "type": "string",
+            "description": "Phân loại chi phí: 'Hạ tầng Cloud & Server', 'Lương & Thưởng', 'Văn phòng phẩm & Tiện ích', 'Nghiên cứu & Phát triển', 'Tiếp khách', 'Marketing', hoặc 'Khác'.",
+            "default": "Chi phí hoạt động"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Người hoặc vai trò thực hiện ghi nhận (mặc định: 'CEO').",
+            "default": "CEO"
+          }
+        },
+        "required": [
+          "amount",
+          "reason"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "record_income": {
+    "module": "skills.business_tools",
+    "attr": "record_income",
+    "meta": {
+      "name": "record_income",
+      "description": "Ghi nhận khoản thu (doanh thu, thanh toán hợp đồng) vào Sổ quỹ doanh nghiệp.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Số tiền thu tính bằng VND."
+          },
+          "source": {
+            "type": "string",
+            "description": "Nguồn thu hoặc khách hàng thanh toán (ví dụ: 'Thanh toán đợt 2 Hợp đồng công ty ABC')."
+          },
+          "category": {
+            "type": "string",
+            "description": "Danh mục: 'Doanh thu hợp đồng', 'Dịch vụ bảo trì', 'Tư vấn chuyển đổi số', hoặc 'Khác'.",
+            "default": "Doanh thu hợp đồng"
+          },
+          "created_by": {
+            "type": "string",
+            "description": "Người ghi nhận (mặc định: 'CEO').",
+            "default": "CEO"
+          }
+        },
+        "required": [
+          "amount",
+          "source"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "test_ping_host": {
+    "module": "skills.custom_skills",
+    "attr": "test_ping_host",
+    "meta": {
+      "name": "test_ping_host",
+      "description": "Kiểm tra kết nối mạng ping đến máy chủ",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "lookup_domain_info": {
+    "module": "skills.domain_alert_skills",
+    "attr": "lookup_domain_info",
+    "meta": {
+      "name": "lookup_domain_info",
+      "description": "Tra cứu thông tin nhân sự và máy tính trong hệ thống nội bộ doanh nghiệp từ database đã đồng bộ AD. Dùng khi cần tìm số điện thoại nhân viên, phòng ban, chức vụ, email, hoặc tìm xem ai đang dùng máy tính nào, hoặc máy tính có địa chỉ IP nào thuộc về ai. Ví dụ: 'Số điện thoại nhân viên Nguyễn Văn A', 'Máy tính PC-KETOAN-01 của ai', 'Danh sách máy Windows 11'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query_string": {
+            "type": "string",
+            "description": "Chuỗi tìm kiếm — tên nhân viên, tên phòng ban, hostname, địa chỉ IP, hoặc từ khóa liên quan."
+          }
+        },
+        "required": [
+          "query_string"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "send_telegram_message": {
+    "module": "skills.domain_alert_skills",
+    "attr": "send_telegram_message",
+    "meta": {
+      "name": "send_telegram_message",
+      "description": "Gửi tin nhắn cảnh báo sự cố hoặc thông báo chủ động lên Telegram cho quản trị viên. Dùng khi phát hiện sự cố nghiêm trọng (CPU quá cao, dịch vụ down, bảo mật bị xâm phạm), hoặc khi người dùng yêu cầu thông báo cho ai đó qua Telegram. Target 'incident_group' gửi vào nhóm sự cố chung, 'all_admins' gửi cho tất cả admin, hoặc nhập chat_id cụ thể của từng admin.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Đích gửi: 'incident_group' để gửi vào nhóm sự cố, 'all_admins' để gửi cho tất cả admin, hoặc chat_id Telegram cụ thể của admin.",
+            "default": "incident_group"
+          },
+          "message": {
+            "type": "string",
+            "description": "Nội dung tin nhắn cảnh báo, tối đa 4000 ký tự."
+          }
+        },
+        "required": [
+          "message"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "simulate_incoming_customer_email": {
+    "module": "skills.email_gateway",
+    "attr": "simulate_incoming_customer_email",
+    "meta": {
+      "name": "simulate_incoming_customer_email",
+      "description": "Mô phỏng hoặc tiếp nhận email từ khách hàng/đối tác gửi tới hòm thư doanh nghiệp. Tự động phân tích ngữ nghĩa, xếp loại khẩn cấp (P1-P4), tạo Ticket vào bảng tasks và tạo email phản hồi lịch sự.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "sender_email": {
+            "type": "string",
+            "description": "Địa chỉ email của khách hàng gửi tới (ví dụ: 'nguyenvana@techcorp.vn')."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Tiêu đề email (ví dụ: 'Máy chủ API không phản hồi từ 10h sáng')."
+          },
+          "content": {
+            "type": "string",
+            "description": "Nội dung chi tiết của email báo lỗi hoặc yêu cầu dịch vụ."
+          }
+        },
+        "required": [
+          "sender_email",
+          "subject",
+          "content"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "query_company_policy": {
+    "module": "skills.enterprise_rag",
+    "attr": "query_company_policy",
+    "meta": {
+      "name": "query_company_policy",
+      "description": "Tra cứu nội quy, quy trình chuẩn (SOP), chính sách nhân sự, nghỉ phép, nghỉ ốm, thai sản, tạm ứng công tác phí từ Trung tâm Tri thức Doanh nghiệp (Enterprise RAG). Trả lời chính xác 100% theo văn bản pháp lý của công ty.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Câu hỏi của nhân viên hoặc CEO (ví dụ: 'Nghỉ ốm cần nộp giấy tờ gì?', 'Quy trình xin nghỉ phép trên 3 ngày như thế nào?')."
+          }
+        },
+        "required": [
+          "question"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "append_genealogy_record": {
+    "module": "skills.excel_records_skill",
+    "attr": "append_genealogy_record",
+    "meta": {
+      "name": "append_genealogy_record",
+      "description": "Nhập liệu gia phả / Hán Nôm vào file Excel thông qua COM Interface. Tự động tìm dòng trống tiếp theo và ghi các trường: Họ tên, Đời thứ, Chi phái, Năm sinh, Năm mất, Ghi chú chữ Húy.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "excel_path": {
+            "type": "string",
+            "description": "Đường dẫn tuyệt đối đến file Excel (.xlsx hoặc .xls)."
+          },
+          "ho_ten": {
+            "type": "string",
+            "description": "Họ và tên đầy đủ (có thể bao gồm chữ Hán Nôm)."
+          },
+          "doi_thu": {
+            "type": "integer",
+            "description": "Đời thứ trong gia phả (số nguyên, ví dụ: 5)."
+          },
+          "chi_phai": {
+            "type": "string",
+            "description": "Chi phái / nhánh gia tộc (ví dụ: 'Chi trưởng', 'Chi thứ hai').",
+            "default": ""
+          },
+          "nam_sinh": {
+            "type": "integer",
+            "description": "Năm sinh (dương lịch). Dùng 0 nếu không rõ.",
+            "default": 0
+          },
+          "nam_mat": {
+            "type": "integer",
+            "description": "Năm mất (dương lịch). Dùng 0 nếu còn sống hoặc không rõ.",
+            "default": 0
+          },
+          "ghi_chu": {
+            "type": "string",
+            "description": "Ghi chú bổ sung, bao gồm chữ Húy hoặc hiệu (Hán Nôm).",
+            "default": ""
+          },
+          "sheet_name": {
+            "type": "string",
+            "description": "Tên sheet cần ghi vào. Mặc định là sheet đầu tiên.",
+            "default": ""
+          }
+        },
+        "required": [
+          "excel_path",
+          "ho_ten",
+          "doi_thu"
+        ]
+      }
+    },
+    "enabled": false
+  },
+  "delete_item": {
+    "module": "skills.file_system",
+    "attr": "delete_item",
+    "meta": {
+      "name": "delete_item",
+      "description": "Xóa tệp tin đơn lẻ hoặc thư mục trên hệ thống.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Đường dẫn tệp tin hoặc thư mục cần xóa."
+          },
+          "is_folder": {
+            "type": "boolean",
+            "description": "Đặt thành true nếu đối tượng cần xóa là thư mục. Mặc định là false (xóa tệp tin đơn lẻ)."
+          },
+          "target_client": {
+            "type": "string",
+            "description": "ID hoặc tên máy trạm đích cần thực thi (mặc định: 'master')."
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "Bí danh thay thế cho target_client nếu có."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "list_directory": {
+    "module": "skills.file_system",
+    "attr": "list_directory",
+    "meta": {
+      "name": "list_directory",
+      "description": "Liệt kê nội dung thư mục bao gồm tên file/thư mục con, dung lượng và thời gian sửa đổi gần nhất.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Đường dẫn thư mục cần liệt kê (ví dụ: '.', './logs', 'C:\\Logs', '/var/log')."
+          },
+          "target_client": {
+            "type": "string",
+            "description": "ID hoặc tên máy trạm đích cần thực thi (mặc định: 'master')."
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "Bí danh thay thế cho target_client nếu có."
+          }
+        },
+        "required": [
+          "path"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "read_file": {
+    "module": "skills.file_system",
+    "attr": "read_file",
+    "meta": {
+      "name": "read_file",
+      "description": "Đọc nội dung tệp tin văn bản hoặc file log hệ thống. Tự động đọc N dòng cuối nếu file quá lớn để tránh tràn bộ nhớ.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Đường dẫn tệp tin cần đọc (ví dụ: 'logs/security_audit.log', 'config.json')."
+          },
+          "lines": {
+            "type": "integer",
+            "description": "Số lượng dòng tối đa cần đọc. Mặc định là 500 dòng cuối nếu file lớn."
+          },
+          "target_client": {
+            "type": "string",
+            "description": "ID hoặc tên máy trạm đích cần thực thi (mặc định: 'master')."
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "Bí danh thay thế cho target_client nếu có."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "write_file": {
+    "module": "skills.file_system",
+    "attr": "write_file",
+    "meta": {
+      "name": "write_file",
+      "description": "Tạo file mới hoặc ghi đè (mode='w'), hoặc ghi tiếp vào cuối file (mode='a'). Hỗ trợ tự động tạo thư mục cha.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Đường dẫn tệp tin cần tạo mới hoặc ghi nội dung (ví dụ: 'scripts/clean_cache.py', 'reports/test.txt')."
+          },
+          "content": {
+            "type": "string",
+            "description": "Nội dung văn bản cần ghi vào tệp tin."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "w",
+              "a"
+            ],
+            "description": "Chế độ ghi: 'w' (tạo mới hoặc ghi đè toàn bộ), 'a' (ghi nối tiếp vào cuối file). Mặc định: 'w'."
+          },
+          "target_client": {
+            "type": "string",
+            "description": "ID hoặc tên máy trạm đích cần thực thi (mặc định: 'master')."
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "Bí danh thay thế cho target_client nếu có."
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "query_enterprise_graph_rag": {
+    "module": "skills.graph_rag",
+    "attr": "query_enterprise_graph_rag",
+    "meta": {
+      "name": "query_enterprise_graph_rag",
+      "description": "Tra cứu đồ thị tri thức doanh nghiệp GraphRAG (Kết hợp quan hệ Entities Triplet và Vector Semantic Search). Tuyệt đối loại bỏ hiện tượng AI ảo giác đối với quy trình phê duyệt, thủ tục xin nghỉ, thanh toán chi phí hoặc quy chế công ty.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string",
+            "description": "Câu hỏi cần tra cứu luồng quy trình (ví dụ: 'Quy trình xin nghỉ phép từ 2 đến 3 ngày', 'Ai là người duyệt chi phí trên 10 triệu?')."
+          }
+        },
+        "required": [
+          "question"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "check_aws_cost": {
+    "module": "skills.integration_tools",
+    "attr": "check_aws_cost",
+    "meta": {
+      "name": "check_aws_cost",
+      "description": "Kiểm tra chi phí AWS (AWS Cost Explorer) trong khoảng thời gian. Trả về tổng chi phí USD và breakdown theo service.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "description": "Ngày bắt đầu (YYYY-MM-DD). Mặc định: 30 ngày trước."
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Ngày kết thúc (YYYY-MM-DD). Mặc định: hôm nay."
+          },
+          "granularity": {
+            "type": "string",
+            "enum": [
+              "DAILY",
+              "MONTHLY",
+              "HOURLY"
+            ],
+            "description": "Độ chi tiết. Mặc định: MONTHLY."
+          },
+          "group_by": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Group theo dimension (SERVICE, LINKED_ACCOUNT...). Mặc định: ['SERVICE']."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "check_aws_instances": {
+    "module": "skills.integration_tools",
+    "attr": "check_aws_instances",
+    "meta": {
+      "name": "check_aws_instances",
+      "description": "Lấy danh sách EC2 instances đang chạy trên AWS. Trả về instance ID, state, type, IP, tags.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state_filter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lọc theo state (running, stopped, terminated...). Mặc định: ['running']."
+          },
+          "tag_filters": {
+            "type": "object",
+            "description": "Lọc theo tag key-value (ví dụ: {'Environment': 'prod'})."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "check_connector_health": {
+    "module": "skills.integration_tools",
+    "attr": "check_connector_health",
+    "meta": {
+      "name": "check_connector_health",
+      "description": "Kiểm tra sức khỏe kết nối các hệ thống ngoại vi (AWS, OCI, Paperless, eInvoice).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "connectors": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "aws",
+                "oci",
+                "paperless",
+                "einvoice"
+              ]
+            },
+            "description": "Danh sách connector cần check. Mặc định: tất cả."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "check_einvoice_daily": {
+    "module": "skills.integration_tools",
+    "attr": "check_einvoice_daily",
+    "meta": {
+      "name": "check_einvoice_daily",
+      "description": "Thống kê hóa đơn điện tử (HĐĐT) trong 1 ngày: số lượng, tổng tiền, thuế, số lỗi, hủy.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Ngày thống kê (YYYY-MM-DD). Mặc định: hôm nay."
+          },
+          "tax_code": {
+            "type": "string",
+            "description": "Mã số thuế doanh nghiệp. Mặc định: config EINVOICE_TAX_CODE."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "check_oci_instances": {
+    "module": "skills.integration_tools",
+    "attr": "check_oci_instances",
+    "meta": {
+      "name": "check_oci_instances",
+      "description": "Lấy danh sách Compute instances trên Oracle Cloud (OCI). Trả về OCID, display name, shape, state, IP.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "compartment_id": {
+            "type": "string",
+            "description": "OCID compartment. Mặc định: config OCI_COMPARTMENT_ID."
+          },
+          "state_filter": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lọc theo lifecycle state (RUNNING, STOPPED...). Mặc định: ['RUNNING']."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "check_oci_metrics": {
+    "module": "skills.integration_tools",
+    "attr": "check_oci_metrics",
+    "meta": {
+      "name": "check_oci_metrics",
+      "description": "Lấy metrics CPU/RAM/Network của OCI Compute instances (Monitoring API).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "compartment_id": {
+            "type": "string",
+            "description": "OCID compartment. Mặc định: config."
+          },
+          "instance_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "List OCID instance để lọc. None = tất cả."
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Metric names (CpuUtilization, MemoryUtilization, NetworkBytesIn, NetworkBytesOut). Mặc định: tất cả."
+          },
+          "start_time": {
+            "type": "string",
+            "description": "ISO datetime bắt đầu. Mặc định: 1 giờ trước."
+          },
+          "end_time": {
+            "type": "string",
+            "description": "ISO datetime kết thúc. Mặc định: now."
+          },
+          "interval_minutes": {
+            "type": "integer",
+            "description": "Khoảng lấy mẫu (phút). Mặc định: 5."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "download_paperless_document": {
+    "module": "skills.integration_tools",
+    "attr": "download_paperless_document",
+    "meta": {
+      "name": "download_paperless_document",
+      "description": "Tải file gốc (PDF) của tài liệu Paperless. Trả về base64 encoded.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "doc_id": {
+            "type": "integer",
+            "description": "Document ID."
+          },
+          "original": {
+            "type": "boolean",
+            "description": "True = file gốc, False = archived PDF/A. Mặc định: False."
+          }
+        },
+        "required": [
+          "doc_id"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "get_einvoice_details": {
+    "module": "skills.integration_tools",
+    "attr": "get_einvoice_details",
+    "meta": {
+      "name": "get_einvoice_details",
+      "description": "Lấy chi tiết 1 hóa đơn điện tử (items, seller, buyer, XML, PDF URL).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "invoice_id": {
+            "type": "string",
+            "description": "Invoice ID/UUID từ kết quả search."
+          }
+        },
+        "required": [
+          "invoice_id"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "get_paperless_document": {
+    "module": "skills.integration_tools",
+    "attr": "get_paperless_document",
+    "meta": {
+      "name": "get_paperless_document",
+      "description": "Lấy chi tiết đầy đủ 1 tài liệu Paperless (full OCR content, metadata, download URL).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "doc_id": {
+            "type": "integer",
+            "description": "Document ID từ kết quả search."
+          }
+        },
+        "required": [
+          "doc_id"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "search_einvoices": {
+    "module": "skills.integration_tools",
+    "attr": "search_einvoices",
+    "meta": {
+      "name": "search_einvoices",
+      "description": "Tìm kiếm hóa đơn điện tử theo từ khóa, mã số thuế người mua, trạng thái, khoảng ngày.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Từ khóa (số hóa đơn, tên người mua...)."
+          },
+          "buyer_tax_code": {
+            "type": "string",
+            "description": "Mã số thuế người mua."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "failed",
+              "cancelled"
+            ],
+            "description": "Trạng thái HĐĐT."
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Từ ngày (YYYY-MM-DD)."
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Đến ngày (YYYY-MM-DD)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Số kết quả tối đa (mặc định 20)."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Phân trang (mặc định 0)."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "search_paperless_documents": {
+    "module": "skills.integration_tools",
+    "attr": "search_paperless_documents",
+    "meta": {
+      "name": "search_paperless_documents",
+      "description": "Tìm kiếm tài liệu/hợp đồng/văn bản trong Paperless-ngx (full-text OCR). Trả về danh sách document với snippet nội dung.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Từ khóa tìm kiếm (tên file, nội dung OCR, correspondent...)."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Số kết quả tối đa (mặc định 10, max 100)."
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lọc theo tag names."
+          },
+          "correspondents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lọc theo correspondent (người gửi/nhận)."
+          },
+          "document_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lọc theo loại tài liệu (Hợp đồng, Hóa đơn, CV...)."
+          },
+          "created_after": {
+            "type": "string",
+            "description": "Ngày tạo sau (YYYY-MM-DD)."
+          },
+          "created_before": {
+            "type": "string",
+            "description": "Ngày tạo trước (YYYY-MM-DD)."
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "create_system_ticket": {
+    "module": "skills.itsm_skills",
+    "attr": "create_system_ticket",
+    "meta": {
+      "name": "create_system_ticket",
+      "description": "Tạo phiếu công việc ITSM khi AI phát hiện sự cố, hoàn tất xử lý hệ thống, hoặc khi nhân viên IT thực hiện thay đổi cần ghi nhận. Phiếu được lưu bất biến vào audit trail và hệ thống ERP.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "Tiêu đề ngắn gọn mô tả công việc hoặc sự cố (tối đa 200 ký tự)."
+          },
+          "description": {
+            "type": "string",
+            "description": "Mô tả chi tiết vấn đề, nguyên nhân, hành động đã thực hiện và kết quả."
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "incident",
+              "change",
+              "maintenance",
+              "ai_action",
+              "alert",
+              "other"
+            ],
+            "description": "Loại phiếu: 'incident'=sự cố, 'change'=thay đổi hệ thống, 'maintenance'=bảo trì định kỳ, 'ai_action'=AI tự xử lý, 'alert'=cảnh báo, 'other'=khác."
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "info"
+            ],
+            "description": "Mức độ nghiêm trọng: critical > high > medium > low > info."
+          },
+          "assignee_name": {
+            "type": "string",
+            "description": "Tên nhân viên phụ trách (tùy chọn). Nếu bỏ trống, phiếu ở trạng thái 'unassigned'."
+          },
+          "dept_name": {
+            "type": "string",
+            "description": "Tên phòng ban liên quan (tùy chọn, ví dụ: 'Phòng IT', 'Kế Toán')."
+          },
+          "created_by_ai": {
+            "type": "boolean",
+            "description": "True nếu phiếu được tạo tự động bởi AI (không phải do người dùng nhập tay)."
+          },
+          "resolution_notes": {
+            "type": "string",
+            "description": "Ghi chú giải quyết nếu vấn đề đã được xử lý xong ngay lúc tạo phiếu."
+          },
+          "caller_id": {
+            "type": "string",
+            "description": "ID nhân viên / user đang ra lệnh. Dùng để ghi vào audit trail."
+          }
+        },
+        "required": [
+          "title",
+          "category",
+          "severity"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "generate_daily_report": {
+    "module": "skills.itsm_skills",
+    "attr": "generate_daily_report",
+    "meta": {
+      "name": "generate_daily_report",
+      "description": "Tổng hợp báo cáo cuối ngày: thống kê phiếu ITSM, nhật ký kiểm toán, KPI AI và ước tính thời gian tiết kiệm được. Trả về báo cáo văn bản tiếng Việt và dữ liệu JSON cho Dashboard.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "report_date": {
+            "type": "string",
+            "description": "Ngày cần báo cáo (ISO format YYYY-MM-DD). Nếu để trống, mặc định là hôm nay."
+          },
+          "include_audit_details": {
+            "type": "boolean",
+            "description": "True để đính kèm 10 dòng audit log gần nhất vào báo cáo."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "get_tickets": {
+    "module": "skills.itsm_skills",
+    "attr": "get_tickets",
+    "meta": {
+      "name": "get_tickets",
+      "description": "Lấy danh sách phiếu ITSM từ hệ thống ERP. Hỗ trợ lọc theo trạng thái, phòng ban, hoặc chỉ xem phiếu do AI tạo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "status_filter": {
+            "type": "string",
+            "enum": [
+              "all",
+              "pending",
+              "in_progress",
+              "completed",
+              "cancelled"
+            ],
+            "description": "Lọc theo trạng thái. Mặc định 'all'."
+          },
+          "ai_only": {
+            "type": "boolean",
+            "description": "True để chỉ xem phiếu do AI tự tạo."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Số phiếu tối đa trả về. Mặc định 20, tối đa 100."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "update_ticket_status": {
+    "module": "skills.itsm_skills",
+    "attr": "update_ticket_status",
+    "meta": {
+      "name": "update_ticket_status",
+      "description": "Cập nhật trạng thái và ghi chú giải quyết cho một phiếu ITSM đã tồn tại. Thường dùng sau khi AI hoặc kỹ thuật viên hoàn thành xử lý sự cố.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ticket_id": {
+            "type": "string",
+            "description": "ID phiếu cần cập nhật (ví dụ: 'erp_abc123def456')."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "cancelled"
+            ],
+            "description": "Trạng thái mới của phiếu."
+          },
+          "resolution_notes": {
+            "type": "string",
+            "description": "Ghi chú mô tả cách thức giải quyết vấn đề."
+          },
+          "caller_id": {
+            "type": "string",
+            "description": "ID người thực hiện cập nhật (dùng cho audit trail)."
+          }
+        },
+        "required": [
+          "ticket_id",
+          "status"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "send_task_to_client": {
+    "module": "skills.lean_hr_skills",
+    "attr": "send_task_to_client",
+    "meta": {
+      "name": "send_task_to_client",
+      "description": "Giao việc hoặc gửi tin nhắn nhắc việc tương tác dạng popup nổi hai chiều xuống máy con trong mạng LAN.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "description": "Định danh mã máy trạm con (ví dụ: 'TEST-WORKER-01', 'KT-HOAN', 'MAY-KE-TOAN')."
+          },
+          "message": {
+            "type": "string",
+            "description": "Nội dung công việc hoặc thông điệp cần nhắc nhở nhân viên thực hiện."
+          },
+          "sender": {
+            "type": "string",
+            "description": "Tên người hoặc phòng ban giao việc (mặc định: 'Ban Giám Đốc')."
+          }
+        },
+        "required": [
+          "client_id",
+          "message"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "summarize_monthly_kpi": {
+    "module": "skills.lean_hr_skills",
+    "attr": "summarize_monthly_kpi",
+    "meta": {
+      "name": "summarize_monthly_kpi",
+      "description": "Đọc file nhật ký kpi_logs.csv để đếm tổng số lượng công việc đã hoàn thành hoặc vướng mắc của nhân viên theo tháng.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string",
+            "description": "Mã máy trạm cần tổng hợp (bỏ trống nếu muốn xem toàn bộ hệ thống)."
+          },
+          "month": {
+            "type": "string",
+            "description": "Tháng cần tổng hợp định dạng YYYY-MM hoặc số tháng như '9', '09' (mặc định: tháng hiện tại)."
+          }
+        }
+      }
+    },
+    "enabled": true
+  },
+  "create_new_skill": {
+    "module": "skills.meta_skills",
+    "attr": "create_new_skill",
+    "meta": {
+      "name": "create_new_skill",
+      "description": "Tự động thiết kế, sinh mã nguồn Python, kiểm tra an toàn AST và nạp nóng kỹ năng mới vào hệ thống VN-MateAI.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "intent_description": {
+            "type": "string",
+            "description": "Mô tả chi tiết chức năng kỹ năng cần tạo (đầu vào, quy tắc xử lý, dữ liệu trả về)."
+          },
+          "skill_name": {
+            "type": "string",
+            "description": "Tên hàm tiếng Anh dạng snake_case (tùy chọn), ví dụ: calculate_tax, scan_lan_devices."
+          }
+        },
+        "required": [
+          "intent_description"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "list_available_skills": {
+    "module": "skills.meta_skills",
+    "attr": "list_available_skills",
+    "meta": {
+      "name": "list_available_skills",
+      "description": "Liệt kê danh sách tất cả các kỹ năng đang hoạt động trong hệ thống kèm trạng thái.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filter_keyword": {
+            "type": "string",
+            "description": "Từ khóa lọc kỹ năng theo tên hoặc mô tả (tùy chọn)."
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "reload_all_skills": {
+    "module": "skills.meta_skills",
+    "attr": "reload_all_skills",
+    "meta": {
+      "name": "reload_all_skills",
+      "description": "Nạp lại toàn bộ kho kỹ năng từ đĩa, phát hiện các module mới và cập nhật registry trong bộ nhớ.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "capture_screen_base64": {
+    "module": "skills.monitoring_skills",
+    "attr": "capture_screen_base64",
+    "meta": {
+      "name": "capture_screen_base64",
+      "description": "Chụp toàn bộ màn hình máy tính, nén in-memory và trả về chuỗi Base64 cùng thông số độ phân giải.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "quality": {
+            "type": "integer",
+            "description": "Chất lượng nén JPEG (10-100)",
+            "default": 65
+          },
+          "max_width": {
+            "type": "integer",
+            "description": "Chiều rộng tối đa để resize (px)",
+            "default": 1280
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "check_peripherals": {
+    "module": "skills.monitoring_skills",
+    "attr": "check_peripherals",
+    "meta": {
+      "name": "check_peripherals",
+      "description": "Kiểm tra các thiết bị ngoại vi USB, bàn phím, chuột và thiết bị cắm ngoài đang kết nối.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "get_active_processes": {
+    "module": "skills.monitoring_skills",
+    "attr": "get_active_processes",
+    "meta": {
+      "name": "get_active_processes",
+      "description": "Liệt kê danh sách các tiến trình đang chạy ngốn nhiều CPU và RAM nhất trên máy tính.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Số lượng tiến trình tối đa cần lấy",
+            "default": 15
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "memory"
+            ],
+            "description": "Tiêu chí sắp xếp: 'cpu' hoặc 'memory'",
+            "default": "cpu"
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "get_network_connections": {
+    "module": "skills.monitoring_skills",
+    "attr": "get_network_connections",
+    "meta": {
+      "name": "get_network_connections",
+      "description": "Quét các kết nối mạng đang hoạt động (ESTABLISHED, LISTEN) và địa chỉ IP đích.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Số lượng kết nối tối đa",
+            "default": 30
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "kill_process": {
+    "module": "skills.pc_control_skills",
+    "attr": "kill_process",
+    "meta": {
+      "name": "kill_process",
+      "description": "Kết thúc (terminate/kill) một tiến trình theo tên hoặc PID. Dùng force=true nếu terminate thông thường không thành công.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Tên tiến trình (ví dụ: 'notepad.exe', 'chrome.exe'). Bỏ trống nếu dùng pid.",
+            "default": ""
+          },
+          "pid": {
+            "type": "integer",
+            "description": "PID của tiến trình. Dùng khi biết chính xác PID.",
+            "default": 0
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Nếu true, dùng kill() thay vì terminate() (mạnh hơn).",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "security_audit": {
+    "module": "skills.monitoring_skills",
+    "attr": "security_audit",
+    "meta": {
+      "name": "security_audit",
+      "description": "Kiểm toán an ninh: Đọc trạng thái Windows Defender (diệt virus thời gian thực) và Tường lửa (Firewall).",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "install_skill_from_url": {
+    "module": "skills.ninerouter_skills",
+    "attr": "install_skill_from_url",
+    "meta": {
+      "name": "install_skill_from_url",
+      "description": "Tải tài liệu SKILL.md hoặc mã nguồn kỹ năng từ đường dẫn URL (như GitHub raw, Gist, web link), lưu vào kho lưu trữ kỹ năng 'skills/' và tự động nạp vào runtime hệ thống. Dùng khi người dùng yêu cầu 'tải skill về', 'thêm skill từ URL', 'đọc và thêm vào kho kỹ năng'.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Đường dẫn URL chứa file kỹ năng (ví dụ: raw.githubusercontent.com/.../SKILL.md hoặc .py)."
+          },
+          "skill_name": {
+            "type": "string",
+            "description": "Tên định danh kỹ năng hoặc thư mục lưu trữ (tùy chọn, tự động nhận diện nếu để trống).",
+            "default": ""
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "ninerouter_chat": {
+    "module": "skills.ninerouter_skills",
+    "attr": "ninerouter_chat",
+    "meta": {
+      "name": "ninerouter_chat",
+      "description": "Gửi truy vấn hoặc yêu cầu sinh mã nguồn/phân tích chuyên sâu đến một mô hình LLM cụ thể trên 9Router (Gemini, Claude, GPT, DeepSeek).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Nội dung câu hỏi hoặc yêu cầu dành cho mô hình."
+          },
+          "model": {
+            "type": "string",
+            "description": "Tên model cụ thể trên 9Router (ví dụ: 'ag/gemini-3.8-flash-low', 'ag/claude-sonnet-4-6').",
+            "default": "ag/gemini-3.8-flash-low"
+          },
+          "system_prompt": {
+            "type": "string",
+            "description": "Chỉ thị hệ thống tùy chọn (System instruction).",
+            "default": ""
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "ninerouter_create_embeddings": {
+    "module": "skills.ninerouter_skills",
+    "attr": "ninerouter_create_embeddings",
+    "meta": {
+      "name": "ninerouter_create_embeddings",
+      "description": "Tạo vector biểu diễn ngữ nghĩa (Embeddings) cho văn bản qua 9Router phục vụ tra cứu ngữ nghĩa, RAG và tìm kiếm tương đồng.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Văn bản cần trích xuất vector embeddings."
+          },
+          "model": {
+            "type": "string",
+            "description": "Tên model embedding (ví dụ: 'openai/text-embedding-3-small').",
+            "default": "openai/text-embedding-3-small"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "ninerouter_generate_image": {
+    "module": "skills.ninerouter_skills",
+    "attr": "ninerouter_generate_image",
+    "meta": {
+      "name": "ninerouter_generate_image",
+      "description": "Tạo hình ảnh nghệ thuật từ mô tả văn bản (Text-to-Image) thông qua cổng 9Router bằng DALL-E, Gemini Imagen, FLUX, SDWebUI, ComfyUI. Dùng khi người dùng yêu cầu vẽ tranh, tạo ảnh minh họa.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "description": "Mô tả chi tiết bức ảnh cần tạo bằng tiếng Anh hoặc tiếng Việt."
+          },
+          "model": {
+            "type": "string",
+            "description": "Tên model tạo ảnh (ví dụ: 'openai/dall-e-3', 'flux', 'imagen').",
+            "default": "openai/dall-e-3"
+          },
+          "size": {
+            "type": "string",
+            "enum": [
+              "1024x1024",
+              "1792x1024",
+              "1024x1792",
+              "512x512"
+            ],
+            "description": "Kích thước bức ảnh.",
+            "default": "1024x1024"
+          }
+        },
+        "required": [
+          "prompt"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "ninerouter_text_to_speech": {
+    "module": "skills.ninerouter_skills",
+    "attr": "ninerouter_text_to_speech",
+    "meta": {
+      "name": "ninerouter_text_to_speech",
+      "description": "Chuyển văn bản thành giọng nói (Text-to-Speech) qua 9Router hỗ trợ giọng Edge TTS tiếng Việt, ElevenLabs, OpenAI TTS, Google TTS. Dùng khi muốn xuất file âm thanh đọc văn bản.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Đoạn văn bản cần chuyển thành giọng nói."
+          },
+          "voice_model": {
+            "type": "string",
+            "description": "Mã giọng đọc (ví dụ: 'edge-tts/vi-VN-HoaiMyNeural', 'edge-tts/vi-VN-NamMinhNeural', 'openai/tts-1').",
+            "default": "edge-tts/vi-VN-HoaiMyNeural"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "ninerouter_web_fetch": {
+    "module": "skills.ninerouter_skills",
+    "attr": "ninerouter_web_fetch",
+    "meta": {
+      "name": "ninerouter_web_fetch",
+      "description": "Cào và trích xuất nội dung văn bản sạch của một trang web thành định dạng Markdown, Text hoặc HTML qua cổng 9Router (sử dụng Jina Reader, Firecrawl, Tavily Extract). Dùng khi cần đọc bài báo, tài liệu, nội dung URL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Địa chỉ URL của trang web cần cào nội dung."
+          },
+          "model": {
+            "type": "string",
+            "description": "Nhà cung cấp trích xuất: 'jina-reader' (nhanh, miễn phí), 'firecrawl' (hỗ trợ JS), 'tavily', 'ollama'.",
+            "default": "jina-reader"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "markdown",
+              "text",
+              "html"
+            ],
+            "description": "Định dạng kết quả trả về. Mặc định là 'markdown'.",
+            "default": "markdown"
+          },
+          "max_characters": {
+            "type": "integer",
+            "description": "Giới hạn độ dài ký tự tối đa để tránh vượt quá ngữ cảnh. Mặc định 10000.",
+            "default": 10000
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "ninerouter_web_search": {
+    "module": "skills.ninerouter_skills",
+    "attr": "ninerouter_web_search",
+    "meta": {
+      "name": "ninerouter_web_search",
+      "description": "Tìm kiếm thông tin web, tin tức và bài viết trực tuyến thông qua cổng 9Router (hỗ trợ Tavily, Brave, Exa, Serper, Google PSE). Dùng khi cần tra cứu thông tin thời gian thực trên Internet.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Câu truy vấn tìm kiếm cần tra cứu trên Internet."
+          },
+          "model": {
+            "type": "string",
+            "description": "Nhà cung cấp / model tìm kiếm (ví dụ: 'tavily', 'brave-search', 'exa', 'serper'). Mặc định 'tavily'.",
+            "default": "tavily"
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Số lượng kết quả tìm kiếm tối đa cần lấy (mặc định 5).",
+            "default": 5
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "zero_touch_onboard_employee": {
+    "module": "skills.onboarding_workflow",
+    "attr": "zero_touch_onboard_employee",
+    "meta": {
+      "name": "zero_touch_onboard_employee",
+      "description": "Quy trình tự động hóa Onboarding nhân sự mới không chạm (Zero-Touch RPA): tạo hồ sơ trong ERP, khởi tạo thư mục Workspace, gán bộ task hội nhập, gửi Telegram chào mừng và ghi nhật ký bất biến Audit Log. LƯU Ý: hệ thống KHÔNG tạo tài khoản Active Directory (chỉ sinh lệnh PowerShell để admin chạy tay) và KHÔNG tạo mailbox Google Workspace/Exchange. Kết quả trả về kèm mảng `steps` đánh dấu từng bước là executed / not_executed / failed.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Họ và tên nhân viên mới (ví dụ: 'Lê Văn Bình', 'Nguyễn Thị Mai')."
+          },
+          "position": {
+            "type": "string",
+            "description": "Vị trí chức danh (ví dụ: 'Chuyên viên Kế toán', 'Kỹ sư AI')."
+          },
+          "department_name": {
+            "type": "string",
+            "description": "Tên phòng ban tiếp nhận (ví dụ: 'Tài chính - Kế toán', 'Phòng Kỹ thuật').",
+            "default": "Nhân sự"
+          },
+          "email": {
+            "type": "string",
+            "description": "Email cá nhân hoặc email công ty cấp (nếu để trống hệ thống tự sinh).",
+            "default": ""
+          },
+          "phone": {
+            "type": "string",
+            "description": "Số điện thoại liên hệ.",
+            "default": ""
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "operator",
+              "viewer"
+            ],
+            "description": "Phân quyền hệ thống. Chỉ 'operator'/'viewer' được phép qua skill này — các quyền đặc biệt ('admin', 'it_support') chỉ admin hệ thống mới cấp được. Mọi giá trị khác sẽ bị hạ về 'operator'.",
+            "default": "operator"
+          }
+        },
+        "required": [
+          "name",
+          "position"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "get_clipboard": {
+    "module": "skills.pc_control_skills",
+    "attr": "get_clipboard",
+    "meta": {
+      "name": "get_clipboard",
+      "description": "Đọc nội dung văn bản hiện tại trong clipboard của hệ thống.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "get_network_info": {
+    "module": "skills.pc_control_skills",
+    "attr": "get_network_info",
+    "meta": {
+      "name": "get_network_info",
+      "description": "Lấy thông tin mạng: IP address (local & public), trạng thái kết nối, tốc độ upload/download, DNS server.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "check_internet": {
+            "type": "boolean",
+            "description": "Kiểm tra kết nối Internet bằng cách ping 8.8.8.8. Mặc định: true.",
+            "default": true
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "get_system_info": {
+    "module": "skills.pc_control_skills",
+    "attr": "get_system_info",
+    "meta": {
+      "name": "get_system_info",
+      "description": "Lấy thông tin hệ thống máy tính: CPU usage, RAM, Disk, Uptime, tên máy, OS version, múi giờ, và nhiệt độ CPU (nếu có).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "include_temps": {
+            "type": "boolean",
+            "description": "Bao gồm thông tin nhiệt độ CPU/GPU nếu có. Mặc định: false.",
+            "default": false
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "list_processes": {
+    "module": "skills.pc_control_skills",
+    "attr": "list_processes",
+    "meta": {
+      "name": "list_processes",
+      "description": "Liệt kê các tiến trình đang chạy trên máy. Có thể lọc theo tên, sắp xếp theo CPU hoặc RAM.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filter_name": {
+            "type": "string",
+            "description": "Lọc tiến trình chứa từ khóa này (không phân biệt hoa/thường). Bỏ trống = tất cả.",
+            "default": ""
+          },
+          "sort_by": {
+            "type": "string",
+            "enum": [
+              "cpu",
+              "memory",
+              "name",
+              "pid"
+            ],
+            "description": "Tiêu chí sắp xếp. Mặc định: cpu.",
+            "default": "cpu"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Số lượng tiến trình trả về tối đa. Mặc định: 20.",
+            "default": 20
+          }
+        },
+        "required": []
+      }
+    },
+    "enabled": true
+  },
+  "open_application": {
+    "module": "skills.pc_control_skills",
+    "attr": "open_application",
+    "meta": {
+      "name": "open_application",
+      "description": "Mở một ứng dụng, file, hoặc URL bằng lệnh hệ thống mặc định. Ví dụ: mở Notepad, mở file PDF, mở trang web.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target": {
+            "type": "string",
+            "description": "Tên ứng dụng (vd: 'notepad', 'calc', 'mspaint'), đường dẫn file (vd: 'C:\\\\report.pdf'), hoặc URL (vd: 'https://google.com')."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Danh sách tham số bổ sung truyền cho ứng dụng.",
+            "default": []
+          }
+        },
+        "required": [
+          "target"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "run_powershell_command": {
+    "module": "skills.pc_control_skills",
+    "attr": "run_powershell_command",
+    "meta": {
+      "name": "run_powershell_command",
+      "description": "Thực thi một lệnh PowerShell trên máy tính. Có danh sách chặn các lệnh nguy hiểm. Dùng cho các tác vụ quản trị nhanh: kiểm tra sự kiện, query registry, v.v.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Lệnh PowerShell cần thực thi."
+          },
+          "timeout_sec": {
+            "type": "integer",
+            "description": "Thời gian tối đa chờ kết quả (giây). Mặc định: 30.",
+            "default": 30
+          }
+        },
+        "required": [
+          "command"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "search_files": {
+    "module": "skills.pc_control_skills",
+    "attr": "search_files",
+    "meta": {
+      "name": "search_files",
+      "description": "Tìm kiếm file trên máy tính theo tên hoặc pattern glob. Có thể giới hạn thư mục tìm kiếm và kết quả trả về.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Tên file hoặc glob pattern. Ví dụ: '*.pdf', 'report*.xlsx', 'config.json'."
+          },
+          "search_dir": {
+            "type": "string",
+            "description": "Thư mục bắt đầu tìm kiếm. Mặc định: thư mục home của người dùng.",
+            "default": ""
+          },
+          "max_results": {
+            "type": "integer",
+            "description": "Số kết quả tối đa. Mặc định: 30.",
+            "default": 30
+          },
+          "include_hidden": {
+            "type": "boolean",
+            "description": "Bao gồm file/thư mục ẩn. Mặc định: false.",
+            "default": false
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "set_clipboard": {
+    "module": "skills.pc_control_skills",
+    "attr": "set_clipboard",
+    "meta": {
+      "name": "set_clipboard",
+      "description": "Ghi một đoạn văn bản vào clipboard của hệ thống.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "Nội dung văn bản cần ghi vào clipboard."
+          }
+        },
+        "required": [
+          "text"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "set_system_volume": {
+    "module": "skills.pc_control_skills",
+    "attr": "set_system_volume",
+    "meta": {
+      "name": "set_system_volume",
+      "description": "Điều chỉnh âm lượng hệ thống (0–100). Hỗ trợ Windows (nircmd / PowerShell) và macOS (osascript).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "type": "integer",
+            "description": "Mức âm lượng từ 0 (tắt tiếng) đến 100 (tối đa).",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "mute": {
+            "type": "boolean",
+            "description": "Nếu true, tắt tiếng (mute) bất kể giá trị level.",
+            "default": false
+          }
+        },
+        "required": [
+          "level"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "assign_task_intelligently": {
+    "module": "skills.proactive_manager",
+    "attr": "assign_task_intelligently",
+    "meta": {
+      "name": "assign_task_intelligently",
+      "description": "Tự động phân tích yêu cầu công việc (VD: 'Lên kế hoạch sinh nhật công ty', 'Kiểm tra backup server'), tìm nhân viên có chuyên môn phù hợp nhất trong cơ sở dữ liệu (HR, IT, Kế toán...), gán việc, đặt deadline và gửi thông báo.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "Nội dung yêu cầu công việc cần phân bổ (ví dụ: 'Chuẩn bị quà và hoa cho sinh nhật công ty tuần sau')."
+          },
+          "deadline_days": {
+            "type": "integer",
+            "description": "Số ngày deadline tính từ hôm nay (mặc định: 3 ngày).",
+            "default": 3
+          },
+          "preferred_role_or_dept": {
+            "type": "string",
+            "description": "Gợi ý vai trò hoặc phòng ban: 'hr', 'it', 'kế toán', 'admin' (nếu có).",
+            "default": ""
+          }
+        },
+        "required": [
+          "description"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "run_proactive_task_audit": {
+    "module": "skills.proactive_manager",
+    "attr": "run_proactive_task_audit",
+    "meta": {
+      "name": "run_proactive_task_audit",
+      "description": "Kích hoạt quét toàn bộ task trong công ty ngay lập tức để đôn đốc các công việc trễ hạn hoặc sắp đến deadline.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "enabled": true
+  },
+  "animate_robot": {
+    "module": "skills.robotics_tools",
+    "attr": "animate_robot",
+    "meta": {
+      "name": "animate_robot",
+      "description": "Kích hoạt cử chỉ hoặc biểu cảm vật lý của Robot (Servo cánh tay, Servo cổ, LED, OLED). Các cử chỉ hỗ trợ: wave_hand (vẫy tay chào), nod_head (gật đầu đồng ý), look_around (ngó nghiêng quan sát), excited (phấn khích mừng rỡ), sad (buồn bã hối lỗi). BẮT BUỘC dùng wave_hand khi người dùng chào hỏi, hoặc nod_head khi xác nhận mệnh lệnh.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "animation": {
+            "type": "string",
+            "enum": [
+              "wave_hand",
+              "nod_head",
+              "look_around",
+              "excited",
+              "sad"
+            ],
+            "description": "Cử chỉ hoạt hình cần thực hiện: 'wave_hand', 'nod_head', 'look_around', 'excited', hoặc 'sad'."
+          }
+        },
+        "required": [
+          "animation"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "move_robot": {
+    "module": "skills.robotics_tools",
+    "attr": "move_robot",
+    "meta": {
+      "name": "move_robot",
+      "description": "Điều khiển cơ thể Robot vật lý (ESP32) di chuyển bằng bánh xe (Motor L298N). Hướng di chuyển gồm: forward (tiến), backward (lùi), left (rẽ trái), right (rẽ phải), stop (dừng lại). Thời gian di chuyển tính bằng mili-giây (duration_ms), giới hạn an toàn tối đa 3000ms mỗi lần.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "direction": {
+            "type": "string",
+            "enum": [
+              "forward",
+              "backward",
+              "left",
+              "right",
+              "stop"
+            ],
+            "description": "Hướng di chuyển của Robot: 'forward', 'backward', 'left', 'right', hoặc 'stop'."
+          },
+          "duration_ms": {
+            "type": "integer",
+            "description": "Thời gian di chuyển tính bằng mili-giây (ms). Tối thiểu 100ms, tối đa 3000ms (mặc định 1000ms).",
+            "default": 1000
+          }
+        },
+        "required": [
+          "direction"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "manage_windows_service": {
+    "module": "skills.sysadmin_skills",
+    "attr": "manage_windows_service",
+    "meta": {
+      "name": "manage_windows_service",
+      "description": "Quản lý dịch vụ Windows: khởi động (start), dừng (stop), hoặc khởi động lại (restart) một dịch vụ theo tên. Ví dụ: W3SVC (IIS), WinRM, Spooler.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "service_name": {
+            "type": "string",
+            "description": "Tên dịch vụ Windows (ví dụ: 'W3SVC', 'Spooler', 'WinRM')."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "start",
+              "stop",
+              "restart",
+              "status"
+            ],
+            "description": "Hành động cần thực hiện với dịch vụ."
+          }
+        },
+        "required": [
+          "service_name",
+          "action"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "run_local_sql_check": {
+    "module": "skills.sysadmin_skills",
+    "attr": "run_local_sql_check",
+    "meta": {
+      "name": "run_local_sql_check",
+      "description": "Thực thi một câu truy vấn T-SQL lên SQL Server cục bộ (không cần GUI) thông qua tiện ích sqlcmd. Trả về kết quả dưới dạng văn bản.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "server": {
+            "type": "string",
+            "description": "Tên server hoặc instance SQL, ví dụ: 'localhost' hoặc 'localhost\\SQLEXPRESS'.",
+            "default": "localhost"
+          },
+          "database": {
+            "type": "string",
+            "description": "Tên database cần truy vấn.",
+            "default": "master"
+          },
+          "query": {
+            "type": "string",
+            "description": "Câu lệnh T-SQL cần thực thi (SELECT, sp_who2, v.v.)."
+          },
+          "username": {
+            "type": "string",
+            "description": "SQL login username. Bỏ trống để dùng Windows Authentication.",
+            "default": ""
+          },
+          "password": {
+            "type": "string",
+            "description": "SQL login password. Bỏ trống khi dùng Windows Authentication.",
+            "default": ""
+          }
+        },
+        "required": [
+          "query"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "display_visual_data": {
+    "module": "skills.visual_skills",
+    "attr": "display_visual_data",
+    "meta": {
+      "name": "display_visual_data",
+      "description": "Hiển thị một cửa sổ popup trên màn hình người dùng. CHÚ Ý: Chỉ dùng khi người dùng có nhu cầu xem dữ liệu trực quan hoặc đọc log dài.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "text_board",
+              "network_map",
+              "metric_chart",
+              "security_alert",
+              "screenshot"
+            ],
+            "description": "BẮT BUỘC CHỌN 1 TRONG CÁC LOẠI SAU:\n- text_board: Dùng để hiển thị danh sách IP, đọc file log, hoặc đoạn text dài.\n- network_map: Chỉ dùng khi được yêu cầu xem sơ đồ/cấu trúc mạng.\n- metric_chart: Chỉ dùng để xem biểu đồ CPU/RAM.\n- security_alert: Chỉ dùng khi có tấn công hoặc rủi ro thực sự.\n- screenshot: TUYỆT ĐỐI CHỈ DÙNG khi người dùng có nhắc đến chữ 'chụp ảnh màn hình' hoặc 'xem màn hình'."
+          },
+          "context_data": {
+            "type": "string",
+            "description": "Dữ liệu truyền vào. Nếu type là text_board, đây là chuỗi văn bản hoặc log cần hiển thị."
+          },
+          "target_client": {
+            "type": "string",
+            "description": "ID hoặc tên máy trạm LAN cần hiển thị (mặc định: 'master').",
+            "default": "master"
+          },
+          "title": {
+            "type": "string",
+            "description": "Tiêu đề của cửa sổ HUD Cyberpunk.",
+            "default": "TRỢ LÝ AI LY LY — HUD"
+          },
+          "duration": {
+            "type": "integer",
+            "description": "Thời gian hiển thị tự động trước khi mờ dần (giây, mặc định 15s).",
+            "default": 15
+          }
+        },
+        "required": [
+          "type",
+          "context_data"
+        ]
+      }
+    },
+    "enabled": true
+  }
+}

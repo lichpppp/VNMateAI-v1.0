@@ -1,0 +1,529 @@
+"""
+core/orchestrator.py
+====================
+Enterprise Orchestrator for VN-MateAI — Master-Worker LAN Management.
+
+Responsibilities:
+  - Track connected Client Agents via WebSocket sessions.
+  - Correlate asynchronous tasks dispatched to worker nodes (Task ID ➔ Future).
+  - Dispatch remote skill execution and await structured results.
+  - Push new skill source code for remote hot-loading on worker nodes.
+  - Provide live client inventory for REST API and Web Portal.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+import uuid
+from typing import Any, Dict, List, Optional
+from fastapi import WebSocket
+
+logger = logging.getLogger(__name__)
+
+
+class Orchestrator:
+    """
+    Central coordinator managing LAN worker nodes and task delegation.
+    """
+
+    def __init__(self) -> None:
+        # Map client_id -> session dict
+        self._clients: Dict[str, Dict[str, Any]] = {}
+        # Map task_id -> asyncio.Future
+        self._pending_tasks: Dict[str, asyncio.Future] = {}
+        self._lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Store the running FastAPI asyncio loop for thread-safe cross-thread calls."""
+        self._loop = loop
+
+    # ------------------------------------------------------------------
+    # Connection Lifecycle
+    # ------------------------------------------------------------------
+
+    async def register_client(self, client_id: str, websocket: WebSocket, metadata: Dict[str, Any]) -> None:
+        """Register a freshly connected worker client."""
+        async with self._lock:
+            self._clients[client_id] = {
+                "client_id": client_id,
+                "websocket": websocket,
+                "hostname": metadata.get("hostname", client_id),
+                "ip": metadata.get("ip", "127.0.0.1"),
+                "platform": metadata.get("platform", "Windows"),
+                "skills": metadata.get("skills", []),
+                "skills_count": len(metadata.get("skills", [])),
+                "connected_at": time.time(),
+                "connected_at_iso": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
+                "last_seen": time.time(),
+                "status": "online",
+            }
+        logger.info(
+            "Orchestrator: Máy trạm [%s] (IP: %s, Kỹ năng: %d) đã kết nối trực tuyến.",
+            client_id,
+            metadata.get("ip"),
+            len(metadata.get("skills", [])),
+        )
+
+    async def unregister_client(self, client_id: str) -> None:
+        """Handle client disconnection."""
+        async with self._lock:
+            if client_id in self._clients:
+                del self._clients[client_id]
+                logger.info("Orchestrator: Máy trạm [%s] đã ngắt kết nối.", client_id)
+
+        # Cancel any pending tasks assigned to this client
+        for task_id, future in list(self._pending_tasks.items()):
+            if not future.done():
+                future.set_exception(
+                    ConnectionResetError(f"Máy trạm '{client_id}' đã ngắt kết nối trong khi thực thi tác vụ.")
+                )
+
+    def is_client_online(self, client_id: str) -> bool:
+        """Check if client is currently connected and online."""
+        return client_id in self._clients
+
+    def get_client_ids(self) -> List[str]:
+        """Return list of all currently connected client IDs."""
+        return list(self._clients.keys())
+
+    def get_connected_clients(self) -> List[Dict[str, Any]]:
+        """Return JSON-serializable list of all connected workers."""
+        now = time.time()
+        clients_list: List[Dict[str, Any]] = []
+
+        for cid, info in self._clients.items():
+            uptime_seconds = int(now - info["connected_at"])
+            uptime_str = f"{uptime_seconds // 60}m {uptime_seconds % 60}s" if uptime_seconds >= 60 else f"{uptime_seconds}s"
+            clients_list.append({
+                "client_id": info["client_id"],
+                "hostname": info["hostname"],
+                "ip": info["ip"],
+                "platform": info["platform"],
+                "skills": info["skills"],
+                "skills_count": info["skills_count"],
+                "status": info["status"],
+                "connected_at": info["connected_at_iso"],
+                "uptime": uptime_str,
+            })
+        return clients_list
+
+    # ------------------------------------------------------------------
+    # Message Routing & Task Handling
+    # ------------------------------------------------------------------
+
+    def handle_incoming_message(self, client_id: str, data: Dict[str, Any]) -> None:
+        """Handle incoming response payloads from worker nodes."""
+        action = data.get("action")
+        task_id = data.get("task_id")
+
+        if client_id in self._clients:
+            self._clients[client_id]["last_seen"] = time.time()
+
+        if action in ("result", "install_result", "monitor_result", "kill_result", "visual_result") and task_id:
+            future = self._pending_tasks.get(task_id)
+            if future and not future.done():
+                future.set_result(data)
+                logger.debug("Resolved pending task [%s] from client [%s]", task_id, client_id)
+
+        elif action == "task_response" and task_id:
+            from core.task_manager import task_manager
+            status = data.get("status", "completed")
+            msg = data.get("message")
+            task_manager.handle_task_response(client_id, task_id, status, msg)
+            future = self._pending_tasks.get(task_id)
+            if future and not future.done():
+                future.set_result(data)
+                logger.debug("Resolved pending task_popup [%s] from client [%s]", task_id, client_id)
+
+    async def execute_on_client(
+        self,
+        client_id: str,
+        skill_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        timeout: float = 35.0,
+    ) -> Dict[str, Any]:
+        """
+        Dispatch a skill execution command to a specific worker client via WebSocket.
+
+        Returns:
+            Dict containing execution result or error.
+        """
+        session = self._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Máy trạm '{client_id}' hiện không trực tuyến hoặc chưa kết nối vào mạng LAN.",
+            }
+
+        ws: WebSocket = session["websocket"]
+        task_id = f"task_{uuid.uuid4().hex[:10]}"
+        payload = {
+            "action": "execute",
+            "task_id": task_id,
+            "skill_name": skill_name,
+            "args": args or {},
+        }
+
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_tasks[task_id] = future
+
+        try:
+            logger.info("Orchestrator: Gửi lệnh '%s' tới máy trạm [%s] (Task ID: %s)", skill_name, client_id, task_id)
+            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+
+            # Await worker reply with timeout
+            response = await asyncio.wait_for(future, timeout=timeout)
+            result = response.get("result", {})
+            is_success = bool(
+                response.get("success")
+                or (isinstance(result, dict) and (result.get("status") == "success" or result.get("success") is True or not result.get("error")))
+            )
+            return {
+                "status": "success" if is_success else "error",
+                "client_id": client_id,
+                "remote_execution": True,
+                "result": result,
+            }
+
+        except asyncio.TimeoutError:
+            logger.warning("Hết thời gian chờ phản hồi từ máy trạm [%s] cho task [%s]", client_id, task_id)
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Hết thời gian chờ (Timeout {timeout}s): Máy trạm '{client_id}' không phản hồi kịp.",
+            }
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Lỗi gửi lệnh tới máy trạm [%s]: %s", client_id, exc)
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Lỗi truyền thông mạng tới máy trạm '{client_id}': {exc}",
+            }
+        finally:
+            self._pending_tasks.pop(task_id, None)
+
+    async def deploy_skill_to_client(
+        self,
+        client_id: str,
+        filename: str,
+        code: str,
+        timeout: float = 20.0,
+    ) -> Dict[str, Any]:
+        """
+        Deploy and hot-load Python skill code on a remote worker client.
+        """
+        session = self._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Máy trạm '{client_id}' không trực tuyến.",
+            }
+
+        ws: WebSocket = session["websocket"]
+        task_id = f"deploy_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "action": "install_skill",
+            "task_id": task_id,
+            "filename": filename,
+            "code": code,
+        }
+
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_tasks[task_id] = future
+
+        try:
+            logger.info("Orchestrator: Đang đẩy kỹ năng mới '%s' tới máy trạm [%s]", filename, client_id)
+            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+            response = await asyncio.wait_for(future, timeout=timeout)
+            return {
+                "status": "success" if response.get("success") else "error",
+                "client_id": client_id,
+                "filename": filename,
+                "error": response.get("error"),
+                "skills": response.get("skills", []),
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Lỗi cài đặt kỹ năng trên máy trạm: {exc}",
+            }
+        finally:
+            self._pending_tasks.pop(task_id, None)
+
+    async def monitor_client(
+        self,
+        client_id: str,
+        monitor_type: str,
+        args: Optional[Dict[str, Any]] = None,
+        timeout: float = 15.0,
+    ) -> Dict[str, Any]:
+        """
+        Request real-time telemetry / monitoring data from a client agent.
+        monitor_type: 'screen' | 'processes' | 'network' | 'peripherals' | 'security'
+        """
+        session = self._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Máy trạm '{client_id}' hiện không trực tuyến hoặc chưa kết nối vào mạng LAN.",
+            }
+
+        ws: WebSocket = session["websocket"]
+        task_id = f"mon_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "action": "monitor",
+            "task_id": task_id,
+            "type": monitor_type,
+            "args": args or {},
+        }
+
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_tasks[task_id] = future
+
+        try:
+            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+            response = await asyncio.wait_for(future, timeout=timeout)
+            return {
+                "status": "success" if response.get("success") else "error",
+                "client_id": client_id,
+                "type": monitor_type,
+                "result": response.get("result", {}),
+            }
+        except asyncio.TimeoutError:
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Hết thời gian chờ phản hồi giám sát ({timeout}s) từ máy trạm '{client_id}'.",
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Lỗi yêu cầu dữ liệu giám sát tới máy trạm '{client_id}': {exc}",
+            }
+        finally:
+            self._pending_tasks.pop(task_id, None)
+
+    async def kill_client_process(
+        self,
+        client_id: str,
+        pid: int,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """
+        Send a kill process command to target client agent.
+        """
+        session = self._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Máy trạm '{client_id}' hiện không trực tuyến.",
+            }
+
+        ws: WebSocket = session["websocket"]
+        task_id = f"kill_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "action": "kill_process",
+            "task_id": task_id,
+            "pid": pid,
+        }
+
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_tasks[task_id] = future
+
+        try:
+            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+            response = await asyncio.wait_for(future, timeout=timeout)
+            return {
+                "status": "success" if response.get("success") else "error",
+                "client_id": client_id,
+                "result": response.get("result", {}),
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Lỗi gửi lệnh tắt tiến trình tới máy trạm '{client_id}': {exc}",
+            }
+        finally:
+            self._pending_tasks.pop(task_id, None)
+
+    def execute_on_client_sync(
+        self,
+        client_id: str,
+        skill_name: str,
+        args: Optional[Dict[str, Any]] = None,
+        timeout: float = 35.0,
+    ) -> Dict[str, Any]:
+        """
+        Thread-safe synchronous bridge for calling execute_on_client
+        from background worker threads (such as LLMEngine.ask).
+        """
+        if not self.is_client_online(client_id):
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Máy trạm '{client_id}' hiện không trực tuyến hoặc chưa kết nối vào mạng LAN.",
+            }
+
+        # If we have a running event loop stored
+        loop = self._loop
+        if loop and loop.is_running():
+            coro = self.execute_on_client(client_id, skill_name, args, timeout)
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            try:
+                return future.result(timeout=timeout + 3.0)
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "client_id": client_id,
+                    "error": f"Lỗi đồng bộ khi giao tiếp máy trạm '{client_id}': {exc}",
+                }
+        else:
+            # Standalone execution
+            try:
+                return asyncio.run(self.execute_on_client(client_id, skill_name, args, timeout))
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "client_id": client_id,
+                    "error": f"Lỗi thực thi lệnh máy trạm: {exc}",
+                }
+
+    async def send_visual_to_client(
+        self,
+        client_id: str,
+        visual_type: str,
+        data: Dict[str, Any],
+        title: str = "TRỢ LÝ AI LY LY — HUD",
+        duration: int = 15,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """
+        Phase 32: Dispatch visual overlay command to a target client agent via WebSocket.
+        """
+        session = self._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Máy trạm '{client_id}' hiện không trực tuyến hoặc chưa kết nối vào mạng LAN.",
+            }
+
+        ws: WebSocket = session["websocket"]
+        task_id = f"vis_{uuid.uuid4().hex[:8]}"
+        payload = {
+            "action": "show_visual",
+            "task_id": task_id,
+            "type": visual_type,
+            "title": title,
+            "data": data,
+            "duration": duration,
+        }
+
+        loop = asyncio.get_event_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_tasks[task_id] = future
+
+        try:
+            logger.info("Orchestrator: Gửi visual overlay [%s] tới máy trạm [%s]", visual_type, client_id)
+            await ws.send_text(json.dumps(payload, ensure_ascii=False))
+            response = await asyncio.wait_for(future, timeout=timeout)
+            return {
+                "status": "success",
+                "client_id": client_id,
+                "type": visual_type,
+                "title": title,
+                "result": response,
+            }
+        except asyncio.TimeoutError:
+            return {
+                "status": "success",
+                "client_id": client_id,
+                "type": visual_type,
+                "title": title,
+                "note": "Lệnh hiển thị đã được gửi tới máy trạm thành công.",
+            }
+        except Exception as exc:
+            return {
+                "status": "error",
+                "client_id": client_id,
+                "error": f"Lỗi gửi lệnh visual overlay tới máy trạm '{client_id}': {exc}",
+            }
+        finally:
+            self._pending_tasks.pop(task_id, None)
+
+    async def broadcast_visual(
+        self,
+        visual_type: str,
+        data: Dict[str, Any],
+        title: str = "TRỢ LÝ AI LY LY — HUD",
+        duration: int = 15,
+    ) -> List[Dict[str, Any]]:
+        """
+        Broadcast visual overlay to all online worker nodes.
+        """
+        clients = list(self._clients.keys())
+        if not clients:
+            return []
+        tasks = [
+            self.send_visual_to_client(cid, visual_type, data, title, duration, timeout=5.0)
+            for cid in clients
+        ]
+        return await asyncio.gather(*tasks, return_exceptions=True)
+
+    def send_visual_to_client_sync(
+        self,
+        client_id: str,
+        visual_type: str,
+        data: Dict[str, Any],
+        title: str = "TRỢ LÝ AI LY LY — HUD",
+        duration: int = 15,
+        timeout: float = 10.0,
+    ) -> Dict[str, Any]:
+        """
+        Thread-safe synchronous bridge for LLM tool calling.
+        """
+        loop = self._loop
+        if loop and loop.is_running():
+            coro = self.send_visual_to_client(client_id, visual_type, data, title, duration, timeout)
+            future = asyncio.run_coroutine_threadsafe(coro, loop)
+            try:
+                return future.result(timeout=timeout + 2.0)
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "client_id": client_id,
+                    "error": f"Lỗi đồng bộ visual overlay: {exc}",
+                }
+        else:
+            try:
+                return asyncio.run(
+                    self.send_visual_to_client(client_id, visual_type, data, title, duration, timeout)
+                )
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "client_id": client_id,
+                    "error": f"Lỗi thực thi visual overlay: {exc}",
+                }
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton
+# ---------------------------------------------------------------------------
+
+orchestrator = Orchestrator()

@@ -1,0 +1,994 @@
+"""
+core/voice_controller.py
+========================
+Voice Interaction Controller — Phase 13.
+
+Điều phối toàn bộ luồng:
+  WakeWordEngine → VoiceWidget (subprocess) → AudioProcessor → LLM → TTS → Feedback
+
+Kiến trúc subprocess:
+  - VoiceWidget chạy trong subprocess riêng (tương tự popup_ui.py).
+  - Giao tiếp qua stdin JSON pipe.
+  - Không block main thread hay FastAPI event loop.
+
+Luồng xử lý:
+  1. WakeWordEngine phát hiện "Hey Lyly" → gọi _on_wake_detected()
+  2. _on_wake_detected() → spawn VoiceWidget subprocess (nếu chưa có)
+                        → gửi {"cmd": "show", "mode": "listening"}
+  3. Ghi âm lệnh từ microphone (sử dụng SpeechRecognition)
+  4. Gửi audio → AudioEngine.transcribe_audio() → text
+  5. Gửi text → LLMEngine → response
+  6. TTS response → phát qua loa cục bộ (edge-tts + pydub playback)
+  7. Gửi {"cmd": "hide"} → widget ẩn đi
+"""
+
+from __future__ import annotations
+
+import asyncio
+import io
+import json
+import logging
+import subprocess
+import sys
+import threading
+import time
+import random
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Lazy imports — avoid crash if deps not installed
+# ---------------------------------------------------------------------------
+try:
+    import speech_recognition as sr  # type: ignore[import]
+    _SR_AVAILABLE = True
+except ImportError:
+    _SR_AVAILABLE = False
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+COMMAND_TIMEOUT_SEC: float = 15.0  # Max time to wait for user to START speaking
+COMMAND_PHRASE_LIMIT_SEC: float = 10.0  # Max duration of a single command phrase
+FOLLOWUP_TIMEOUT_SEC: float = 20.0  # Max time to wait for user to reply to AI question
+FOLLOWUP_PHRASE_LIMIT_SEC: float = 10.0  # Max duration of a follow-up reply
+SESSION_MAX_TURNS: int = 20  # Maximum turns in a single conversation session
+SESSION_IDLE_TIMEOUT_SEC: float = 300.0  # Reset history after 5 min of inactivity
+WIDGET_SCRIPT = str(Path(__file__).resolve().parent / "voice_widget.py")
+
+# Phase 40 & Phase 36: Dynamic Audio Cache Fillers
+DELEGATION_FILLER_PHRASE: str = "Ca này hơi sâu, anh chờ em một lát để em đẩy dữ liệu qua hệ thống phân tích chuyên sâu nhé."
+
+CONTEXTUAL_FILLERS: Dict[str, Dict[str, Any]] = {
+    "communication": {
+        "keywords": ["nhắn", "gửi", "thông báo", "email", "chat"],
+        "phrases": ["Dạ, em gửi ngay ạ.", "Vâng, em đang soạn tin nhắn đây."],
+    },
+    "system_check": {
+        "keywords": ["kiểm tra", "check", "quét", "lỗi", "log", "tình trạng"],
+        "phrases": ["Vâng, em đang kiểm tra hệ thống ngay đây.", "Anh đợi em quét dữ liệu một chút nhé."],
+    },
+    "action_execute": {
+        "keywords": ["bật", "tắt", "mở", "khởi động", "reset", "xóa", "tạo"],
+        "phrases": ["Dạ, em thực hiện ngay đây.", "Vâng, em đang xử lý lệnh của anh ạ."],
+    },
+    "deep_analysis": {
+        "keywords": [
+            "quét log", "phân tích log", "nguyên nhân", "root cause",
+            "iis", "chuyên gia", "chuyên sâu", "viết script", "viết code",
+            "sửa mã", "powershell", "sập", "crash", "bị lỗi", "kiến trúc"
+        ],
+        "phrases": [
+            DELEGATION_FILLER_PHRASE,
+        ],
+    },
+    "general": {
+        "keywords": [],  # Fallback nếu không khớp bất kỳ từ khóa nào
+        "phrases": ["Dạ, anh chờ em một chút ạ.", "Em đang xử lý ngay đây ạ."],
+    },
+}
+
+# Backward compatibility flattened list
+FILLER_WORDS: List[str] = [
+    phrase
+    for group in CONTEXTUAL_FILLERS.values()
+    for phrase in group.get("phrases", [])
+]
+
+
+def get_contextual_filler(transcript: str) -> str:
+    """
+    Phase 36.1 (Hotfix): Phân tích nhanh từ khóa trong câu lệnh ASR
+    để chọn câu đệm đúng ngữ cảnh (communication, system_check, action_execute)
+    thay vì random ngẫu nhiên. Fallback về nhóm 'general'.
+    """
+    if not transcript or not isinstance(transcript, str):
+        return random.choice(CONTEXTUAL_FILLERS["general"]["phrases"])
+
+    clean_text = transcript.lower().strip()
+
+    # Duyệt qua các nhóm intent có keywords
+    for intent, group in CONTEXTUAL_FILLERS.items():
+        keywords = group.get("keywords", [])
+        if not keywords:
+            continue
+        for kw in keywords:
+            if kw.lower() in clean_text:
+                selected = random.choice(group["phrases"])
+                logger.info(
+                    "VoiceController: [Contextual Filler] Khớp nhóm '%s' (từ khóa: '%s') -> '%s'",
+                    intent, kw, selected,
+                )
+                return selected
+
+    # Fallback nhóm general
+    selected_fallback = random.choice(CONTEXTUAL_FILLERS["general"]["phrases"])
+    logger.info("VoiceController: [Contextual Filler] Không khớp intent cụ thể -> Fallback: '%s'", selected_fallback)
+    return selected_fallback
+
+
+KEEP_ALIVE_PHRASE = "Dạ em đang xử lý và tổng hợp dữ liệu, anh chờ em thêm một chút nhé!"
+SLEEP_PHRASE = "Em xin phép tạm nghỉ, khi nào cần anh cứ gọi em nhé."
+ACTIVE_LISTENING_TIMEOUT_SEC: float = 5.0
+
+# Global lock to serialize audio playback and prevent overlapping sound tracks
+_AUDIO_PLAYBACK_LOCK = threading.Lock()
+
+# Keywords that indicate AI is asking a follow-up question
+_FOLLOWUP_INDICATORS = [
+    "?", "bạn muốn", "bạn có", "bạn cần", "cho tôi biết", "hãy nói",
+    "what", "which", "when", "how", "do you", "would you", "could you",
+    "please specify", "please tell", "can you",
+]
+
+# Phrases that signal the user wants to end the conversation
+_CLOSING_PHRASES = [
+    "thôi", "ok thôi", "không cần nữa", "cảm ơn", "cảm ơn bạn", "tạm biệt", "hẹn gặp lại",
+    "xong rồi", "ok được", "bye", "goodbye", "that's all", "no more", "stop",
+    "exit", "quit", "done", "finish",
+]
+
+
+# ---------------------------------------------------------------------------
+# VoiceController
+# ---------------------------------------------------------------------------
+
+class VoiceController:
+    """
+    Orchestrates Wake Word → Widget → ASR → LLM → TTS pipeline.
+    Maintains multi-turn conversation history within a session for natural
+    conversational continuity. Thread-safe singleton.
+    """
+
+    def __init__(self) -> None:
+        self._widget_proc: Optional[subprocess.Popen] = None
+        self._lock = threading.Lock()
+        self._active = False  # True while processing a command
+        self._wake_engine = None
+
+        # Async event loop reference (set by start())
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # ---- Conversation session state ----
+        # Each entry: {"role": "user"|"assistant", "content": str}
+        self._session_history: list = []
+        self._session_last_turn_ts: float = 0.0  # epoch seconds of last turn
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def start(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+        """
+        Start WakeWordEngine in background.
+        Call from main thread after uvicorn starts.
+
+        Args:
+            loop: The running asyncio event loop (for async LLM calls).
+        """
+        self._loop = loop
+
+        from core.wake_word_engine import start_wake_word_engine
+        self._wake_engine = start_wake_word_engine(on_wake=self._on_wake_detected)
+        if self._wake_engine:
+            logger.info("VoiceController: WakeWordEngine started.")
+        else:
+            logger.warning("VoiceController: WakeWordEngine failed to start (missing deps?).")
+
+        # Start amplitude relay thread
+        relay = threading.Thread(target=self._amplitude_relay_loop, daemon=True)
+        relay.start()
+
+    def stop(self) -> None:
+        """Stop all subsystems."""
+        from core.wake_word_engine import stop_wake_word_engine
+        stop_wake_word_engine()
+        self._kill_widget()
+        logger.info("VoiceController: Stopped.")
+
+    # ------------------------------------------------------------------
+    # Wake Callback
+    # ------------------------------------------------------------------
+
+    def _on_wake_detected(self) -> None:
+        """
+        Called by WakeWordEngine (in its listener thread) when wake word heard.
+        MUST NOT block — spawn work in thread.
+        """
+        if self._active:
+            logger.debug("VoiceController: Already active, ignoring duplicate wake.")
+            return
+
+        logger.info("VoiceController: Wake detected! Starting command flow...")
+        try:
+            from core.server import broadcast_hud, broadcast_portal_ui
+            if self._loop and self._loop.is_running():
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_hud({
+                        "type": "voice_active",
+                        "status": "listening",
+                        "text": "🎤 Trợ lý đã nghe thấy 'Hey Lyly'! Xin mời nói câu lệnh...",
+                    }),
+                    self._loop,
+                )
+                asyncio.run_coroutine_threadsafe(
+                    broadcast_portal_ui("show_toast", {
+                        "message": "🎙️ Trợ lý đã nghe thấy 'Hey Lyly'! Xin mời nói câu lệnh...",
+                        "type": "info",
+                    }),
+                    self._loop,
+                )
+        except Exception:
+            pass
+        threading.Thread(target=self._command_flow, daemon=True).start()
+
+    # ------------------------------------------------------------------
+    # Command Flow (runs in thread)
+    # ------------------------------------------------------------------
+
+    def _command_flow(self) -> None:
+        """Full wake→command→response multi-turn conversation loop in a dedicated thread."""
+        with self._lock:
+            if self._active:
+                return
+            self._active = True
+
+        try:
+            # --- Session idle reset ---
+            now = time.monotonic()
+            if (now - self._session_last_turn_ts) > SESSION_IDLE_TIMEOUT_SEC:
+                if self._session_history:
+                    logger.info("VoiceController: Session idle timeout — clearing history.")
+                self._session_history = []
+
+            # ---- Show listening widget ----
+            self._send_widget({"cmd": "show", "mode": "listening"})
+            self._send_widget({"cmd": "text", "content": "🎤  Đang lắng nghe..."})
+
+            # ======================================================
+            # Multi-turn conversation loop (Phase 36 Proactive Engine)
+            # ======================================================
+            turn_idx = 0
+            pending_transcript: Optional[str] = None
+
+            while turn_idx < SESSION_MAX_TURNS:
+                is_first_turn = (turn_idx == 0)
+
+                if pending_transcript:
+                    transcript = pending_transcript
+                    pending_transcript = None
+                    logger.info("VoiceController: Turn %d using active listening transcript: '%s'", turn_idx, transcript)
+                else:
+                    # -- Record --
+                    logger.info("VoiceController: Turn %d — recording...", turn_idx)
+                    if is_first_turn:
+                        audio_bytes = self._record_command()
+                    else:
+                        audio_bytes = self._record_active_listening(timeout=ACTIVE_LISTENING_TIMEOUT_SEC)
+
+                    if not audio_bytes:
+                        if is_first_turn:
+                            self._send_widget({"cmd": "text", "content": "❌  Không nhận được âm thanh."})
+                            time.sleep(1.5)
+                        else:
+                            # Silence > 5s in active listening mode -> go to sleep!
+                            logger.info("VoiceController: Active listening timeout (>5s silence) -> going to sleep.")
+                            self._send_widget({"cmd": "text", "content": "💤  Em xin phép tạm nghỉ..."})
+                            self._play_cached_phrase_instant(SLEEP_PHRASE)
+                            time.sleep(0.5)
+                        break
+
+                    # -- Transcribe --
+                    self._send_widget({"cmd": "show", "mode": "processing"})
+                    self._send_widget({"cmd": "text", "content": "⚙  Đang nhận dạng..."})
+                    transcript = self._transcribe_sync(audio_bytes)
+                    logger.info("VoiceController: Turn %d transcript: '%s'", turn_idx, transcript)
+
+                if not transcript:
+                    if is_first_turn:
+                        self._send_widget({"cmd": "text", "content": "❓  Không rõ lệnh. Vui lòng thử lại."})
+                        time.sleep(1.5)
+                    else:
+                        self._send_widget({"cmd": "text", "content": "💤  Em xin phép tạm nghỉ..."})
+                        self._play_cached_phrase_instant(SLEEP_PHRASE)
+                        time.sleep(0.5)
+                    break
+
+                self._send_widget({"cmd": "text", "content": f"📝  {transcript}"})
+
+                # -- Detect closing phrase --
+                if self._is_closing_phrase(transcript):
+                    logger.info("VoiceController: User said closing phrase, ending session.")
+                    self._send_widget({"cmd": "text", "content": "👋  Tạm biệt anh!"})
+                    self._play_cached_phrase_instant(SLEEP_PHRASE)
+                    self._session_history = []  # Full reset on explicit goodbye
+                    time.sleep(0.5)
+                    break
+
+                # -- Phase 36.1: Context-Aware Filler Word (Từ đệm đúng ngữ cảnh 0ms từ Audio Cache) --
+                filler = get_contextual_filler(transcript)
+                self._send_widget({"cmd": "text", "content": f"⚡  {filler}"})
+                # Bug #13 fix: Play filler synchronously (blocks until done) before streaming
+                # to prevent audio overlap when LLM responds faster than filler playback.
+                self._play_cached_phrase_instant(filler)
+
+                # -- LLM Streaming + TTS (Phase 23 + Phase 36 Keep-Alive Watchdog) --
+                self._send_widget({"cmd": "text", "content": "🤖  Đang xử lý & phân tích..."})
+                response = self._stream_response_and_play(transcript)
+                display_text = getattr(llm_engine, "last_voice_display_text", None) or response
+                logger.info("VoiceController: Turn %d complete, response: '%s'", turn_idx, response[:120])
+
+                # Phase 47: Broadcast full detailed results to HUD & Web Portal so screen displays immediately!
+                try:
+                    from core.server import broadcast_hud, broadcast_portal_ui
+                    if self._loop and self._loop.is_running():
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast_hud({
+                                "type": "voice_active",
+                                "status": "speaking",
+                                "text": response,
+                                "display_text": display_text,
+                                "source_device": "voice",
+                                "timestamp": datetime.utcnow().isoformat(),
+                            }),
+                            self._loop,
+                        )
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast_portal_ui("voice_response", {
+                                "query": transcript,
+                                "reply": display_text,
+                                "speech_reply": response,
+                                "source_device": "voice",
+                                "timestamp": datetime.utcnow().isoformat(),
+                            }),
+                            self._loop,
+                        )
+                except Exception as bc_err:
+                    logger.debug("VoiceController screen broadcast error: %s", bc_err)
+
+                # -- Update session history --
+                self._session_history.append({"role": "user", "content": transcript})
+                self._session_history.append({"role": "assistant", "content": display_text})
+                self._session_last_turn_ts = time.monotonic()
+
+                # Keep history bounded to SESSION_MAX_TURNS * 2 messages
+                max_history_msgs = SESSION_MAX_TURNS * 2
+                if len(self._session_history) > max_history_msgs:
+                    self._session_history = self._session_history[-max_history_msgs:]
+
+                turn_idx += 1
+
+                # -- Phase 36 Step 4: Active Listening Loop (chờ 5.0 giây) --
+                logger.info("VoiceController: Entering Active Listening loop (timeout=%.1fs)...", ACTIVE_LISTENING_TIMEOUT_SEC)
+                self._send_widget({"cmd": "show", "mode": "listening"})
+                self._send_widget({"cmd": "text", "content": "👂  Đang lắng nghe phản hồi của anh (5s)..."})
+
+                next_audio = self._record_active_listening(timeout=ACTIVE_LISTENING_TIMEOUT_SEC)
+                if not next_audio:
+                    # Trường hợp 2: Im lặng > 5s -> Phát câu chốt từ Cache -> Đóng mic -> Về ngủ
+                    logger.info("VoiceController: Active listening silence > 5s -> playing sleep phrase.")
+                    self._send_widget({"cmd": "text", "content": "💤  Em xin phép tạm nghỉ..."})
+                    self._play_cached_phrase_instant(SLEEP_PHRASE)
+                    time.sleep(0.5)
+                    break
+
+                # Trường hợp 1: Có âm thanh mới -> Transcribe và nạp vào vòng lặp kế tiếp
+                self._send_widget({"cmd": "show", "mode": "processing"})
+                self._send_widget({"cmd": "text", "content": "⚙  Đang nhận dạng câu lệnh tiếp..."})
+                next_transcript = self._transcribe_sync(next_audio)
+                if not next_transcript:
+                    self._send_widget({"cmd": "text", "content": "💤  Em xin phép tạm nghỉ..."})
+                    self._play_cached_phrase_instant(SLEEP_PHRASE)
+                    time.sleep(0.5)
+                    break
+
+                if self._is_closing_phrase(next_transcript):
+                    logger.info("VoiceController: User said closing phrase in active listening: '%s'", next_transcript)
+                    self._send_widget({"cmd": "text", "content": "👋  Tạm biệt anh!"})
+                    self._play_cached_phrase_instant(SLEEP_PHRASE)
+                    self._session_history = []
+                    time.sleep(0.5)
+                    break
+
+                # Gán vào pending_transcript để vòng lặp tiếp tục xử lý mượt mà!
+                pending_transcript = next_transcript
+
+            # ---- Done — hide widget ----
+            time.sleep(0.8)
+            self._send_widget({"cmd": "hide"})
+
+        except Exception as exc:
+            logger.error("VoiceController: Command flow error: %s", exc, exc_info=True)
+            self._send_widget({"cmd": "text", "content": f"⚠  Lỗi: {str(exc)[:60]}"})
+            time.sleep(2.0)
+            self._send_widget({"cmd": "hide"})
+        finally:
+            self._active = False
+
+    @staticmethod
+    def _is_followup_question(response: str) -> bool:
+        """Detect if the LLM response is asking the user a follow-up question."""
+        r = response.lower().strip()
+        return any(indicator in r for indicator in _FOLLOWUP_INDICATORS)
+
+    @staticmethod
+    def _is_closing_phrase(text: str) -> bool:
+        """Detect if user said a conversation-ending phrase."""
+        t = text.lower().strip()
+        return any(phrase in t for phrase in _CLOSING_PHRASES)
+
+    # ------------------------------------------------------------------
+    # Audio Recording
+    # ------------------------------------------------------------------
+
+    def _record_command(self) -> Optional[bytes]:
+        """
+        Record a single command phrase from the microphone.
+        Returns raw audio bytes (WAV format) or None on failure.
+
+        IMPORTANT: Temporarily pauses WakeWordEngine mic before opening
+        our own sr.Microphone() to avoid hardware conflict (both cannot
+        hold the mic simultaneously on most systems).
+        """
+        if not _SR_AVAILABLE:
+            return None
+
+        # --- Pause WakeWordEngine to release hardware mic ---
+        from core.wake_word_engine import set_mic_enabled, is_mic_enabled
+        wake_was_enabled = is_mic_enabled()
+        if wake_was_enabled:
+            logger.info("VoiceController: Pausing WakeWordEngine mic for command recording...")
+            set_mic_enabled(False)
+            # Chờ WakeWordEngine thoát khỏi with sr.Microphone() block
+            # 0.3s đủ để stream đóng — wake engine chạy vong lặp cứ 0.8s
+            time.sleep(0.3)
+
+        try:
+            recognizer = sr.Recognizer()
+            recognizer.pause_threshold = 0.5          # Phase 50: Ngừng 500ms lập tức cắt câu
+            recognizer.non_speaking_duration = 0.4    # Silence buffer
+            recognizer.dynamic_energy_threshold = True
+            recognizer.energy_threshold = 400          # Wake engine đã calibrate, dùng lại
+
+            with sr.Microphone() as source:
+                # NOTE: Bỏ adjust_for_ambient_noise — đã calibrate trong WakeWordEngine
+                # Calibrate thêm chỉ thêm 0.5s delay mà không cải thiện đáng kể
+                logger.info("VoiceController: Recording command (timeout=%ss, phrase_limit=%ss)...",
+                            COMMAND_TIMEOUT_SEC, COMMAND_PHRASE_LIMIT_SEC)
+                audio = recognizer.listen(
+                    source,
+                    timeout=COMMAND_TIMEOUT_SEC,
+                    phrase_time_limit=COMMAND_PHRASE_LIMIT_SEC,
+                )
+            return audio.get_wav_data()
+        except sr.WaitTimeoutError:
+            logger.warning("VoiceController: Command recording timed out (user did not speak).")
+            return None
+        except Exception as exc:
+            logger.error("VoiceController: Recording error: %s", exc, exc_info=True)
+            return None
+        finally:
+            if wake_was_enabled:
+                logger.info("VoiceController: Resuming WakeWordEngine mic after command recording.")
+                set_mic_enabled(True)
+
+    def _record_followup(self) -> Optional[bytes]:
+        """
+        Record a follow-up reply after AI asks a question.
+        Uses longer timeout so user has time to think and respond.
+        """
+        if not _SR_AVAILABLE:
+            return None
+
+        # --- Pause WakeWordEngine ---
+        from core.wake_word_engine import set_mic_enabled, is_mic_enabled
+        wake_was_enabled = is_mic_enabled()
+        if wake_was_enabled:
+            set_mic_enabled(False)
+            time.sleep(0.2)  # Giảm từ 0.5s xuống 0.2s
+
+        try:
+            recognizer = sr.Recognizer()
+            recognizer.pause_threshold = 0.5          # Phase 50: 500ms silence cutoff
+            recognizer.non_speaking_duration = 0.4
+            recognizer.dynamic_energy_threshold = True
+            recognizer.energy_threshold = 400
+
+            with sr.Microphone() as source:
+                # Không calibrate — tiết kiệm 0.4s
+                logger.info("VoiceController: Waiting for follow-up reply (timeout=%ss)...",
+                            FOLLOWUP_TIMEOUT_SEC)
+                audio = recognizer.listen(
+                    source,
+                    timeout=FOLLOWUP_TIMEOUT_SEC,
+                    phrase_time_limit=FOLLOWUP_PHRASE_LIMIT_SEC,
+                )
+            return audio.get_wav_data()
+        except sr.WaitTimeoutError:
+            logger.info("VoiceController: Follow-up timed out — user did not reply.")
+            return None
+        except Exception as exc:
+            logger.error("VoiceController: Follow-up recording error: %s", exc, exc_info=True)
+            return None
+        finally:
+            if wake_was_enabled:
+                set_mic_enabled(True)
+
+    # ------------------------------------------------------------------
+    # ASR (sync wrapper)
+    # ------------------------------------------------------------------
+
+    def _transcribe_sync(self, audio_bytes: bytes) -> str:
+        """Sync wrapper around AudioEngine.transcribe_audio()."""
+        try:
+            if self._loop and self._loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._transcribe_async(audio_bytes), self._loop
+                )
+                return future.result(timeout=15.0)
+            else:
+                # No running loop — use new event loop
+                return asyncio.run(self._transcribe_async(audio_bytes))
+        except Exception as exc:
+            logger.error("VoiceController: Transcription error: %s", exc)
+            return ""
+
+    async def _transcribe_async(self, audio_bytes: bytes) -> str:
+        from core.audio_processor import audio_engine
+        return await audio_engine.transcribe_audio(audio_bytes)
+
+    # ------------------------------------------------------------------
+    # LLM + TTS Streaming Pipeline (Phase 23)
+    # ------------------------------------------------------------------
+
+    def _stream_response_and_play(self, text: str) -> str:
+        """
+        Phase 23/45: Ultra-Low Latency Sentence-Streaming TTS Pipeline.
+
+        Phase 45 Improvements:
+          - asyncio.Queue(maxsize=3) as lookahead buffer keeps producer 1-3 sentences ahead.
+          - Keep-alive watchdog reduced from 8s to 5s.
+          - TTFB and per-sentence TTS latency logged for telemetry.
+          - contextual filler fires for ALL tool calls (not just delegate_to_specialist).
+
+        Flow:
+          1. Open streaming connection to 9router via stream_voice_response().
+          2. For each complete sentence yielded by the LLM:
+             a. Synthesise TTS bytes immediately in the Producer coroutine.
+             b. Put bytes into asyncio.Queue(maxsize=3) — backpressure if Consumer is slow.
+          3. Consumer plays sentences sequentially; TTS for sentence N+1 is already ready.
+
+        Returns:
+            The full concatenated response text (for history logging).
+        """
+        from core.llm_engine import llm_engine
+
+        full_response_parts: list = []
+        t_pipeline_start = time.monotonic()
+
+        def _run_streaming() -> None:
+            """Runs the concurrent Producer-Consumer audio pipeline in a dedicated event loop."""
+            async def _async_stream():
+                from core.audio_processor import audio_engine
+                from core.llm_engine import llm_engine
+
+                audio_queue: asyncio.Queue = asyncio.Queue(maxsize=3)  # Phase 45: bounded for backpressure
+                _SENTINEL = object()  # Signals end of TTS stream
+
+                # --- Task 1: TTS Producer (streams LLM & pre-synthesises TTS in advance) ---
+                first_sentence_event = asyncio.Event()
+                ttfb_logged = False
+
+                async def _tts_producer():
+                    nonlocal ttfb_logged
+                    sentence_idx = 0
+                    try:
+                        async for sentence in llm_engine.stream_voice_response(
+                            query=text,
+                            history=list(self._session_history),
+                        ):
+                            if not sentence.strip():
+                                continue
+
+                            full_response_parts.append(sentence)
+                            sentence_idx += 1
+
+                            if not ttfb_logged:
+                                ttfb = time.monotonic() - t_pipeline_start
+                                logger.info(
+                                    "VoiceController: [Phase45] TTFB %.2fs (first LLM sentence)",
+                                    ttfb,
+                                )
+                                ttfb_logged = True
+                            first_sentence_event.set()  # Cancels need for keep-alive alert
+                            logger.info(
+                                "VoiceController: [Stream Pipeline] Sentence %d received: '%s'",
+                                sentence_idx, sentence[:60],
+                            )
+
+                            # Update widget with sentence preview
+                            self._send_widget({
+                                "cmd": "text",
+                                "content": f"💬  {sentence[:80]}"
+                            })
+
+                            # Phase 45: Synthesise TTS BEFORE enqueueing so consumer
+                            # receives ready-to-play bytes with zero additional wait.
+                            try:
+                                t_tts = time.monotonic()
+                                audio_bytes = await audio_engine.text_to_speech_bytes(sentence)
+                                logger.info(
+                                    "VoiceController: [Phase45] TTS S%d done in %.2fs",
+                                    sentence_idx, time.monotonic() - t_tts,
+                                )
+                                if audio_bytes:
+                                    # put() will block if queue full (3 items) — natural backpressure
+                                    await audio_queue.put((sentence_idx, sentence, audio_bytes))
+                            except Exception as tts_exc:
+                                logger.warning(
+                                    "VoiceController: TTS synthesis error for sentence %d: %s",
+                                    sentence_idx, tts_exc,
+                                )
+                    except Exception as stream_err:
+                        logger.error("VoiceController: LLM stream error: %s", stream_err)
+                    finally:
+                        # Signal completion to consumer
+                        await audio_queue.put(_SENTINEL)
+
+                # --- Task 2: Audio Player Consumer (plays continuously with 0ms gap) ---
+                async def _audio_consumer():
+                    loop = asyncio.get_event_loop()
+                    while True:
+                        item = await audio_queue.get()
+                        if item is _SENTINEL:
+                            audio_queue.task_done()
+                            break
+
+                        s_idx, s_text, a_bytes = item
+                        self._send_widget({"cmd": "text", "content": "🔊  Đang phát âm..."})
+                        try:
+                            # Play audio via fast executor (native afplay on macOS)
+                            await loop.run_in_executor(None, self._play_audio_bytes, a_bytes)
+                        except Exception as play_err:
+                            logger.warning(
+                                "VoiceController: Playback error sentence %d: %s",
+                                s_idx, play_err,
+                            )
+                        finally:
+                            audio_queue.task_done()
+
+                # --- Task 3: Keep-Alive Watchdog (Phase 47: 18s timeout to avoid premature false alarms) ---
+                async def _keep_alive_watchdog():
+                    try:
+                        await asyncio.sleep(18.0)  # Phase 47: increased from 5s to 18s
+                        if not first_sentence_event.is_set():
+                            logger.info("VoiceController: [Phase47 Keep-Alive] >18s no result -> playing buffer phrase...")
+                            self._send_widget({
+                                "cmd": "text",
+                                "content": f"⏳  {KEEP_ALIVE_PHRASE}",
+                            })
+                            from core.audio_cache import get_cached_audio_bytes
+                            ka_bytes = get_cached_audio_bytes(KEEP_ALIVE_PHRASE)
+                            if not ka_bytes:
+                                ka_bytes = await audio_engine.text_to_speech_bytes(KEEP_ALIVE_PHRASE)
+                            if ka_bytes:
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, self._play_audio_bytes, ka_bytes)
+                    except asyncio.CancelledError:
+                        pass
+                    except Exception as ka_exc:
+                        logger.warning("VoiceController: Keep-alive watchdog error: %s", ka_exc)
+
+                # Run Producer, Consumer, and Watchdog concurrently!
+                watchdog_task = asyncio.create_task(_keep_alive_watchdog())
+                try:
+                    await asyncio.gather(_tts_producer(), _audio_consumer())
+                finally:
+                    watchdog_task.cancel()
+
+                logger.info(
+                    "VoiceController: [Phase45] Pipeline complete in %.2fs, %d sentences.",
+                    time.monotonic() - t_pipeline_start, len(full_response_parts),
+                )
+
+            asyncio.run(_async_stream())
+
+        try:
+            import threading
+            t = threading.Thread(target=_run_streaming, daemon=True)
+            t.start()
+            # Wait for streaming to complete (max 60s total)
+            t.join(timeout=60.0)
+        except Exception as exc:
+            logger.error("VoiceController: Streaming pipeline error: %s", exc)
+
+        full_response = " ".join(full_response_parts).strip()
+
+        # Fallback: if streaming produced nothing, use sync method
+        if not full_response:
+            logger.warning(
+                "VoiceController: Streaming produced no output, falling back to sync LLM."
+            )
+            full_response = self._get_llm_response_with_history_sync(text)
+            if full_response:
+                self._play_tts_sync(full_response)
+
+        return full_response
+
+    def _get_llm_response_with_history_sync(self, text: str) -> str:
+        """
+        Fallback: synchronous LLM call with history (no streaming).
+        Used when streaming fails or produces empty output.
+        """
+        from core.llm_engine import llm_engine
+        try:
+            return llm_engine.process_voice_command_sync(
+                text,
+                history=list(self._session_history),
+            )
+        except Exception as exc:
+            logger.error("VoiceController: Sync LLM fallback error: %s", exc)
+            return f"Xin lỗi, em gặp lỗi kết nối: {str(exc)[:80]}"
+
+    def _get_llm_response_sync(self, text: str) -> str:
+        """Get LLM response synchronously with session history."""
+        # Bug #14 fix: Always use history version to preserve context.
+        # The bare no-history version was causing AI to forget conversation context on fallback.
+        return self._get_llm_response_with_history_sync(text)
+
+    async def _get_llm_response_async(self, text: str) -> str:
+        from core.llm_engine import llm_engine
+        try:
+            response = await llm_engine.chat(
+                messages=[{"role": "user", "content": text}],
+                stream=False,
+            )
+            return response or "Không có phản hồi."
+        except Exception as exc:
+            logger.error("LLM call failed: %s", exc)
+            return f"Lỗi LLM: {str(exc)[:100]}"
+
+    # ------------------------------------------------------------------
+    # TTS Playback (sync)
+    # ------------------------------------------------------------------
+
+    def _play_tts_sync(self, text: str) -> None:
+        """Generate TTS and play locally using pydub/afplay with Audio Cache support."""
+        from core.audio_cache import get_cached_audio_bytes
+        cached = get_cached_audio_bytes(text)
+        if cached:
+            self._play_audio_bytes(cached)
+            return
+
+        try:
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+
+            if running_loop and running_loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                    pool.submit(asyncio.run, self._play_tts_async(text)).result(timeout=30.0)
+            elif self._loop and self._loop.is_running():
+                future = asyncio.run_coroutine_threadsafe(
+                    self._play_tts_async(text), self._loop
+                )
+                future.result(timeout=30.0)
+            else:
+                asyncio.run(self._play_tts_async(text))
+        except Exception as exc:
+            logger.error("VoiceController: TTS playback error: %s", exc)
+
+    async def _play_tts_async(self, text: str) -> None:
+        from core.audio_processor import audio_engine
+        audio_bytes = await audio_engine.text_to_speech_bytes(text)
+        if not audio_bytes:
+            return
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._play_audio_bytes, audio_bytes)
+
+    def _play_cached_phrase_instant(self, text: str) -> None:
+        """Phase 36: Phát ngay lập tức câu từ Audio Cache cục bộ (0ms latency)."""
+        from core.audio_cache import get_cached_audio_bytes
+        data = get_cached_audio_bytes(text)
+        if data:
+            self._play_audio_bytes(data)
+        else:
+            self._play_tts_sync(text)
+
+    def _play_cached_phrase_instant_async(self, text: str) -> None:
+        """Phát câu từ Audio Cache trong một worker thread song song không block luồng gọi."""
+        threading.Thread(target=self._play_cached_phrase_instant, args=(text,), daemon=True).start()
+
+    def notify_delegation_started(self) -> None:
+        """Phase 40: Kích hoạt câu đệm từ Audio Cache khi Gemini ủy quyền bài toán cho Claude."""
+        logger.info("VoiceController: [Phase 40 Reflex] Kích hoạt câu đệm ủy quyền Claude...")
+        if self._active:
+            self._send_widget({
+                "cmd": "text",
+                "content": "🧠  Đang chuyển dữ liệu cho Chuyên gia Claude...",
+            })
+        self._play_cached_phrase_instant_async(DELEGATION_FILLER_PHRASE)
+
+    def _record_active_listening(self, timeout: float = ACTIVE_LISTENING_TIMEOUT_SEC) -> Optional[bytes]:
+        """
+        Phase 36: Lắng nghe chủ động (Active Listening) sau khi AI báo cáo xong tác vụ.
+        Nếu người dùng nói trong vòng 5 giây: thu âm và tiếp tục lượt hội thoại.
+        Nếu im lặng quá 5 giây: trả về None để kích hoạt câu kết thúc và đưa hệ thống về chế độ ngủ.
+        """
+        if not _SR_AVAILABLE:
+            return None
+
+        from core.wake_word_engine import set_mic_enabled, is_mic_enabled
+        wake_was_enabled = is_mic_enabled()
+        if wake_was_enabled:
+            set_mic_enabled(False)
+            time.sleep(0.15)
+
+        try:
+            recognizer = sr.Recognizer()
+            recognizer.pause_threshold = 0.5          # Phase 50: 500ms silence cutoff
+            recognizer.non_speaking_duration = 0.4
+            recognizer.dynamic_energy_threshold = True
+            recognizer.energy_threshold = 400
+
+            with sr.Microphone() as source:
+                logger.info("VoiceController: Active listening loop active (timeout=%.1fs)...", timeout)
+                audio = recognizer.listen(
+                    source,
+                    timeout=timeout,
+                    phrase_time_limit=COMMAND_PHRASE_LIMIT_SEC,
+                )
+            return audio.get_wav_data()
+        except sr.WaitTimeoutError:
+            logger.info("VoiceController: Active listening timed out (silent > %.1fs).", timeout)
+            return None
+        except Exception as exc:
+            logger.error("VoiceController: Active listening recording error: %s", exc)
+            return None
+        finally:
+            if wake_was_enabled:
+                set_mic_enabled(True)
+
+    @staticmethod
+    def _play_audio_bytes(audio_bytes: bytes) -> None:
+        """
+        Play audio bytes with ultra-low startup latency.
+        Serialized through _AUDIO_PLAYBACK_LOCK to prevent simultaneous audio overlap.
+        """
+        if not audio_bytes:
+            return
+
+        with _AUDIO_PLAYBACK_LOCK:
+            import sys
+            if sys.platform == "darwin":
+                import os
+                import subprocess
+                import tempfile
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp3")
+                try:
+                    with os.fdopen(tmp_fd, "wb") as f:
+                        f.write(audio_bytes)
+                    subprocess.run(["/usr/bin/afplay", tmp_path], check=True)
+                except Exception as exc:
+                    logger.warning("VoiceController: afplay error (%s), fallback to pydub", exc)
+                    VoiceController._pydub_play(audio_bytes)
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except OSError:
+                        pass
+            else:
+                VoiceController._pydub_play(audio_bytes)
+
+    @staticmethod
+    def _pydub_play(mp3_bytes: bytes) -> None:
+        """Play MP3 bytes via pydub (cross-platform)."""
+        try:
+            from pydub import AudioSegment  # type: ignore[import]
+            from pydub.playback import play  # type: ignore[import]
+            audio = AudioSegment.from_mp3(io.BytesIO(mp3_bytes))
+            play(audio)
+        except ImportError:
+            logger.warning("pydub not installed; TTS playback skipped.")
+        except Exception as exc:
+            logger.warning("pydub playback error: %s", exc)
+
+    # ------------------------------------------------------------------
+    # VoiceWidget subprocess management
+    # ------------------------------------------------------------------
+
+    def _ensure_widget_running(self) -> None:
+        """Launch VoiceWidget subprocess if not already running."""
+        if self._widget_proc and self._widget_proc.poll() is None:
+            return  # Already running
+
+        logger.info("VoiceController: Launching VoiceWidget subprocess...")
+        try:
+            self._widget_proc = subprocess.Popen(
+                [sys.executable, WIDGET_SCRIPT],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,  # Line-buffered
+            )
+            time.sleep(0.5)  # Give widget time to initialize
+            logger.info("VoiceController: VoiceWidget subprocess started (pid=%d).", self._widget_proc.pid)
+        except Exception as exc:
+            logger.error("VoiceController: Failed to launch VoiceWidget: %s", exc)
+            self._widget_proc = None
+
+    def _send_widget(self, payload: dict) -> None:
+        """Send JSON command to VoiceWidget subprocess stdin."""
+        self._ensure_widget_running()
+        if not self._widget_proc or self._widget_proc.poll() is not None:
+            logger.warning("VoiceController: Widget not running, cannot send: %s", payload)
+            return
+        try:
+            line = json.dumps(payload, ensure_ascii=False) + "\n"
+            self._widget_proc.stdin.write(line)
+            self._widget_proc.stdin.flush()
+        except (BrokenPipeError, OSError) as exc:
+            logger.warning("VoiceController: Widget pipe broken: %s", exc)
+            self._widget_proc = None
+
+    def _kill_widget(self) -> None:
+        """Kill VoiceWidget subprocess."""
+        if self._widget_proc:
+            try:
+                self._send_widget({"cmd": "quit"})
+                self._widget_proc.wait(timeout=2.0)
+            except Exception:
+                self._widget_proc.kill()
+            self._widget_proc = None
+
+    # ------------------------------------------------------------------
+    # Amplitude Relay (WakeWordEngine → VoiceWidget)
+    # ------------------------------------------------------------------
+
+    def _amplitude_relay_loop(self) -> None:
+        """
+        Continuously relay amplitude from WakeWordEngine to VoiceWidget.
+        Runs in its own daemon thread.
+        """
+        while True:
+            try:
+                if self._wake_engine and self._widget_proc and self._widget_proc.poll() is None:
+                    amp = self._wake_engine.get_amplitude()
+                    if amp is not None and self._active:
+                        self._send_widget({"cmd": "amplitude", "value": amp})
+            except Exception:
+                pass
+            time.sleep(0.033)  # ~30 FPS relay rate
+
+
+# ---------------------------------------------------------------------------
+# Module-level singleton
+# ---------------------------------------------------------------------------
+
+voice_controller = VoiceController()

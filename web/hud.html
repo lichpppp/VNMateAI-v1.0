@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full bg-black select-none">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title id="hud-doc-title">TRỢ LÝ AI LY LY — 3D CYBERNETIC HUD & VISUALIZER</title>
+  <link rel="icon" href="/static/favicon.ico">
+
+  <!-- Google Fonts: Orbitron, Rajdhani, Share Tech Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            orbitron: ['Orbitron', 'sans-serif'],
+            rajdhani: ['Rajdhani', 'sans-serif'],
+            mono: ['"Share Tech Mono"', 'Courier New', 'monospace'],
+          },
+          colors: {
+            vnmate: {
+              cyan: '#00f2fe',
+              neon: '#00ffff',
+              blue: '#0284c7',
+              cobalt: '#2563eb',
+              amber: '#f59e0b',
+              emerald: '#10b981',
+              dark: '#020813',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* ─── Ultra-Sharp Sci-Fi Cyberpunk Theme (Zero Blur on Edges) ─────── */
+    * {
+      box-sizing: border-box;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      background-color: #01060e;
+      color: #00f2fe;
+      overflow: hidden;
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      font-family: 'Rajdhani', sans-serif;
+    }
+
+    /* Ambient cybernetic grid background (sharp, crisp, transparent) */
+    .cyber-grid {
+      background-image: 
+        linear-gradient(rgba(0, 242, 254, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 242, 254, 0.05) 1px, transparent 1px);
+      background-size: 44px 44px;
+      background-position: center center;
+    }
+
+    /* Crisp High-Contrast Tech Panel — ZERO VIGNETTE, ZERO BLUR */
+    .hud-panel {
+      position: relative;
+      background: #020a16;
+      border: 1px solid rgba(0, 242, 254, 0.45);
+      border-radius: 6px;
+      box-shadow: 0 0 16px rgba(0, 242, 254, 0.12), inset 0 0 10px rgba(0, 242, 254, 0.04);
+      transition: border-color 0.2s ease-out, box-shadow 0.2s ease-out;
+    }
+
+    .hud-panel:hover {
+      border-color: rgba(0, 242, 254, 0.75);
+      box-shadow: 0 0 22px rgba(0, 242, 254, 0.22), inset 0 0 14px rgba(0, 242, 254, 0.08);
+    }
+
+    /* Sharp Tech Corner Accents */
+    .hud-corner-tl::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      width: 12px;
+      height: 12px;
+      border-top: 2px solid #00f2fe;
+      border-left: 2px solid #00f2fe;
+      border-top-left-radius: 5px;
+      pointer-events: none;
+    }
+    .hud-corner-br::after {
+      content: '';
+      position: absolute;
+      bottom: -1px;
+      right: -1px;
+      width: 12px;
+      height: 12px;
+      border-bottom: 2px solid #00f2fe;
+      border-right: 2px solid #00f2fe;
+      border-bottom-right-radius: 5px;
+      pointer-events: none;
+    }
+
+    /* Glow utilities */
+    .glow-cyan {
+      text-shadow: 0 0 8px rgba(0, 242, 254, 0.8), 0 0 18px rgba(0, 242, 254, 0.4);
+    }
+    .glow-emerald {
+      text-shadow: 0 0 8px rgba(16, 185, 129, 0.8), 0 0 18px rgba(16, 185, 129, 0.4);
+    }
+    .glow-amber {
+      text-shadow: 0 0 8px rgba(245, 158, 11, 0.8), 0 0 18px rgba(245, 158, 11, 0.4);
+    }
+
+    /* Circular Gauge Meter */
+    .gauge-circle-bg {
+      stroke: rgba(0, 242, 254, 0.15);
+    }
+    .gauge-circle-val {
+      stroke: url(#cyan-blue-grad);
+      transition: stroke-dashoffset 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+      filter: drop-shadow(0 0 6px rgba(0, 242, 254, 0.8));
+    }
+
+    /* Custom glowing scrollbar for logs */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #01060e;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #00f2fe 0%, #0284c7 100%);
+      border-radius: 4px;
+      box-shadow: 0 0 6px rgba(0, 242, 254, 0.6);
+    }
+    /* Holographic Markdown & Table styles (Phase 47) */
+    .hud-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0;
+      font-size: 13px;
+      background: rgba(1, 10, 24, 0.75);
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .hud-table th {
+      background: rgba(0, 242, 254, 0.15);
+      color: #00f2fe;
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(0, 242, 254, 0.4);
+      text-align: left;
+    }
+    .hud-table td {
+      padding: 7px 12px;
+      border-bottom: 1px solid rgba(0, 242, 254, 0.12);
+      color: #cbd5e1;
+    }
+    .hud-table tr:hover td {
+      background: rgba(0, 242, 254, 0.08);
+      color: #ffffff;
+    }
+    .hud-code-block {
+      background: rgba(0, 0, 0, 0.8);
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 12px;
+      color: #38bdf8;
+      overflow-x: auto;
+      margin: 8px 0;
+    }
+
+    /* Button Sci-Fi Pill */
+    .hud-btn {
+      position: relative;
+      background: rgba(0, 242, 254, 0.1);
+      border: 1px solid rgba(0, 242, 254, 0.45);
+      color: #00f2fe;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 6px;
+      transition: all 0.2s ease-out;
+      text-decoration: none;
+    }
+    .hud-btn:hover {
+      background: rgba(0, 242, 254, 0.25);
+      border-color: #00f2fe;
+      color: #ffffff;
+      box-shadow: 0 0 15px rgba(0, 242, 254, 0.5);
+      transform: translateY(-1px);
+    }
+    .hud-btn:active {
+      transform: translateY(1px);
+    }
+  </style>
+</head>
+
+<body class="relative flex flex-col justify-between p-3 md:p-5 overflow-hidden cyber-grid">
+
+  <!-- SVG Gradient Definitions -->
+  <svg class="absolute w-0 h-0 pointer-events-none">
+    <defs>
+      <linearGradient id="cyan-blue-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#00ffff" />
+        <stop offset="50%" stop-color="#00f2fe" />
+        <stop offset="100%" stop-color="#3b82f6" />
+      </linearGradient>
+      <linearGradient id="emerald-teal-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#10b981" />
+        <stop offset="100%" stop-color="#14b8a6" />
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- ─── HEADER: TOP TELEMETRY BAR ────────────────────────────────────── -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <header class="relative z-30 flex items-center justify-between border-b border-cyan-500/30 pb-2.5 px-1 bg-[#01060e]/80">
+    <!-- Left: Identity & Assistant Status -->
+    <div class="flex items-center gap-3.5">
+      <div class="relative flex items-center justify-center">
+        <span class="w-3.5 h-3.5 rounded-full bg-cyan-400 animate-ping absolute opacity-75"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-cyan-300 shadow-[0_0_12px_#00f2fe]"></span>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 id="hud-main-title" class="font-orbitron font-black text-sm md:text-base tracking-[0.2em] text-cyan-300 glow-cyan">
+            VN-MATE AI // TRỢ LÝ AI LY LY
+          </h1>
+          <span class="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono tracking-wider bg-cyan-500/10 border border-cyan-400/40 text-cyan-300">
+            ACTIVE
+          </span>
+        </div>
+        <div class="text-[11px] font-rajdhani font-semibold text-cyan-400/80 tracking-wider flex items-center gap-2">
+          <span>NEURAL DISPLAY ENGINE</span>
+          <span class="text-cyan-700">•</span>
+          <span>PROTOCOL v34.2</span>
+          <span class="text-cyan-700">•</span>
+          <span class="text-emerald-400 font-bold">WSS ZERO-LATENCY</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Center: Atomic Clocks & Uptime -->
+    <div class="hidden md:flex items-center gap-7 text-center font-rajdhani">
+      <div>
+        <div class="text-[10px] font-bold text-slate-300 tracking-wider">LOCAL SYSTEM TIME</div>
+        <div id="hud-clock-local" class="font-bold text-sm text-cyan-300 font-mono tracking-wider glow-cyan">--:--:-- ICT</div>
+      </div>
+      <div class="h-6 w-px bg-cyan-500/30"></div>
+      <div>
+        <div class="text-[10px] font-bold text-slate-300 tracking-wider">STANDBY UPTIME</div>
+        <div id="hud-uptime" class="font-bold text-sm text-cyan-400 font-mono">00:00:00</div>
+      </div>
+      <div class="h-6 w-px bg-cyan-500/30"></div>
+      <div>
+        <div class="text-[10px] font-bold text-slate-300 tracking-wider">FRAME RENDERING</div>
+        <div id="hud-fps" class="font-bold text-sm text-emerald-400 font-mono glow-emerald">60.0 FPS</div>
+      </div>
+    </div>
+
+    <!-- Right: Neural Link Status & Controls -->
+    <div class="flex items-center gap-2.5 text-right">
+      <div class="hidden sm:block text-right pr-1">
+        <div class="flex items-center justify-end gap-1.5">
+          <span id="hud-conn-dot" class="w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f2fe] animate-pulse"></span>
+          <span id="hud-conn-text" class="text-xs font-bold text-cyan-300 font-orbitron tracking-wider">LINK ACTIVE</span>
+        </div>
+        <div class="text-[10px] font-rajdhani text-slate-400 tracking-wider font-semibold">
+          ZERO-TRUST SENTINEL // ONLINE
+        </div>
+      </div>
+
+      <!-- Permission Status Badge -->
+      <div class="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded bg-emerald-950/60 border border-emerald-400/70 text-emerald-300 text-[10px] font-mono font-bold tracking-wider shadow-[0_0_10px_rgba(16,185,129,0.2)]" title="Đã cấp toàn quyền Admin hệ thống để hiển thị đầy đủ thông tin">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="hud-permission-badge">QUYỀN: ADMIN // TOÀN QUYỀN</span>
+      </div>
+
+      <!-- Quick ROI Dashboard Button -->
+      <a href="/roi" target="_blank" class="hud-btn hidden lg:flex items-center gap-1.5 border-blue-500/60 bg-blue-950/40 text-blue-300 hover:border-blue-400 hover:text-white" title="Mở Dashboard Giám sát Hiệu quả ROI & Tự động hóa ITSM">
+        <span>[📊 ROI & ITSM]</span>
+      </a>
+
+      <!-- Quick Portal Setting Button (Rename AI anytime!) -->
+      <a href="/" target="_blank" class="hud-btn hidden sm:flex items-center gap-1.5 border-purple-500/60 bg-purple-950/40 text-purple-300 hover:border-purple-400 hover:text-white" title="Mở Web Portal để đổi tên trợ lý AI, cấu hình giọng nói và quản lý hệ thống">
+        <span>[⚙️ ĐỔI TÊN // CẤU HÌNH]</span>
+      </a>
+
+      <!-- Quick Command Button -->
+      <button id="hud-cmd-toggle-btn" onclick="toggleHudCmdBar()" class="hud-btn hidden sm:flex items-center gap-1.5 border-cyan-500/50 bg-cyan-950/30 text-cyan-300" title="Nhập lệnh nhanh bằng bàn phím (Phím tắt '/')">
+        <span>[⌨️ LỆNH NHANH]</span>
+      </button>
+
+      <!-- Action Buttons -->
+      <button id="hud-mic-btn" onclick="toggleHudMic()" class="hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300" title="Click hoặc ấn Phím Cách (Spacebar) để nói">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+        <span>[🎙️ MIC]</span>
+      </button>
+
+      <button id="hud-sound-btn" onclick="toggleHudAudio()" class="hud-btn border-emerald-500/60 bg-emerald-950/40 text-emerald-300 hover:border-emerald-400" title="Bật/Tắt phát âm thanh trực tiếp trên HUD">
+        [🔊 SOUND: BẬT]
+      </button>
+
+      <button onclick="toggleFullscreen()" class="hud-btn hidden lg:block" title="Ấn 'F' hoặc Double Click để Fullscreen">
+        [⛶ FULLSCREEN]
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- ─── MAIN STAGE: 3-COLUMN SCI-FI COCKPIT (100% SHARP) ─────────────── -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <main class="relative z-30 flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 my-2.5 items-stretch min-h-0">
+    
+    <!-- ── LEFT FLANK: REFINED VITALS & TELEMETRY (cols 1-3) ──────────── -->
+    <section class="lg:col-span-3 flex flex-col justify-between h-full space-y-3 pointer-events-auto">
+      
+      <!-- Panel 1: DUAL CIRCULAR GAUGES (CPU & RAM MATRIX) -->
+      <div class="hud-panel hud-corner-tl p-4 flex flex-col justify-between flex-1">
+        <div class="flex justify-between items-center text-xs pb-2 border-b border-cyan-500/30">
+          <span class="font-orbitron font-bold text-cyan-300 tracking-wider flex items-center gap-2">
+            <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span>
+            COMPUTE & MEMORY
+          </span>
+          <span class="text-[10px] font-mono text-cyan-400/90 uppercase tracking-widest">[SYS.NODE.01]</span>
+        </div>
+
+        <!-- Dual Circular Gauges Grid -->
+        <div class="grid grid-cols-2 gap-3 my-3 items-center text-center">
+          
+          <!-- CPU Gauge -->
+          <div class="flex flex-col items-center">
+            <div class="relative w-24 h-24 flex items-center justify-center">
+              <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="38" class="gauge-circle-bg" stroke-width="7" fill="none" />
+                <circle id="metric-cpu-circle" cx="50" cy="50" r="38" class="gauge-circle-val" stroke-width="7" fill="none"
+                  stroke-dasharray="238.76" stroke-dashoffset="150" stroke-linecap="round" />
+              </svg>
+              <div class="absolute flex flex-col items-center">
+                <span id="metric-cpu-text" class="font-orbitron font-black text-sm text-cyan-300 glow-cyan">35.4%</span>
+                <span class="text-[9px] font-rajdhani font-bold text-slate-300 tracking-wider">CPU LOAD</span>
+              </div>
+            </div>
+            <span class="text-[11px] font-rajdhani font-bold text-cyan-300 mt-1">CORES: MULTI-CORE</span>
+            <span id="metric-procs-text" class="text-[10px] font-mono text-slate-300">PROCS: --</span>
+          </div>
+
+          <!-- RAM Gauge -->
+          <div class="flex flex-col items-center">
+            <div class="relative w-24 h-24 flex items-center justify-center">
+              <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="38" class="gauge-circle-bg" stroke-width="7" fill="none" />
+                <circle id="metric-ram-circle" cx="50" cy="50" r="38" class="gauge-circle-val" stroke-width="7" fill="none"
+                  stroke-dasharray="238.76" stroke-dashoffset="80" stroke-linecap="round" />
+              </svg>
+              <div class="absolute flex flex-col items-center">
+                <span id="metric-ram-text" class="font-orbitron font-black text-sm text-cyan-300 glow-cyan">83.4%</span>
+                <span class="text-[9px] font-rajdhani font-bold text-slate-300 tracking-wider">RAM MATRIX</span>
+              </div>
+            </div>
+            <span id="metric-ram-gb" class="text-[11px] font-rajdhani font-bold text-cyan-300 mt-1">USED: -- GB</span>
+            <span id="metric-ram-total" class="text-[10px] font-mono text-slate-300">TOTAL: -- GB</span>
+          </div>
+
+        </div>
+
+        <!-- Hidden Fallback Linear Bars for compatibility -->
+        <div class="hidden">
+          <div id="metric-cpu-bar"></div>
+          <div id="metric-ram-bar"></div>
+        </div>
+
+        <!-- Telemetry Status Footer -->
+        <div class="pt-2 border-t border-cyan-500/20 flex justify-between items-center text-[11px] text-cyan-300 font-rajdhani font-semibold">
+          <span id="metric-net-io" class="font-mono text-cyan-300 flex items-center gap-1">
+            <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span>
+            NET: ▲ 0.0 MB/s ▼ 0.0 MB/s
+          </span>
+          <span class="text-emerald-400 font-bold font-mono">99.98% OPTIMAL</span>
+        </div>
+      </div>
+
+      <!-- Panel 2: HARDWARE STORAGE & WORKER AGENTS -->
+      <div class="hud-panel hud-corner-br p-3.5 space-y-2.5">
+        <!-- Storage -->
+        <div>
+          <div class="flex justify-between items-center text-xs mb-1.5">
+            <span class="font-orbitron font-bold text-emerald-400 flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full"></span> STORAGE SUBSYSTEM
+            </span>
+            <span id="metric-disk-text" class="text-emerald-300 font-bold font-mono text-xs">42.0%</span>
+          </div>
+          <div class="w-full bg-[#01060e] rounded h-1.5 overflow-hidden border border-emerald-900/60">
+            <div id="metric-disk-bar" class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 shadow-[0_0_8px_#10b981]" style="width: 42%;"></div>
+          </div>
+          <div class="flex justify-between text-[11px] font-rajdhani text-slate-300 mt-1">
+            <span id="metric-disk-free">NVMe FREE: -- GB</span>
+            <span class="text-emerald-400 font-bold">HEALTH: 100% EXCELLENT</span>
+          </div>
+        </div>
+
+        <!-- Worker Agents & Audio Hardware Grid -->
+        <div class="pt-2 border-t border-cyan-500/20 grid grid-cols-2 gap-2">
+          <div class="bg-black/40 p-1.5 rounded border border-cyan-500/20">
+            <div class="text-[9px] font-orbitron font-bold text-cyan-400 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span> CLIENTS KẾT NỐI
+            </div>
+            <div id="metric-clients-count" class="text-cyan-300 font-bold font-orbitron text-xs mt-0.5">0 ACTIVE</div>
+          </div>
+          <div class="bg-black/40 p-1.5 rounded border border-emerald-500/20">
+            <div class="text-[9px] font-orbitron font-bold text-emerald-400 flex items-center gap-1">
+              <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span> MẠCH ÂM THANH
+            </div>
+            <div id="metric-audio-nodes" class="text-emerald-300 font-bold font-orbitron text-xs mt-0.5">0 THIẾT BỊ</div>
+          </div>
+        </div>
+
+        <!-- AI Skills & Zero-Trust Status -->
+        <div class="pt-1.5 border-t border-cyan-500/20 flex justify-between items-center text-[10px] font-mono text-slate-300">
+          <span class="text-slate-400">DOANH NGHIỆP SKILLS:</span>
+          <span id="metric-skills-count" class="text-cyan-300 font-bold">50+ TÍCH HỢP</span>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ── CENTER: 3D AI CORE SPHERE & ARC REACTOR (cols 4-9) ─────────── -->
+    <section class="lg:col-span-6 flex flex-col items-center justify-center relative h-full min-h-[360px] overflow-hidden">
+      
+      <!-- Luminous Cyan Ambient Backlight Corona -->
+      <div class="absolute w-[440px] h-[440px] rounded-full bg-cyan-500/10 blur-[60px] pointer-events-none -z-10 animate-pulse"></div>
+
+      <!-- Outer Reticle Crosshairs SVG -->
+      <div class="absolute inset-0 pointer-events-none flex items-center justify-center opacity-45">
+        <svg class="w-full h-full max-w-[560px] max-h-[560px]" viewBox="0 0 500 500">
+          <!-- Outer Azimuth Ring -->
+          <circle cx="250" cy="250" r="238" fill="none" stroke="#00f2fe" stroke-width="0.8" stroke-dasharray="6,12" opacity="0.7" />
+          <circle cx="250" cy="250" r="215" fill="none" stroke="#00f2fe" stroke-width="0.6" opacity="0.5" />
+          
+          <!-- Outer Degree Marks -->
+          <text x="250" y="16" fill="#00f2fe" font-family="'Orbitron', sans-serif" font-size="9" text-anchor="middle" letter-spacing="1">000°</text>
+          <text x="490" y="253" fill="#00f2fe" font-family="'Orbitron', sans-serif" font-size="9" text-anchor="end" letter-spacing="1">090°</text>
+          <text x="250" y="494" fill="#00f2fe" font-family="'Orbitron', sans-serif" font-size="9" text-anchor="middle" letter-spacing="1">180°</text>
+          <text x="12" y="253" fill="#00f2fe" font-family="'Orbitron', sans-serif" font-size="9" text-anchor="start" letter-spacing="1">270°</text>
+          
+          <!-- Tech Crosshairs -->
+          <line x1="250" y1="20" x2="250" y2="55" stroke="#00f2fe" stroke-width="1.5" />
+          <line x1="250" y1="445" x2="250" y2="480" stroke="#00f2fe" stroke-width="1.5" />
+          <line x1="20" y1="250" x2="55" y2="250" stroke="#00f2fe" stroke-width="1.5" />
+          <line x1="445" y1="250" x2="480" y2="250" stroke="#00f2fe" stroke-width="1.5" />
+          
+          <!-- Tactical Corner Brackets -->
+          <path d="M 60 110 L 60 60 L 110 60" fill="none" stroke="#00f2fe" stroke-width="1.5" opacity="0.8" />
+          <path d="M 440 110 L 440 60 L 390 60" fill="none" stroke="#00f2fe" stroke-width="1.5" opacity="0.8" />
+          <path d="M 60 390 L 60 440 L 110 440" fill="none" stroke="#00f2fe" stroke-width="1.5" opacity="0.8" />
+          <path d="M 440 390 L 440 440 L 390 440" fill="none" stroke="#00f2fe" stroke-width="1.5" opacity="0.8" />
+        </svg>
+      </div>
+
+      <!-- Main 3D AI Core Canvas -->
+      <canvas id="core-canvas" class="relative z-10 w-full h-full max-w-[580px] max-h-[580px] cursor-pointer"></canvas>
+
+      <!-- Central State Indicator Badge -->
+      <div class="relative z-20 -mt-7">
+        <div id="core-status-badge" class="px-5 py-1.5 rounded-full border border-cyan-400/60 bg-[#01060e] text-cyan-300 font-orbitron font-bold text-xs tracking-[0.2em] glow-cyan shadow-[0_0_20px_rgba(0,242,254,0.3)] transition-all duration-300">
+          ● AI CORE: STANDBY // IDLE
+        </div>
+      </div>
+    </section>
+
+    <!-- ── RIGHT FLANK: TACTICAL RADAR & STREAMING LOGS (cols 10-12) ──── -->
+    <section class="lg:col-span-3 flex flex-col justify-between h-full space-y-3 pointer-events-auto">
+      
+      <!-- Panel 1: TACTICAL RADAR MINI-MAP -->
+      <div class="hud-panel hud-corner-tl p-3.5 space-y-2.5">
+        <div class="flex justify-between items-center text-xs pb-1.5 border-b border-cyan-500/30">
+          <span class="font-orbitron font-bold text-cyan-300 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
+            TARGET TRACKING
+          </span>
+          <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/50">
+            LOCKED
+          </span>
+        </div>
+
+        <!-- Radar Canvas Mini-Sweep -->
+        <div class="relative w-full h-28 bg-[#01060e] rounded-lg overflow-hidden border border-cyan-500/30 flex items-center justify-center">
+          <canvas id="radar-canvas" class="w-full h-full"></canvas>
+          <div class="absolute top-1 left-2 text-[9px] font-mono text-cyan-400/80 pointer-events-none">
+            DEFENSE RADAR // 360° SWEEP
+          </div>
+          <div class="absolute bottom-1 right-2 text-[9px] font-mono text-emerald-400 pointer-events-none">
+            TARGETS: 0 DETECTED
+          </div>
+        </div>
+
+        <!-- Sector Coordinates -->
+        <div class="space-y-1 font-rajdhani text-[11px]">
+          <div class="flex justify-between">
+            <span class="text-slate-300">SECTOR GRID:</span>
+            <span class="text-cyan-300 font-mono font-bold">48-ALPHA-DELTA</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-300">COORDINATES:</span>
+            <span class="text-cyan-300 font-mono font-bold" id="hud-coord">10°46'37"N 106°41'43"E</span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-300">DEFENSE MATRIX:</span>
+            <span class="text-emerald-400 font-bold font-mono">FIREWALL OPTIMAL</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel 2: REAL-TIME STREAMING EVENT LOGS -->
+      <div class="hud-panel hud-corner-br p-3.5 flex-1 flex flex-col min-h-[220px] max-h-[360px]">
+        <div class="flex justify-between items-center text-xs pb-1.5 border-b border-cyan-500/30 shrink-0 mb-2">
+          <span class="font-orbitron font-bold text-cyan-300 flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-pulse"></span>
+            SYSTEM EVENT FEED
+          </span>
+          <span class="text-[10px] font-mono font-bold text-cyan-300 tracking-wider">LIVE TAIL</span>
+        </div>
+        
+        <!-- Clean Log Stream Container -->
+        <div id="hud-log-stream" class="flex-1 overflow-y-auto space-y-1.5 font-mono text-[11px] pr-1 leading-snug">
+          <div class="text-slate-300 flex items-start gap-1.5">
+            <span class="text-slate-400">[00:00:01]</span>
+            <span class="text-cyan-400">[INIT]</span>
+            <span id="hud-welcome-log">Hệ thống trợ lý AI Ly Ly Online.</span>
+          </div>
+          <div class="text-cyan-300 flex items-start gap-1.5">
+            <span class="text-slate-400">[00:00:02]</span>
+            <span class="text-emerald-400">[LINK]</span>
+            <span>WebSocket Neural Handshake established.</span>
+          </div>
+          <div class="text-slate-300 flex items-start gap-1.5">
+            <span class="text-slate-400">[00:00:03]</span>
+            <span class="text-purple-400">[SEC]</span>
+            <span>Zero-Trust Sentinel active. Guard normal.</span>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- ─── HOLOGRAPHIC DATA DISPLAY MODAL // BÁO CÁO CHI TIẾT (PHASE 47) ── -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div id="hud-display-card" class="hidden absolute inset-x-2 sm:inset-x-8 md:inset-x-14 lg:inset-x-20 top-2 bottom-4 z-40 hud-panel bg-[#020a16]/95 border-2 border-cyan-400/80 shadow-[0_0_50px_rgba(0,242,254,0.4)] backdrop-blur-2xl flex flex-col rounded-xl overflow-hidden transition-all duration-300">
+      
+      <!-- Card Header -->
+      <div class="p-3 border-b border-cyan-500/40 bg-gradient-to-r from-cyan-950/80 via-[#011428]/90 to-transparent flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#00f2fe] animate-pulse shrink-0"></span>
+          <div class="truncate">
+            <div class="text-[11px] font-orbitron font-bold text-cyan-300 tracking-wider flex items-center gap-2">
+              <span>HOLOGRAPHIC DATA DISPLAY // CHI TIẾT TỪ TRỢ LÝ</span>
+              <span class="px-1.5 py-0.2 rounded text-[9px] font-mono bg-cyan-500/20 border border-cyan-400/40 text-cyan-200">REAL-TIME REPORT</span>
+            </div>
+            <div id="hud-display-query" class="text-xs font-rajdhani font-semibold text-cyan-100/90 truncate mt-0.5">
+              Lệnh: Báo cáo tình trạng hệ thống
+            </div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="copyHudDisplayContent()" class="hud-btn text-xs py-1 px-2.5 border-cyan-500/60 bg-cyan-950/50 text-cyan-300 hover:border-cyan-300" title="Sao chép nội dung">
+            📋 SAO CHÉP
+          </button>
+          <button onclick="hideHudDisplayCard()" class="hud-btn text-xs py-1 px-3 border-rose-500/80 bg-rose-950/60 text-rose-300 hover:border-rose-400 hover:text-white" title="Đóng bảng chi tiết (ESC)">
+            ✕ ĐÓNG
+          </button>
+        </div>
+      </div>
+
+      <!-- Card Body: Markdown & Visual Content -->
+      <div id="hud-display-content" class="flex-1 p-4 md:p-6 overflow-y-auto space-y-3 font-rajdhani text-slate-100 text-sm md:text-base leading-relaxed select-text">
+        <!-- Rendered markdown table / details here -->
+      </div>
+
+      <!-- Card Footer -->
+      <div class="px-4 py-2 border-t border-cyan-500/30 bg-[#01060e]/90 flex items-center justify-between text-[11px] font-rajdhani text-cyan-400/70 shrink-0">
+        <span class="flex items-center gap-1.5">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+          DỮ LIỆU ĐƯỢC PHÂN TÍCH & TRÌNH DIỄN THỜI GIAN THỰC
+        </span>
+        <span class="font-mono text-slate-400">Ấn [ESC] hoặc click ĐÓNG để thu gọn</span>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- ─── BOTTOM: VOICE STREAM & AUDIO WAVEFORM EQUALIZER ──────────────── -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <footer class="relative z-30 flex flex-col space-y-2 border-t border-cyan-500/30 pt-2 px-1 bg-[#01060e]/80">
+    
+    <!-- Audio Waveform Oscilloscope Canvas -->
+    <div class="w-full h-11 md:h-12 relative overflow-hidden bg-[#01060e] rounded-lg border border-cyan-500/30 shadow-inner">
+      <canvas id="waveform-canvas" class="w-full h-full"></canvas>
+      <div class="absolute top-1 left-2.5 text-[10px] text-cyan-400 font-orbitron tracking-widest pointer-events-none flex items-center gap-2">
+        <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+        AUDIO SPECTRUM // HARMONIC OSCILLOSCOPE
+      </div>
+    </div>
+
+    <!-- Holographic Quick Command Console -->
+    <div id="hud-cmd-bar" class="hud-panel p-2 flex items-center gap-2 border-cyan-400/50 bg-[#020a16]/95">
+      <span class="text-cyan-400 font-mono font-bold text-xs pl-1 shrink-0">COMMAND &gt;</span>
+      <input id="hud-cmd-input" type="text" placeholder="Nhập lệnh nhanh hoặc câu hỏi... (Nhấn Enter để gửi, hoặc click gợi ý bên phải)" class="flex-1 bg-black/70 border border-cyan-500/40 rounded px-3 py-1 text-xs text-cyan-200 font-rajdhani tracking-wide focus:outline-none focus:border-cyan-300 placeholder:text-slate-500" autocomplete="off" />
+      <button id="hud-cmd-send-btn" onclick="submitHudCmd()" class="hud-btn text-xs py-1 px-3 border-cyan-400/70 bg-cyan-950/60 text-cyan-300">
+        [GỬI]
+      </button>
+      <div class="hidden lg:flex items-center gap-1.5 pl-2 border-l border-cyan-500/30 shrink-0">
+        <button onclick="quickCmd('Báo cáo tình trạng hệ thống hiện tại')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-400 transition-colors">
+          📊 Báo cáo
+        </button>
+        <button onclick="quickCmd('Báo cáo chỉ số ROI và thời gian tự động hóa')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-purple-500/10 border border-purple-500/30 text-purple-300 hover:bg-purple-500/20 hover:border-purple-400 transition-colors">
+          📈 ROI & KPI
+        </button>
+        <button onclick="quickCmd('Kiểm tra mức độ an ninh và các mối đe dọa')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 hover:border-emerald-400 transition-colors">
+          🛡️ An ninh
+        </button>
+        <button onclick="quickCmd('Kiểm tra hiệu năng CPU và bộ nhớ RAM')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-blue-500/10 border border-blue-500/30 text-blue-300 hover:bg-blue-500/20 hover:border-blue-400 transition-colors">
+          ⚡ Tài nguyên
+        </button>
+        <button onclick="quickCmd('Kiểm tra danh sách mạch âm thanh Xiaozhi')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-teal-500/10 border border-teal-500/30 text-teal-300 hover:bg-teal-500/20 hover:border-teal-400 transition-colors">
+          🎙️ Mạch Audio
+        </button>
+      </div>
+    </div>
+
+    <!-- Holographic Zero-Trust Security Approval Banner -->
+    <div id="hud-security-alert" class="hidden hud-panel p-2.5 flex items-center justify-between gap-3 border-amber-500/80 bg-[#160b02]/95 shadow-[0_0_22px_rgba(245,158,11,0.35)] animate-pulse">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <span class="w-3 h-3 rounded-full bg-amber-400 shadow-[0_0_10px_#f59e0b] animate-ping shrink-0"></span>
+        <div class="truncate">
+          <div class="text-[10px] font-orbitron font-bold text-amber-300 tracking-wider flex items-center gap-2">
+            <span>ZERO-TRUST SENTINEL // YÊU CẦU PHÊ DUYỆT BẢO MẬT</span>
+            <span class="px-1.5 py-0.2 rounded text-[9px] font-mono bg-amber-500/20 border border-amber-400/40 text-amber-200">NEED_CONFIRM</span>
+          </div>
+          <div id="hud-security-desc" class="text-xs font-rajdhani font-semibold text-amber-100 truncate mt-0.5">
+            Tác vụ bảo mật đang chờ bạn xác nhận phê duyệt để tiếp tục...
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button id="hud-sec-approve-btn" onclick="hudConfirmSecurity(true)" class="hud-btn text-xs py-1 px-3 border-emerald-500/80 bg-emerald-950/70 text-emerald-300 hover:border-emerald-400 hover:text-white cursor-pointer" title="Phê duyệt lệnh và tiếp tục thực thi (Phím Enter)">
+          [✅ PHÊ DUYỆT]
+        </button>
+        <button id="hud-sec-reject-btn" onclick="hudConfirmSecurity(false)" class="hud-btn text-xs py-1 px-3 border-rose-500/80 bg-rose-950/70 text-rose-300 hover:border-rose-400 hover:text-white cursor-pointer" title="Hủy bỏ tác vụ này (Phím Escape)">
+          [❌ HỦY BỎ]
+        </button>
+      </div>
+    </div>
+
+    <!-- Holographic Subtitle Console -->
+    <div class="hud-panel p-2.5 md:p-3 flex items-center gap-3">
+      <div class="flex items-center gap-2.5 shrink-0 pl-1">
+        <span id="voice-indicator-dot" class="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_10px_#00f2fe] animate-pulse"></span>
+        <span id="voice-indicator-tag" class="font-orbitron font-black text-xs text-cyan-300 tracking-wider">
+          Ly Ly:
+        </span>
+      </div>
+      
+      <!-- Typewriter Output Box -->
+      <div class="flex-1 font-rajdhani font-bold text-sm md:text-base text-slate-100 tracking-wide truncate">
+        <span id="typewriter-text" class="text-cyan-200">Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...</span>
+        <span id="typewriter-cursor" class="text-cyan-400 animate-pulse font-black">_</span>
+      </div>
+
+      <div class="text-[10px] font-orbitron font-bold text-cyan-400 hidden sm:block shrink-0 pr-1">
+        VOICE STREAM ACTIVE
+      </div>
+    </div>
+
+  </footer>
+
+  <!-- Native Audio Stream for Hardware Web Audio FFT Analysis -->
+  <audio id="hud-audio-stream" preload="auto" crossorigin="anonymous" style="display:none;"></audio>
+
+  <!-- ─── HUD JAVASCRIPT ENGINE ──────────────────────────────────────── -->
+  <script src="/static/hud.js?v=51.0"></script>
+</body>
+</html>
