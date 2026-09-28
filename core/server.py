@@ -687,9 +687,65 @@ async def auth_middleware(request: Request, call_next):
 
 
 # ─── Mount static files (web/ directory) ───────────────────────────────────
+def _asset_version(name: str) -> str:
+    """
+    Phiên bản của một file tĩnh, lấy từ thời điểm sửa gần nhất.
+
+    Thẻ `<script src="...?v=X">` trong HTML từng ghi số cứng kiểu `?v=51.1`.
+    Số đó chỉ đổi khi ai đó nhớ tăng lên, nên sau mỗi lần sửa JS mà quên
+    tăng, người dùng vẫn chạy bản cũ. Nay lấy từ mtime: sửa file là URL đổi,
+    không cần nhớ.
+
+    Dùng `mtime_ns` vì hai lần sửa trong cùng một giây vẫn phải cho URL khác nhau.
+    """
+    f = _WEB_DIR / name
+    try:
+        return str(f.stat().st_mtime_ns)
+    except OSError:
+        return "0"
+
+
+def _inject_asset_versions(html: str) -> str:
+    """Thay số phiên bản cứng trong thẻ script bằng mtime của file tương ứng."""
+    import re as _re
+
+    def _sub(m: "re.Match[str]") -> str:
+        # group(1) là phần sau `src="`. Phải trả lại CẢ `src="` và dấu `"` —
+        # chỉ trả về URL thì thẻ script hỏng mà trình duyệt chỉ báo lỗi im lặng.
+        url = m.group(1)
+        fname = url.rsplit("/", 1)[-1].split("?", 1)[0].split("&", 1)[0]
+        return f'src="{url.rsplit("?", 1)[0]}?v={_asset_version(fname)}"'
+
+    return _re.sub(r'src="(/static/[^"]+\?v=)[^"]*"', _sub, html)
+
+
+class _NoStaleStatic(StaticFiles):
+    """
+    Phục vụ file tĩnh nhưng LUÔN buộc trình duyệt kiểm tra lại.
+
+    Phase 69. `StaticFiles` mặc định không gửi `Cache-Control`, nên trình duyệt
+    tự cache theo heuristics — thường là 10% khoảng thời gian kể từ
+    `Last-Modified`. Hậu quả rất khó chịu: HTML được phục vụ kèm `no-cache`
+    nên luôn mới, nhưng file JS/CSS mà HTML đó trỏ tới thì vẫn là bản CŨ.
+
+    Người dùng thấy giao diện mới, nhưng hành vi là bản cũ, và không có cách
+    nào đoán ra. Chính xác tình trạng đang xảy ra khi sửa `hud.js`: HUD vẫn báo
+    lỗi mic kiểu cũ vì trình duyệt không bao giờ hỏi lại server.
+
+    `no-cache` KHÔNG có nghĩa là không cache: trình duyệt vẫn giữ bản cũ và gửi
+    `If-None-Match`; server trả 304 (vài chục byte) nếu không đổi. Rẻ mà luôn
+    đúng.
+    """
+
+    def file_response(self, *args, **kwargs):  # type: ignore[override]
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
+
 if _WEB_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(_WEB_DIR)), name="static")
-    logger.info("Static files mounted from: %s", _WEB_DIR)
+    app.mount("/static", _NoStaleStatic(directory=str(_WEB_DIR)), name="static")
+    logger.info("Static files mounted from: %s (no-cache: luôn kiểm tra bản mới)", _WEB_DIR)
 else:
     logger.warning("web/ directory not found at %s — portal will be unavailable.", _WEB_DIR)
 
@@ -1152,7 +1208,7 @@ def broadcast_tts_notification(announcement_text: str) -> None:
     include_in_schema=False,
     summary="Web Portal",
 )
-async def serve_portal() -> FileResponse:
+async def serve_portal() -> HTMLResponse:
     """
     Serve the VN-MateAI Web Control Portal.
     Navigate to http://localhost:5843/ in a browser.
@@ -1163,9 +1219,11 @@ async def serve_portal() -> FileResponse:
             status_code=404,
             detail="web/index.html not found. Make sure the web/ directory exists.",
         )
-    return FileResponse(
-        str(index),
-        media_type="text/html",
+    return HTMLResponse(
+        # Đọc và thay phiên bản script thay vì FileResponse: FileResponse phục
+        # vụ tệp nguyên trạng, không cho chèn. Sửa app.js là URL trong HTML đổi
+        # theo, nên không còn tình trạng HTML mới chạy JS cũ.
+        _inject_asset_versions(index.read_text(encoding="utf-8")),
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
@@ -1185,9 +1243,9 @@ async def get_vnmate_hud():
     hud_file = _WEB_DIR / "hud.html"
     if not hud_file.exists():
         raise HTTPException(status_code=404, detail="web/hud.html not found.")
-    return FileResponse(
-        str(hud_file),
-        media_type="text/html",
+    return HTMLResponse(
+        # Xem giải thích ở serve_portal.
+        _inject_asset_versions(hud_file.read_text(encoding="utf-8")),
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",

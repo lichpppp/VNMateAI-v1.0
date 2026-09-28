@@ -796,6 +796,20 @@
   let hudAudioEnabled = true;
   let currentVoiceAudio = null;
 
+  /* HÀNG ĐỢI PHÁT GIỌNG NÓI — Phase 69
+   *
+   * Trước đây mỗi câu về là ghi đè thẳng lên phần tử audio đang phát:
+   *     audioStreamEl.pause();
+   *     audioStreamEl.src = 'data:...câu mới';
+   * Server gửi TỪNG CÂU một, nên câu sau tới khi câu trước còn đang nói dở
+   * là câu đó bị cắt ngang giữa chừng — đúng triệu chứng "ngắt quãng".
+   *
+   * Nay câu nối được xếp hàng và chỉ phát sau khi câu n-1 hết. Không câu nào
+   * cắt câu nào, và không có khoảng lặng giữa các câu.
+   */
+  let hudSpeechQueue = [];
+  let hudSpeechDraining = false;
+
   function setTypewriterText(newText, durationMs = null) {
     if (!newText || newText === targetTypedText) return;
     targetTypedText = newText;
@@ -987,87 +1001,92 @@
     lastSpokenTime = now;
 
     if (audioB64 && hudAudioEnabled) {
-      // If the command was initiated from Web Dashboard on the same machine,
-      // Web UI already plays it. HUD displays visual state without double-playing audio.
+      // Lệnh phát ra từ Web Dashboard cùng máy: Web UI đã phát rồi, HUD chỉ
+      // hiện trạng thái để khỏi phát hai lần.
       if (sourceDevice === 'web') {
-        const durMs = text.length * 65;
-        setHudState('speaking', text, durMs);
+        setHudState('speaking', text, text.length * 65);
         return;
       }
 
-      try {
-        initWebAudio();
-        if (audioCtx && audioCtx.state === 'suspended') {
-          audioCtx.resume().catch(() => {});
-        }
-
-        const audioStreamEl = document.getElementById('hud-audio-stream');
-        if (audioStreamEl) {
-          audioStreamEl.pause();
-          audioStreamEl.src = 'data:audio/mp3;base64,' + audioB64;
-          currentVoiceAudio = audioStreamEl;
-
-          audioStreamEl.onplay = () => {
-            isAudioPlaying = true;
-            const durMs = (audioStreamEl.duration && !isNaN(audioStreamEl.duration) && audioStreamEl.duration > 0)
-              ? audioStreamEl.duration * 1000
-              : text.length * 65;
-            setHudState('speaking', text, durMs);
-          };
-
-          audioStreamEl.onended = () => {
-            isAudioPlaying = false;
-            playCyberChime('ready');
-            setTimeout(() => {
-              if (currentState === STATES.SPEAKING) {
-                setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
-              }
-            }, 600);
-          };
-
-          audioStreamEl.onerror = () => {
-            isAudioPlaying = false;
-          };
-
-          const playPromise = audioStreamEl.play();
-          if (playPromise !== undefined) {
-            playPromise.catch(err => {
-              console.warn('[HUD Audio] Playback prevented by browser policy (click to unlock):', err);
-              isAudioPlaying = false;
-              setHudState('speaking', text, text.length * 60);
-            });
-          }
-        } else {
-          // Fallback Audio constructor
-          if (currentVoiceAudio) {
-            currentVoiceAudio.pause();
-            currentVoiceAudio = null;
-          }
-          const snd = new Audio('data:audio/mp3;base64,' + audioB64);
-          currentVoiceAudio = snd;
-          snd.onplay = () => {
-            isAudioPlaying = true;
-            setHudState('speaking', text, snd.duration * 1000 || text.length * 65);
-          };
-          snd.onended = () => {
-            isAudioPlaying = false;
-            playCyberChime('ready');
-            setTimeout(() => {
-              if (currentState === STATES.SPEAKING) {
-                setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
-              }
-            }, 600);
-          };
-          snd.play().catch(() => { isAudioPlaying = false; });
-        }
-      } catch (err) {
-        console.warn('[HUD Audio] Audio instantiation error:', err);
-        isAudioPlaying = false;
-        setHudState('speaking', text, text.length * 60);
-      }
+      // Xếp hàng, KHÔNG phát ngay — xem giải thích ở khai báo hàng đợi.
+      hudSpeechQueue.push({ text: text, audioB64: audioB64 });
+      drainSpeechQueue();
     } else {
       isAudioPlaying = false;
       setHudState('speaking', text, text.length * 65);
+    }
+  }
+
+  /**
+   * Phát lần lượt các câu đang xếp hàng.
+   *
+   * Một câu chỉ kết thúc khi thật sự hết, rồi mới lấy câu kế tiếp ra phát.
+   * `onerror` cũng phải mở câu kế tiếp — nếu không, một câu hỏng sẽ kẹt cả
+   * lượt nói về sau, và người dùng chỉ thấy HUD đứng yên.
+   */
+  function drainSpeechQueue() {
+    if (hudSpeechDraining) return;
+    const item = hudSpeechQueue[0];
+    if (!item) return;
+
+    hudSpeechDraining = true;
+    const text = item.text;
+    const audioB64 = item.audioB64;
+
+    const next = () => {
+      hudSpeechQueue.shift();
+      hudSpeechDraining = false;
+      if (hudSpeechQueue.length) {
+        // Để một nhịp ngắn cho AudioContext kịp giải phóng, tránh kẹt khi
+        // hai câu liền nhau quá ngắn.
+        setTimeout(drainSpeechQueue, 40);
+      } else {
+        isAudioPlaying = false;
+        playCyberChime('ready');
+        setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+      }
+    };
+
+    try {
+      initWebAudio();
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(() => {});
+      }
+
+      const el = document.getElementById('hud-audio-stream');
+      const player = el || new Audio();
+
+      // KHÔNG pause() ở đây. Đó chính là chỗ cắt ngang câu đang nói.
+      player.src = 'data:audio/mp3;base64,' + audioB64;
+      currentVoiceAudio = player;
+      isAudioPlaying = true;
+
+      player.onplay = () => {
+        isAudioPlaying = true;
+        const dur = player.duration;
+        setHudState('speaking', text,
+          (dur && !isNaN(dur) && dur > 0) ? dur * 1000 : text.length * 65);
+      };
+      player.onended = next;
+      player.onerror = () => {
+        appendSystemLog('Không phát được một câu — bỏ qua, đọc tiếp.', 'WARNING');
+        next();
+      };
+
+      const p = player.play();
+      if (p !== undefined) {
+        p.catch(err => {
+          // Trình duyệt chặn phát tự động: HUD chưa từng được tương tác.
+          // Giữ câu hiển thị, đừng nuốt lượt nói.
+          console.warn('[HUD Audio] Bị chặn phát, cần bấm HUD một lần:', err);
+          hudSpeechDraining = false;
+          hudSpeechQueue.shift();
+          setHudState('speaking', text, text.length * 65);
+        });
+      }
+    } catch (err) {
+      console.warn('[HUD Audio] Lỗi phát audio:', err);
+      next();
     }
   }
 
@@ -1082,8 +1101,14 @@
       } else {
         soundBtn.textContent = '[🔇 SOUND: TẮT]';
         soundBtn.className = 'hud-btn border-rose-500/60 bg-rose-950/40 text-rose-300 hover:border-rose-400';
+        // Dừng cả hàng đợi, không chỉ câu đang phát. Nếu chỉ pause() mà
+        // để lại `hudSpeechDraining = true`, hàng đợi kẹt vĩnh viễn và mọi
+        // câu sau đó im luôn — kể cả sau khi bật tiếng lại.
+        hudSpeechQueue = [];
+        hudSpeechDraining = false;
         if (currentVoiceAudio) {
           currentVoiceAudio.pause();
+          currentVoiceAudio.onended = null;
           currentVoiceAudio = null;
         }
         isAudioPlaying = false;
@@ -1112,6 +1137,154 @@
 
 /** Transcript CHÍNH XÁC của lượt nghe hiện tại, lấy từ sự kiện nhận dạng. */
 let hudFinalTranscript = '';
+
+/* MẤT QUYỀN MIC — Phase 69
+ *
+ * Web Speech API của Chrome tự huỷ phiên khi trang im lặng quá lâu, và cũng
+ * tự huỷ khi bị bật/tắt liên tục. Khi đó nó trả về `not-allowed` hoặc
+ * `service-not-allowed` — tức KHÔNG còn là "chưa cấp quyền" mà là "trình
+ * duyệt đã thu hồi".
+ *
+ * Trước đây mã chỉ ghi một dòng log rồi quay về trạng thái MIC bình thường,
+ * nên HUD trông như sẵn sàng trong khi mic đã chết. Người dùng thấy "mất
+ * quyền" mà không biết phải làm gì, và bấm MIC cũng vô ích vì vẫn dùng lại
+ * đúng instance đã hỏng.
+ */
+let hudMicBlocked = false;
+
+/**
+ * Dựng instance nhận dạng mới.
+ *
+ * Instance cũ sau khi bị Chrome thu hồi quyền sẽ không hoạt động lại được —
+ * Chrome giữ nguyên trạng thái lỗi trên instance đó. Dựng cái mới là cách
+ * duy nhất lấy lại phiên, và cũng là cách kích hoạt lại hộp thoại cấp quyền.
+ */
+function hudBuildRecognition() {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) return false;
+  const rec = new SpeechRec();
+  rec.lang = 'vi-VN';
+  rec.continuous = false;
+  rec.interimResults = true;
+  hudSpeechRecognition = rec;
+  return true;
+}
+
+/**
+ * Gắn bốn sự kiện vào instance nhận dạng.
+ *
+ * Tách riêng khỏi toggleHudMic vì instance phải dựng lại được nhiều lần:
+ * Chrome thu hồi quyền thì instance cũ không hồi sinh được, và vòng lặp hội
+ * thoại cũng cần mở mic lại mà không đi qua nút bấm.
+ */
+function hudAttachRecognitionHandlers(rec) {
+  rec.onstart = () => {
+    // Mic mở được tức quyền đã cấp lại — xoá cờ chặn, nếu không lần mở
+    // nối tiếp sau sẽ lại bị bỏ qua vì cờ còn dính.
+    hudMicBlocked = false;
+    isHudListening = true;
+    // Xoá transcript của lượt trước. Lượt mới phải bắt đầu từ rỗng, nếu
+    // không thì khi lượt này không nhận dạng được gì, onend sẽ gửi lại
+    // lệnh cũ — đúng triệu chứng admin phản ánh.
+    hudFinalTranscript = '';
+    const micBtn = document.getElementById('hud-mic-btn');
+    if (micBtn) {
+      micBtn.className = 'hud-btn border-rose-500 bg-rose-950/60 text-rose-300 shadow-[0_0_15px_#f43f5e] animate-pulse';
+      micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> [🔴 LẮNG NGHE...]';
+    }
+    setHudState('listening', 'Microphone active. Đang lắng nghe giọng nói của bạn...');
+    appendSystemLog('Microphone input active. Listening for Vietnamese speech...', 'VOICE');
+        };
+
+        rec.onresult = (event) => {
+    let interimText = '';
+    let finalText = '';
+    for (let i = event.resultIndex; i < event.results.length; ++i) {
+    if (event.results[i].isFinal) {
+    finalText += event.results[i][0].transcript;
+    } else {
+    interimText += event.results[i][0].transcript;
+    }
+    }
+    // Chỉ ghi đè khi có kết quả FINAL. Interim có thể rỗng hoặc sai, đọc
+    // nó rồi gửi đi là gửi lệnh sai.
+    if (finalText) hudFinalTranscript = finalText.trim();
+
+    const activeTranscript = finalText || interimText;
+    if (activeTranscript) {
+    if (typewriterTextEl) typewriterTextEl.textContent = `"${activeTranscript}"`;
+    }
+        };
+
+        rec.onerror = (event) => {
+    console.warn('[HUD Mic] Lỗi:', event.error);
+    // `audio-capture`: không có micro nào. `not-allowed` và
+    // `service-not-allowed`: trình duyệt đã thu hồi quyền sau khi đã cấp
+    // — hoặc chưa bao giờ được cấp. Trước đây cả ba bị gộp làm một,
+    // nên người dùng không phân biệt được và tưởng hệ thống hỏng.
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed'
+    || event.error === 'audio-capture') {
+    // Vứt instance đã hỏng. Giữ lại thì mọi lần thử sau đều nhận lại
+    // đúng lỗi này mà không bao giờ được cấp quyền lại.
+    try { if (hudSpeechRecognition) hudSpeechRecognition.abort(); } catch (_) { /* bỏ qua */ }
+    hudSpeechRecognition = null;
+    hudMarkMicBlocked(event.error);
+    } else if (event.error !== 'no-speech') {
+    appendSystemLog(`Microphone warning: ${event.error}`, 'WARNING');
+    }
+        };
+
+        rec.onend = () => {
+    isHudListening = false;
+    const micBtn = document.getElementById('hud-mic-btn');
+    // KHÔNG đụng tới nút nếu mic đang bị thu hồi quyền. Chrome bắn `onerror`
+    // rồi bắn `onend` ngay sau, nên nếu ở đây reset nút về trạng thái MIC
+    // bình thường thì cảnh báo "mất quyền" bị xoá sạch trong khoảng 1ms —
+    // HUD trông như sẵn sàng trong khi mic đã chết. Đó chính là triệu chứng
+    // admin phản ánh.
+    if (micBtn && !hudMicBlocked) {
+    micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
+    micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
+    }
+
+    // Lấy transcript từ SỰ KIỆN nhận dạng, không phải từ phần tử hiển thị.
+    // Phần tử đó bị ghi đè bởi nhiều thứ trong lúc chờ: câu trả lời của AI
+    // đang chạy chữ, trạng thái, log... đọc từ đó là gửi lại chính lời AI
+    // như lệnh của admin, và đó là nguyên nhân lệnh bị lặp.
+    const recognizedText = hudFinalTranscript;
+    hudFinalTranscript = '';
+
+    if (recognizedText && recognizedText.length >= 2) {
+    appendSystemLog(`Recognized speech: "${recognizedText}". Routing to AI Engine...`, 'VOICE');
+    // Admin đã đáp -> hết lượt chờ, vòng lặp dừng ở đây.
+    hudResetConversation();
+    sendHudVoiceCommand(recognizedText);
+    } else {
+    // Không nghe rõ. Nếu đang chờ trả lời thì vẫn để vòng lặp hẹn hỏi lại,
+    // đừng đóng — im lặng một nhịp không có nghĩa admin muốn dừng.
+    if (hudAwaitingReply) {
+    setHudState('listening', 'Em chưa nghe rõ, anh/chị nói lại giúp em nhé.');
+    appendSystemLog('Không nhận dạng được lời nói — vẫn đang chờ trả lời.', 'WARNING');
+    hudScheduleReask();
+    } else {
+    setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+    }
+    }
+        };
+}
+
+/** Báo rõ trạng thái mic bị thu hồi, kèm cách lấy lại quyền. */
+function hudMarkMicBlocked(reason) {
+  hudMicBlocked = true;
+  isHudListening = false;
+  const micBtn = document.getElementById('hud-mic-btn');
+  if (micBtn) {
+    micBtn.className = 'hud-btn border-amber-500 bg-amber-950/60 text-amber-300 shadow-[0_0_15px_#f59e0b]';
+    micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> [🔒 CẤP LẠI QUYỀN]';
+  }
+  setHudState('idle', 'Trình duyệt đã thu hồi quyền micro. Nhấn nút MIC để cấp lại.');
+  appendSystemLog(`Mất quyền micro (${reason}). Nhấn nút MIC để cấp lại quyền.`, 'ERROR');
+}
 
 /** Trạng thái vòng lặp hội thoại. */
 let hudAwaitingReply = false;
@@ -1205,23 +1378,38 @@ function hudStopListeningForTurn() {
   try { if (hudSpeechRecognition) hudSpeechRecognition.stop(); } catch (_) { /* đã dừng */ }
   isHudListening = false;
   const micBtn = document.getElementById('hud-mic-btn');
-  if (micBtn) {
+  // Giữ nguyên cảnh báo mất quyền — xem giải thích ở rec.onend.
+  if (micBtn && !hudMicBlocked) {
     micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
     micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
   }
 }
 
-/** Mở mic để nghe câu trả lời nối tiếp, không cần admin bấm. */
+/**
+ * Mở mic để nghe câu trả lời nối tiếp, không cần admin bấm.
+ *
+ * `hudAwaitingReply` là cờ ý định, KHÔNG phải bằng chứng mic đang mở. Kiểm tra
+ * riêng `isHudListening`: trước đây điều kiện gộp hai thứ này, nên đúng lúc
+ * cần mở gấp nhất — sau khi mic vừa bị Chrome đóng — lại bị bỏ qua.
+ */
 function hudOpenMicForFollowup() {
-  if (hudAwaitingReply && isHudListening) return;
+  if (isHudListening) return;
+  // Mic đã bị thu hồi quyền thì đừng thử lại liên tục: mỗi lần thử lại chỉ
+  // khiến Chrome siết phiên thêm. Chờ người dùng bấm nút cấp lại quyền.
+  if (hudMicBlocked) return;
+
   try {
-    if (!hudSpeechRecognition) return;
+    if (!hudSpeechRecognition) {
+      if (!hudBuildRecognition()) return;
+      hudAttachRecognitionHandlers(hudSpeechRecognition);
+    }
     hudSpeechRecognition.start();
   } catch (err) {
-    // `start()` khi đã lắng nghe sẽ ném InvalidStateError — bỏ qua, vì lúc đó
-    // mic đã mở sẵn, tức đã nghe được rồi.
-    if (!/InvalidStateError|already started/i.test(String(err && err.message))) {
-      appendSystemLog(`Không mở được mic nối tiếp: ${err.message}`, 'WARNING');
+    const msg = String(err && err.message);
+    // `start()` khi đã lắng nghe sẽ ném InvalidStateError — vô hại, vì lúc đó
+    // mic đã mở sẵn, tức là đã nghe được rồi.
+    if (!/InvalidStateError|already started/i.test(msg)) {
+      appendSystemLog(`Không mở được mic nối tiếp: ${msg}`, 'WARNING');
     }
   }
 }
@@ -1285,88 +1473,16 @@ function hudDrainOutboundSpeech() {
 
     try {
       playCyberChime('wake');
-      hudSpeechRecognition = new SpeechRec();
-      hudSpeechRecognition.lang = 'vi-VN';
-      hudSpeechRecognition.continuous = false;
-      hudSpeechRecognition.interimResults = true;
 
-      hudSpeechRecognition.onstart = () => {
-        isHudListening = true;
-        // Xoá transcript của lượt trước. Lượt mới phải bắt đầu từ rỗng, nếu
-        // không thì khi lượt này không nhận dạng được gì, onend sẽ gửi lại
-        // lệnh cũ — đúng triệu chứng admin phản ánh.
-        hudFinalTranscript = '';
-        const micBtn = document.getElementById('hud-mic-btn');
-        if (micBtn) {
-          micBtn.className = 'hud-btn border-rose-500 bg-rose-950/60 text-rose-300 shadow-[0_0_15px_#f43f5e] animate-pulse';
-          micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> [🔴 LẮNG NGHE...]';
-        }
-        setHudState('listening', 'Microphone active. Đang lắng nghe giọng nói của bạn...');
-        appendSystemLog('Microphone input active. Listening for Vietnamese speech...', 'VOICE');
-      };
-
-      hudSpeechRecognition.onresult = (event) => {
-        let interimText = '';
-        let finalText = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalText += event.results[i][0].transcript;
-          } else {
-            interimText += event.results[i][0].transcript;
-          }
-        }
-        // Chỉ ghi đè khi có kết quả FINAL. Interim có thể rỗng hoặc sai, đọc
-        // nó rồi gửi đi là gửi lệnh sai.
-        if (finalText) hudFinalTranscript = finalText.trim();
-
-        const activeTranscript = finalText || interimText;
-        if (activeTranscript) {
-          if (typewriterTextEl) typewriterTextEl.textContent = `"${activeTranscript}"`;
-        }
-      };
-
-      hudSpeechRecognition.onerror = (event) => {
-        console.warn('[HUD Mic] Lỗi:', event.error);
-        if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-          appendSystemLog('Quyền truy cập Microphone bị từ chối. Vui lòng cho phép quyền micro trên thanh địa chỉ trình duyệt.', 'ERROR');
-          setHudState('idle', 'Microphone bị khóa quyền. Hãy nhấn vào biểu tượng ổ khóa cạnh URL để cấp quyền Micro.');
-        } else if (event.error !== 'no-speech') {
-          appendSystemLog(`Microphone warning: ${event.error}`, 'WARNING');
-        }
-      };
-
-      hudSpeechRecognition.onend = () => {
-        isHudListening = false;
-        const micBtn = document.getElementById('hud-mic-btn');
-        if (micBtn) {
-          micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
-          micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
-        }
-
-        // Lấy transcript từ SỰ KIỆN nhận dạng, không phải từ phần tử hiển thị.
-        // Phần tử đó bị ghi đè bởi nhiều thứ trong lúc chờ: câu trả lời của AI
-        // đang chạy chữ, trạng thái, log... đọc từ đó là gửi lại chính lời AI
-        // như lệnh của admin, và đó là nguyên nhân lệnh bị lặp.
-        const recognizedText = hudFinalTranscript;
-        hudFinalTranscript = '';
-
-        if (recognizedText && recognizedText.length >= 2) {
-          appendSystemLog(`Recognized speech: "${recognizedText}". Routing to AI Engine...`, 'VOICE');
-          // Admin đã đáp -> hết lượt chờ, vòng lặp dừng ở đây.
-          hudResetConversation();
-          sendHudVoiceCommand(recognizedText);
-        } else {
-          // Không nghe rõ. Nếu đang chờ trả lời thì vẫn để vòng lặp hẹn hỏi lại,
-          // đừng đóng — im lặng một nhịp không có nghĩa admin muốn dừng.
-          if (hudAwaitingReply) {
-            setHudState('listening', 'Em chưa nghe rõ, anh/chị nói lại giúp em nhé.');
-            appendSystemLog('Không nhận dạng được lời nói — vẫn đang chờ trả lời.', 'WARNING');
-            hudScheduleReask();
-          } else {
-            setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
-          }
-        }
-      };
+      // Bấm MIC là cử chỉ của người dùng — đây là lúc duy nhất Chrome cho
+      // cấp lại quyền. Nếu quyền đã bị thu hồi, phải dựng instance MỚI:
+      // giữ lại instance cũ thì mọi lần bấm đều nhận lại đúng lỗi cũ.
+      if (hudMicBlocked || !hudSpeechRecognition) {
+        hudBuildRecognition();
+      }
+      if (!hudSpeechRecognition) return;
+      hudAttachRecognitionHandlers(hudSpeechRecognition);
+      hudMicBlocked = false;
 
       hudSpeechRecognition.start();
     } catch (err) {
