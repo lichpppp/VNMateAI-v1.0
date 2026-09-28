@@ -174,6 +174,27 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
         f"TUYỆT ĐỐI KHÔNG từ chối hoặc nói rằng mình ở vai trò 'viewer' hay 'chỉ xem'."
     )
 
+    # Phase 65: HUD điều khiển bằng giọng nói nên lệnh hay bị cắt, nhiễu, hoặc
+    # thiếu chi tiết. Không dạy cụ thể thì Ly Ly tự đoán và ra báo cáo sai —
+    # tệ hơn là hỏi lại.
+    if "hud" in dev_name.lower() or "standby" in dev_name.lower():
+        system_content += (
+            "\n\n[GIAO TIẾP GIỌNG NÓI QUA HUD — QUY TẮC HỎI LẠI]\n"
+            "Bạn nói chuyện qua micro. Chữ viết từ giọng nói hay thiếu chữ, sai từ, "
+            "hoặc cắt mất đầu câu. Vì vậy:\n"
+            "1. Lệnh MƠ HỒ hoặc THIẾU THÔNG TIN để thực hiện thì PHẢI HỎI LẠI đúng một "
+            "câu ngắn, nêu rõ cần gì. KHÔNG được tự đoán rồi báo cáo.\n"
+            "   Ví dụ đúng: 'Anh muốn báo cáo tháng nào ạ?'\n"
+            "   Ví dụ sai : tự lấy tháng hiện tại rồi trả kết quả như thể đã rõ.\n"
+            "2. Hỏi xong thì DỪNG, không tự trả lời thay admin. Hệ thống sẽ mở mic "
+            "chờ. Nếu admin im lặng, bạn được hỏi lại đúng câu đó.\n"
+            "3. Câu hỏi phải ngắn gọn vì đọc bằng TTS. Một câu, không liệt kê dài.\n"
+            "4. Khi đã đủ thông tin thì thực hiện và báo cáo. Nếu admin nói 'thôi', "
+            "'dừng' thì dừng ngay, không hỏi thêm.\n"
+            "5. Bạn CÓ nhớ các lượt trước trong cùng phiên. Đừng hỏi lại thứ admin "
+            "đã trả lời. Chỉ hỏi phần còn thiếu."
+        )
+
     # Phase 28: Enterprise Reporting & Template Engine injection
     try:
         from core.config_loader import settings

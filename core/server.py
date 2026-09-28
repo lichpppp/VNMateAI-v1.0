@@ -118,12 +118,40 @@ def _get_assistant_name() -> str:
         return "Ly Ly"
 
 
-async def _process_hud_voice_command(cmd_query: str) -> None:
-    """Phase 33: Thực thi câu lệnh thoại được gửi trực tiếp từ VN-MateAI HUD qua WebSocket."""
+async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") -> None:
+    """
+    Phase 33: Thực thi câu lệnh thoại từ VN-MateAI HUD qua WebSocket.
+
+    Phase 65: có lưu lịch sử theo phiên. Trước đây gọi `stream_voice_response()`
+    mà không truyền `history`, nên mỗi lượt nói là một cuộc trò chuyện mới —
+    Ly Ly không nhớ mình vừa hỏi gì, admin phải lặp lại, và báo cáo ra sai.
+    """
     from core.llm_engine import llm_engine
     from core.audio_processor import audio_engine
+    from core.voice_session import voice_sessions, is_stop_reply, looks_like_question
 
-    logger.info("Standby HUD WS voice command: '%s'", cmd_query[:100])
+    session = voice_sessions.get(session_id)
+    # Admin nói "thôi" -> dừng hội thoại, không gọi LLM. Gọi LLM ở đây chỉ để
+    # nghe một từ dừng là tốn một vòng gọi mạng không cần thiết.
+    if is_stop_reply(cmd_query) and session.expecting_reply:
+        session.clear_expecting_reply()
+        await broadcast_hud({
+            "type": "voice_active", "status": "idle",
+            "text": "Đã dừng. Em không hỏi gì nữa ạ.",
+            "source_device": "hud", "session_id": session_id,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        logger.info("[HUD] Admin dừng hội thoại tại phiên %s", session_id)
+        return
+
+    session.add_turn("user", cmd_query)
+    # Lượt mới đã có câu trả lời -> không còn chờ câu trước nữa.
+    session.clear_expecting_reply()
+
+    logger.info(
+        "Standby HUD WS voice command: '%s' (phiên %s, %d lượt trước đó)",
+        cmd_query[:100], session_id, len(session.turns),
+    )
     await broadcast_hud({
         "type": "voice_active",
         "status": "listening",
@@ -152,7 +180,11 @@ async def _process_hud_voice_command(cmd_query: str) -> None:
     # Phase 50: Full-Duplex Real-Time Voice Streaming for HUD
     full_sentences = []
     try:
-        async for sentence in llm_engine.stream_voice_response(query=cmd_query, source_device="hud"):
+        async for sentence in llm_engine.stream_voice_response(
+            query=cmd_query,
+            history=session.history(),
+            source_device="hud",
+        ):
             clean_s = llm_engine._sanitise_for_tts(sentence)
             if not clean_s:
                 continue
@@ -186,6 +218,34 @@ async def _process_hud_voice_command(cmd_query: str) -> None:
     except Exception as exc:
         logger.error("HUD voice stream error: %s", exc)
 
+    # Phase 65: Ly Ly vừa nói xong. Ghi vào lịch sử rồi báo HUD biết có cần mở
+    # mic chờ admin đáp tiếp không.
+    if full_sentences:
+        from core.voice_session import looks_like_question
+
+        said = " ".join(full_sentences)
+        session.add_turn("assistant", said)
+
+        waiting = looks_like_question(said)
+        if waiting:
+            session.mark_expecting_reply(said)
+        else:
+            session.clear_expecting_reply()
+
+        await broadcast_hud({
+            "type": "voice_state",
+            "session_id": session_id,
+            "expecting_reply": waiting,
+            "question": said if waiting else "",
+            "reask_count": session.reask_count,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        logger.info(
+            "[HUD] Ly Ly đã nói xong (%d câu) — %s",
+            len(full_sentences),
+            "chờ admin trả lời" if waiting else "không cần chờ",
+        )
+
     if not full_sentences:
         # Fallback to standard ask_async if stream yielded nothing
         try:
@@ -196,6 +256,24 @@ async def _process_hud_voice_command(cmd_query: str) -> None:
                 history=None,
             )
             display_reply = result.get("reply", "")
+            from core.voice_session import looks_like_question
+
+            if display_reply:
+                session.add_turn("assistant", display_reply)
+                _waiting = looks_like_question(display_reply)
+                if _waiting:
+                    session.mark_expecting_reply(display_reply)
+                else:
+                    session.clear_expecting_reply()
+                await broadcast_hud({
+                    "type": "voice_state",
+                    "session_id": session_id,
+                    "expecting_reply": _waiting,
+                    "question": display_reply if _waiting else "",
+                    "reask_count": session.reask_count,
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+
             speech_reply = result.get("speech_reply") or llm_engine._sanitise_for_tts(display_reply)
             if not speech_reply:
                 speech_reply = "Em đã thực hiện xong yêu cầu của bạn."
@@ -6076,6 +6154,81 @@ def _rows_to_xlsx(rows: List[Dict[str, Any]], columns: List[str], sheet_title: s
     bio = io.BytesIO()
     wb.save(bio)
     return bio.getvalue()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ── Phase 65: Phiên hội thoại HUD ─────────────────────────────────────────
+# HUD cần biết Ly Ly đang chờ admin đáp, và cần một cách nói "admin không
+# trả lời, hãy hỏi lại" mà không phải tự dựng lại chuỗi đã nói.
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+@app.get(
+    "/api/v1/voice/session/{session_id}",
+    summary="Phase 65: Trạng thái phiên hội thoại HUD",
+    tags=["Voice Phase 65"],
+)
+async def api_voice_session(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+) -> Dict[str, Any]:
+    """HUD gọi để đồng bộ trạng thái sau khi trang bị mất kết nối rồi mở lại."""
+    from core.voice_session import voice_sessions
+
+    return {"status": "success", "session": voice_sessions.get(session_id).to_client()}
+
+
+@app.post(
+    "/api/v1/voice/session/{session_id}/reask",
+    summary="Phase 65: Nhắc Ly Ly hỏi lại khi admin im lặng",
+    tags=["Voice Phase 65"],
+)
+async def api_voice_reask(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Đếm một lần hỏi lại và trả lại câu hỏi đang chờ để HUD phát lại.
+
+    Số lần hỏi lại do HUD quyết định giới hạn (mặc định 2) — máy chủ chỉ đếm và
+    báo lại. Đặt ngưỡng ở đây thì muốn đổi cấu hình phải sửa cả hai đầu.
+    """
+    from core.voice_session import voice_sessions
+
+    session = voice_sessions.get(session_id)
+    if not session.expecting_reply:
+        return {"status": "success", "reask": False, "reason": "Không có câu hỏi đang chờ"}
+
+    count = session.bump_reask()
+    return {
+        "status": "success",
+        "reask": True,
+        "reask_count": count,
+        "question": session.pending_question,
+        "waiting_seconds": round(session.waiting_seconds(), 1),
+    }
+
+
+@app.post(
+    "/api/v1/voice/session/{session_id}/close",
+    summary="Phase 65: Đóng phiên hội thoại (hết lượt hỏi lại)",
+    tags=["Voice Phase 65"],
+)
+async def api_voice_session_close(
+    session_id: str,
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Đóng lắng nghe: bỏ cờ chờ, giữ lịch sử để lượt sau còn nhớ.
+
+    Xoá hẳn phiên thì Ly Ly quên mất hết và lại hỏi lại từ đầu — đúng cái
+    lỗi đang sửa. Nên chỉ tắt trạng thái chờ, không xoá lịch sử.
+    """
+    from core.voice_session import voice_sessions
+
+    session = voice_sessions.get(session_id)
+    session.clear_expecting_reply()
+    return {"status": "success", "closed": True, "session": session.to_client()}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
