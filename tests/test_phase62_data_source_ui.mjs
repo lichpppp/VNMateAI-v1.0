@@ -389,7 +389,22 @@ check('auth_type của mẫu đều hợp lệ',
 check('không mẫu nào trùng id',
   new Set(m.CC_APP_PRESETS.map(p => p.id)).size === m.CC_APP_PRESETS.length);
 check('mẫu có icon để nhận ra nhanh', m.CC_APP_PRESETS.every(p => p.icon && p.icon.length > 0));
+// Danh sách mẫu chỉ dành cho hệ thống doanh nghiệp nghiệp vụ. Marketplace/POS
+// kiểu Shopee hay KiotViet bị gỡ khỏi danh sách — đây là hệ thống nội bộ công
+// ty, chúng chỉ gây nhiễu màn hình.
 check('có MISA và Odoo', ['misa','odoo'].every(id => m.CC_APP_PRESETS.some(p => p.id === id)));
+check('có SAP, Dynamics, Zoho',
+  ['sap','dynamics','zoho'].every(id => m.CC_APP_PRESETS.some(p => p.id === id)),
+  m.CC_APP_PRESETS.map(p => p.id).join(','));
+check('KHÔNG còn Shopee/KiotViet',
+  !m.CC_APP_PRESETS.some(p => /shopee|kiotviet/i.test(p.id + p.label)),
+  m.CC_APP_PRESETS.map(p => p.label).join(','));
+check('mọi mẫu đều là hệ thống doanh nghiệp (có base_url dạng domain)',
+  m.CC_APP_PRESETS.every(p => /^(https?:\/\/)/.test(p.base_url)),
+  JSON.stringify(m.CC_APP_PRESETS.filter(p => !/^https?:\/\//.test(p.base_url)).map(p=>p.id)));
+check('mỗi mẫu khai báo ít nhất 1 path trừ ERP tổng quát',
+  m.CC_APP_PRESETS.filter(p => p.id !== 'erp-noi-bo').every(p => Object.keys(p.paths || {}).length > 0),
+  JSON.stringify(m.CC_APP_PRESETS.map(p => [p.id, Object.keys(p.paths||{}).length])));
 
 console.log('\n▸ Mở modal từ mẫu');
 m._resetModal();

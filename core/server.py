@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import collections
+import csv
 import io
 import json
 import json as _json
@@ -32,10 +33,12 @@ import socket as _socket
 import subprocess
 import time
 import traceback
+import unicodedata
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import quote
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, WebSocket, WebSocketDisconnect, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,9 +50,15 @@ from core.auth_manager import auth_manager, get_current_user, require_roles
 
 logger = logging.getLogger(__name__)
 
+#: Byte Order Mark UTF-8. Excel trên Windows mở file .csv không BOM bằng mã
+#: ANSI của máy, nên tiếng Việt ra "Ã¡" hay "?" tuỳ phiên bản. Ghi BOM vào là
+#: cách rẻ nhất để file đúng mọi máy — hơn là dặn người dùng mở bằng import.
+BOM_UTF8 = b"\xef\xbb\xbf"
+
 # ─── Resolve paths for static files ────────────────────────────────────────
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 if getattr(sys, "frozen", False):
     _PROJECT_ROOT = Path(sys.executable).parent
@@ -5885,6 +5894,188 @@ async def api_data_sources_fetch(
     except Exception as e:  # pylint: disable=broad-except
         logger.exception("[Phase62] fetch data source lỗi")
         return {"status": "error", "error": str(e)}
+
+
+@app.post(
+    "/api/v1/enterprise/data-sources/{source_id}/export",
+    summary="Phase 62: Xuất dữ liệu báo cáo ra Excel (.xlsx) hoặc CSV",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_export(
+    source_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+):
+    """
+    Kéo dữ liệu rồi trả về file để tải xuống.
+
+    Xuất ở server chứ không ở trình duyệt vì hai lý do thực tế:
+      - CSV do Excel mở cần BOM UTF-8, nếu không tiếng Việt thành ký tự lỗi.
+        Sửa encoding ở tay người dùng thì rất dễ quên và phải làm lại mỗi lần.
+      - File sinh ở server không cần thêm thư viện ~1MB vào trang.
+
+    Trả về `Response` dạng attachment; lỗi trả JSON 502 để UI hiện toast.
+    """
+    from fastapi.responses import Response as FastAPIResponse
+
+    body = payload or {}
+    fmt = str(body.get("format") or "xlsx").strip().lower()
+    if fmt not in ("xlsx", "csv"):
+        return {"status": "error", "error": "format chỉ nhận 'xlsx' hoặc 'csv'"}
+
+    try:
+        from core.connectors import fetch_data_source
+
+        # Số dòng xuất mặc định cao hơn xem trước: xuất là để đưa đi xử lý,
+        # nên lấy nhiều hơn con số 8 dòng hiện trên màn hình.
+        export_limit = _safe_int(body.get("limit"), 1000, 1, 10000)
+        params = {k: v for k, v in body.items() if k in ("path", "query", "method")}
+        params["limit"] = export_limit
+
+        result = await fetch_data_source(source_id, params)
+        if not result.success:
+            return {"status": "error", "error": result.error}
+
+        data = result.data or {}
+        rows = data.get("rows") or []
+        columns = data.get("columns") or (list(rows[0].keys()) if rows else [])
+        if not rows:
+            return {"status": "error", "error": "Nguồn dữ liệu không có bản ghi nào để xuất"}
+
+        # Tên file có dấu tiếng Việt, nhưng header HTTP chỉ chứa ASCII an toàn —
+        # RFC 5987 dùng `filename*` để mang tên gốc, `filename` là bản ASCII
+        # dự phòng cho client cũ.
+        title = _safe_filename(body.get("title") or source_id)
+        stamp = datetime.utcnow().strftime("%Y%m%d-%H%M")
+        if fmt == "csv":
+            content = _rows_to_csv(rows, columns)
+            return FastAPIResponse(
+                content=content,
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    # BOM để Excel nhận UTF-8; không có nó, tiếng Việt ra
+                    # "Ã¡" hay "?" tuỳ phiên bản.
+                    "Content-Disposition": _content_disposition(title, stamp, "csv"),
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )
+
+        content = _rows_to_xlsx(rows, columns, title)
+        return FastAPIResponse(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": _content_disposition(title, stamp, "xlsx"),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+    except Exception as e:  # pylint: disable=broad-except
+        logger.exception("[Phase62] export data source lỗi")
+        return {"status": "error", "error": str(e)}
+
+
+def _safe_int(value: Any, default: int, lo: int, hi: int) -> int:
+    """Ép về số nguyên trong khoảng an toàn, trả mặc định nếu rác."""
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_filename(name: str, max_len: int = 60) -> str:
+    """
+    Rút gọn tên file về ASCII an toàn.
+
+    Header `Content-Disposition` chỉ mang được ASCII; gửi tiếng Việt thẳng vào
+    sẽ bị cắt cụt hoặc làm hỏng header, trình duyệt tải về tên rác. Tên gốc có
+    dấu vẫn được giữ qua tham số `filename*` — xem `_content_disposition`.
+    """
+    raw = str(name or "bao-cao")
+    # Bỏ dấu trước, rồi bỏ ký tự lạ — thứ tự này giữ lại được chữ cái.
+    ascii_only = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
+    cleaned = re.sub(r"[^A-Za-z0-9_\-]+", "-", ascii_only).strip("-")
+    return (cleaned or "bao-cao")[:max_len]
+
+
+def _content_disposition(title: str, stamp: str, ext: str) -> str:
+    """
+    Dựng header tải file: `filename` ASCII + `filename*` UTF-8 (RFC 5987/6266).
+
+    Cần cả hai: client cũ chỉ đọc `filename` và sẽ thấy tên không dấu; client
+    mới đọc `filename*` và hiện đúng tên có dấu cho người dùng Việt.
+    """
+    ascii_name = f"{_safe_filename(title)}-{stamp}.{ext}"
+    try:
+        utf8_name = quote(f"{title}-{stamp}.{ext}", safe="")
+    except Exception:  # pragma: no cover - title lạ thì rơi về bản ASCII
+        utf8_name = ascii_name
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+
+
+def _cell_value(value: Any) -> Any:
+    """
+    Chuẩn hoá một ô trước khi ghi ra file.
+
+    Dict/list không ghi thẳng vào Excel được và cũng vô nghĩa với người đọc
+    báo cáo — gộp thành JSON một dòng cho dễ nhìn hơn là "[object Object]".
+    """
+    if value is None or isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def _rows_to_csv(rows: List[Dict[str, Any]], columns: List[str]) -> bytes:
+    """CSV có BOM UTF-8, tiêu đề cột tiếng Việt, dòng \r\n theo thông lệ Excel."""
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\r\n")
+    writer.writerow(columns)
+    for row in rows:
+        writer.writerow([_cell_value(row.get(c)) for c in columns])
+    return BOM_UTF8 + buf.getvalue().encode("utf-8")
+
+
+def _rows_to_xlsx(rows: List[Dict[str, Any]], columns: List[str], sheet_title: str) -> bytes:
+    """
+    XLSX: dòng tiêu đề đóng băng + tự giãn cột theo nội dung.
+
+    Giãn cột theo độ dài thực tế thay vì đặt cứng — báo cáo tài chính có cột
+    "diễn giải" rất dài, đặt cứng sẽ khiến mỗi cột phải mở rộng thủ công.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_title[:31] or "Báo cáo"  # Excel chặn tên sheet > 31 ký tự
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="334155")
+    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    ws.append(columns)
+    for idx, cell in enumerate(ws[1], start=1):
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = header_align
+    ws.freeze_panes = "A2"
+
+    for row in rows:
+        ws.append([_cell_value(row.get(c)) for c in columns])
+
+    for idx, col in enumerate(columns, start=1):
+        # Cộng thêm 2 ký tự cho padding, trần 60 để một mô tả dài không đẩy
+        # cột khỏi màn hình.
+        longest = max([len(str(col))] + [
+            len(str(ws.cell(row=r, column=idx).value or "")) for r in range(2, min(ws.max_row, 200) + 1)
+        ])
+        ws.column_dimensions[get_column_letter(idx)].width = min(longest + 2, 60)
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    return bio.getvalue()
 
 
 @app.get(

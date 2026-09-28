@@ -9224,32 +9224,40 @@ function getCcDataSource(id) {
  * tra tài liệu mỗi khi thêm một app. Mẫu chỉ điền sẵn phần *hình dạng* — đường
  * dẫn tương đối và kiểu xác thực — còn domain + khoá thì khách tự điền vì
  * mỗi hệ thống lại một.
+ *
+ * Chỉ gồm hệ thống doanh nghiệp nghiệp vụ (kế toán, ERP, CRM). Cố tình KHÔNG
+ * có marketplace/pos kiểu Shopee hay KiotViet: đây là hệ thống nội bộ công
+ * ty, thêm bán lẻ vào danh sách làm nhiễu màn hình mà không ai dùng tới.
  */
 const CC_APP_PRESETS = [
   { id: 'misa', label: 'MISA', icon: '📒', base_url: 'https://<ten-cong-ty>.misa.com.vn',
     default_path: '/api/v1/', auth_type: 'basic',
-    paths: { 'sổ cái': '/api/v1/hr/payroll', 'tồn kho': '/api/v1/inventory/stock' },
-    note: 'MISA AMH — thay <ten-cong-ty> bằng tenant của bạn' },
+    paths: { 'sổ cái': '/api/v1/hr/payroll', 'tồn kho': '/api/v1/inventory/stock', 'công nợ': '/api/v1/finance/payable' },
+    note: 'Kế toán MISA AMH — thay <ten-cong-ty> bằng tenant' },
   { id: 'odoo', label: 'Odoo', icon: '🧩', base_url: 'https://<domain>.odoo.com',
     default_path: '/json/1', auth_type: 'basic',
-    paths: { 'bán hàng': '/json/1/sale.order', 'khách hàng': '/json/1/res.partner' },
-    note: 'Odoo Online — user:pass, endpoint JSON-RPC' },
-  { id: 'kiotviet', label: 'KiotViet', icon: '🏪', base_url: 'https://<shop>.kiotviet.vn',
-    default_path: '/api/', auth_type: 'header', auth_header: 'Retailer-Token',
-    paths: { 'đơn hàng': 'orders', 'tồn kho': 'inventory' },
-    note: 'KiotViet — token lấy ở trang quản trị, gửi qua header Retailer-Token' },
-  { id: 'shopee', label: 'Shopee', icon: '🛒', base_url: 'https://partner.shopeee.vn',
-    default_path: '/api/v2/order/get_order_list', auth_type: 'query', auth_query: 'sign',
-    paths: { 'đơn hàng': '/api/v2/order/get_order_list' },
-    note: 'Shopee Partner — ký SHA-256, phức tạp hơn dạng REST thuần' },
-  { id: 'google-sheets', label: 'Google Sheets', icon: '📗', base_url: 'https://sheets.googleapis.com/v4/spreadsheets',
+    paths: { 'bán hàng': '/json/1/sale.order', 'khách hàng': '/json/1/res.partner', 'kho': '/json/1/stock.quant' },
+    note: 'Odoo — user:pass, giao diện JSON-RPC' },
+  { id: 'sap', label: 'SAP', icon: '🏭', base_url: 'https://<host>:44300/sap/opu/odata',
+    default_path: '/API_BUSINESS_PARTNER', auth_type: 'basic',
+    paths: { 'đối tác': '/API_BUSINESS_PARTNER', 'đơn hàng': '/API_SALES_ORDER' },
+    note: 'SAP OData — Basic auth, chứng thư số' },
+  { id: 'dynamics', label: 'Dynamics 365', icon: '🔷', base_url: 'https://<org>.crm.dynamics.com/api/data/v9.2',
+    default_path: '/accounts', auth_type: 'bearer',
+    paths: { 'khách hàng': '/accounts', 'cơ hội': '/opportunities', 'hóa đơn': '/invoices' },
+    note: 'Dynamics 365 / Dataverse — bearer token' },
+  { id: 'zoho', label: 'Zoho', icon: '🟠', base_url: 'https://www.zohoapis.com/crm/v2',
+    default_path: '/Accounts', auth_type: 'bearer',
+    paths: { 'khách hàng': '/Accounts', 'giao dịch': '/Deals' },
+    note: 'Zoho CRM — bearer token' },
+  { id: 'sheets', label: 'Google Sheets', icon: '📗', base_url: 'https://sheets.googleapis.com/v4/spreadsheets',
     default_path: '/<id-file>/values/A1', auth_type: 'bearer',
     paths: { 'dữ liệu': '/<id-file>/values/A1' },
-    note: 'Google Sheets API — bearer token có sẵn trong config.json' },
+    note: 'Google Sheets — báo cáo nằm trên sheet' },
   { id: 'erp-noi-bo', label: 'ERP nội bộ', icon: '🏢', base_url: 'http://erp-noi-bo.congty.vn/api',
     default_path: '/reports', auth_type: 'bearer',
     paths: {},
-    note: 'Khuôn chung cho hệ thống nội bộ — chỉ cần URL và khoá' },
+    note: 'Hệ thống tự viết — chỉ cần URL và khoá' },
 ];
 
 /**
@@ -9337,6 +9345,7 @@ function renderConnCustomSources() {
           Xem dữ liệu
         </button>
       </div>
+      ${_ccExportButtons(ds.id)}
     `;
     grid.appendChild(card);
   }
@@ -9582,6 +9591,7 @@ async function loadCcDataSourceTab(subTabId) {
           ${ds.actions.map(a => `<button type="button" onclick="runDataSourceAction('${ds.id}', '${a.id}')" class="px-2 py-1 text-[9px] rounded bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">${_esc(a.label)}</button>`).join('')}
         </div>
       ` : ''}
+      ${_ccExportButtons(ds.id)}
     `;
     grid.appendChild(card);
   }
@@ -9635,6 +9645,106 @@ function _ccRenderPreview(container, data, sourceTitle) {
           <tbody>${body}</tbody>
         </table>
       </div>
+    </div>`;
+}
+
+/**
+ * Tải dữ liệu nguồn về máy dưới dạng Excel (.xlsx) hoặc CSV.
+ *
+ * Xuất ở server chứ không dựng file ngay trong trình duyệt:
+ *   - CSV do Excel mở cần BOM UTF-8, nếu không tiếng Việt ra ký tự lỗi;
+ *   - không phải kéo thêm thư viện ~1MB vào trang.
+ *
+ * Số dòng xuất mặc định 1000, nhiều hơn hẳn con số 8 dòng xem trước trên
+ * màn hình — xuất là để đưa đi xử lý, không phải để ngắm.
+ */
+async function exportDataSource(id, format, previewPath) {
+  const ds = _ccDataSourceRegistry[id];
+  if (!ds || !ds.endpoints.data) return;
+
+  const exportUrl = `/api/v1/enterprise/data-sources/${encodeURIComponent(id)}/export`;
+  const label = format === 'csv' ? 'CSV' : 'Excel';
+
+  // Nút nào bấm thì hiện trạng thái ngay trên nút đó, không chỉ chung.
+  const btns = Array.from(document.querySelectorAll(`[data-export-for="${id}"]`))
+    .filter(b => b.dataset.exportFmt === format);
+  const original = btns.map(b => b.innerHTML);
+  btns.forEach(b => { b.disabled = true; b.textContent = '…'; });
+
+  try {
+    const res = await apiFetch(`${API_BASE}${exportUrl}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+      // `title` để file tải về mang tên nguồn thật. Không gửi thì server rơi
+      // về mã kỹ thuật ("erp-abc"), người dùng phải tự đổi tên sau khi mở.
+      body: JSON.stringify({
+        format,
+        title: ds.title,
+        path: previewPath || undefined,
+        limit: 1000
+      })
+    });
+
+    const ctype = res.headers?.get?.('content-type') || '';
+    // Server trả JSON khi lỗi, trả file khi thành công. Phân biệt bằng
+    // content-type vì HTTP status vẫn là 200 trong cả hai trường hợp.
+    if (!ctype.includes('spreadsheet') && !ctype.includes('csv')) {
+      let msg = `HTTP ${res.status}`;
+      try { msg = (await res.json()).error || msg; } catch (_) { /* không phải JSON */ }
+      throw new Error(msg);
+    }
+
+    const blob = await res.blob();
+    const name = _ccFileNameFromDisposition(
+      res.headers?.get?.('content-disposition') || '', ds.title, format
+    );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Giải phóng object URL sau khi trình duyệt đã nhận — bỏ sớm thì tải
+    // về được file rỗng ở một số trình duyệt.
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    showToast(`✔ Đã tải "${name}" (${label})`, 'success');
+  } catch (err) {
+    showToast(`✖ Xuất ${label} thất bại: ${err.message}`, 'error');
+  } finally {
+    btns.forEach((b, i) => { b.disabled = false; b.innerHTML = original[i]; });
+  }
+}
+
+/** Rút tên file từ header `Content-Disposition`, có đuôi làm dự phòng. */
+function _ccFileNameFromDisposition(header, fallbackTitle, format) {
+  const ext = format === 'csv' ? 'csv' : 'xlsx';
+  // Ưu tiên `filename*` (UTF-8) — tên có dấu mà người dùng Việt thấy quen thuộc.
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (utf8) {
+    try { return decodeURIComponent(utf8[1]); } catch (_) { /* rơi xuống bản ASCII */ }
+  }
+  const ascii = /filename="?([^";]+)"?/i.exec(header);
+  if (ascii) return ascii[1];
+  return `${_esc(fallbackTitle || 'bao-cao')}.${ext}`;
+}
+
+/** Cặp nút xuất Excel / CSV, dùng lại cho mọi card. */
+function _ccExportButtons(id) {
+  return `
+    <div class="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+      <span class="text-[9px] text-slate-400 dark:text-slate-500">Xuất:</span>
+      <button type="button" data-export-for="${_esc(id)}" data-export-fmt="xlsx"
+        onclick="exportDataSource('${_esc(id)}', 'xlsx')"
+        class="px-2 py-1 text-[9px] font-medium rounded bg-emerald-50 dark:bg-emerald-900/25 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition">
+        Excel
+      </button>
+      <button type="button" data-export-for="${_esc(id)}" data-export-fmt="csv"
+        onclick="exportDataSource('${_esc(id)}', 'csv')"
+        class="px-2 py-1 text-[9px] font-medium rounded bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600/60 transition">
+        CSV
+      </button>
     </div>`;
 }
 
@@ -9815,7 +9925,7 @@ function _ccDataSourceModal(existing, category) {
           <div class="rounded-lg bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 px-3.5 py-2.5">
             <p class="text-[10px] text-primary-800 dark:text-primary-200 leading-relaxed">
               Chỉ cần biết <strong>URL</strong> và <strong>cách xác thực</strong> của app là tích hợp được —
-              không cần sửa mã nguồn. MISA, Odoo, KiotViet, SAP, sổ kho nội bộ… đều dùng chung khuôn này.
+              không cần sửa mã nguồn. MISA, Odoo, SAP, Dynamics, sổ kho nội bộ… đều dùng chung khuôn này.
             </p>
           </div>
 
