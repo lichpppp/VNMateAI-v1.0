@@ -118,6 +118,34 @@ def _get_assistant_name() -> str:
         return "Ly Ly"
 
 
+async def _tts_bytes(audio_engine, text: str, timeout_s: float = 12.0) -> Optional[bytes]:
+    """Sinh audio có chặn trên, trả về bytes thô (None khi lỗi/timeout)."""
+    try:
+        return await asyncio.wait_for(
+            audio_engine.text_to_speech_bytes(text), timeout=timeout_s
+        )
+    except asyncio.TimeoutError:
+        logger.warning("[HUD] TTS quá %ss cho câu: %s", timeout_s, str(text)[:60])
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning("[HUD] TTS lỗi (%s) — vẫn gửi chữ: %s", exc, str(text)[:60])
+    return None
+
+
+async def _safe_tts(audio_engine, text: str, timeout_s: float = 12.0):
+    """
+    Sinh audio, có chặn trên và nuốt lỗi.
+
+    Hai lý do bọc lại thay vì gọi thẳng:
+      - TTS treo sẽ treo luôn cả lượt nói: người dùng đã nghe câu trả lời bằng
+        mắt nhưng HUD im, và lượt đó không bao giờ kết thúc.
+      - Một lỗi TTS (mạng, giọng) không được làm mất câu trả lời — HUD vẫn hiện
+        chữ, người dùng vẫn đọc được.
+    """
+    import base64 as _b
+    audio = await _tts_bytes(audio_engine, text, timeout_s)
+    return _b.b64encode(audio).decode("utf-8") if audio else None
+
+
 async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") -> None:
     """
     Phase 33: Thực thi câu lệnh thoại từ VN-MateAI HUD qua WebSocket.
@@ -158,24 +186,57 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
         "text": cmd_query,
         "timestamp": datetime.utcnow().isoformat(),
     })
-    # Phase 36: Phát ngay từ đệm (0ms Filler word từ Audio Cache)
-    import random
-    import base64
+    # ── Phase 67: lời đệm KHÔNG phát vô điều kiện ──────────────────────
+    #
+    # Trước đây filler được broadcast ngay, TRƯỚC khi gọi LLM. Nghĩa là dù
+    # LLM trả lời trong 0.4s, người dùng vẫn phải nghe "Dạ, anh chờ em một
+    # chút ạ" rồi mới tới câu trả lời — đó chính là cảm giác chậm và ngắt
+    # quãng, dù máy đã nhanh.
+    #
+    # Nay filler được đẩy vào một task chạy song song, và bị bỏ nếu câu trả
+    # lời thật về trước. Ngưỡng FILLER_GRACE_SEC bằng thời gian người dùng
+    # cần để "chờ một chút" mà vẫn chấp nhận được: ngắn hơn thì thành vô
+    # nghĩa, dài hơn thì thành vô ích.
+    import base64 as _b64
+    import random as _random
     from core.audio_cache import get_cached_audio_bytes
-    from core.voice_controller import get_contextual_filler, FILLER_WORDS, KEEP_ALIVE_PHRASE
+    from core.voice_controller import get_contextual_filler
 
-    filler = get_contextual_filler(cmd_query)
-    filler_bytes = get_cached_audio_bytes(filler)
-    filler_b64 = base64.b64encode(filler_bytes).decode("utf-8") if filler_bytes else None
+    FILLER_GRACE_SEC = 1.5
+    _t_start = time.monotonic()
+    _filler_sent = False
+    _filler_task = None
 
-    await broadcast_hud({
-        "type": "voice_active",
-        "status": "speaking",
-        "text": filler,
-        "audio_base64": filler_b64,
-        "source_device": "hud",
-        "timestamp": datetime.utcnow().isoformat(),
-    })
+    async def _play_filler_later() -> None:
+        """Phát lời đệm, nhưng chỉ khi câu trả lời thật chưa tới."""
+        nonlocal _filler_sent
+        await asyncio.sleep(FILLER_GRACE_SEC)
+        if _filler_sent:
+            return
+        _filler_sent = True
+        phrase = get_contextual_filler(cmd_query)
+        try:
+            fb = get_cached_audio_bytes(phrase)
+        except Exception:
+            fb = None
+        await broadcast_hud({
+            "type": "voice_active",
+            "status": "speaking",
+            "text": phrase,
+            "audio_base64": _b64.b64encode(fb).decode("utf-8") if fb else None,
+            "source_device": "hud",
+            "is_filler": True,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        logger.info("[HUD] Phát lời đệm sau %.1fs chờ: %s", FILLER_GRACE_SEC, phrase)
+
+    _filler_task = asyncio.create_task(_play_filler_later())
+
+    def _stop_filler() -> None:
+        nonlocal _filler_task
+        if _filler_task is not None and not _filler_task.done():
+            _filler_task.cancel()
+        _filler_task = None
 
     # Phase 50: Full-Duplex Real-Time Voice Streaming for HUD
     full_sentences = []
@@ -188,11 +249,27 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
             clean_s = llm_engine._sanitise_for_tts(sentence)
             if not clean_s:
                 continue
+            if not full_sentences:
+                # Câu thật đầu tiên tới trước ngưỡng đệm -> bỏ đệm, nói thẳng.
+                _stop_filler()
+                logger.info(
+                    "[HUD] Câu đầu về sau %.2fs — bỏ lời đệm, nói thẳng",
+                    time.monotonic() - _t_start,
+                )
             full_sentences.append(clean_s)
 
-            # Synthesize sentence audio
-            s_bytes = await audio_engine.text_to_speech_bytes(clean_s)
-            s_b64 = base64.b64encode(s_bytes).decode("utf-8") if s_bytes else None
+            # Phase 67: sinh audio chạy SONG SONG với vòng lặp, không chặn.
+            #
+            # Trước đây `await text_to_speech_bytes()` nằm thẳng trong vòng lặp:
+            # phải đợi xong câu n rồi mới xin được câu n+1 từ LLM. Câu dài 2-3s
+            # là câu sau bị đẩy lùi trọn vẹn 2-3s đó, nghe ngoài ra ngập ngừng
+            # giữa các câu. Nay câu n đang phát thì câu n+1 đã được sinh sẵn.
+            s_task = asyncio.create_task(
+                _safe_tts(audio_engine, clean_s)
+            )
+
+            s_b64 = await s_task
+            _stop_filler()
 
             # Stream immediate speech to HUD
             await broadcast_hud({
@@ -217,6 +294,15 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
 
     except Exception as exc:
         logger.error("HUD voice stream error: %s", exc)
+    finally:
+        _stop_filler()
+        # Log tổng thời gian từ lúc nhận lệnh tới lúc nói xong. Trước đây không
+        # có chỗ nào đo, nên khi admin nói "chậm" thì không biết là chậm ở
+        # bước nào — chỉ đoán. Giờ có số để soi.
+        logger.info(
+            "[HUD] Hoàn tất lượt nói sau %.2fs (%d câu, %d câu đệm)",
+            time.monotonic() - _t_start, len(full_sentences), 1 if _filler_sent else 0,
+        )
 
     # Phase 65: Ly Ly vừa nói xong. Ghi vào lịch sử rồi báo HUD biết có cần mở
     # mic chờ admin đáp tiếp không.
@@ -279,7 +365,8 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
                 speech_reply = "Em đã thực hiện xong yêu cầu của bạn."
                 display_reply = display_reply or speech_reply
 
-            audio_bytes = await audio_engine.text_to_speech_bytes(speech_reply)
+            # Nhánh fallback: cũng bọc timeout để TTS treo không làm treo lượt nói.
+            audio_bytes = await _tts_bytes(audio_engine, speech_reply)
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else None
 
             await broadcast_hud({
@@ -1561,7 +1648,8 @@ async def voice_command(
     if payload.include_audio and speech_reply:
         try:
             import base64
-            audio_bytes = await audio_engine.text_to_speech_bytes(speech_reply)
+            # Nhánh fallback: cũng bọc timeout để TTS treo không làm treo lượt nói.
+            audio_bytes = await _tts_bytes(audio_engine, speech_reply)
             if audio_bytes:
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         except Exception as exc:  # pylint: disable=broad-except

@@ -47,13 +47,24 @@ _TMP = Path(tempfile.mkdtemp(prefix="vnmate-persona-")) / "config.json"
 _REAL = Path(__file__).resolve().parents[1] / "config.json"
 _BACKUP = _REAL.read_text(encoding="utf-8") if _REAL.is_file() else "{}"
 
+# Đọc persona ĐANG CÓ trong config.json thay vì hardcode giá trị.
+#
+# Người dùng có thể đổi đại từ bất kỳ lúc nào (và đã đổi: "bạn"/"anh" ->
+# "em"/"sếp"). Test khẳng định CƠ CHẾ đưa cấu hình tới prompt, không khẳng
+# định giá trị cụ thể — nếu không, mỗi lần người dùng đổi cấu hình thì test
+# đỏ mà hệ thống vẫn đúng.
+_real_cfg = json.loads(_BACKUP) if _BACKUP.strip() else {}
+_nguoi_dung = _real_cfg.get("persona") or {}
+
 PERSONA = {
-    "ai_name": "Ly Ly",
-    "wake_word": "Hey Lyly",
-    "ai_pronoun": "bạn",
-    "user_pronoun": "anh",
+    "ai_name": _nguoi_dung.get("ai_name", "Ly Ly"),
+    "wake_word": _nguoi_dung.get("wake_word", "Hey Lyly"),
+    "ai_pronoun": _nguoi_dung.get("ai_pronoun", "em"),
+    "user_pronoun": _nguoi_dung.get("user_pronoun", "anh"),
     "system_prompt": "Phong cách dứt khoát, trả lời ngắn gọn.",
 }
+AI_PRON = PERSONA["ai_pronoun"]
+USER_PRON = PERSONA["user_pronoun"]
 
 base_cfg = json.loads(_BACKUP) if _BACKUP.strip() else {}
 base_cfg["persona"] = PERSONA
@@ -93,8 +104,9 @@ finally:
 section("Đọc persona từ config.json")
 p = lll._read_persona()
 check("đọc được khối persona", isinstance(p, dict) and p != {}, str(p))
-check("đọc đúng đại từ AI", p.get("ai_pronoun") == "bạn", str(p.get("ai_pronoun")))
-check("đọc đúng đại từ người dùng", p.get("user_pronoun") == "anh", str(p.get("user_pronoun")))
+check("đọc đúng đại từ AI", p.get("ai_pronoun") == AI_PRON, f"{p.get('ai_pronoun')} != {AI_PRON}")
+check("đọc đúng đại từ người dùng", p.get("user_pronoun") == USER_PRON,
+      f"{p.get('user_pronoun')} != {USER_PRON}")
 
 section("Cấu hình SỐNG SOI với singleton")
 from core.config_loader import settings  # noqa: E402
@@ -110,8 +122,9 @@ check("AppSettings extra=ignore là nguyên nhân gốc",
 # ══ 2. Pronoun vào prompt ═════════════════════════════════════════════════
 section("Đại từ xưng hô nằm trong prompt")
 check("có khối xưng hô", "[XƯNG HÔ BẮT BUỘC" in prompt)
-check("có đại từ AI của người dùng chọn", "bạn" in prompt)
-check("nêu rõ gọi người dùng bằng 'anh'", "anh" in prompt)
+check("có đại từ AI của người dùng chọn", f"tự gọi mình: dùng '{AI_PRON}'" in prompt, AI_PRON)
+check("nêu rõ gọi người dùng bằng đại từ đã chọn",
+      f"gọi người dùng: dùng '{USER_PRON}'" in prompt, USER_PRON)
 check("ghi rõ là quy tắc cứng", "quy tắc cứng" in prompt.lower() or "MỌI câu trả lời" in prompt)
 check("cấm dùng đại từ khác", "KHÔNG dùng bất kỳ đại từ nào khác" in prompt)
 
@@ -143,7 +156,7 @@ check("tên vẫn còn trong prompt", "[TÊN TRỢ LÝ AI: Ly Ly]" in prompt)
 
 # ══ 3. Đổi cấu hình thì prompt đổi theo ═══════════════════════════════════
 section("Đổi cấu hình thì prompt đổi theo")
-alt = dict(PERSONA, ai_pronoun="em", user_pronoun="chị")
+alt = dict(PERSONA, ai_pronoun="ZZai", user_pronoun="ZZuser")
 shutil.copy(_TMP, _ccc)
 try:
     _REAL_CFG = _real_root / "config.json"
@@ -155,9 +168,9 @@ finally:
     if _ccc_backup is not None:
         _ccc.write_text(_ccc_backup, encoding="utf-8")
 
-check("đổi sang 'em' thì prompt đổi theo", "tự gọi mình: dùng 'em'" in prompt2, prompt2[-260:])
-check("đổi sang 'chị' thì prompt đổi theo", "gọi người dùng: dùng 'chị'" in prompt2)
-check("giá trị cũ không còn sót lại", "tự gọi mình: dùng 'bạn'" not in prompt2)
+check("đổi đại từ AI -> prompt đổi theo", "tự gọi mình: dùng 'ZZai'" in prompt2, prompt2[-260:])
+check("đổi đại từ người dùng -> prompt đổi theo", "gọi người dùng: dùng 'ZZuser'" in prompt2)
+check("giá trị cũ không còn sót lại", f"tự gọi mình: dùng '{AI_PRON}'" not in prompt2)
 
 
 # ══ 4. Chịu được config hỏng ═════════════════════════════════════════════

@@ -1562,29 +1562,26 @@ class LLMEngine:
 
                 delta = chunk.choices[0].delta
 
-                # Detect tool calls — abort streaming, fall back to agentic loop
+                # Phát hiện tool call — huỷ stream, chuyển sang vòng lặp agentic.
+                #
+                # Phase 67: bỏ phát lời đệm ở đây. Trước đây chỗ này tự phát
+                # một câu đệm, trong khi `_process_hud_voice_command` đã phát
+                # câu khác — nghe hai lần "em đang xử lý" rồi mới tới kết quả.
+                # Giờ lời đệm do phía gọi quyết định, vì chỉ phía gọi mới biết
+                # câu trả lời thật có về kịp trước ngưỡng chờ hay không.
                 if getattr(delta, "tool_calls", None):
                     has_tool_calls = True
+                    _wasted = time.monotonic() - t_start
+                    detected_tools = [
+                        getattr(getattr(tc, "function", None), "name", "") or ""
+                        for tc in delta.tool_calls
+                    ]
                     logger.info(
-                        "[LLMEngine] Tool calls detected in stream — falling back to ask_async()."
+                        "[LLMEngine] Phát hiện tool call %s sau %.2fs — chuyển sang "
+                        "vòng lặp agentic (phần thời gian chờ trên KHÔNG mất: "
+                        "model suy luận lại từ đầu với tool mới).",
+                        detected_tools, _wasted,
                     )
-                    # Phase 45 Step 4: Fire contextual filler for ANY tool call.
-                    try:
-                        detected_tools = [
-                            getattr(getattr(tc, "function", None), "name", "") or ""
-                            for tc in delta.tool_calls
-                        ]
-                        logger.info("[Phase45] Tool call filler trigger for: %s", detected_tools)
-                        from core.voice_controller import voice_controller
-
-                        if any(tn == "delegate_to_specialist" for tn in detected_tools):
-                            voice_controller.notify_delegation_started()
-                        else:
-                            from core.voice_controller import get_contextual_filler
-                            filler = get_contextual_filler(query)
-                            voice_controller._play_cached_phrase_instant_async(filler)
-                    except Exception as filler_exc:
-                        logger.debug("[Phase45] Tool filler trigger error (non-fatal): %s", filler_exc)
                     break
 
                 token = getattr(delta, "content", "") or ""

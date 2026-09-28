@@ -62,18 +62,38 @@ WIDGET_SCRIPT = str(Path(__file__).resolve().parent / "voice_widget.py")
 # Phase 40 & Phase 36: Dynamic Audio Cache Fillers
 DELEGATION_FILLER_PHRASE: str = "Ca này hơi sâu, anh chờ em một lát để em đẩy dữ liệu qua hệ thống phân tích chuyên sâu nhé."
 
+# Số câu đệm tối đa được nói TRƯỚC câu trả lời thật. Lạm dụng lời đệm khiến
+# người dùng phải nghe hai lần "em đang xử lý" trước khi tới nội dung, và đó
+# là cảm giác "chậm" dù máy đã trả lời rất nhanh.
+MAX_FILLERS_PER_TURN = 1
+
 CONTEXTUAL_FILLERS: Dict[str, Dict[str, Any]] = {
     "communication": {
         "keywords": ["nhắn", "gửi", "thông báo", "email", "chat"],
-        "phrases": ["Dạ, em gửi ngay ạ.", "Vâng, em đang soạn tin nhắn đây."],
+        "phrases": [
+            "Dạ, em gửi ngay ạ.",
+            "Vâng, em đang soạn tin nhắn đây ạ.",
+            "Dạ, em truyền tin ngay ạ.",
+            "Vâng ạ, em gửi đây.",
+        ],
     },
     "system_check": {
         "keywords": ["kiểm tra", "check", "quét", "lỗi", "log", "tình trạng"],
-        "phrases": ["Vâng, em đang kiểm tra hệ thống ngay đây.", "Anh đợi em quét dữ liệu một chút nhé."],
+        "phrases": [
+            "Vâng, em đang kiểm tra hệ thống ngay đây ạ.",
+            "Anh đợi em quét một chút nhé.",
+            "Dạ, em rà hệ thống xem ngay ạ.",
+            "Vâng ạ, em kiểm tra đây.",
+        ],
     },
     "action_execute": {
         "keywords": ["bật", "tắt", "mở", "khởi động", "reset", "xóa", "tạo"],
-        "phrases": ["Dạ, em thực hiện ngay đây.", "Vâng, em đang xử lý lệnh của anh ạ."],
+        "phrases": [
+            "Dạ, em thực hiện ngay đây ạ.",
+            "Vâng, em đang xử lý lệnh của anh ạ.",
+            "Dạ, em bắt tay vào làm ngay ạ.",
+            "Vâng ạ, em thực hiện đây.",
+        ],
     },
     "deep_analysis": {
         "keywords": [
@@ -82,14 +102,28 @@ CONTEXTUAL_FILLERS: Dict[str, Dict[str, Any]] = {
             "sửa mã", "powershell", "sập", "crash", "bị lỗi", "kiến trúc"
         ],
         "phrases": [
-            DELEGATION_FILLER_PHRASE,
+            "Ca này hơi sâu, anh chờ em một lát để em đẩy dữ liệu qua hệ thống phân tích chuyên sâu nhé.",
+            "Phần này cần phân tích kỹ, em đang vào đây ạ.",
+            "Em cần mở rộng dữ liệu để tìm ra nguyên nhân, anh đợi em nhé.",
         ],
     },
     "general": {
         "keywords": [],  # Fallback nếu không khớp bất kỳ từ khóa nào
-        "phrases": ["Dạ, anh chờ em một chút ạ.", "Em đang xử lý ngay đây ạ."],
+        "phrases": [
+            "Dạ, anh chờ em một chút ạ.",
+            "Em đang xử lý ngay đây ạ.",
+            "Vâng ạ, em xem ngay.",
+            "Dạ, để em xử lý nhé.",
+            "Em tra cứu giúp anh một chút ạ.",
+            "Vâng, anh cho em một chút nhé.",
+        ],
     },
 }
+
+#: Câu vừa nói lần trước, để không chọn lại — nghe hai lần liên tiếp cùng một
+#: câu "Dạ, anh chờ em một chút ạ" sẽ khiến người dùng tưởng bị kẹt.
+_last_filler: str = ""
+
 
 # Backward compatibility flattened list
 FILLER_WORDS: List[str] = [
@@ -117,7 +151,7 @@ def get_contextual_filler(transcript: str) -> str:
             continue
         for kw in keywords:
             if kw.lower() in clean_text:
-                selected = random.choice(group["phrases"])
+                selected = _pick_filler(group["phrases"])
                 logger.info(
                     "VoiceController: [Contextual Filler] Khớp nhóm '%s' (từ khóa: '%s') -> '%s'",
                     intent, kw, selected,
@@ -125,9 +159,26 @@ def get_contextual_filler(transcript: str) -> str:
                 return selected
 
     # Fallback nhóm general
-    selected_fallback = random.choice(CONTEXTUAL_FILLERS["general"]["phrases"])
-    logger.info("VoiceController: [Contextual Filler] Không khớp intent cụ thể -> Fallback: '%s'", selected_fallback)
-    return selected_fallback
+    return _pick_filler(CONTEXTUAL_FILLERS["general"]["phrases"])
+
+
+def _pick_filler(phrases: List[str]) -> str:
+    """
+    Chọn câu đệm, ưu tiên câu KHÁC câu vừa nói.
+
+    Chọn ngẫu nhiên thuần thì xác suất lặp lại câu trước vẫn khá cao khi kho
+    nhỏ, mà câu lặp là thứ người dùng nhận ra đầu tiên.
+    """
+    global _last_filler
+    if not phrases:
+        return ""
+    if len(phrases) == 1:
+        return phrases[0]
+
+    choices = [p for p in phrases if p != _last_filler] or phrases
+    selected = random.choice(choices)
+    _last_filler = selected
+    return selected
 
 
 KEEP_ALIVE_PHRASE = "Dạ em đang xử lý và tổng hợp dữ liệu, anh chờ em thêm một chút nhé!"
