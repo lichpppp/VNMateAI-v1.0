@@ -701,6 +701,9 @@ async function fetchAndRenderHealthDashboard() {
   const data = await apiGetHealthDashboard();
   if (!data) return;
 
+  // Phase 61: tầng NHANH (2s) — counter rẻ đi kèm payload này, không gọi thêm API
+  renderMonitorFastPath(data);
+
   // 1. Hardware Gauges & Progress Bars (Phase 46 Extended)
   if (data.hardware) {
     const hw = data.hardware;
@@ -917,11 +920,10 @@ async function fetchAndRenderHealthDashboard() {
 }
 
 async function loadDashboard() {
-  await fetchAndRenderHealthDashboard();
-  loadAudioNodes();
-  checkPendingAction(); // Phase 25: Check for pending security approval
-
-  // Start real-time 2-second polling (Zero-Overhead O(1) in-memory lookup)
+  // Đặt TRƯỚC mọi `await` (xem giải thích ở `_ensureExtendedMonitorTimer`).
+  // `loadDashboard()` được gọi từ 6 chỗ và 2 chỗ chạy song song lúc mở trang;
+  // nếu chốt `if (!healthDashboardTimer)` sau `await` thì cả hai cùng thấy
+  // `null` và tạo 2 vòng 2 giây → tải `/api/v1/health-dashboard` nhân đôi.
   if (!healthDashboardTimer) {
     healthDashboardTimer = setInterval(() => {
       const tabDash = document.getElementById('tab-dashboard');
@@ -931,6 +933,371 @@ async function loadDashboard() {
       }
     }, 2000);
   }
+
+  await fetchAndRenderHealthDashboard();
+  loadAudioNodes();
+  checkPendingAction(); // Phase 25: Check for pending security approval
+
+  // Phase 61: nạp bộ monitor mở rộng (dữ liệu nặng, nhịp 15s)
+  loadExtendedMonitors();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── PHASE 61: BỘ MONITOR MỞ RỘNG (6 PANEL) ─────────────────────────────────
+//
+// Kiến trúc nhịp cập nhật — cố ý TÁCH 2 tầng để không tự dõi DoS server:
+//   • Tầng NHANH (2s)  : chỉ đọc `counters` + `nodes` đã nhúng sẵn trong
+//     payload O(1) của /api/v1/health-dashboard. Không phát thêm request nào.
+//   • Tầng NẶNG (15s) : gọi 8 endpoint tổng hợp. Worker backend chạy 3s/10s/30s
+//     nên poll nhanh hơn 15s cũng không thu được thêm dữ liệu nào.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const MON_LOG_MAX_ROWS = 120;
+let monExtendedTimer = null;
+let monLogFilter = 'ALL';
+let monLogCache = [];
+
+/** Ghi text vào #id nếu phần tử tồn tại. Không tạo DOM rác. */
+function _monSet(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+/** Gán chiều rộng % cho #id nếu phần tử tồn tại. */
+function _monWidth(id, pct) {
+  const el = document.getElementById(id);
+  if (el) el.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+}
+
+/**
+ * Tầng NHANH (2s): render counter rẻ đi kèm payload health-dashboard.
+ * Không phát thêm HTTP request — chỉ đọc field đã có sẵn.
+ */
+function renderMonitorFastPath(data) {
+  const c = (data && data.counters) || {};
+
+  // ── Panel 6: hàng đợi phê duyệt + slot worker nền ──
+  _monSet('mon-queue-zt', c.zt_pending ?? 0);
+  _monSet('mon-queue-p60', c.p60_pending ?? 0);
+
+  const bgRun = c.bg_running ?? 0;
+  const bgMax = c.bg_max_concurrent ?? 0;
+  _monSet('mon-queue-bg-run', bgRun);
+  _monSet('mon-queue-bg-max', bgMax);
+  _monSet('mon-queue-bg-total', c.bg_total ?? 0);
+  // Tránh chia cho 0: khi bgMax = 0 thì hiện 0% thay vì NaN.
+  _monWidth('mon-queue-bg-bar', bgMax > 0 ? (bgRun / bgMax) * 100 : 0);
+
+  // ── Panel 9: số kết nối mở rộng + số kỹ năng runtime ──
+  const n = (data && data.nodes) || null;
+  if (n) {
+    _monSet('mon-mem-hud', n.active_hud_websockets ?? 0);
+    _monSet('mon-mem-lan', n.active_lan_clients ?? 0);
+    _monSet('mon-mem-skills', n.skills_count ?? 0);
+  }
+}
+
+/**
+ * Dựng vòng poll 15s. TÁCH RIÊNG và gọi ở phần ĐỒNG BỘ của
+ * `loadExtendedMonitors()` — tức là TRƯỚC mọi `await`.
+ *
+ * BUG ĐÃ GẶP: bản đầu đặt `if (!monExtendedTimer)` ở CUỐI hàm, sau
+ * `await Promise.allSettled(...)`. Trang gọi `loadDashboard()` từ 6 chỗ, và
+ * lúc mở trang có 2 chỗ chạy SONG SONG (`restoreActiveTab()`→`switchTab()` và
+ * listener `DOMContentLoaded`). Cả hai cùng chạy tới dòng `if` trước khi nào
+ * kịp gán `monExtendedTimer` → cùng thấy `null` → tạo 2 interval lệch pha.
+ * Đo thật cho thấy request bắn thành cặp cách nhau 0.2s, rồi hở 14.8s.
+ * Tệ hơn: mỗi lần vào lại tab lại nhân thêm interval, tải server nhân lên dần.
+ * Sửa bằng cách chốt timer ở phần đồng bộ — không lời gọi song song nào kịp
+ * nhìn thấy `null`.
+ */
+function _ensureExtendedMonitorTimer() {
+  if (monExtendedTimer) return;
+  monExtendedTimer = setInterval(() => {
+    const tabDash = document.getElementById('tab-dashboard');
+    if (tabDash && tabDash.classList.contains('active')) loadExtendedMonitors();
+  }, 15000);
+}
+
+/**
+ * Chặn poll lặp trong cùng một cửa sổ thời gian.
+ *
+ * VÌ SAO CẦN: `loadExtendedMonitors()` được gọi từ NHIỀU nơi —
+ *   1. interval 15s riêng của Phase 61 (`_ensureExtendedMonitorTimer`),
+ *   2. `loadDashboard()` — mà `loadDashboard()` được gọi từ 6 chỗ, gồm một
+ *      `setInterval(..., 15_000)` có sẵn từ trước ở phần bootstrap (dòng ~7705)
+ *      chạy mỗi 15s và gọi `loadDashboard()` bất kể tab nào đang mở.
+ * Hai timer cùng kỳ 15s và khởi động gần nhau → trùng pha → mỗi 15 giây bắn
+ * 16 request thay vì 8. Đo thật: khoảng cách giữa các vòng là 0s rồi 15s.
+ *
+ * Dấu thời gian được đặt ở phần ĐỒNG BỘ (trước mọi `await`) để các lời gọi
+ * song song không cùng lọt qua. Ngưỡng 13s < kỳ 15s: vẫn cho phép làm mới
+ * đúng 15s, nhưng hai timer trùng pha chỉ được chiếm 1 lần.
+ */
+const MON_HEAVY_DEDUPE_MS = 13000;
+let monLastHeavyRunAt = 0;
+
+/**
+ * Tầng NẶNG (15s): 8 endpoint. Dùng Promise.allSettled để MỘT endpoint
+ * chết không được làm mất dữ liệu của các endpoint còn lại.
+ */
+async function loadExtendedMonitors() {
+  _ensureExtendedMonitorTimer(); // đồng bộ, xem giải thích ở trên
+
+  const now = Date.now();
+  if (now - monLastHeavyRunAt < MON_HEAVY_DEDUPE_MS) return; // vừa poll xong
+  monLastHeavyRunAt = now; // đặt TRƯỚC await để chống race
+
+  const paths = [
+    ['tasks', '/api/v1/enterprise/background-tasks'],
+    ['system', '/api/v1/system/stats'],
+    ['tools', '/api/v1/enterprise/plugin-registry/stats'],
+    ['memory', '/api/v1/memory/stats'],
+    ['domain', '/api/v1/domain/stats'],
+    ['conns', '/api/v1/enterprise/connectors/health'],
+    ['audit', '/api/v1/audit-logs'],
+    ['logs', '/api/v1/logs/recent?limit=200'],
+  ];
+
+  const results = await Promise.allSettled(
+    paths.map(([, p]) => apiFetch(`${API_BASE}${p}`).then((r) => (r.ok ? r.json() : null)))
+  );
+
+  const get = (key) => {
+    const i = paths.findIndex(([k]) => k === key);
+    const r = results[i];
+    return r && r.status === 'fulfilled' ? r.value : null;
+  };
+
+  renderQueueMonitor(get('tasks'), get('system'));
+  renderToolHealth(get('tools'));
+  renderMemoryMonitor(get('memory'), get('domain'), get('system'));
+  renderConnectorsStrip(get('conns'));
+  renderSecurityMonitor(get('audit'));
+  renderSystemLogs(get('logs'));
+}
+
+/** Panel 6 — phân bố trạng thái tác vụ ERP. */
+function renderQueueMonitor(bg, sys) {
+  if (sys && sys.tasks) {
+    const t = sys.tasks;
+    const total = t.total || 0;
+    const pct = (n) => (total > 0 ? (n / total) * 100 : 0);
+    _monWidth('mon-queue-bar-completed', pct(t.completed || 0));
+    _monWidth('mon-queue-bar-pending', pct(t.pending || 0));
+    _monWidth('mon-queue-bar-issues', pct(t.issues || 0));
+    _monSet('mon-queue-task-completed', t.completed ?? 0);
+    _monSet('mon-queue-task-pending', t.pending ?? 0);
+    _monSet('mon-queue-task-issues', t.issues ?? 0);
+    _monSet('mon-queue-task-sum', `${total} tác vụ`);
+  }
+  if (bg && bg.total != null) {
+    _monSet('mon-queue-bg-total', bg.total);
+  }
+}
+
+/** Panel 7 — sức khỏe công cụ + độ trễ + circuit breaker. */
+function renderToolHealth(d) {
+  if (!d) return;
+
+  _monSet('mon-tool-total', d.total_tools ?? 0);
+  _monSet('mon-tool-enabled', d.enabled_tools ?? 0);
+
+  const es = d.execution_stats || {};
+  let success = 0, failed = 0, timeout = 0, openCircuits = 0;
+
+  for (const stats of Object.values(es)) {
+    if (!stats || typeof stats !== 'object') continue;
+    success += stats.successful_calls || 0;
+    failed += stats.failed_calls || 0;
+    timeout += stats.timeout_calls || 0;
+    const cb = stats.circuit_breaker;
+    if (cb && cb.state && cb.state !== 'closed') openCircuits += 1;
+  }
+
+  _monSet('mon-tool-success', success);
+  _monSet('mon-tool-failed', failed);
+  _monSet('mon-tool-timeout', timeout);
+
+  const badge = document.getElementById('mon-tool-cb-open');
+  if (badge) {
+    badge.textContent = `${openCircuits} mạch mở`;
+    badge.classList.toggle('hidden', openCircuits === 0);
+  }
+
+  // Độ trễ: sắp xếp giảm dần, chỉ hiện công cụ thực sự đã gọi (total_calls > 0).
+  const rows = Object.entries(es)
+    .filter(([, s]) => s && s.total_calls > 0)
+    .sort((a, b) => (b[1].avg_latency_ms || 0) - (a[1].avg_latency_ms || 0))
+    .slice(0, 12);
+
+  const box = document.getElementById('mon-tool-latency');
+  if (!box) return;
+  if (rows.length === 0) {
+    box.innerHTML = '<div class="text-[10px] text-slate-400 dark:text-slate-500 italic py-2">Chưa có công cụ nào được gọi — chưa có số liệu độ trễ.</div>';
+    return;
+  }
+  const max = Math.max(...rows.map(([, s]) => s.avg_latency_ms || 0), 1);
+  box.innerHTML = rows.map(([name, s]) => {
+    const ms = s.avg_latency_ms || 0;
+    const cb = s.circuit_breaker || {};
+    const state = cb.state || 'closed';
+    const cbColor = state === 'open' ? 'text-rose-400' : state === 'half_open' ? 'text-amber-400' : 'text-emerald-500';
+    return `<div class="flex items-center gap-2">
+      <span class="w-32 shrink-0 truncate text-slate-300" title="${_esc(name)}">${_esc(name)}</span>
+      <span class="flex-1 h-1.5 rounded-full bg-slate-800/60 overflow-hidden">
+        <span class="block h-full rounded-full ${ms > 3000 ? 'bg-rose-500' : ms > 1000 ? 'bg-amber-500' : 'bg-teal-500'}" style="width:${Math.min(100, (ms / max) * 100)}%"></span>
+      </span>
+      <span class="w-16 shrink-0 text-right text-slate-400 font-mono">${ms.toFixed(1)}ms</span>
+      <span class="w-14 shrink-0 text-right font-mono ${cbColor}">${_esc(state)}</span>
+    </div>`;
+  }).join('');
+}
+
+/** Panel 9 — trí nhớ vector, nhân sự AD, số tài khoản. */
+function renderMemoryMonitor(mem, dom, sys) {
+  if (mem && mem.status === 'ready') {
+    _monSet('mon-mem-records', mem.total_records ?? 0);
+    _monSet('mon-mem-size', `${mem.size_mb ?? 0} MB`);
+    _monSet('mon-mem-collection', mem.collection_name || '—');
+  }
+  if (dom) {
+    _monSet('mon-mem-employees', dom.employees_count ?? 0);
+    _monSet('mon-mem-computers', dom.computers_count ?? 0);
+  }
+  if (sys) {
+    _monSet('mon-mem-users', `${sys.users_count ?? 0} tài khoản`);
+  }
+}
+
+/** Panel 10 — dải nhỏ 4 connector, bấm để sang tab chi tiết. */
+function renderConnectorsStrip(d) {
+  if (!d) return;
+  const all = d.connectors || {};
+  const names = Object.keys(all);
+  const box = document.getElementById('mon-conn-list');
+  if (!box) return;
+
+  _monSet('mon-conn-total', names.length);
+
+  let ready = 0;
+  const rows = names.map((name) => {
+    const c = all[name] || {};
+    const isReady = c.configured === true;
+    if (isReady) ready += 1;
+    const missing = Array.isArray(c.missing_fields) && c.missing_fields.length
+      ? `Thiếu: ${c.missing_fields.join(', ')}`
+      : (c.note || c.error || '');
+    const hasErr = !!c.error;
+    const dot = isReady ? 'bg-emerald-500' : (hasErr ? 'bg-rose-500' : 'bg-amber-500');
+    const label = isReady ? 'Sẵn sàng' : (hasErr ? 'Lỗi' : 'Chưa cấu hình');
+    const labelCls = isReady ? 'text-emerald-500' : (hasErr ? 'text-rose-400' : 'text-amber-400');
+    const hint = isReady ? '' : (missing || label);
+    return `<div class="flex items-center justify-between gap-2 p-2.5 rounded-xl border border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-800/30">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="w-1.5 h-1.5 rounded-full ${dot} shrink-0"></span>
+        <span class="text-[11px] font-bold text-slate-800 dark:text-white uppercase">${_esc(name)}</span>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <span class="text-[9px] text-slate-400 dark:text-slate-500 truncate max-w-[130px]" title="${_esc(hint)}">${_esc(hint)}</span>
+        <span class="text-[10px] font-bold ${labelCls}">${label}</span>
+      </div>
+    </div>`;
+  });
+
+  _monSet('mon-conn-ready', ready);
+  box.innerHTML = rows.length
+    ? rows.join('')
+    : '<div class="text-[10px] text-slate-400 dark:text-slate-500 italic py-3">Không có connector nào được đăng ký.</div>';
+}
+
+/** Panel 8 — tổng hợp audit log theo mức độ. */
+function renderSecurityMonitor(d) {
+  if (!d) return;
+  const logs = Array.isArray(d.logs) ? d.logs : [];
+  const total = d.total ?? logs.length;
+
+  let success = 0, failed = 0, pending = 0;
+  for (const r of logs) {
+    const st = String(r?.status || '').toLowerCase();
+    if (st === 'success') success += 1;
+    else if (st === 'failed' || st === 'error' || st === 'denied' || st === 'blocked') failed += 1;
+    else pending += 1;
+  }
+
+  _monSet('mon-sec-total', total);
+  _monSet('mon-sec-success', success);
+  _monSet('mon-sec-failed', failed);
+  _monSet('mon-sec-pending', pending);
+
+  const denom = success + failed + pending;
+  _monWidth('mon-sec-bar-success', denom ? (success / denom) * 100 : 0);
+  _monWidth('mon-sec-bar-pending', denom ? (pending / denom) * 100 : 0);
+  _monWidth('mon-sec-bar-failed', denom ? (failed / denom) * 100 : 0);
+  _monSet('mon-sec-rate', denom ? `${((success / denom) * 100).toFixed(1)}%` : '—');
+
+  const posture = document.getElementById('mon-sec-posture');
+  if (posture) {
+    if (denom === 0) {
+      posture.textContent = 'Chưa có dữ liệu';
+      posture.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-500/10 border border-slate-500/30 text-slate-500 dark:text-slate-400';
+    } else if (failed > 0) {
+      posture.textContent = 'Có thất bại';
+      posture.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/10 border border-rose-500/30 text-rose-500 dark:text-rose-400';
+    } else if (pending > 0) {
+      posture.textContent = 'Có việc chờ';
+      posture.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 border border-amber-500/30 text-amber-500 dark:text-amber-400';
+    } else {
+      posture.textContent = 'Toàn vẹn';
+      posture.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 dark:text-emerald-400';
+    }
+  }
+}
+
+/** Panel 11 — nhật ký hệ thống, có bộ lọc mức độ. */
+function renderSystemLogs(d) {
+  if (!d) return;
+  // Giữ bộ đệm để đổi bộ lọc không cần gọi lại server.
+  monLogCache = (Array.isArray(d.logs) ? d.logs : []).slice(0, MON_LOG_MAX_ROWS);
+  paintMonLogs();
+}
+
+function paintMonLogs() {
+  const box = document.getElementById('mon-log-list');
+  if (!box) return;
+  if (monLogCache.length === 0) {
+    box.innerHTML = '<div class="text-slate-500 italic">Nhật ký trống — server chưa ghi dòng nào.</div>';
+    return;
+  }
+  const rows = monLogCache.filter((r) => monLogFilter === 'ALL' || String(r?.level || '').toUpperCase() === monLogFilter);
+  if (rows.length === 0) {
+    box.innerHTML = `<div class="text-slate-500 italic">Không có dòng nào ở mức ${_esc(monLogFilter)}.</div>`;
+    return;
+  }
+  box.innerHTML = rows.map((r) => {
+    const lvl = String(r?.level || '').toUpperCase();
+    const color = lvl === 'ERROR' ? 'text-rose-400' : lvl === 'WARNING' ? 'text-amber-400' : 'text-slate-300';
+    const tag = lvl === 'ERROR' ? 'ERR' : lvl === 'WARNING' ? 'WRN' : 'INF';
+    const ts = String(r?.timestamp || '').replace('T', ' ').slice(0, 19);
+    return `<div class="flex items-start gap-1.5 leading-relaxed hover:bg-slate-800/40 rounded px-1">
+      <span class="text-slate-600 shrink-0">${_esc(ts)}</span>
+      <span class="${color} font-semibold shrink-0 w-7">${tag}</span>
+      <span class="text-slate-500 shrink-0 max-w-[110px] truncate" title="${_esc(r?.logger || '')}">${_esc(r?.logger || '-')}</span>
+      <span class="${color} break-all">${_esc(r?.message || '')}</span>
+    </div>`;
+  }).join('');
+}
+
+/** Đổi bộ lọc nhật ký. Chỉ vẽ lại từ cache, không gọi server. */
+function setMonLogFilter(level, btn) {
+  monLogFilter = level;
+  document.querySelectorAll('.mon-log-filter').forEach((b) => {
+    b.className = 'mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-cyan-400';
+  });
+  if (btn) {
+    btn.className = 'mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border bg-cyan-500/10 border-cyan-500/30 text-cyan-500 dark:text-cyan-400';
+  }
+  paintMonLogs();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

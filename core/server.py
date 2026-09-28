@@ -1334,6 +1334,11 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
     Zero-Overhead Health Snapshot (O(1) in-memory lookup).
     Contains no computational logic or network requests.
     Directly returns SYSTEM_HEALTH_CACHE in < 1ms response time.
+
+    Phase 61: bổ sung nhóm 'counters' (hàng đợi, phê duyệt, slot worker) và
+    'connections' để dashboard lấy counter rẻ ngay trong payload 2 giây,
+    thay vì gọi thêm nhiều endpoint nặng. Tất cả chỉ đọc trạng thái đã có
+    sẵn trong bộ nhớ — không thêm worker, không thêm request mạng.
     """
     from core.health_monitor import SYSTEM_HEALTH_CACHE
     from core.plugin_manager import plugin_manager
@@ -1344,6 +1349,47 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
     SYSTEM_HEALTH_CACHE["nodes"]["skills_count"] = plugin_manager.get_skill_count()
     SYSTEM_HEALTH_CACHE["nodes"]["skills_enabled"] = len(plugin_manager.get_all_tools())
     SYSTEM_HEALTH_CACHE["security_role"] = "ADMIN"
+
+    # ── Phase 61: số kết nối WebSocket / LAN ────────────────────────────
+    # active_hud_websockets trước đây không có chỗ nào lộ ra ngoài.
+    try:
+        SYSTEM_HEALTH_CACHE["nodes"]["active_hud_websockets"] = len(active_hud_websockets)
+    except Exception:
+        SYSTEM_HEALTH_CACHE["nodes"].setdefault("active_hud_websockets", 0)
+    try:
+        SYSTEM_HEALTH_CACHE["nodes"]["active_lan_clients"] = len(orchestrator.get_connected_clients())
+    except Exception:
+        SYSTEM_HEALTH_CACHE["nodes"].setdefault("active_lan_clients", 0)
+
+    # ── Phase 61: counter hàng đợi & phê duyệt ──────────────────────────
+    # Mỗi nhánh độc lập, lỗi ở nhánh này không được làm hỏng nhánh kia.
+    counters: Dict[str, Any] = SYSTEM_HEALTH_CACHE.setdefault("counters", {})
+
+    # Hàng đợi phê duyệt Zero-Trust (Phase 57)
+    try:
+        from core.zero_trust import hitl_manager as zt_hitl
+        counters["zt_pending"] = len(zt_hitl.get_pending_list())
+    except Exception:
+        counters.setdefault("zt_pending", 0)
+
+    # Hàng đợi phê duyệt HITLManager (Phase 60) — trước đây KHÔNG có REST nào lộ
+    try:
+        from core.security.hitl_manager import hitl_manager as p60_hitl
+        counters["p60_pending"] = len(p60_hitl.get_pending_list())
+    except Exception:
+        counters.setdefault("p60_pending", 0)
+
+    # Worker nền: đang chạy / tổng / số slot tối đa
+    try:
+        from core.background_workers import background_worker_manager as bg
+        counters["bg_running"] = len(bg._running_tasks)
+        counters["bg_total"] = len(bg._tasks)
+        counters["bg_max_concurrent"] = bg.max_concurrent
+    except Exception:
+        counters.setdefault("bg_running", 0)
+        counters.setdefault("bg_total", 0)
+        counters.setdefault("bg_max_concurrent", 0)
+
     return SYSTEM_HEALTH_CACHE
 
 
