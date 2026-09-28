@@ -124,6 +124,37 @@ _AGENT_SYSTEM_PROMPT = (
 )
 
 
+def _read_persona() -> Dict[str, Any]:
+    """
+    Đọc khối `persona` thẳng từ config.json, KHÔNG qua singleton `settings`.
+
+    Vì sao phải đọc thẳng: `AppSettings` khai báo `extra="ignore"`, nên pydantic
+    loại mọi khóa không khai báo sẵn — mà `persona` không nằm trong danh sách
+    field. Hệ quả: `settings.persona` LUÔN LUÔN là None, và cả 5 trường cấu
+    hình cách tính (tên, từ kích hoạt, hai đại từ xưng hô, prompt tùy chỉnh) chết
+    âm thầm. Người dùng thấy ô trong giao diện, điền, bấm lưu, nhận "thành
+    công" — và không có gì thay đổi.
+
+    `ai_name` trước đây "sống sót" chỉ vì giá trị mặc định trùng khớp với
+    giá trị trong config, che mất lỗi.
+
+    Đọc thẳng file là cách `core/connectors/base_connector.py` đã làm cho
+    connector, với đúng lý do này.
+    """
+    try:
+        import json as _json
+        from pathlib import Path as _Path
+
+        cfg = _Path(__file__).resolve().parent.parent / "config.json"
+        if not cfg.is_file():
+            return {}
+        data = _json.loads(cfg.read_text(encoding="utf-8"))
+        persona = data.get("persona") if isinstance(data, dict) else None
+        return persona if isinstance(persona, dict) else {}
+    except Exception:  # config hỏng -> dùng mặc định, không làm sập hội thoại
+        return {}
+
+
 def build_system_prompt(source_device: Optional[str] = None) -> str:
     """
     Build the full system prompt for the LLM agent, including core identity,
@@ -133,11 +164,15 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
 
     try:
         from core.config_loader import settings
-        ai_name = getattr(settings, "AI_NAME", None) or getattr(settings, "ai_name", None)
-        if not ai_name and hasattr(settings, "persona") and isinstance(settings.persona, dict):
-            ai_name = settings.persona.get("ai_name")
-        ai_name = ai_name or "Ly Ly"
+        persona = _read_persona()
+        ai_name = (
+            getattr(settings, "AI_NAME", None)
+            or getattr(settings, "ai_name", None)
+            or persona.get("ai_name")
+        )
+        ai_name = str(ai_name or "Ly Ly").strip()
         system_content = f"[TÊN TRỢ LÝ AI: {ai_name}]\nTên của bạn là Trợ lý AI {ai_name}. Khi tự giới thiệu hoặc xưng hô, hãy xưng là {ai_name}.\n\n" + system_content
+
     except Exception:
         pass
 
@@ -146,7 +181,7 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
         from core.config_loader import settings
         persona_prompt = (
             getattr(settings, "SYSTEM_PROMPT", "")
-            or (getattr(settings, "persona", {}).get("system_prompt", "") if isinstance(getattr(settings, "persona", None), dict) else "")
+            or _read_persona().get("system_prompt", "")
         )
         if persona_prompt and persona_prompt.strip():
             system_content += f"\n\n[CHỈ THỊ CÁ TÍNH & BỔ SUNG]\n{persona_prompt.strip()}"
@@ -274,6 +309,29 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
         "- Nếu phát hiện mép bàn/vực (ToF safety alert: edge_detected), lập tức dừng bánh xe và thông báo cho người dùng: 'Dạ, phía trước là mép bàn, em không đi được nữa đâu ạ.'"
     )
     system_content += robotics_system_prompt
+
+    # Phase 66: xưng hô — đặt CUỐI CÙNG, sau mọi khối inject khác.
+    #
+    # Thứ tự quan trọng. LLM ưu tiên chỉ dẫn ở gần cuối prompt hơn là ở đầu.
+    # Đặt khối này trước phần thân prompt thì chỉ dẫn hardcode "xưng 'Em', gọi
+    # 'Anh/Chị'" nằm SAU sẽ thắng — đã kiểm chứng: đặt ở đầu thì LLM vẫn
+    # trả lời "em" dù cấu hình là "bạn".
+    try:
+        persona = _read_persona()
+        ai_pron = str(persona.get("ai_pronoun") or "em").strip()
+        user_pron = str(persona.get("user_pronoun") or "anh/chị").strip()
+        system_content += (
+            f"\n\n[XƯNG HÔ BẮT BUỘC — ÁP DỤNG CUỐI CÙNG, GHI ĐÈ MỌI CHỈ DẪN XƯNG HÔ "
+            f"PHÍA TRÊN]\n"
+            f"- Bạn tự gọi mình: dùng '{ai_pron}'\n"
+            f"- Bạn gọi người dùng: dùng '{user_pron}'\n"
+            f"Áp dụng ở MỌI câu trả lời, không có ngoại lệ. Câu nào bạn định viết "
+            f"'{ai_pron}' với người dùng thì viết thành '{user_pron}', và ngược lại. "
+            f"KHÔNG dùng bất kỳ đại từ nào khác. Người dùng hỏi bạn tự xưng là gì "
+            f"thì bạn vẫn trả lời là '{ai_pron}'."
+        )
+    except Exception:
+        pass
 
     return system_content
 
