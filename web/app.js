@@ -2787,9 +2787,27 @@ function renderPortalMarkdown(rawText) {
   if (!rawText) return '';
   let text = rawText.trim();
 
+  // ── Bảo mật ────────────────────────────────────────────────────────
+  // Mọi thứ gửi vào đây rồi đều đi thẳng ra `innerHTML` (xem 4 call site
+  // ở sendVoiceCommand / HITL / HUD). Escape sớm, trước khi bước 3-5 chèn
+  // thẻ HTML của riêng hàm này vào.
+  //
+  // Không escape sau cùng được: bước 2 đã sinh ra <table>/<th>/<td> và bước 3-5
+  // chèn <strong>/<h2>..., escape sau sẽ hỏng chính những thẻ đó.
+  //
+  // Khối code đã tự escape sẵn ở bước 1 nên phải cất ra chỗ riêng, nếu escape
+  // lần nữa thì thẻ của nó cũng bị escape mất.
+  // Dùng ký tự NUL thật làm viền: văn bản người dùng/LLM không chứa NUL, còn
+  // chuỗi `\u0000` viết tay sẽ không khớp với regex khi khôi phục.
+  const CB = ' CB';
+  const codeBlocks = [];
+
   // 1. Code blocks: ```...```
   text = text.replace(/```([a-zA-Z0-9]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
-    return `<pre class="my-2 p-3 rounded-xl bg-slate-900 text-cyan-300 font-mono text-xs overflow-x-auto border border-cyan-500/30"><code>${escapePortalHtml(code.trim())}</code></pre>`;
+    codeBlocks.push(
+      `<pre class="my-2 p-3 rounded-xl bg-slate-900 text-cyan-300 font-mono text-xs overflow-x-auto border border-cyan-500/30"><code>${escapePortalHtml(code.trim())}</code></pre>`
+    );
+    return `${CB}${codeBlocks.length - 1}${CB}`;
   });
 
   // 2. Tables: lines containing |
@@ -2814,7 +2832,10 @@ function renderPortalMarkdown(rawText) {
       const rowClass = isHeader 
         ? 'bg-slate-100 dark:bg-cyan-950/50 text-slate-800 dark:text-cyan-300 font-bold border-b border-slate-200 dark:border-cyan-500/30' 
         : 'border-b border-slate-100 dark:border-cyan-500/10 hover:bg-slate-50 dark:hover:bg-cyan-950/20 text-slate-700 dark:text-slate-200';
-      tableHtml += `<tr class="${rowClass}">` + cells.map(c => `<${tag} class="px-3 py-2">${formatPortalInlineText(c.trim())}</${tag}>`).join('') + '</tr>';
+      // Escape ô trước khi bọc thẻ: nội dung báo cáo lấy từ hệ thống khách
+      // hàng (tên hàng, tên khách, ghi chú) — không phải do người dùng gõ,
+      // nên không thể tin là đã sạch.
+      tableHtml += `<tr class="${rowClass}">` + cells.map(c => `<${tag} class="px-3 py-2">${formatPortalInlineText(escapePortalHtml(c.trim()))}</${tag}>`).join('') + '</tr>';
     } else {
       if (inTable) {
         tableHtml += '</tbody></table></div>';
@@ -2822,7 +2843,7 @@ function renderPortalMarkdown(rawText) {
         inTable = false;
         tableHtml = '';
       }
-      outputLines.push(line);
+      outputLines.push(escapePortalHtml(line));
     }
   }
   if (inTable) {
@@ -2831,6 +2852,13 @@ function renderPortalMarkdown(rawText) {
   }
 
   text = outputLines.join('\n');
+
+  // Trả khối code (đã escape từ bước 1) về chỗ cũ.
+  if (codeBlocks.length) {
+    text = text.replace(new RegExp(`${CB}(\\d+)${CB}`, 'g'), (_, n) => codeBlocks[Number(n)] ?? '');
+    // Dọn token sót lại nếu có chỗ hởng — để ký tự NUL không lọt ra DOM.
+    text = text.split(CB).join('');
+  }
 
   // 3. Headers: #, ##, ###
   text = text.replace(/^### (.*$)/gim, '<h4 class="text-xs font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400 mt-3 mb-1">▸ $1</h4>');

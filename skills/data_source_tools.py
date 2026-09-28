@@ -170,8 +170,14 @@ async def list_data_sources(category: Optional[str] = None) -> Dict[str, Any]:
     name="fetch_data_source",
     description=(
         "Lấy dữ liệu báo cáo từ một nguồn đã khai báo (ERP, kế toán, CRM...). "
-        "Trả về các dòng dữ liệu và tên cột. Dùng để trả lời câu hỏi cần số liệu, "
-        "ví dụ 'doanh thu tháng này bao nhiêu'."
+        "Dùng để trả lời câu hỏi cần số liệu, ví dụ 'doanh thu tháng này bao nhiêu'.\n\n"
+        "CÁCH TRẢ LỜI — BẮT BUỘC: khi kết quả có `rows`, hãy trình bày dữ liệu thành BẢNG "
+        "MARKDOWN (mỗi dòng `| giá trị | giá trị |`, có dòng `| --- | --- |` sau tiêu đề "
+        "cột) chứ KHÔNG liệt kê dòng dạng văn bản hay dán JSON thô. Đặt tên cột bằng chính "
+        "tên trong `columns` (tiếng Việt nếu trường có tiếng Việt), và luôn kèm một dòng "
+        "tóm tắt con số quan trọng ra ngoài bảng. Nếu `truncated` là true, phải nói rõ "
+        "bảng chỉ hiện một phần và còn bao nhiêu dòng nữa — không được im lặng cho người "
+        "dùng tưởng đã thấy hết."
     ),
     parameters_schema={
         "type": "object",
@@ -232,6 +238,12 @@ async def fetch_data_source(
             "returned": data.get("returned", 0),
             "total": data.get("total", 0),
             "truncated": bool(data.get("truncated")),
+            # Nhắc thẳng cho LLM, không chỉ trong mô tả tool: kết quả tool là
+            # thứ nó đọc được ngay lúc đó, nên nhắc ở đây mới có tác dụng.
+            "_format_hint": (
+                "Trình bày `rows` thành bảng Markdown. Nếu truncated=true, phải nói rõ "
+                "còn dòng chưa hiện và gợi ý dùng prepare_data_source_export để lấy đủ."
+            ),
         }
 
     return await _run_with_hitl(
@@ -248,9 +260,12 @@ async def fetch_data_source(
 @export_skill(
     name="prepare_data_source_export",
     description=(
-        "Tạo file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Trả về đường dẫn "
-        "tải — bạn KHÔNG cần đọc nội dung file, chỉ cần đưa đường dẫn đó cho "
-        "người dùng. Dùng khi user nói 'xuất ra Excel', 'gửi tôi file CSV'."
+        "Tạo file báo cáo để tải xuống (Excel .xlsx hoặc CSV). Dùng khi người dùng nói "
+        "'xuất ra Excel', 'gửi tôi file CSV', 'tải báo cáo tồn kho cho tôi'.\n\n"
+        "CÁCH TRẢ LỜI — BẮT BUỘC: bạn KHÔNG cần và KHÔNG nên đọc nội dung file. Chỉ cần "
+        "báo cho người dùng là đã sẵn sàng, nêu định dạng, số dòng dự kiến, và đưa "
+        "`user_instructions` (kèm `download_url`) cho họ. Đừng tự dựng lại bảng trong "
+        "câu trả lời — dữ liệu trong file đầy đủ hơn phần bạn vừa xem trước đó."
     ),
     parameters_schema={
         "type": "object",

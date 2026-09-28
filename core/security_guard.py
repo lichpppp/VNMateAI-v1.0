@@ -73,6 +73,10 @@ RBAC_RULES: Dict[str, Any] = {
             "query_organization_data",
             "list_available_skills",
             "lookup_domain_info",
+            # Phase 63: đọc báo cáo từ nguồn dữ liệu doanh nghiệp. Cùng loại
+            # với query_organization_data — chỉ đọc, không ghi.
+            "list_data_sources", "fetch_data_source",
+            "prepare_data_source_export",
         ],
         "blocked_prefixes": [
             "run_powershell", "write_file", "delete_item",
@@ -86,6 +90,14 @@ RBAC_RULES: Dict[str, Any] = {
             "get_system_info", "get_system_metrics",
             "get_network_info", "query_organization_data",
             "list_available_skills",
+            # Phase 63: xem báo cáo. Cả ba tool đều chỉ đọc — danh sách nguồn,
+            # kéo dữ liệu, chuẩn bị file tải về. Không có tool nào ghi hay
+            # xoá gì trên hệ thống khách hàng, nên cho phép với viewer là
+            # đúng vai trò "chỉ đọc". Lời gọi ra ngoài vẫn phải qua cổng
+            # HITL (risk_level 2) — RBAC cho phép gọi, HITL quyết định có
+            # chạy không. Hai lớp này không thay thế nhau.
+            "list_data_sources", "fetch_data_source",
+            "prepare_data_source_export",
         ],
         "blocked_prefixes": [
             # Mọi tác vụ ghi, thực thi, xoá đều bị chặn với viewer
