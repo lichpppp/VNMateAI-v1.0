@@ -3047,6 +3047,41 @@ async def websocket_client_endpoint(websocket: WebSocket) -> None:
 
 _local_worker_process: Optional[subprocess.Popen] = None
 
+# Bao lâu thì coi worker là "không lên được" rồi tự dừng. Đủ dài cho tiến
+# trình Python khởi động, import thư viện và mở WebSocket trên máy này.
+_LOCAL_WORKER_READY_TIMEOUT = 8.0
+
+
+def _local_worker_ws_url(request: Request) -> str:
+    """Dựng URL WebSocket mà worker cục bộ phải nối tới.
+
+    Trước đây URL này ghi cứng `"wss://127.0.0.1:443/ws/client"`, sai trên
+    hai điểm một lúc:
+
+      * Cổng. `config.json` để lại `PORT: 443` từ lâu, còn máy chủ thật được
+        khởi chạy bằng `uvicorn ... --port 8000`. Không có gì lắng nghe 443.
+      * Scheme. Máy chủ chạy HTTP thuần, nên `wss://` (WebSocket over TLS)
+        không bao giờ bắt tay được với nó.
+
+    Cả hai lỗi đều im lặng: tiến trình vẫn sinh ra, vẫn nhận PID, chỉ là
+    không bao giờ kết nối được.
+
+    Nay dựng URL từ chính yêu cầu đang đến: admin bấm nút trên cổng nào thì
+    worker nối về đúng cổng đó, đúng scheme đó — không đoán, không phụ thuộc
+    cấu hình lệch với thực tế.
+    """
+    url = request.url
+    scheme = "wss" if url.scheme in ("https", "wss") else "ws"
+    host = url.hostname or "127.0.0.1"
+    # Worker chạy cùng máy chủ nên luôn quay về loopback. `0.0.0.0` là địa
+    # chỉ "mọi giao diện", không phải địa chỉ nào để kết nối tới.
+    if host in ("0.0.0.0", "::", "[::]", ""):
+        host = "127.0.0.1"
+    port = url.port
+    if port is None:
+        port = 443 if scheme == "wss" else 80
+    return f"{scheme}://{host}:{port}/ws/client"
+
 
 @app.get(
     "/api/v1/orchestrator/local-worker/status",
@@ -3072,10 +3107,19 @@ async def get_local_worker_status(
     tags=["Orchestrator"],
 )
 async def toggle_local_worker_endpoint(
+    request: Request,
     user: dict = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
-    """Khởi chạy hoặc dừng Worker Node cục bộ trên máy chủ Master."""
+    """Khởi chạy hoặc dừng Worker Node cục bộ trên máy chủ Master.
+
+    Chỉ báo "thành công" khi worker THỰC SỰ đăng ký, xem `_local_worker_ws_url`
+    và phần kiểm chứng bên dưới.
+    """
     global _local_worker_process
+    # Import cục bộ: `orchestrator` là singleton sống ở core.orchestrator, các
+    # endpoint khác cũng import kiểu này chứ không nằm ở phạm vi module.
+    from core.orchestrator import orchestrator
+
     if _local_worker_process is not None and _local_worker_process.poll() is None:
         try:
             _local_worker_process.terminate()
@@ -3090,6 +3134,32 @@ async def toggle_local_worker_endpoint(
         return {"active": False, "message": "Đã dừng Worker Node cục bộ thành công."}
     else:
         agent_script = _PROJECT_ROOT / "client_agent" / "agent.py"
+        if not agent_script.exists():
+            return {
+                "active": False,
+                "message": f"Không tìm thấy {agent_script} — không thể khởi chạy worker.",
+            }
+
+        # Chặn khởi chạy trùng. `_local_worker_process` sống trong bộ nhớ của
+        # tiến trình máy chủ, nên sau mỗi lần restart nó về None — còn worker
+        # thì vẫn còn sống và tự nối lại. Bấm "Bật" lúc đó sẽ sinh ra worker
+        # thứ hai dùng chung một `client_id`, hai tiến trình tranh nhau đăng ký
+        # cùng một tên và danh sách client hiện ra loạn.
+        _already = any(
+            str((c or {}).get("client_id") or (c or {}).get("id") or "") == "MASTER_LOCAL_WORKER"
+            for c in orchestrator.get_connected_clients()
+        )
+        if _already:
+            return {
+                "active": True,
+                "message": (
+                    "Worker Node [MASTER_LOCAL_WORKER] đã có sẵn trong danh sách client — "
+                    "không khởi chạy thêm. Nếu đó là worker cũ sót lại từ lần chạy trước, "
+                    "hãy tắt nó ở máy đó rồi bấm Bật lại."
+                ),
+            }
+
+        ws_url = _local_worker_ws_url(request)
         # Zero-Trust: truyền enrollment secret cho worker cục bộ qua env var.
         _worker_env = os.environ.copy()
         _worker_env["VNMATE_ENROLLMENT_TOKEN"] = _get_worker_enrollment_secret()
@@ -3098,7 +3168,7 @@ async def toggle_local_worker_endpoint(
                 sys.executable,
                 str(agent_script),
                 "--server",
-                "wss://127.0.0.1:443/ws/client",
+                ws_url,
                 "--id",
                 "MASTER_LOCAL_WORKER",
             ],
@@ -3106,11 +3176,71 @@ async def toggle_local_worker_endpoint(
             stderr=subprocess.DEVNULL,
             env=_worker_env,
         )
-        logger.info("Local Worker Node [MASTER_LOCAL_WORKER] đã khởi chạy (PID: %s).", _local_worker_process.pid)
+        pid = _local_worker_process.pid
+        logger.info("Local Worker Node [MASTER_LOCAL_WORKER] đã khởi chạy (PID: %s) qua %s.", pid, ws_url)
+
+        # ── Kiểm chứng, đừng báo thành công bừa ────────────────────────────
+        #
+        # Trước đây hàm báo "khởi chạy thành công!" ngay sau `Popen`, tức là
+        # chỉ cần tiến trình được sinh ra là báo thành công — dù nó nối vào
+        # một cổng không ai lắng nghe. Đo thật: bấm "Bật", API trả về
+        # `active: true` kèm PID, nhưng sau 5 giây danh sách client vẫn rỗng
+        # và worker không bao giờ kết nối. Người dùng tin thông báo đó rồi
+        # tưởng hệ thống đã chạy, trong khi thực tế nó chết lặng lẽ.
+        #
+        # Nay đợi worker thật sự hiện trong registry rồi mới báo thành công.
+        deadline = time.time() + _LOCAL_WORKER_READY_TIMEOUT
+        registered = False
+        while time.time() < deadline:
+            await asyncio.sleep(0.25)
+            proc = _local_worker_process
+            if proc is None:
+                break
+            if proc.poll() is not None:
+                # Tiến trình tự tắt (lỗi kết nối, thiếu thư viện, ...)
+                _local_worker_process = None
+                logger.warning("Local Worker thoát ngay sau khi khởi chạy (mã %s).", proc.returncode)
+                return {
+                    "active": False,
+                    "message": (
+                        f"Worker không khởi động được: tiến trình thoát ngay (mã {proc.returncode}). "
+                        f"Kiểm tra tại sao bằng: python3 {agent_script} --server {ws_url} --id MASTER_LOCAL_WORKER"
+                    ),
+                }
+            if any(
+                str((c or {}).get("client_id") or (c or {}).get("id") or "") == "MASTER_LOCAL_WORKER"
+                for c in orchestrator.get_connected_clients()
+            ):
+                registered = True
+                break
+
+        if not registered:
+            # Dừng luôn: để một tiến trình nối vào hư không thì chỉ là rác.
+            try:
+                _local_worker_process.terminate()
+                _local_worker_process.wait(timeout=3)
+            except Exception:
+                try:
+                    _local_worker_process.kill()
+                except Exception:
+                    pass
+            _local_worker_process = None
+            logger.warning(
+                "Local Worker không đăng ký được sau %.1fs qua %s.", _LOCAL_WORKER_READY_TIMEOUT, ws_url
+            )
+            return {
+                "active": False,
+                "message": (
+                    f"Worker chạy được nhưng không kết nối được về máy chủ tại {ws_url} "
+                    f"trong {_LOCAL_WORKER_READY_TIMEOUT:.0f} giây — đã dừng tiến trình. "
+                    "Kiểm tra cổng này còn chạy không."
+                ),
+            }
+
         return {
             "active": True,
-            "pid": _local_worker_process.pid,
-            "message": "Đã khởi chạy Worker Node cục bộ [MASTER_LOCAL_WORKER] thành công!",
+            "pid": pid,
+            "message": "Worker Node cục bộ [MASTER_LOCAL_WORKER] đã kết nối thành công.",
         }
 
 

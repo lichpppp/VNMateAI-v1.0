@@ -536,9 +536,14 @@ def main() -> None:
                     _enrollment_token = _cfg.get("enrollment_token", "") or ""
             except Exception:
                 pass
-    if _enrollment_token and "token=" not in default_ws:
-        _sep = "&" if "?" in default_ws else "?"
-        default_ws = f"{default_ws}{_sep}token={_enrollment_token}"
+    def _with_token(ws_url: str) -> str:
+        """Gắn enrollment token vào URL, tránh gắn hai lần."""
+        if not _enrollment_token or "token=" in ws_url:
+            return ws_url
+        sep = "&" if "?" in ws_url else "?"
+        return f"{ws_url}{sep}token={_enrollment_token}"
+
+    default_ws = _with_token(default_ws)
 
     parser = argparse.ArgumentParser(description="VN-MateAI Client Agent (Worker Node)")
     parser.add_argument(
@@ -552,6 +557,13 @@ def main() -> None:
         help="Định danh Client ID cho máy con (mặc định: tên hostname)",
     )
     args = parser.parse_args()
+
+    # Token phải được gắn vào URL CUỐI CÙNG, không chỉ giá trị mặc định.
+    # Trước đây token chỉ nối vào `default_ws`, nên khi ai đó truyền
+    # `--server` tường minh (đúng như toggle Worker Node cục bộ làm) thì
+    # args.server là URL trần, không token — và Master trả về HTTP 403.
+    # Biểu hiện là worker cứ thử lại mãi mà không bao giờ vào được.
+    args.server = _with_token(args.server)
 
     cert_path = get_server_cert_path()
     cert_status = f"✅ Pinned ({cert_path})" if cert_path else "⚠️ Chế độ mặc định (Không có server_cert.pem)"

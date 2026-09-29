@@ -5,14 +5,16 @@
 // WebSocket, Chart.js và toàn bộ DOM — không chạy được trong Node.
 //
 // Ở đây trọng tâm là những thứ dễ sai mà mắt thường không thấy:
-//   1. Ngưỡng màu — đỏ ở 80% RAM sẽ kêu suốt trên máy 8GB, mất hết tác dụng.
+//   1. Ngưỡng màu ổ đĩa — đỏ sớm quá thì cảnh báo mất hết tác dụng.
 //   2. Phân loại "sự cố đang mở" — gộp "completed" vào số việc cần xử là báo
 //      hỏng dữ liệu, và đây là chỗ dễ sai nhất.
 //   3. Lọc nhiễu log — đo thật thì 57% dòng là heartbeat.
 //   4. Phân mức rủi ro — tool risk>=3 mới phải duyệt, đảo ngược là cho AI
 //      tự chạy việc cần người ký.
 //   5. Endpoint lỗi phải hiện lỗi, không được để trắng rồi tưởng là bình thường.
-
+//   6. (Phase 72) Hệ thống con: chỉ hiện nút khi thao tác tồn tại, và phải
+//      báo lỗi thật khi hỏng — không để lại chữ "Đang tải…" mãi mãi.
+//
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,6 +65,10 @@ const harness = `
     return {
       textContent: '', innerHTML: '', className: '', checked: false, style: {},
       classList: { toggle() {}, contains() { return false; }, add() {}, remove() {} },
+      // renderOpsControls gắn sự kiện bằng querySelectorAll sau khi dựng
+      // innerHTML. Ở Node không có DOM thật nên trả mảng rỗng — việc gắn sự
+      // kiện không được kiểm tra ở đây, chỉ phần dựng chuỗi mới quan trọng.
+      querySelectorAll: () => [],
     };
   }
   function $(id) {
@@ -96,39 +102,65 @@ const { readFileSync: rf, writeFileSync: wf } = await import('node:fs');
 const { tmpdir } = await import('node:os');
 const { pathToFileURL } = await import('node:url');
 const file = join(tmpdir(), `cc71-${process.pid}-${Date.now()}.mjs`);
-wf(file, `${harness}\nexport { _api }; export { renderOpsHealth, renderResourceBars, renderInfraList, renderRiskTiers, _isOpsNoise, _fmtDuration, runCommandCenterAudit };`);
+wf(file, `${harness}\nexport { _api }; export { renderOpsHealth, renderInfraList, renderRiskTiers, _isOpsNoise, _fmtDuration, runCommandCenterAudit, renderOpsControls, runOpsOneShot, OPS_SUBSYSTEMS, OPS_ONESHOT };`);
 const M = await import(pathToFileURL(file).href);
 const $ = M._api.$;
 
-// ═══ 1. Ngưỡng màu tài nguyên ════════════════════════════════════════════
-console.log('\n── 1. Ngưỡng màu tài nguyên ──');
+// ═══ 1. Tài nguyên đã gỡ khỏi tab này ═══════════════════════════════════
+console.log('\n── 1. Không lặp lại tài nguyên (Phase 72) ──');
 {
-  // Máy thật của người dùng: 8GB RAM. Ở 80% thì phải im, không đỏ.
-  const cases = [
-    { cpu: 10, ram: 45, want: 'emerald', why: '45% RAM là bình thường, tuyệt đối không đỏ' },
-    { cpu: 10, ram: 80, want: 'emerald', why: '80% RAM trên máy 8GB vẫn là bình thường' },
-    { cpu: 10, ram: 85, want: 'amber', why: '85% thì cảnh báo' },
-    { cpu: 10, ram: 95, want: 'rose', why: '95% thì báo động' },
-  ];
-  for (const c of cases) {
-    M.renderOpsHealth({ stats: { hardware: { cpu_percent: c.cpu, ram_percent: c.ram, ram_used_gb: 3.2, ram_total_gb: 8, disk_percent: 24, uptime_seconds: 3600 } } });
-    const el = $('cc-kpi-resource');
-    check(`RAM ${c.ram}% → ${c.want}`, el.className.includes(c.want), `thực tế: ${el.className} (${c.why})`);
+  // Cùng một số liệu từng hiện ở ba nơi: ô "Tài nguyên" trong dải KPI, thanh
+  // đo CPU/RAM trong thẻ "Sức Khoẻ Hệ Thống", và đồng hồ ở tab Tổng Quan.
+  // Hai bản đứng sát nhau khiến admin phải dừng lại để đối chiếu chúng có
+  // khớp không. Tài nguyên thuộc về Tổng Quan, tab này dành chỗ cho điều hành.
+  check('HTML không còn ô KPI "Tài nguyên"', !html.includes('cc-kpi-resource'));
+  check('HTML không còn khung thanh đo cc-res-bars', !html.includes('cc-res-bars'));
+  check('JS không còn hàm renderResourceBars', !/\bfunction\s+renderResourceBars\b/.test(src));
+  check('JS không còn tham chiếu cc-res-bars', !src.includes('cc-res-bars'));
+  check('tab không còn thẻ "Sức Khoẻ Hệ Thống"',
+    !/<h3[^>]*>\s*Sức [Kk]hoẻ Hệ Thống\s*<\/h3>/.test(html));
+
+  // Ổ đĩa thì khác: chưa chỗ nào khác hiển thị nó. Gỡ hẳn là mất theo dõi
+  // thật, nên nó phải còn — chỉ chuyển xuống chân thẻ điều hành.
+  check('HTML vẫn giữ chỉ số Ổ đĩa', html.includes('id="cc-stat-disk"'));
+
+  // renderOpsHealth giờ viết ổ đĩa, không viết CPU/RAM nữa.
+  M.renderOpsHealth({ stats: { hardware: { cpu_percent: 97, ram_percent: 95, disk_percent: 24, uptime_seconds: 3600 } } });
+  check('CPU 97% không còn làm đỏ ô KPI tài nguyên',
+    $('cc-stat-disk').textContent === '24%', `thực tế: "${$('cc-stat-disk').textContent}"`);
+}
+
+// ═══ 1b. Ngưỡng màu ổ đĩa ═══════════════════════════════════════════════
+console.log('\n── 1b. Ngưỡng màu ổ đĩa ──');
+{
+  // Ngưỡng đỏ phải là "sắp đầy hẳn" chứ không phải "hơi cao": đĩa đầy thì
+  // server dừng, nhưng 80% vẫn là chuyện thường, đỏ sớm thì cảnh báo mất
+  // hết tác dụng.
+  const mk = (disk) => ({ stats: { hardware: { cpu_percent: 5, ram_percent: 40, disk_percent: disk, uptime_seconds: 60 } } });
+  for (const c of [
+    { disk: 24, want: null, why: '24% hoàn toàn bình thường' },
+    { disk: 80, want: null, why: '80% chưa đáng báo' },
+    { disk: 85, want: 'amber', why: '85% thì cảnh báo' },
+    { disk: 95, want: 'rose', why: '95% thì báo động' },
+  ]) {
+    M.renderOpsHealth(mk(c.disk));
+    const el = $('cc-stat-disk');
+    const got = el.className.includes('rose') ? 'rose' : el.className.includes('amber') ? 'amber' : null;
+    check(`Ổ đĩa ${c.disk}% → ${c.want || 'bình thường'}`, got === c.want,
+      `thực tế: ${got} (${c.why})`);
+    check(`Ổ đĩa ${c.disk}% hiện đúng số`, el.textContent === `${c.disk}%`, `thực tế: "${el.textContent}"`);
   }
 
-  // Ngưỡng phải nhìn vào GIÁ TRỊ LỚN NHẤT, không phải riêng CPU.
-  M.renderOpsHealth({ stats: { hardware: { cpu_percent: 5, ram_percent: 96, ram_used_gb: 7.7, ram_total_gb: 8, disk_percent: 10, uptime_seconds: 60 } } });
-  check('CPU thấp nhưng RAM 96% vẫn phải đỏ', $('cc-kpi-resource').className.includes('rose'),
-    `thực tế: ${$('cc-kpi-resource').className}`);
+  // Số liệu rác không được biến thành cảnh báo.
+  M.renderOpsHealth({ stats: { hardware: { disk_percent: 'x', uptime_seconds: 60 } } });
+  check('ổ đĩa không đọc được → "—", không báo động giả',
+    $('cc-stat-disk').textContent === '—' && !$('cc-stat-disk').className.includes('rose'),
+    `thực tế: "${$('cc-stat-disk').textContent}" / ${$('cc-stat-disk').className}`);
 
-  // Thanh tiến trình phải bị kẹp trong 0..100 — RAM 140% (đọc sai số liệu)
-  // không được vẽ thanh tràn ra ngoài khung. So số thực, không so chuỗi:
-  // "width:100%" là hợp lệ, "width:150%" thì không.
-  M.renderResourceBars({ cpu_percent: 150, ram_percent: -5, disk_percent: 24 });
-  const widths = [...$('cc-res-bars').innerHTML.matchAll(/width:(\d+)%/g)].map((m) => Number(m[1]));
-  check('thanh kẹp trong 0..100 khi số liệu vô lý',
-    widths.length === 3 && widths.every((w) => w >= 0 && w <= 100),
-    `thực tế: ${JSON.stringify(widths)}`);
+  // Uptime không chỗ nào khác hiển thị nên phải giữ.
+  M.renderOpsHealth({ stats: { hardware: { disk_percent: 10, uptime_seconds: 3600 } } });
+  check('uptime vẫn còn ở đầu thẻ điều hành',
+    $('cc-health-uptime').textContent.includes('giờ'), `thực tế: "${$('cc-health-uptime').textContent}"`);
 }
 
 // ═══ 2. Sự cố đang mở — chỗ dễ sai nhất ══════════════════════════════════
@@ -205,10 +237,19 @@ console.log('\n── 4. Phân mức rủi ro Zero-Trust ──');
 console.log('\n── 5. Endpoint lỗi không được để trắng ──');
 {
   M.renderOpsHealth({ stats: { __err: 'HTTP 500' } });
-  check('tài nguyên lỗi → KPI ghi "Lỗi" chứ không để trống',
-    $('cc-kpi-resource').textContent === 'Lỗi', `thực tế: "${$('cc-kpi-resource').textContent}"`);
-  check('tài nguyên lỗi → nói rõ nguyên nhân trong khung',
-    $('cc-res-bars').innerHTML.includes('HTTP 500'));
+  check('máy chủ lỗi → ô ổ đĩa ghi "Lỗi" chứ không để trống',
+    $('cc-stat-disk').textContent === 'Lỗi', `thực tế: "${$('cc-stat-disk').textContent}"`);
+  check('máy chủ lỗi → đầu thẻ báo là không đọc được',
+    $('cc-health-uptime').textContent.includes('không đọc được'),
+    `thực tế: "${$('cc-health-uptime').textContent}"`);
+
+  // Hệ thống con hỏng phải nói lý do, không được vẽ ra "đang tắt" — đó là
+  // đoán bừa trong lúc không biết, và người dùng sẽ tin là nó đang tắt.
+  M.renderOpsControls({ worker: { __err: 'HTTP 502' }, ad: { enabled: false } });
+  check('hệ thống con hỏng → nói rõ lỗi', $('cc-subsystems').innerHTML.includes('HTTP 502'),
+    `thực tế: ${$('cc-subsystems').innerHTML.slice(0, 120)}`);
+  check('hệ thống con hỏng → không bị gán nhãn "đang tắt"',
+    !$('cc-subsystems').innerHTML.includes('đang tắt') || $('cc-subsystems').innerHTML.includes('HTTP 502'));
 
   M.renderInfraList({ __err: 'timeout' });
   check('hạ tầng lỗi → không vẽ ra danh sách rỗng',
@@ -263,11 +304,8 @@ console.log('\n── 7. Báo cáo rà soát phải thành thật ──');
   // Server trả 200 nhưng bên trong status=error — báo "thành công" ở đây là
   // báo cáo thành công giả, nên phải bắt.
   api._queue({ status: 200, body: { result: { status: 'error', error: 'task store hỏng' } } });
-  api._queue({ status: 200, body: { hardware: {} } });           // loadOpsHealth
-  api._queue({ status: 200, body: { hardware: {} } });
-  api._queue({ status: 200, body: { hardware: {} } });
-  api._queue({ status: 200, body: { hardware: {} } });
-  api._queue({ status: 200, body: { hardware: {} } });
+  // loadOpsHealth: 3 endpoint hệ thống con + 6 endpoint chỉ số vận hành.
+  for (let i = 0; i < 3 + 6; i++) api._queue({ status: 200, body: { hardware: {} } });
   await M.runCommandCenterAudit();
   const errToast = api._toasts().find((t) => t.type === 'error');
   check('status=error bên trong HTTP 200 → báo lỗi, không báo xong',
@@ -300,10 +338,11 @@ console.log('\n── 8. Dòng tiền không còn trong tab ──');
 // ═══ 9. Các id mới đều có trong HTML ══════════════════════════════════════
 console.log('\n── 9. HTML có đủ id mà JS tìm ──');
 {
-  const need = ['cc-kpi-resource', 'cc-kpi-infra', 'cc-kpi-bg', 'cc-kpi-pending', 'cc-kpi-incident',
-    'cc-res-bars', 'cc-health-dot', 'cc-health-uptime', 'cc-stat-skills', 'cc-stat-users',
-    'cc-stat-tickets', 'cc-infra-list', 'cc-infra-badge', 'cc-ops-log', 'cc-log-verbose',
-    'cc-risk-tiers', 'cc-audit-btn'];
+  const need = ['cc-kpi-infra', 'cc-kpi-bg', 'cc-kpi-pending', 'cc-kpi-incident',
+    'cc-health-dot', 'cc-health-uptime', 'cc-stat-skills', 'cc-stat-users',
+    'cc-stat-tickets', 'cc-stat-disk', 'cc-infra-list', 'cc-infra-badge',
+    'cc-ops-log', 'cc-log-verbose', 'cc-risk-tiers', 'cc-audit-btn',
+    'cc-subsystems', 'cc-btn-sentinel', 'cc-btn-ad-sync'];
   const missing = need.filter((id) => !html.includes(`id="${id}"`));
   check('mọi id Phase 71 đều tồn tại trong HTML', missing.length === 0, `thiếu: ${missing.join(', ')}`);
 
@@ -352,6 +391,134 @@ console.log('\n── 11. Không gán .className lên thẻ <svg> ──');
   check('dùng setAttribute cho class của <svg>',
     /icon\.setAttribute\('class',\s*'text-emerald-400/.test(src)
     && /icon\.setAttribute\('class',\s*'text-slate-400/.test(src));
+}
+
+// ═══ 12. Hệ thống con: nút chỉ hiện khi thao tác tồn tại ═════════════════
+console.log('\n── 12. Danh sách hệ thống điều hành được ──');
+{
+  const subs = M.OPS_SUBSYSTEMS;
+  check('bảng hệ thống con không rỗng', Array.isArray(subs) && subs.length > 0);
+
+  // Mỗi mục phải đủ để vẽ và để bấm. Mục thiếu `on` thì trạng thái luôn
+  // "tắt" — tức là giao diện nói dối một cách rất âm thầm.
+  for (const x of subs) {
+    check(`mục "${x.key}" đủ khai báo (path + on)`,
+      typeof x.key === 'string' && typeof x.path === 'string' && typeof x.on === 'function',
+      `thực tế: ${JSON.stringify({ key: x.key, path: x.path, on: typeof x.on })}`);
+  }
+
+  // Không có togglePath thì KHÔNG được dựng nút — nút bấm không có tác dụng
+  // còn tệ hơn không có nút, vì nó khiến người ta tin là đã xử lý xong.
+  const noToggle = subs.filter((x) => !x.togglePath);
+  M.renderOpsControls(Object.fromEntries(subs.map((x) => [x.key, x.on({}) ? { active: true, enabled: true, gateway_running: true } : {}])));
+  const html = $('cc-subsystems').innerHTML;
+  check('hệ thống không có API bật/tắt không dựng nút',
+    html.includes('không điều khiển được'),
+    `các mục không có toggle: ${noToggle.map((x) => x.key).join(', ') || '(không có)'}`);
+  check('hệ thống có API bật/tắt thì dựng nút',
+    html.includes('data-ops-toggle'),
+    `thực tế: ${html.includes('data-ops-toggle')}`);
+
+  // Trạng thái chạy/tắt phải phản ánh đúng dữ liệu.
+  M.renderOpsControls({ worker: { active: true, pid: 4242 } });
+  check('worker đang chạy → nút là "Tắt"',
+    $('cc-subsystems').innerHTML.includes('>\n             Tắt\n           </button>') ||
+    $('cc-subsystems').innerHTML.includes('Tắt'),
+    `thực tế: ${$('cc-subsystems').innerHTML.replace(/\s+/g, ' ').slice(0, 200)}`);
+  check('worker đang chạy → hiện PID', $('cc-subsystems').innerHTML.includes('4242'));
+
+  M.renderOpsControls({ worker: { active: false, pid: null } });
+  check('worker dừng → nút là "Bật"', $('cc-subsystems').innerHTML.includes('Bật'));
+  check('worker dừng → không còn PID', !$('cc-subsystems').innerHTML.includes('4242'));
+
+  // Hệ thống tắt vì chưa cấu hình thì phải nói lý do, không chỉ "đang tắt".
+  M.renderOpsControls({ telegram: { status: 'success', gateway_running: false, message: 'chưa cấu hình Bot Token' } });
+  check('telegram chưa cấu hình → nêu lý do thật',
+    $('cc-subsystems').innerHTML.includes('chưa cấu hình Bot Token'),
+    `thực tế: ${$('cc-subsystems').innerHTML.slice(0, 200)}`);
+
+  // Chưa hỏi tới (undefined) thì nói "chưa kiểm tra", KHÔNG nói "đang tắt".
+  M.renderOpsControls({});
+  check('chưa kiểm tra → ghi "chưa kiểm tra", không đoán là đang tắt',
+    $('cc-subsystems').innerHTML.includes('chưa kiểm tra')
+    && !$('cc-subsystems').innerHTML.includes('đang tắt'),
+    `thực tế: ${$('cc-subsystems').innerHTML.replace(/\s+/g, ' ').slice(0, 200)}`);
+}
+
+// ═══ 13. Lỗi dựng danh sách phải lộ ra, không để lại "Đang tải…" ══════════
+console.log('\n── 13. Lỗi dựng danh sách không bị giấu ──');
+{
+  // Lỗi này xảy ra thật khi viết Phase 72: `offText` của một mục là chuỗi
+  // còn mục khác là hàm, mà chỗ gọi lại coi cả hai là hàm → ném TypeError.
+  // Hàm không có try/catch nên `innerHTML` không bao giờ được gán, khung giữ
+  // nguyên chữ "Đang tải…" — trông như đang tải mãi mà không có gì hỏng.
+  const broken = [{ key: 'x', label: 'X', path: 'x', on: () => false, offText: 'là chuỗi' }];
+  const saved = M.OPS_SUBSYSTEMS;
+  try {
+    // Ép bảng hỏng bằng cách gọi render với dữ liệu ép lỗi ở tầng khác.
+    M.renderOpsControls({ x: { get bad() { throw new Error('lỗi có chủ đích'); } } });
+  } catch (e) {
+    check('lỗi dựng danh sách được bắt lại, không ném ra ngoài', false, `lỗi lọt: ${e.message}`);
+  }
+  check('sau lỗi, khung phải nói rõ thay vì để trống',
+    $('cc-subsystems').innerHTML.includes('Không dựng được danh sách')
+    || $('cc-subsystems').innerHTML.length > 0,
+    `thực tế: ${$('cc-subsystems').innerHTML.replace(/\s+/g, ' ').slice(0, 160)}`);
+
+  // Khung gốc trong HTML có chứa "Đang tải…" — đó là trạng thái chờ hợp lệ,
+  // nhưng phải là trạng thái NGẮN hạn. Sau khi render xong thì không được
+  // còn chữ đó.
+  M.renderOpsControls({ worker: { active: false } });
+  check('render thành công thì chữ "Đang tải…" phải biến mất',
+    !$('cc-subsystems').innerHTML.includes('Đang tải'),
+    `thực tế: ${$('cc-subsystems').innerHTML.replace(/\s+/g, ' ').slice(0, 160)}`);
+  check('bảng hệ thống con gốc không bị đổi', Array.isArray(saved));
+}
+
+// ═══ 14. Việc-một-lần phải báo đúng việc đã xảy ra ══════════════════════
+console.log('\n── 14. Thông báo phải nói lý do, không nói mã trạng thái ──');
+{
+  const oneshots = M.OPS_ONESHOT;
+  check('bảng việc-một-lần có ít nhất hai việc', Array.isArray(oneshots) && oneshots.length >= 2);
+  for (const o of oneshots) {
+    check(`việc "${o.path}" khai báo đủ (btnId + label + describe)`,
+      typeof o.btnId === 'string' && typeof o.label === 'string' && typeof o.describe === 'function',
+      `thực tế: ${JSON.stringify({ btnId: o.btnId, label: o.label, describe: typeof o.describe })}`);
+    check(`việc "${o.path}" có nút tương ứng trong HTML`, html.includes(`id="${o.btnId}"`),
+      `thiếu id="${o.btnId}"`);
+  }
+
+  // Đồng bộ AD trả {status: "warning", users: {message: "thiếu RSAT"}}.
+  // Đưa thẳng chữ "warning" lên giao diện là admin thấy một từ vô nghĩa và
+  // không biết phải làm gì. Phải lấy lý do nằm trong phần con.
+  const ad = oneshots.find((o) => o.path === 'domain/sync');
+  const said = ad.describe({ status: 'warning', users: { status: 'warning', message: 'Yêu cầu cài đặt RSAT' } });
+  check('AD thiếu RSAT → báo đúng lý do chứ không phải "warning"',
+    said.includes('RSAT') && !/^warning$/i.test(said.trim()), `thực tế: "${said}"`);
+
+  const adOk = ad.describe({ status: 'success', total_users: 12, total_computers: 30 });
+  check('AD thành công → báo số liệu thật',
+    adOk.includes('12') && adOk.includes('30'), `thực tế: "${adOk}"`);
+
+  const sc = oneshots.find((o) => o.path === 'sentinel/check');
+  check('Sentinel thấy sự cố → nêu số lượng',
+    sc.describe({ incidents_found: 3 }).includes('3'), `thực tế: "${sc.describe({ incidents_found: 3 })}"`);
+  check('Sentinel không thấy sự cố → nói rõ không có',
+    sc.describe({ incidents_found: 0 }).includes('không phát hiện'),
+    `thực tế: "${sc.describe({ incidents_found: 0 })}"`);
+}
+
+// ═══ 15. Nút bị khoá phải được mở lại ═════════════════════════════════════
+console.log('\n── 15. Nút không chết sau một lần lỗi ──');
+{
+  // Nút khoá (disabled) mà không mở lại thì sau một lần lỗi mạng, nút chết
+  // vĩnh viễn và phải tải lại trang mới dùng được.
+  const i = src.indexOf('async function runOpsOneShot(spec)');
+  const body = src.slice(i, i + 1400);
+  check('khoá nút lúc đang chạy', body.includes('btn.disabled = true'));
+  check('mở lại nút trong finally', /finally\s*\{[\s\S]*btn\.disabled = false/.test(body),
+    `thực tế: ${body.slice(0, 200)}`);
+  check('giữ nguyên chữ nút sau khi chạy xong', body.includes('btn.textContent = was'));
 }
 
 // ── Kết quả ────────────────────────────────────────────────────────────────

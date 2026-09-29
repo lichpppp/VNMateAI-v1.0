@@ -83,14 +83,20 @@ if (cc && si) {
 
   // Dải KPI của Trung Tâm Chỉ Huy.
   //
-  // Phase 71 đổi dải này: ô "Sức khoẻ quỹ" (báo cáo dòng tiền) bị gỡ theo
-  // yêu cầu admin, ô "Cảnh báo" gộp vào chỉ số "Sự cố mở", và thêm 4 ô vận
-  // hành. Test đi theo bộ mới, không phải bỏ hẳn — dải KPI rỗng thì tab mất
-  // mất khả năng trả lời nhanh "tình hình thế nào", đúng thứ admin cần.
-  for (const id of ['cc-kpi-resource', 'cc-kpi-infra', 'cc-kpi-bg',
+  // Phase 71 đổi dải này: ô "Sức khoẹ quỹ" (báo cáo dòng tiền) bị gỡ theo
+  // yêu cầu admin, ô "Cảnh báo" gộp vào chỉ số "Sự cố mở".
+  //
+  // Phase 72 bỏ ô "Tài nguyên": CPU/RAM đã hiện ở đồng hồ tab Tổng Quan và ở
+  // thanh đo ngay dưới, nên trong tab này nó xuất hiện tới ba lần. Theo dõi
+  // tài nguyên thuộc về Tổng Quan; tab này dành chỗ cho việc điều hành. Dải
+  // KPI không được rỗng — mất nó thì tab không còn trả lời nhanh được "tình
+  // hình thế nào", đúng thứ admin cần.
+  for (const id of ['cc-kpi-infra', 'cc-kpi-bg',
                     'cc-kpi-pending', 'cc-kpi-incident']) {
     check(`Trung Tâm Chỉ Huy có ô KPI "${id}"`, ccHtml.includes(`id="${id}"`));
   }
+  check('ô KPI "Tài nguyên" đã gỡ khỏi Trung Tâm Chỉ Huy',
+    !ccHtml.includes('cc-kpi-resource'));
   check('ô KPI dòng tiền đã gỡ khỏi Trung Tâm Chỉ Huy',
     !ccHtml.includes('cc-kpi-cashflow'));
 

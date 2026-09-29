@@ -922,27 +922,16 @@
     <section class="tab-pane space-y-4" id="tab-command-center">
 
       <!-- ═══ DẢI CHỈ SỐ SỨC KHOẺ VẬN HÀNH ═══════════════════════════
-           Năm chỉ số trả lời trong một nháy: hệ thống có khoẻ không, hạ
-           tầng đã nối được bao nhiêu, có tác vụ nền nào đang chạy, có gì
-           đang chờ mình duyệt, và có sự cố nào đang mở không.
+           Bốn chỉ số trả lời trong một nháy: hạ tầng đã nối được bao nhiêu,
+           có tác vụ nền nào đang chạy, có gì đang chờ mình duyệt, và có sự
+           cố nào đang mở không.
 
-           Thay thế dải cũ (Chờ phê duyệt / Sức khoẻ quỹ / Cảnh báo). Ô
-           "Sức khoẻ quỹ" bị gỡ vì đó là báo cáo dòng tiền — đúng thứ admin
-           bỏ. Hai ô còn lại được gộp vào chỉ số vận hành rõ ràng hơn. -->
-      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
-
-        <!-- Tài nguyên máy chủ -->
-        <div id="cc-kpi-resource-card"
-          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span id="cc-kpi-resource-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tài nguyên</span>
-          </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-resource" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">CPU · RAM</span>
-          </div>
-        </div>
+           Trước đây có thêm ô "Tài nguyên" (CPU · RAM) ở đây, cùng một thanh
+           đo nữa trong thẻ "Sức Khoẻ Hệ Thống" ngay dưới — và tab Tổng Quan
+           vốn đã có đồng hồ CPU/RAM. Cùng một số liệu hiện ba nơi. Nay bỏ
+           hẳn khỏi tab này: theo dõi tài nguyên thuộc về Tổng Quan, còn tab
+           này dành cho việc điều hành. Xem thẻ "Điều Hành Hệ Thống" bên dưới. -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
 
         <!-- Hạ tầng đã kết nối -->
         <div id="cc-kpi-infra-card"
@@ -1067,32 +1056,61 @@
           </div>
         </div>
 
-        <!-- ── SỨC KHOẺ HỆ THỐNG ────────────────────────────────────── -->
+        <!-- ── ĐIỀU HÀNH HỆ THỐNG ─────────────────────────────────────
+             Chỗ admin thực sự ra lệnh: bật/tắt từng hệ thống con, quét
+             sự cố, đồng bộ dữ liệu.
+
+             Trước đây vị trí này là thẻ "Sức Khoẻ Hệ Thống" với ba thanh đo
+             CPU / RAM / Ổ đĩa — trùng với ô "Tài nguyên" ngay phía trên và
+             với đồng hồ ở tab Tổng Quan. Ba bản của cùng một số liệu, đứng
+             sát nhau, đẩy những việc admin thật sự cần làm xuống dưới màn
+             hình. Nay thay bằng chỗ điều hành.
+
+             Danh sách hệ thống con do JS dựng từ `OPS_SUBSYSTEMS`, không ghi
+             cứng tên trong HTML: thêm một hệ thống điều hành được là thêm
+             một mục trong bảng đó, không phải sửa lại giao diện. -->
         <div class="space-y-4">
           <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
             <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
               <span id="cc-health-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Sức Khoẻ Hệ Thống</h3>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Điều Hành Hệ Thống</h3>
               <span id="cc-health-uptime"
                 class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">—</span>
             </div>
-            <div class="p-4 space-y-3">
-              <div id="cc-res-bars" class="space-y-2.5">
-                <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-2">Đang tải…</p>
+
+            <!-- Các hệ thống con: mỗi cái một hàng, trạng thái + nút bật/tắt -->
+            <div id="cc-subsystems" class="p-3 space-y-1.5">
+              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-2">Đang tải…</p>
+            </div>
+
+            <!-- Việc chạy một lần, không phải trạng thái -->
+            <div class="px-3 pb-3 flex flex-wrap gap-1.5">
+              <button type="button" id="cc-btn-sentinel" onclick="runOpsSentinelScan()"
+                class="cc-ops-action px-2.5 py-1.5 text-[10px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">
+                Quét Sentinel
+              </button>
+              <button type="button" id="cc-btn-ad-sync" onclick="runOpsDomainSync()"
+                class="cc-ops-action px-2.5 py-1.5 text-[10px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">
+                Đồng bộ AD ngay
+              </button>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2 px-4 pb-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 text-center">
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kỹ năng</p>
+                <p id="cc-stat-skills" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
               </div>
-              <div class="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 text-center">
-                <div>
-                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kỹ năng</p>
-                  <p id="cc-stat-skills" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-                </div>
-                <div>
-                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tài khoản</p>
-                  <p id="cc-stat-users" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-                </div>
-                <div>
-                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cây ITSM</p>
-                  <p id="cc-stat-tickets" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-                </div>
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tài khoản</p>
+                <p id="cc-stat-users" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+              </div>
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cây ITSM</p>
+                <p id="cc-stat-tickets" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+              </div>
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Ổ đĩa</p>
+                <p id="cc-stat-disk" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
               </div>
             </div>
           </div>

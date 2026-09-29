@@ -8928,13 +8928,76 @@ const CommandCenter = (() => {
     return OPS_LOG_NOISE.some((re) => re.test(hay));
   }
 
+  // ═══ HỆ THỐNG CON ĐIỀU HÀNH ĐƯỢC ══════════════════════════════════
+  //
+  // Mỗi mục là một thứ admin bật/tắt được từ tab này. Ghi bảng khai báo ở
+  // đây thay vì ghi thẻ vào HTML: thêm một hệ thống điều hành được là thêm
+  // một dòng ở đây, không phải sửa giao diện.
+  //
+  //   path        — endpoint GET lấy trạng thái (khoá của dòng này)
+  //   togglePath  — endpoint POST bật/tắt. Không có = không điều khiển
+  //                 được, hiển thị lý do thay vì nút bấm không có tác dụng.
+  //   on          — đọc cờ bật/tắt ra từ phản hồi
+  //   reason      — lấy câu giải thích khi không chạy (nếu phản hồi có)
+  //   body        — thân gửi khi bật/tắt (POST toggle cần `enabled`)
+  //   next        — trạng thái sau khi bấm, để đoán trước trạng thái mới
+  //                 và vẽ nút ngay (nếu không có thì đọc lại từ server)
+  // Giữ lại các trạng thái đã tải, để vẽ lại một dòng không làm mất các
+  // dòng còn lại. Chỉ có ý nghĩa trong phiên hiện tại — tải lại trang là
+  // `loadOpsHealth()` gọi lại hết.
+  let _opsSubs = {};
+
+  const OPS_SUBSYSTEMS = [
+    {
+      key: 'worker',
+      label: 'Worker Node cục bộ',
+      hint: 'Máy con chạy skill thay máy chủ, dùng cho tác vụ dài.',
+      path: 'orchestrator/local-worker/status',
+      togglePath: 'orchestrator/local-worker/toggle',
+      on: (d) => !!d.active,
+      onText: (d) => (d.pid ? `đang chạy (PID ${d.pid})` : 'đang chạy'),
+      offText: () => 'đang dừng',
+      next: (d) => !d.active,
+    },
+    {
+      key: 'ad',
+      label: 'Đồng bộ Active Directory',
+      hint: 'Kéo danh sách nhân viên và máy tính từ máy chủ domain về.',
+      path: 'domain/config',
+      togglePath: 'domain/toggle',
+      on: (d) => !!d.enabled,
+      onText: () => 'đang bật',
+      offText: () => 'đang tắt',
+      body: (d) => ({ enabled: !d.enabled }),
+      next: (d) => !d.enabled,
+    },
+    {
+      key: 'telegram',
+      label: 'Telegram Gateway',
+      hint: 'Cầu nối nhận tin nhắn Telegram.',
+      path: 'telegram/status',
+      // Không có toggle: phải cấu hình Bot Token trước, bật nút ở đây sẽ
+      // là một nút bấm không bao giờ có tác dụng.
+      on: (d) => !!d.gateway_running,
+      onText: () => 'đang chạy',
+      offText: (d) => d.message || 'chưa cấu hình',
+    },
+  ];
+
   async function loadOpsHealth() {
-    // Gộp song song: 4 endpoint độc lập, tuần tự sẽ cộng dồn độ trễ.
+    // Gộp song song: các endpoint độc lập, tuần tự sẽ cộng dồn độ trễ.
     const get = async (path) => {
       const res = await apiFetch(`${API_BASE}/api/v1/${path}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     };
+
+    // Trạng thái từng hệ thống con lấy theo bảng khai báo, không ghi cứng
+    // từng lệnh — bảng thêm bao nhiêu mục thì gọi bấy nhiêu.
+    const subs = {};
+    await Promise.all(OPS_SUBSYSTEMS.map(async (s) => {
+      subs[s.key] = await get(s.path).catch((e) => ({ __err: e.message }));
+    }));
 
     const [stats, conns, bg, itsm, wh, plugins] = await Promise.all([
       get('system/stats').catch((e) => ({ __err: e.message })),
@@ -8945,7 +9008,9 @@ const CommandCenter = (() => {
       get('enterprise/plugin-registry/stats').catch((e) => ({ __err: e.message })),
     ]);
 
+    _opsSubs = subs;
     renderOpsHealth({ stats, conns, bg, itsm, wh });
+    renderOpsControls(subs);
     renderInfraList(conns);
     renderRiskTiers(plugins);
     loadOpsLog();
@@ -8981,31 +9046,48 @@ const CommandCenter = (() => {
   // người ta yên trí.
   function _srcErr(d) { return d && d.__err ? String(d.__err) : null; }
 
+  // Số liệu nhỏ ở chân thẻ điều hành. `tone` tuỳ chọn: bỏ trống thì giữ màu
+  // mặc định, truyền 'warn'/'bad' thì tô màu cảnh báo.
+  function _setStat(id, value, tone) {
+    const e = $('cc-stat-' + id);
+    if (!e) return;
+    e.textContent = value;
+    // Luôn gán lại className, kể cả khi tone rỗng. Chỉ gán khi có tone thì
+    // màu cảnh báo của lần render trước sẽ bám lại mãi: ổ đĩa từng 95% rồi
+    // hỏng, ô vẫn hiện đỏ trong khi số đã là "—" — tức là đang báo động
+    // một thứ vốn đã hết.
+    e.className = 'text-sm font-bold mt-0.5 ' + (
+      tone === 'bad' ? 'text-rose-600 dark:text-rose-400'
+        : tone === 'warn' ? 'text-amber-600 dark:text-amber-400'
+        : 'text-slate-800 dark:text-slate-100');
+  }
+
   function renderOpsHealth(d) {
     const { stats, conns, bg, itsm, wh } = d || {};
 
-    // ── Tài nguyên ──
+    // ── Máy chủ: uptime + ổ đĩa ──
+    //
+    // Ở đây KHÔNG vẽ CPU/RAM nữa. Cùng số liệu đó đã hiện ở đồng hồ tab Tổng
+    // Quan và trong bản dựng trước của chính tab này — ba chỗ cạnh nhau,
+    // admin phải dừng lại để đối chiếu chúng có khớp không. Dung lượng ổ
+    // đĩa thì không chỗ nào khác hiện, nên giữ lại ở chân thẻ điều hành.
     if (stats && !_srcErr(stats) && stats.hardware) {
       const hw = stats.hardware;
-      const cpu = Number(hw.cpu_percent);
-      const ram = Number(hw.ram_percent);
-      // Ngưỡng đỏ ở đây là "máy sắp không còn đáp ứng", không phải "hơi cao".
-      // Đánh đỏ RAM ở 80% thì trên máy 8GB của người dùng sẽ kêu suốt, và
-      // một chỉ số luôn đỏ thì mất hết tác dụng cảnh báo.
-      const worst = Math.max(cpu || 0, ram || 0);
-      const tone = worst >= 92 ? 'bad' : worst >= 85 ? 'warn' : 'ok';
-      _setKpi('resource', `${Math.round(cpu)}·${Math.round(ram)}%`, tone);
-      renderResourceBars(hw);
       const up = $('cc-health-uptime');
       if (up) up.textContent = `chạy ${_fmtDuration(hw.uptime_seconds)}`;
-      const dot = $('cc-health-dot');
-      if (dot) dot.className = 'w-1.5 h-1.5 rounded-full ' + (
-        tone === 'bad' ? 'bg-rose-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500');
+      const disk = Number(hw.disk_percent);
+      const diskOk = isFinite(disk);
+      // Ngưỡng 85/90 giống hệt phần còn lại của bảng điều hành. Lệch ngưỡng
+      // giữa các ô cùng một thẻ khiến người đọc không biết số nào mới đáng
+      // lo — mà phải đoán.
+      _setStat('disk', diskOk ? `${Math.round(disk)}%` : '—',
+        diskOk && disk >= 90 ? 'bad' : diskOk && disk >= 85 ? 'warn' : '');
     } else if (stats) {
-      _setKpi('resource', 'Lỗi', 'bad');
-      const box = $('cc-res-bars');
-      if (box) box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-3">`
-        + `Không đọc được tài nguyên máy: ${_esc(_srcErr(stats) || 'phản hồi thiếu dữ liệu')}</p>`;
+      const up = $('cc-health-uptime');
+      if (up) up.textContent = 'không đọc được';
+      const dot = $('cc-health-dot');
+      if (dot) dot.className = 'w-1.5 h-1.5 rounded-full bg-rose-500';
+      _setStat('disk', 'Lỗi', 'bad');
     }
 
     // ── Hạ tầng ──
@@ -9050,15 +9132,14 @@ const CommandCenter = (() => {
     else if (itsm || wh) _setKpi('incident', String(incidents), incidents > 0 ? 'warn' : 'ok');
 
     // ── Số liệu phụ ──
-    const setStat = (id, v) => { const e = $('cc-stat-' + id); if (e) e.textContent = v; };
     if (stats && !_srcErr(stats)) {
-      setStat('skills', String(stats.skills_count ?? '—'));
-      setStat('users', String(stats.users_count ?? '—'));
+      _setStat('skills', String(stats.skills_count ?? '—'));
+      _setStat('users', String(stats.users_count ?? '—'));
     }
     if (itsm && !_srcErr(itsm) && Array.isArray(itsm.tickets)) {
-      setStat('tickets', String(itsm.tickets.length));
+      _setStat('tickets', String(itsm.tickets.length));
     } else if (itsm) {
-      setStat('tickets', 'Lỗi');
+      _setStat('tickets', 'Lỗi');
     }
   }
 
@@ -9073,29 +9154,198 @@ const CommandCenter = (() => {
     return `${m} phút`;
   }
 
-  function _bar(label, pct, detail) {
-    const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
-    const tone = v >= 92 ? 'bg-rose-500' : v >= 85 ? 'bg-amber-500' : 'bg-emerald-500';
-    return `
-      <div>
-        <div class="flex items-center justify-between text-[10px] mb-1">
-          <span class="text-slate-500 dark:text-slate-400">${_esc(label)}</span>
-          <span class="font-mono font-semibold text-slate-700 dark:text-slate-200">${_esc(detail ?? `${v}%`)}</span>
-        </div>
-        <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700/60 overflow-hidden">
-          <div class="h-full rounded-full ${tone} transition-all duration-500" style="width:${v}%"></div>
-        </div>
-      </div>`;
+  // ═══ VIỆC CHẠY MỘT LẦN ════════════════════════════════════════════
+  //
+  // Khác bật/tắt ở trên: đây là việc bấm xong là xong, không có trạng thái
+  // để giữ. Không khoá sau kết quả — kết quả nói lại trong thông báo, và
+  // chạy lại lúc sự cố đang xảy ra thì hữu ích hơn là cấm.
+  //
+  // `describe` bắt buộc nói ra ĐIỀU ĐÃ XẢY RA, không phải mã trạng thái.
+  // Ví dụ đồng bộ AD trả `status: "warning"` kèm lý do "thiếu RSAT" — đưa
+  // thẳng chữ "warning" lên giao diện thì admin thấy một từ vô nghĩa và
+  // không biết phải làm gì.
+  const OPS_ONESHOT = [
+    {
+      btnId: 'cc-btn-sentinel',
+      label: 'Quét Sentinel',
+      path: 'sentinel/check',
+      describe: (j) => {
+        const n = Number(j.incidents_found);
+        if (!Number.isFinite(n)) return 'đã quét xong.';
+        return n > 0
+          ? `phát hiện ${n} sự cố, đã gửi cảnh báo.`
+          : 'không phát hiện sự cố.';
+      },
+    },
+    {
+      btnId: 'cc-btn-ad-sync',
+      label: 'Đồng bộ AD',
+      path: 'domain/sync',
+      describe: (j) => {
+        // Lý do cụ thể luôn nằm trong phần con, không nằm ở trạng thái
+        // tổng. Ưu tiên lấy lý do trước, số liệu sau.
+        const why = j.users?.message || j.computers?.message || j.message || j.detail;
+        if (why) return String(why);
+        const u = Number(j.total_users);
+        const c = Number(j.total_computers);
+        if (Number.isFinite(u) && Number.isFinite(c)) {
+          return `xong: ${u} nhân viên, ${c} máy tính.`;
+        }
+        return 'đã đồng bộ xong.';
+      },
+    },
+  ];
+
+  async function runOpsOneShot(spec) {
+    const btn = $(spec.btnId);
+    if (!btn || btn.disabled) return;
+    const was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Đang chạy…';
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/${spec.path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.detail || j.message || `HTTP ${res.status}`);
+      showToast(`${spec.label}: ${spec.describe(j)}`);
+      // Bảng điều hành có thể đã đổi số sau khi chạy (tác vụ nền, sự cố).
+      await loadOpsHealth();
+    } catch (e) {
+      showToast(`${spec.label} không chạy được: ${e.message || e}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = was;
+    }
   }
 
-  function renderResourceBars(hw) {
-    const box = $('cc-res-bars');
+  function runOpsSentinelScan() {
+    return runOpsOneShot(OPS_ONESHOT.find((o) => o.path === 'sentinel/check'));
+  }
+
+  function runOpsDomainSync() {
+    return runOpsOneShot(OPS_ONESHOT.find((o) => o.path === 'domain/sync'));
+  }
+
+  // ═══ DANH SÁCH HỆ THỐNG CON ĐIỀU HÀNH ĐƯỢC ═════════════════════════
+  //
+  // Mỗi dòng: tên, trạng thái thật, nút bật/tắt (nếu điều khiển được).
+  //
+  // Nguyên tắc ở đây: nút chỉ hiện khi thao tác đó THỰC SỰ tồn tại. Hệ thống
+  // nào không có API bật/tắt thì hiện lý do cấu hình, chứ không hiện một nút
+  // bấm xong không có gì xảy ra — nút giả còn tệ hơn không có nút, vì nó khiến
+  // người ta tin là đã xử lý xong.
+  function renderOpsControls(subs) {
+    const box = $('cc-subsystems');
     if (!box) return;
-    box.innerHTML = [
-      _bar('CPU', hw.cpu_percent),
-      _bar('RAM', hw.ram_percent, `${Math.round(Number(hw.ram_percent) || 0)}% · ${(Number(hw.ram_used_gb) || 0).toFixed(1)}/${(Number(hw.ram_total_gb) || 0).toFixed(0)} GB`),
-      _bar('Ổ đĩa', hw.disk_percent),
-    ].join('');
+    // Bọc lỗi: nếu một mục trong bảng khai báo sai, khung này sẽ giữ nguyên
+    // chữ "Đang tải…" mãi mãi và trông như đang tải — người dùng chờ hoài
+    // không bao giờ biết là lỗi. Hiện lỗi ra thay vì nuốt im.
+    try {
+    box.innerHTML = OPS_SUBSYSTEMS.map((s) => {
+      const d = (subs && subs[s.key]) || undefined;
+      const err = _srcErr(d);
+
+      // Không có dữ liệu: nói thẳng là chưa biết, không suy ra "đang tắt".
+      if (!d) {
+        return `<div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+          <span class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"></span>
+          <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300 truncate">${_esc(s.label)}</span>
+          <span class="ml-auto text-[10px] text-slate-400 dark:text-slate-500 shrink-0">chưa kiểm tra</span>
+        </div>`;
+      }
+
+      if (err) {
+        return `<div class="px-2.5 py-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-900/40">
+          <div class="flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
+            <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">${_esc(s.label)}</span>
+            <span class="ml-auto text-[10px] font-semibold text-rose-600 dark:text-rose-400 shrink-0">không đọc được trạng thái</span>
+          </div>
+          <p class="text-[10px] text-rose-500 dark:text-rose-400 mt-1 break-words">${_esc(err)}</p>
+        </div>`;
+      }
+
+      const on = !!s.on(d);
+      const stateText = on
+        ? (s.onText ? s.onText(d) : 'đang chạy')
+        : (s.offText ? s.offText(d) : 'đang tắt');
+
+      // Không có API bật/tắt → hiện lý do, không hiện nút.
+      const action = s.togglePath
+        ? `<button type="button" data-ops-toggle="${_esc(s.key)}" title="${_esc(s.hint || '')}"
+             class="shrink-0 px-2.5 py-1 text-[10px] font-bold rounded-md transition ${
+               on ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900/60'
+                   : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'}">
+             ${on ? 'Tắt' : 'Bật'}
+           </button>`
+        : `<span class="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">không điều khiển được</span>`;
+
+      return `<div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 ${
+               on ? 'border border-emerald-200 dark:border-emerald-900/30'
+                  : 'border border-transparent'}">
+        <span class="w-1.5 h-1.5 rounded-full shrink-0 ${
+          on ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}"></span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-baseline gap-1.5">
+            <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">${_esc(s.label)}</span>
+            <span class="text-[10px] truncate ${
+              on ? 'text-emerald-600 dark:text-emerald-400'
+                 : 'text-slate-400 dark:text-slate-500'}">${_esc(stateText)}</span>
+          </div>
+          <p class="text-[9px] text-slate-400 dark:text-slate-500 truncate" title="${_esc(s.hint || '')}">${_esc(s.hint || '')}</p>
+        </div>
+        ${action}
+      </div>`;
+    }).join('');
+
+    // Gắn sự kiện sau khi dựng innerHTML — không dùng onclick nội tuyến để
+    // tránh phải dựng lại chuỗi onclick mỗi lần vẽ lại.
+    box.querySelectorAll('[data-ops-toggle]').forEach((btn) => {
+      btn.addEventListener('click', () => toggleOpsSubsystem(btn.dataset.opsToggle, btn));
+    });
+    } catch (err) {
+      box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-2">`
+        + `Không dựng được danh sách hệ thống: ${_esc(err.message || String(err))}</p>`;
+      console.error('[CommandCenter] renderOpsControls lỗi:', err);
+    }
+  }
+
+  async function toggleOpsSubsystem(key, btn) {
+    const s = OPS_SUBSYSTEMS.find((x) => x.key === key);
+    if (!s || !s.togglePath) return;
+
+    const was = btn.textContent.trim();
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const init = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+      if (s.body) init.body = JSON.stringify(s.body({}));
+      const res = await apiFetch(`${API_BASE}/api/v1/${s.togglePath}`, init);
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.detail || `HTTP ${res.status}`);
+
+      // Dựa vào `active` mà máy chủ trả về, không tự đoán trạng thái mới.
+      // Với endpoint toggle trả về active=false khi hỏng dù không kết nối
+      // được thì đây chính là chỗ phải tin máy chủ.
+      const nowOn = typeof j.active === 'boolean'
+        ? j.active
+        : (typeof j.enabled === 'boolean' ? j.enabled : null);
+      showToast(j.message || (nowOn === true ? 'Đã bật.' : 'Đã tắt.'));
+
+      // Vẽ lại để hàng này lấy trạng thái mới từ server — nếu chỉ đổi chữ
+      // nút thì sẽ hiện "đang chạy" cho một worker chết lặng lẽ.
+      const d = await apiFetch(`${API_BASE}/api/v1/${s.path}`)
+        .then((r) => r.json())
+        .catch((e) => ({ __err: e.message }));
+      _opsSubs = { ..._opsSubs, [key]: d };
+      renderOpsControls(_opsSubs);
+    } catch (e) {
+      showToast('Không thực hiện được: ' + (e.message || e));
+      btn.disabled = false;
+      btn.textContent = was;
+    }
   }
 
   // Bảng kết nối hạ tầng. Cột "thiếu gì" là phần quan trọng nhất: connector
@@ -9601,6 +9851,10 @@ function onEnter() {
   return {
     onEnter, onLeave, refresh, syncChartLayout,
     loadPending, loadSecurity, loadOpsHealth, loadOpsLog, renderOpsLog,
+    // Bảng hệ thống con điều hành được và hàm vẽ nó: thêm một hệ thống mới
+    // là thêm một mục vào OPS_SUBSYSTEMS, không cần sửa chỗ khác.
+    OPS_SUBSYSTEMS, renderOpsControls, toggleOpsSubsystem,
+    OPS_ONESHOT, runOpsOneShot, runOpsSentinelScan, runOpsDomainSync,
     ask, policyLookup, renderChart, decide, runCommandCenterAudit,
     // `classify` và `_deaccent` được xuất ra để kiểm thử được bảng định tuyến
     // mà không phải bấm từng nút trên UI. Bảng này sai một ký tự là người
@@ -11588,6 +11842,17 @@ function runCommandCenterAudit() {
   return CommandCenter.runCommandCenterAudit();
 }
 
+// Hai nút việc-một-lần trong thẻ "Điều Hành Hệ Thống". Gọi bằng inline
+// onclick nên phải có ở phạm vi module; CommandCenter là IIFE nên các hàm
+// bên trong không tự lộ ra window.
+function runOpsSentinelScan() {
+  return CommandCenter.runOpsSentinelScan();
+}
+
+function runOpsDomainSync() {
+  return CommandCenter.runOpsDomainSync();
+}
+
 // Live Event Log: hai hàm này được gọi bằng inline onclick trong index.html
 // nhưng LogViewer là IIFE nên không tự lộ ra window.
 function toggleLogAutoScroll(btn) {
@@ -11607,7 +11872,9 @@ if (typeof window !== 'undefined') {
   window.runPolicyLookup = runPolicyLookup;
   // Phase 71: nút "Chạy rà soát tức thì" trong khung "AI Được Phép Làm Gì".
   window.runCommandCenterAudit = runCommandCenterAudit;
-  window.toggleLogAutoScroll = toggleLogAutoScroll;
+  // Phase 72: các nút điều hành trong thẻ "Điều Hành Hệ Thống".
+  window.runOpsSentinelScan = runOpsSentinelScan;
+  window.runOpsDomainSync = runOpsDomainSync;  window.toggleLogAutoScroll = toggleLogAutoScroll;
   window.clearEventLog = clearEventLog;
   window.switchCcSubTab = switchCcSubTab;
   window.syncCommandCenterKpi = syncCommandCenterKpi;
