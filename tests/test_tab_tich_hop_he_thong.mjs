@@ -81,10 +81,18 @@ if (cc && si) {
     movedKpi.every(id => siHtml.includes(`id="${id}"`))
     && !movedKpi.some(id => ccHtml.includes(`id="${id}"`)));
 
-  // Dải KPI của Trung Tâm Chỉ Huy phải còn đủ 3 ô quyết định.
-  for (const id of ['cc-kpi-pending', 'cc-kpi-cashflow', 'cc-kpi-security']) {
-    check(`Trung Tâm Chỉ Huy giữ ô KPI "${id}"`, ccHtml.includes(`id="${id}"`));
+  // Dải KPI của Trung Tâm Chỉ Huy.
+  //
+  // Phase 71 đổi dải này: ô "Sức khoẻ quỹ" (báo cáo dòng tiền) bị gỡ theo
+  // yêu cầu admin, ô "Cảnh báo" gộp vào chỉ số "Sự cố mở", và thêm 4 ô vận
+  // hành. Test đi theo bộ mới, không phải bỏ hẳn — dải KPI rỗng thì tab mất
+  // mất khả năng trả lời nhanh "tình hình thế nào", đúng thứ admin cần.
+  for (const id of ['cc-kpi-resource', 'cc-kpi-infra', 'cc-kpi-bg',
+                    'cc-kpi-pending', 'cc-kpi-incident']) {
+    check(`Trung Tâm Chỉ Huy có ô KPI "${id}"`, ccHtml.includes(`id="${id}"`));
   }
+  check('ô KPI dòng tiền đã gỡ khỏi Trung Tâm Chỉ Huy',
+    !ccHtml.includes('cc-kpi-cashflow'));
 
   // Ô KPI mới của tab tích hợp.
   for (const id of ['cc-kpi-bg-tasks', 'cc-kpi-webhook-alerts']) {
@@ -149,9 +157,13 @@ results.push('▸ Tách hai dải KPI');
       .filter(id => ccKpi[1].includes(id));
     check('syncCommandCenterKpi() KHÔNG đụng vào ô KPI của tab tích hợp',
       foreign.length === 0, foreign.join(','));
-    for (const id of ['cc-kpi-pending', 'cc-kpi-cashflow', 'cc-kpi-security']) {
-      check(`syncCommandCenterKpi() cập nhật "${id}"`, ccKpi[1].includes(id));
-    }
+    // Phase 71: `syncCommandCenterKpi()` nay chỉ chép ô chờ duyệt. Cảnh báo
+    // an ninh thì `loadSecurity()` tự ghi thẳng vào `cc-security-count`, còn
+    // dòng tiền đã bị gỡ. Chép lại hai thứ đó ở đây là chép một phần tử đã
+    // bị xoá — và sẽ hỏng nếu ai đó tái sử dụng id đó cho mục đích khác.
+    check('syncCommandCenterKpi() chép ô chờ duyệt', ccKpi[1].includes('cc-kpi-pending'));
+    check('syncCommandCenterKpi() KHÔNG chép ô dòng tiền đã gỡ',
+      !ccKpi[1].includes('cc-kpi-cashflow'));
   }
 
   const siKpi = src.match(/function syncIntegrationKpi\(\) \{([\s\S]*?)\n\}/);

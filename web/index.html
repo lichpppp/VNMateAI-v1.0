@@ -909,62 +909,112 @@
     <!-- = việc cần tôi quyết, giữa = tình hình tài chính, phải =       -->
     <!-- rủi ro & kiến thức.                                              -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- ═══ TAB: TRUNG TÂM CHỈ HUY — BẢNG ĐIỀU KHIỂN VẬN HÀNH (PHASE 71) ══
+         Đổi hướng: từ "báo cáo dòng tiền cho C.E.O" sang "giám sát + vận
+         hành hệ thống bằng AI". Admin nói rõ: bỏ phần kiểm tra báo cáo dòng
+         tiền, phần lớn thời gian dùng để giám sát, vận hành, kết nối hạ
+         tầng có sẵn để lấy số liệu, và tự động vận hành.
+
+         Vì vậy thứ tự ưu tiên đảo lại: sức khoẻ hệ thống và hành động AI lên
+         trên cùng, phần báo cáo tài chính lùi xuống hoặc bỏ hẳn. Số liệu lấy
+         từ các endpoint đang chạy sẵn — không dựng thêm lớp tổng hợp. -->
+
     <section class="tab-pane space-y-4" id="tab-command-center">
 
-      <!-- ═══ DẢI CHỈ SỐ TỔNG QUAN ═══════════════════════════════════
-           Gồm 3 chỉ số quyết định của C.E.O. Hai chỉ số cũ "Kết nối ngoại vi"
-           và "Công cụ" đã chuyển sang tab "Tích Hợp Hệ Thống Báo Cáo" cùng với
-           toàn bộ giao diện của chúng — ở lại đây sẽ chỉ hiện số 0 vĩnh viễn
-           vì dữ liệu nằm ở tab kia. -->
-      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div class="rounded-xl border border-amber-500/25 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+      <!-- ═══ DẢI CHỈ SỐ SỨC KHOẺ VẬN HÀNH ═══════════════════════════
+           Năm chỉ số trả lời trong một nháy: hệ thống có khoẻ không, hạ
+           tầng đã nối được bao nhiêu, có tác vụ nền nào đang chạy, có gì
+           đang chờ mình duyệt, và có sự cố nào đang mở không.
+
+           Thay thế dải cũ (Chờ phê duyệt / Sức khoẻ quỹ / Cảnh báo). Ô
+           "Sức khoẻ quỹ" bị gỡ vì đó là báo cáo dòng tiền — đúng thứ admin
+           bỏ. Hai ô còn lại được gộp vào chỉ số vận hành rõ ràng hơn. -->
+      <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+
+        <!-- Tài nguyên máy chủ -->
+        <div id="cc-kpi-resource-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
           <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <span id="cc-kpi-resource-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tài nguyên</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-resource" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">CPU · RAM</span>
+          </div>
+        </div>
+
+        <!-- Hạ tầng đã kết nối -->
+        <div id="cc-kpi-infra-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-infra-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Hạ tầng</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-infra" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">nguồn sẵn sàng</span>
+          </div>
+        </div>
+
+        <!-- Tác vụ nền đang chạy -->
+        <div id="cc-kpi-bg-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-bg-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tác vụ nền</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-bg" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">đang chạy</span>
+          </div>
+        </div>
+
+        <!-- Chờ phê duyệt (HITL) -->
+        <div id="cc-kpi-pending-card"
+          class="rounded-xl border border-amber-500/25 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-pending-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
             <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Chờ phê duyệt</span>
           </div>
           <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-pending" class="text-xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
+            <span id="cc-kpi-pending" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
             <span class="text-[9px] text-slate-400 dark:text-slate-500">tác vụ</span>
           </div>
         </div>
 
-        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+        <!-- Sự cố đang mở -->
+        <div id="cc-kpi-incident-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
           <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sức khoẻ quỹ</span>
-          </div>
-          <div id="cc-kpi-cashflow" class="text-sm font-bold leading-tight text-slate-400 dark:text-slate-500">Chưa có dữ liệu</div>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cảnh báo</span>
+            <span id="cc-kpi-incident-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sự cố mở</span>
           </div>
           <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-security" class="text-xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">sự kiện</span>
+            <span id="cc-kpi-incident" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">việc cần xử</span>
           </div>
         </div>
       </div>
 
-      <!-- ═══ BA CỘT ĐIỀU HÀNH ══════════════════════════════════════ -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+      <!-- ═══ HÀNH ĐỘNG AI  |  SỨC KHOẺ HỆ THỐNG ═══════════════════════
+           Hai việc admin làm nhiều nhất, nên hai việc đó lên trên cùng. -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
-        <!-- ── CỘT 1: HỎI & QUYẾT ─────────────────────────────────── -->
+        <!-- ── ĐIỀU HÀNH AI ─────────────────────────────────────────── -->
         <div class="space-y-4">
-          <!-- Ô nhập lệnh tự nhiên — đặt trên cùng vì là điểm khởi động -->
           <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
             <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Hỏi Trợ Lý</h3>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Điều Hành AI</h3>
               <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">gõ bằng lời → tự chọn tool</span>
             </div>
             <div class="p-3 space-y-2.5">
               <div class="flex gap-2">
-                <input type="text" id="cc-ask-input" placeholder="VD: chi phí tháng này tăng hay giảm?"
+                <input type="text" id="cc-ask-input"
+                  placeholder="VD: hệ thống nào đang bất thường? / rà soát việc quá hạn / lập báo cáo giao ban"
                   class="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
                   onkeydown="if(event.key==='Enter'){runCommandCenterAsk();}" />
                 <button type="button" onclick="runCommandCenterAsk()"
@@ -973,94 +1023,168 @@
                 </button>
               </div>
               <div class="flex flex-wrap gap-1.5">
-                <button type="button" onclick="askCommandCenter('Phân bổ chi phí theo danh mục')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Chi phí</button>
-                <button type="button" onclick="askCommandCenter('Doanh thu 6 tháng gần nhất')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Doanh thu</button>
-                <button type="button" onclick="askCommandCenter('Số nhân viên theo phòng ban')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Nhân sự</button>
+                <button type="button" onclick="askCommandCenter('Rà soát toàn bộ hệ thống đang chạy, hệ thống nào bất thường?')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Sức khoẻ hệ thống</button>
+                <button type="button" onclick="askCommandCenter('Lập báo cáo giao ban tình hình 24 giờ qua')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Báo cáo giao ban</button>
+                <button type="button" onclick="askCommandCenter('Những kết nối hạ tầng nào đang thiếu cấu hình?')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Hạ tầng</button>
+                <button type="button" onclick="askCommandCenter('Việc nào đang quá hạn cần xử lý gấp?')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Quá hạn</button>
                 <button type="button" onclick="askCommandCenter('Quy trình xin nghỉ phép từ 2 đến 3 ngày')"
                   class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Tra quy chế</button>
-                <button type="button" onclick="askCommandCenter('Quỹ còn bao lâu nữa')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Sức khoẻ quỹ</button>
               </div>
               <div id="cc-ask-result" class="text-xs text-slate-500 dark:text-slate-400"></div>
             </div>
           </div>
 
-          <!-- Hàng đợi phê duyệt -->
-          <div id="cc-pending-card"
-            class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <!-- Bảng hành động theo mức rủi ro -->
+          <!--
+            Admin chọn: "Cả hai — chọn mức theo rủi ro". Hệ thống đã có sẵn
+            thang Zero-Trust risk 1-5 (core/plugin_registry.py), và mọi tool
+            risk >= 3 đều phải qua cổng HITL. Nay hiện thang đó ra để admin
+            thấy rõ AI được tự làm gì và phải xin phép việc gì — thay vì
+            phải nhớ từng lệnh có cần duyệt hay không.
+          -->
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
             <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Chờ Bạn Phê Duyệt</h3>
-              <span id="cc-pending-count"
-                class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">0</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">AI Được Phép Làm Gì</h3>
+              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">thang Zero-Trust 1–5</span>
             </div>
-            <div id="cc-pending-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
-              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">
-                Không có tác vụ nào chờ duyệt.
+            <div id="cc-risk-tiers" class="p-3 space-y-1.5">
+              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-3">Đang tải…</p>
+            </div>
+            <div class="px-3 pb-3">
+              <button type="button" id="cc-audit-btn" onclick="runCommandCenterAudit()"
+                class="w-full px-3 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition">
+                Chạy rà soát tức thì
+              </button>
+              <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 text-center">
+                Rà soát là việc chỉ đọc nên AI tự chạy, không cần duyệt.
               </p>
             </div>
           </div>
         </div>
 
-        <!-- ── CỘT 2: BIỂU ĐỒ & DÒNG TIỀN ─────────────────────────── -->
+        <!-- ── SỨC KHOẺ HỆ THỐNG ────────────────────────────────────── -->
         <div class="space-y-4">
           <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
             <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
-                <path d="M3 3v18h18" />
-                <path d="M7 14l3-4 3 3 5-7" />
-              </svg>
-              <h3 id="cc-chart-title" class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">Biểu Đồ Doanh Thuệ</h3>
-              <span id="cc-chart-source"
-                class="ml-auto shrink-0 px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 hidden"></span>
+              <span id="cc-health-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Sức Khoẻ Hệ Thống</h3>
+              <span id="cc-health-uptime"
+                class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">—</span>
             </div>
-            <div class="p-3">
-              <div class="relative" style="height: 260px;">
-                <canvas id="cc-chart-canvas"></canvas>
-                <div id="cc-chart-empty"
-                  class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-                  <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"
-                    class="text-slate-300 dark:text-slate-600 mb-2" viewBox="0 0 24 24">
-                    <path d="M3 3v18h18" />
-                    <path d="M7 14l3-4 3 3 5-7" />
-                  </svg>
-                  <p class="text-[11px] text-slate-400 dark:text-slate-500">
-                    Hỏi trợ lý ở cột bên cạnh, hoặc ra lệnh bằng giọng nói —
-                    biểu đồ sẽ tự hiện tại đây.
-                  </p>
+            <div class="p-4 space-y-3">
+              <div id="cc-res-bars" class="space-y-2.5">
+                <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-2">Đang tải…</p>
+              </div>
+              <div class="grid grid-cols-3 gap-2 pt-1 border-t border-slate-100 dark:border-slate-700/60 text-center">
+                <div>
+                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kỹ năng</p>
+                  <p id="cc-stat-skills" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+                </div>
+                <div>
+                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tài khoản</p>
+                  <p id="cc-stat-users" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+                </div>
+                <div>
+                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cây ITSM</p>
+                  <p id="cc-stat-tickets" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
                 </div>
               </div>
             </div>
           </div>
+        </div>
+      </div>
 
-          <div id="cc-cashflow-card"
-            class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm transition-colors">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span id="cc-cashflow-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Sức Khoẻ Dòng Tiền</h3>
-              <span id="cc-cashflow-badge"
-                class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400">—</span>
-            </div>
-            <div class="p-4">
-              <div class="grid grid-cols-2 gap-3 text-center">
-                <div>
-                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Số dư quỹ</p>
-                  <p id="cc-cashflow-balance" class="text-base font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-                </div>
-                <div>
-                  <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Còn vận hành</p>
-                  <p id="cc-cashflow-runway" class="text-base font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-                </div>
+      <!-- ═══ DUYỆT  |  HẠ TẦNG  |  NHẬT KÝ VẬN HÀNH ═════════════════ -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+
+        <!-- Hàng đợi phê duyệt -->
+        <div id="cc-pending-card"
+          class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Chờ Bạn Phê Duyệt</h3>
+            <span id="cc-pending-count"
+              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">0</span>
+          </div>
+          <div id="cc-pending-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
+            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">
+              Không có tác vụ nào chờ duyệt.
+            </p>
+          </div>
+        </div>
+
+        <!-- Kết nối hạ tầng có sẵn -->
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Kết Nối Hạ Tầng</h3>
+            <span id="cc-infra-badge"
+              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400">—</span>
+          </div>
+          <div id="cc-infra-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
+            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">Đang tải…</p>
+          </div>
+          <div class="px-3 pb-3">
+            <p class="text-[10px] text-slate-400 dark:text-slate-500">
+              Nguồn chưa đủ thông tin đăng nhập thì mọi lời gọi sẽ thất bại —
+              cấu hình ở tab <span class="font-semibold">Tích Hợp Hệ Thống</span>.
+            </p>
+          </div>
+        </div>
+
+        <!-- Nhật ký vận hành -->
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Nhật Ký Vận Hành</h3>
+            <label class="ml-auto flex items-center gap-1 text-[9px] text-slate-400 dark:text-slate-500 cursor-pointer select-none">
+              <input type="checkbox" id="cc-log-verbose" onchange="CommandCenter.renderOpsLog()"
+                class="w-3 h-3 rounded border-slate-300 dark:border-slate-600" />
+              hiện cả nhiễu
+            </label>
+          </div>
+          <div id="cc-ops-log" class="p-3 space-y-1 max-h-80 overflow-y-auto font-mono text-[10px]">
+            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6 font-sans">Đang tải…</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ BIỂU ĐỒ  |  CẢNH BÁO & QUY CHẾ ══════════════════════════ -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
+              <path d="M3 3v18h18" />
+              <path d="M7 14l3-4 3 3 5-7" />
+            </svg>
+            <h3 id="cc-chart-title" class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">Biểu Đồ Số Liệu</h3>
+            <span id="cc-chart-source"
+              class="ml-auto shrink-0 px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 hidden"></span>
+          </div>
+          <div class="p-3">
+            <div class="relative" style="height: 240px;">
+              <canvas id="cc-chart-canvas"></canvas>
+              <div id="cc-chart-empty"
+                class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"
+                  class="text-slate-300 dark:text-slate-600 mb-2" viewBox="0 0 24 24">
+                  <path d="M3 3v18h18" />
+                  <path d="M7 14l3-4 3 3 5-7" />
+                </svg>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500">
+                  Hỏi trợ lý ở cột bên cạnh, hoặc ra lệnh bằng giọng nói —
+                  biểu đồ sẽ tự hiện tại đây.
+                </p>
               </div>
-              <p id="cc-cashflow-msg" class="text-[11px] text-slate-500 dark:text-slate-400 mt-3 text-center">Chưa có dữ liệu.</p>
             </div>
           </div>
         </div>
 
-        <!-- ── CỘT 3: RỦI RO & TRI THỨC ────────────────────────────── -->
         <div class="space-y-4">
           <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
             <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">

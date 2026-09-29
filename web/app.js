@@ -2475,7 +2475,13 @@ function _applyMicUI(enabled) {
     }
     if (icon) {
       icon.setAttribute('stroke', '#10b981');
-      icon.className = 'text-emerald-400 transition-colors duration-300';
+      // PHẢI dùng setAttribute, KHÔNG gán `.className`.
+      // `mic-status-icon` là thẻ <svg>, mà `SVGElement.className` là một
+      // getter trả về `SVGAnimatedString` — chỉ đọc được. Gán vào đó ném
+      // `TypeError`, làm `_applyMicUI` dừng giữa chừng và `loadMicStatus()`
+      // hỏng hoàn toàn: trạng thái micro không bao giờ hiện.
+      // Lỗi này im lặng vì nó nằm sau một `catch` chỉ ghi console.
+      icon.setAttribute('class', 'text-emerald-400 transition-colors duration-300');
     }
     if (statusTitle) statusTitle.textContent = 'Micro Đang Lắng Nghe Ngầm';
     if (statusText) {
@@ -2511,7 +2517,9 @@ function _applyMicUI(enabled) {
     }
     if (icon) {
       icon.setAttribute('stroke', '#94a3b8');
-      icon.className = 'text-slate-400 transition-colors duration-300';
+      // Xem chú thích ở nhánh BẬT phía trên: `icon` là <svg> nên `.className`
+      // chỉ đọc được, gán vào sẽ ném TypeError.
+      icon.setAttribute('class', 'text-slate-400 transition-colors duration-300');
     }
     if (statusTitle) statusTitle.textContent = 'Micro Đang Tắt';
     if (statusText) {
@@ -7281,12 +7289,15 @@ function initPortalWebSocket() {
     }
 
     if (event === 'cashflow_health') {
-      if (typeof CommandCenter !== 'undefined') {
-        CommandCenter.renderCashflow(msg);
-        // Dòng tiền chuyển sang đỏ là tin khẩn — báo cả khi đang ở tab khác.
-        if (msg.is_critical) {
-          showToast(`🚨 ${msg.message || 'Cảnh báo dòng tiền nghiêm trọng'}`, 'error');
-        }
+      // Phase 71: admin bỏ bảng "Sức Khoẻ Dòng Tiền" khỏi Trung Tâm Chỉ Huy —
+      // tab đó nay phục vụ giám sát/vận hành, không phải báo cáo tài chính.
+      // Endpoint và sự kiện phía server vẫn còn nguyên (không phá gì khác),
+      // nhưng giữ lại đúng MỘT thứ: cảnh báo mức nghiêm trọng.
+      //
+      // Bỏ hẳn cả toast thì lúc dòng tiền thật sự kiệt, im lặng là tệ hơn là
+      // hiện thêm một bảng. Báo động thì không tốn chỗ nào trên tab.
+      if (msg && msg.is_critical) {
+        showToast(`🚨 ${msg.message || 'Cảnh báo dòng tiền nghiêm trọng'}`, 'error');
       }
       return;
     }
@@ -8624,6 +8635,7 @@ const CommandCenter = (() => {
   let _chart = null;          // instance Chart.js hiện tại
   let _pendingChart = null;   // cấu hình biểu đồ chờ, chờ tab hiện ra mới vẽ
   let _pollTimer = null;      // timer nạp lại hàng đợi duyệt
+  let _slowPoll = false;      // xen kẽ: nhịp chậm của loadOpsHealth (Phase 71)
   const POLL_MS = 5000;
 
   // ── Tiện ích ────────────────────────────────────────────────────────────
@@ -8890,47 +8902,409 @@ const CommandCenter = (() => {
     }, 700);
   }
 
-  // ── Sức khoẻ dòng tiền ──────────────────────────────────────────────────
-  function renderCashflow(msg) {
-    const card = $('cc-cashflow-card');
-    const badge = $('cc-cashflow-badge');
-    const bal = $('cc-cashflow-balance');
-    const run = $('cc-cashflow-runway');
-    const text = $('cc-cashflow-msg');
-    if (!card) return;
+  // ── Phase 71: sức khoẻ vận hành ───────────────────────────────────────
+  //
+  // Tab này đổi vai từ "báo cáo dòng tiền cho C.E.O" sang "giám sát và vận
+  // hành bằng AI". Số liệu lấy thẳng từ các endpoint đang chạy sẵn thay vì
+  // dựng thêm một lớp tổng hợp: server đã có đủ, thêm lớp tổng hợp chỉ
+  // thêm một chỗ có thể hỏng và thêm một vòng độ trễ.
+  //
+  // Nguyên tắc xuyên suốt: ô nào không tải được thì nói rõ KHÔNG TẢI ĐƯỢC.
+  // Để trắng im lặng khiến "chưa cấu hình kết nối" và "server đã chết" trông
+  // giống hệt nhau, mà hai kết luận đó thì đối ngược nhau.
 
-    const lvl = msg.alert_level || 'NORMAL';
-    const cls = {
-      CRITICAL_RED: 'border-rose-500 bg-rose-500/10',
-      WARNING_YELLOW: 'border-amber-500 bg-amber-500/10',
-    }[lvl] || 'border-emerald-500/40 bg-emerald-500/5';
+  // Nhật ký server lẫn nhiễu nặng. Đo thật: 120 dòng gần nhất thì 69 dòng
+  // (57%) là heartbeat `GET /v1/models` lặp mỗi 30 giây của router. Đổ nguyên
+  // si vào khung "Nhật Ký Vận Hành" thì người dùng không bao giờ thấy dòng
+  // nào quan trọng. Mặc định ẩn; có ô tích để mở lại khi cần soi nhiều.
+  const OPS_LOG_NOISE = [
+    /httpx/i,
+    /GET\s+\/v1\/models/i,
+    /heartbeat/i,
+  ];
 
-    card.className = `rounded-2xl border bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm transition-colors ${cls}`;
-
-    if (badge) {
-      const bcls = {
-        CRITICAL_RED: 'bg-rose-500/20 text-rose-600 dark:text-rose-400',
-        WARNING_YELLOW: 'bg-amber-500/20 text-amber-700 dark:text-amber-400',
-      }[lvl] || 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400';
-      badge.className = `px-2 py-0.5 rounded-md text-[10px] font-bold ${bcls}`;
-      badge.textContent = { CRITICAL_RED: '🔴 NGUY CẤP', WARNING_YELLOW: '🟡 CẢNH BÁO' }[lvl] || '🟢 AN TOÀN';
-    }
-    if (bal) bal.textContent = _fmtVND(msg.net_balance);
-    if (run) {
-      run.textContent = (msg.runway_days === null || msg.runway_days === undefined)
-        ? '—' : `${Number(msg.runway_days).toFixed(0)} ngày`;
-    }
-    if (text) text.textContent = msg.message || 'Chưa có dữ liệu.';
+  function _isOpsNoise(entry) {
+    const hay = `${entry?.logger || ''} ${entry?.message || ''}`;
+    return OPS_LOG_NOISE.some((re) => re.test(hay));
   }
 
-  async function loadCashflow() {
+  async function loadOpsHealth() {
+    // Gộp song song: 4 endpoint độc lập, tuần tự sẽ cộng dồn độ trễ.
+    const get = async (path) => {
+      const res = await apiFetch(`${API_BASE}/api/v1/${path}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    };
+
+    const [stats, conns, bg, itsm, wh, plugins] = await Promise.all([
+      get('system/stats').catch((e) => ({ __err: e.message })),
+      get('enterprise/connectors/health').catch((e) => ({ __err: e.message })),
+      get('enterprise/background-tasks').catch((e) => ({ __err: e.message })),
+      get('itsm/tickets').catch((e) => ({ __err: e.message })),
+      get('enterprise/webhooks/recent').catch((e) => ({ __err: e.message })),
+      get('enterprise/plugin-registry/stats').catch((e) => ({ __err: e.message })),
+    ]);
+
+    renderOpsHealth({ stats, conns, bg, itsm, wh });
+    renderInfraList(conns);
+    renderRiskTiers(plugins);
+    loadOpsLog();
+  }
+
+  function _setKpi(id, text, tone) {
+    const el = $('cc-kpi-' + id);
+    if (el) {
+      el.textContent = text;
+      el.className = 'text-xl font-bold leading-none '
+        + (tone === 'bad' ? 'text-rose-600 dark:text-rose-400'
+          : tone === 'warn' ? 'text-amber-600 dark:text-amber-400'
+          : tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400'
+          : 'text-slate-400 dark:text-slate-500');
+    }
+    const dot = $('cc-kpi-' + id + '-dot');
+    if (dot) dot.className = 'w-1.5 h-1.5 rounded-full ' + (
+      tone === 'bad' ? 'bg-rose-500'
+        : tone === 'warn' ? 'bg-amber-500'
+        : tone === 'ok' ? 'bg-emerald-500'
+        : 'bg-slate-300 dark:bg-slate-600');
+  }
+
+  // Phân biệt ba trạng thái, đây là cả chìa khoá của toàn bng bảng vận hành:
+  //   undefined      → nguồn này không được hỏi tới (ví dụ gọi hàm render một
+  //                    phần) — im lặng, KHÔNG phải lỗi.
+  //   { __err: ... } → nguồn này hỏng thật — phải nói ra.
+  //   payload        → dùng số liệu.
+  //
+  // Gộp hai trạng thái đầu là "hiện Lỗi cho mọi thứ", còn gộp hai trạng thái
+  // sau là hiện "0 sự cố" cho một thứ ta thực ra không biết. Cả hai đều nói
+  // dối người đang giám sát, và cái thứ hai nguy hiểm hơn: "0 sự cố" khiến
+  // người ta yên trí.
+  function _srcErr(d) { return d && d.__err ? String(d.__err) : null; }
+
+  function renderOpsHealth(d) {
+    const { stats, conns, bg, itsm, wh } = d || {};
+
+    // ── Tài nguyên ──
+    if (stats && !_srcErr(stats) && stats.hardware) {
+      const hw = stats.hardware;
+      const cpu = Number(hw.cpu_percent);
+      const ram = Number(hw.ram_percent);
+      // Ngưỡng đỏ ở đây là "máy sắp không còn đáp ứng", không phải "hơi cao".
+      // Đánh đỏ RAM ở 80% thì trên máy 8GB của người dùng sẽ kêu suốt, và
+      // một chỉ số luôn đỏ thì mất hết tác dụng cảnh báo.
+      const worst = Math.max(cpu || 0, ram || 0);
+      const tone = worst >= 92 ? 'bad' : worst >= 85 ? 'warn' : 'ok';
+      _setKpi('resource', `${Math.round(cpu)}·${Math.round(ram)}%`, tone);
+      renderResourceBars(hw);
+      const up = $('cc-health-uptime');
+      if (up) up.textContent = `chạy ${_fmtDuration(hw.uptime_seconds)}`;
+      const dot = $('cc-health-dot');
+      if (dot) dot.className = 'w-1.5 h-1.5 rounded-full ' + (
+        tone === 'bad' ? 'bg-rose-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-emerald-500');
+    } else if (stats) {
+      _setKpi('resource', 'Lỗi', 'bad');
+      const box = $('cc-res-bars');
+      if (box) box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-3">`
+        + `Không đọc được tài nguyên máy: ${_esc(_srcErr(stats) || 'phản hồi thiếu dữ liệu')}</p>`;
+    }
+
+    // ── Hạ tầng ──
+    // "Sẵn sàng" = đủ thông tin đăng nhập VÀ không bị tắt. Connector đã có
+    // đủ khoá nhưng bị tắt thì mọi lời gọi cũng không chạy — đếm nó là sẵn
+    // sàng là nói dối đúng thứ mà bảng này tồn tại để phản ánh.
+    if (conns && !_srcErr(conns) && conns.connectors) {
+      const all = Object.entries(conns.connectors);
+      const ready = all.filter(([, c]) => c.configured && c.enabled !== false).length;
+      _setKpi('infra', `${ready}/${all.length}`, ready === all.length ? 'ok' : 'warn');
+    } else if (conns) {
+      _setKpi('infra', 'Lỗi', 'bad');
+    }
+
+    // ── Tác vụ nền ──
+    if (bg && !_srcErr(bg)) {
+      const running = Number(bg.running || 0);
+      _setKpi('bg', String(running), running > 0 ? 'ok' : '');
+    } else if (bg) {
+      _setKpi('bg', 'Lỗi', 'bad');
+    }
+
+    // ── Chờ phê duyệt ──
+    // `loadPending()` là nguồn duy nhất ghi ô này, không tính lại ở đây.
+
+    // ── Sự cố đang mở ──
+    let incidents = 0, incErr = null;
+    if (itsm) {
+      if (!_srcErr(itsm) && Array.isArray(itsm.tickets)) {
+        const CLOSED = new Set(['completed', 'closed', 'resolved', 'cancelled']);
+        incidents += itsm.tickets.filter((t) => !CLOSED.has(String(t.status || '').toLowerCase())).length;
+      } else {
+        incErr = _srcErr(itsm) || 'phản hồi thiếu danh sách ticket';
+      }
+    }
+    if (wh) {
+      if (!_srcErr(wh)) incidents += Number(wh.total || 0);
+      else if (!incErr) incErr = _srcErr(wh);
+    }
+
+    if (incErr) _setKpi('incident', 'Lỗi', 'bad');
+    else if (itsm || wh) _setKpi('incident', String(incidents), incidents > 0 ? 'warn' : 'ok');
+
+    // ── Số liệu phụ ──
+    const setStat = (id, v) => { const e = $('cc-stat-' + id); if (e) e.textContent = v; };
+    if (stats && !_srcErr(stats)) {
+      setStat('skills', String(stats.skills_count ?? '—'));
+      setStat('users', String(stats.users_count ?? '—'));
+    }
+    if (itsm && !_srcErr(itsm) && Array.isArray(itsm.tickets)) {
+      setStat('tickets', String(itsm.tickets.length));
+    } else if (itsm) {
+      setStat('tickets', 'Lỗi');
+    }
+  }
+
+  function _fmtDuration(sec) {
+    const s = Number(sec);
+    if (!isFinite(s) || s < 0) return '—';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d} ngày ${h} giờ`;
+    if (h > 0) return `${h} giờ ${m} phút`;
+    return `${m} phút`;
+  }
+
+  function _bar(label, pct, detail) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+    const tone = v >= 92 ? 'bg-rose-500' : v >= 85 ? 'bg-amber-500' : 'bg-emerald-500';
+    return `
+      <div>
+        <div class="flex items-center justify-between text-[10px] mb-1">
+          <span class="text-slate-500 dark:text-slate-400">${_esc(label)}</span>
+          <span class="font-mono font-semibold text-slate-700 dark:text-slate-200">${_esc(detail ?? `${v}%`)}</span>
+        </div>
+        <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700/60 overflow-hidden">
+          <div class="h-full rounded-full ${tone} transition-all duration-500" style="width:${v}%"></div>
+        </div>
+      </div>`;
+  }
+
+  function renderResourceBars(hw) {
+    const box = $('cc-res-bars');
+    if (!box) return;
+    box.innerHTML = [
+      _bar('CPU', hw.cpu_percent),
+      _bar('RAM', hw.ram_percent, `${Math.round(Number(hw.ram_percent) || 0)}% · ${(Number(hw.ram_used_gb) || 0).toFixed(1)}/${(Number(hw.ram_total_gb) || 0).toFixed(0)} GB`),
+      _bar('Ổ đĩa', hw.disk_percent),
+    ].join('');
+  }
+
+  // Bảng kết nối hạ tầng. Cột "thiếu gì" là phần quan trọng nhất: connector
+  // không cấu hình thì mọi lời gọi sẽ thất bại, mà người dùng chỉ thấy lỗi
+  // chung chung. Ghi rõ tên trường còn thiếu giúp họ điền được ngay.
+  function renderInfraList(conns) {
+    const box = $('cc-infra-list');
+    if (!box) return;
+    const badge = $('cc-infra-badge');
+
+    if (!conns || _srcErr(conns) || !conns.connectors) {
+      if (badge) { badge.textContent = 'Lỗi'; badge.className = 'ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400'; }
+      box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-4">`
+        + `Không đọc được trạng thái kết nối: ${_esc(_srcErr(conns) || 'phản hồi thiếu dữ liệu')}</p>`;
+      return;
+    }
+
+    const entries = Object.entries(conns.connectors);
+    const ready = entries.filter(([, c]) => c.configured && c.enabled !== false).length;
+    if (badge) {
+      badge.textContent = `${ready}/${entries.length} sẵn sàng`;
+      badge.className = 'ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold ' + (
+        ready === entries.length ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'
+          : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400');
+    }
+
+    if (!entries.length) {
+      box.innerHTML = '<p class="text-[11px] text-slate-400 dark:text-slate-500 text-center py-4">Chưa có nguồn kết nối nào.</p>';
+      return;
+    }
+
+    box.innerHTML = entries.map(([name, c]) => {
+      const ok = !!c.configured;
+      const off = c.enabled === false;
+      const missing = (c.missing_fields || []).slice(0, 3);
+      const tone = off
+        ? 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40'
+        : ok
+          ? 'border-emerald-500/25 bg-emerald-500/5'
+          : 'border-amber-500/30 bg-amber-500/5';
+      const dot = off ? 'bg-slate-400' : ok ? 'bg-emerald-500' : 'bg-amber-500';
+      const label = off ? 'Đã tắt' : ok ? 'Sẵn sàng' : 'Thiếu cấu hình';
+      return `
+        <div class="rounded-lg border ${tone} p-2.5">
+          <div class="flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full ${dot} shrink-0"></span>
+            <span class="text-[11px] font-bold text-slate-800 dark:text-slate-100 font-mono">${_esc(name)}</span>
+            <span class="ml-auto text-[9px] font-bold ${ok && !off ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">${_esc(label)}</span>
+          </div>
+          ${missing.length && !off
+            ? `<p class="text-[10px] text-amber-700 dark:text-amber-400 mt-1 font-mono">còn thiếu: ${_esc(missing.join(', '))}</p>`
+            : `<p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">${_esc((c.actions || []).length)} thao tác dùng được</p>`}
+        </div>`;
+    }).join('');
+  }
+
+  // Thang Zero-Trust 1–5 đã có sẵn trong core/plugin_registry.py, và mọi tool
+  // risk >= 3 đều phải qua cổng HITL. Hiện bảng đó ra để admin thấy rõ AI
+  // được tự làm gì và phải xin phép việc gì, thay vì phải nhớ từng lệnh.
+  //
+  // Số liệu lấy từ registry thật chứ không gõ cứng — tool bị tắt hoặc thêm
+  // mới thì bảng tự đúng theo, không bao giờ lệch với server.
+  function renderRiskTiers(plugins) {
+    const box = $('cc-risk-tiers');
+    if (!box) return;
+
+    if (!plugins || _srcErr(plugins) || !plugins.tools) {
+      box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-3">`
+        + `Không đọc được danh mục tool: ${_esc(_srcErr(plugins) || 'phản hồi thiếu dữ liệu')}</p>`;
+      return;
+    }
+
+    const tools = Object.entries(plugins.tools);
+    const byLevel = new Map();
+    tools.forEach(([name, t]) => {
+      const lv = Math.max(1, Math.min(5, Number(t.risk_level) || 1));
+      if (!byLevel.has(lv)) byLevel.set(lv, []);
+      byLevel.get(lv).push([name, t]);
+    });
+
+    const needApproval = tools.filter(([, t]) => (Number(t.risk_level) || 1) >= 3).length;
+    const auto = tools.length - needApproval;
+
+    box.innerHTML = `
+      <div class="grid grid-cols-3 gap-2 text-center mb-2">
+        <div class="rounded-lg bg-emerald-500/10 px-2 py-1.5">
+          <p class="text-base font-bold text-emerald-600 dark:text-emerald-400 leading-none">${auto}</p>
+          <p class="text-[9px] text-slate-500 dark:text-slate-400 mt-1">AI tự chạy</p>
+        </div>
+        <div class="rounded-lg bg-rose-500/10 px-2 py-1.5">
+          <p class="text-base font-bold text-rose-600 dark:text-rose-400 leading-none">${needApproval}</p>
+          <p class="text-[9px] text-slate-500 dark:text-slate-400 mt-1">cần bạn duyệt</p>
+        </div>
+        <div class="rounded-lg bg-slate-100 dark:bg-slate-700/50 px-2 py-1.5">
+          <p class="text-base font-bold text-slate-700 dark:text-slate-200 leading-none">${tools.length}</p>
+          <p class="text-[9px] text-slate-500 dark:text-slate-400 mt-1">tổng tool</p>
+        </div>
+      </div>
+      ${[1, 2, 3, 4, 5].map((lv) => {
+        const list = byLevel.get(lv) || [];
+        const need = lv >= 3;
+        const head = need
+          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+          : lv === 2 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+        return `
+          <details class="rounded-lg border border-slate-200 dark:border-slate-700/60 overflow-hidden">
+            <summary class="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-700/30">
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${head}">L${lv}</span>
+              <span class="text-[10px] text-slate-600 dark:text-slate-300">${need ? 'Phải qua bạn duyệt' : 'AI tự chạy'}</span>
+              <span class="ml-auto text-[10px] font-mono text-slate-400 dark:text-slate-500">${list.length}</span>
+            </summary>
+            ${list.length
+              ? `<div class="px-2.5 pb-2 space-y-0.5">${list.map(([name, t]) => `
+                  <p class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                    · ${_esc(name)}${t.enabled === false ? ' <span class="text-slate-400">(đã tắt)</span>' : ''}
+                  </p>`).join('')}</div>`
+              : `<p class="px-2.5 pb-2 text-[10px] text-slate-400 dark:text-slate-500">Không có tool nào ở mức này.</p>`}
+          </details>`;
+      }).join('')}`;
+  }
+
+  async function loadOpsLog() {
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/enterprise/analytics/cashflow-health`);
+      const res = await apiFetch(`${API_BASE}/api/v1/logs/recent`);
       const data = await res.json();
-      if (data && data.result) renderCashflow(data.result);
+      _opsLogCache = (data && data.logs) || [];
     } catch (err) {
-      const t = $('cc-cashflow-msg');
-      if (t) t.textContent = `Không tải được số liệu: ${err.message || err}`;
+      _opsLogCache = null;
+      const box = $('cc-ops-log');
+      if (box) box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-4 font-sans">`
+        + `Không tải được nhật ký: ${_esc(err.message || err)}</p>`;
+      return;
+    }
+    renderOpsLog();
+  }
+
+  let _opsLogCache = null;
+
+  function renderOpsLog() {
+    const box = $('cc-ops-log');
+    if (!box) return;
+    if (_opsLogCache === null) {
+      box.innerHTML = '<p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6 font-sans">Đang tải…</p>';
+      return;
+    }
+
+    const verbose = !!$('cc-log-verbose')?.checked;
+    const rows = verbose ? _opsLogCache : _opsLogCache.filter((e) => !_isOpsNoise(e));
+    const hidden = _opsLogCache.length - rows.length;
+
+    if (!rows.length) {
+      box.innerHTML = `<p class="text-[11px] text-slate-400 dark:text-slate-500 text-center py-4 font-sans">`
+        + `Không có dòng nào khác nhiễu. Đã ẩn ${hidden} dòng heartbeat.</p>`;
+      return;
+    }
+
+    const tone = { ERROR: 'text-rose-400', CRITICAL: 'text-rose-400', WARNING: 'text-amber-400' };
+    box.innerHTML = rows.slice(0, 120).map((e) => `
+      <div class="flex gap-1.5 leading-relaxed">
+        <span class="shrink-0 text-slate-600 dark:text-slate-500">${_esc(_hhmm(e.timestamp))}</span>
+        <span class="shrink-0 font-bold ${tone[e.level] || 'text-slate-500'}">${_esc(e.level || '')}</span>
+        <span class="min-w-0 break-all text-slate-500 dark:text-slate-400">${_esc(e.message || '')}</span>
+      </div>`).join('')
+      + (hidden ? `<p class="text-[9px] text-slate-500 dark:text-slate-500 pt-1 mt-1 border-t border-slate-200 dark:border-slate-700/60 font-sans">`
+          + `Đang ẩn ${hidden} dòng heartbeat/health-check — bật "hiện cả nhiễu" để xem.</p>` : '');
+  }
+
+  function _hhmm(ts) {
+    if (!ts) return '--:--';
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return String(ts).slice(0, 5);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  // Rà soát là việc CHỈ ĐỌC (quét task quá hạn/sắp đến hạn, không ghi gì), nên
+  // để admin bấm tay chạy được mà không cần qua HITL — cũng đúng với nguyên
+  // tắc "AI tự làm việc rủi ro thấp".
+  async function runCommandCenterAudit() {
+    const btn = $('cc-audit-btn');
+    const box = $('cc-risk-tiers');
+    if (btn) { btn.disabled = true; btn.textContent = 'Đang rà soát…'; }
+    try {
+      const res = await apiFetch(`${API_BASE}/api/v1/enterprise/proactive/run-audit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+        body: '{}',
+      });
+      const data = await res.json();
+      const r = data?.result || {};
+      if (!res.ok || r.status === 'error') {
+        showToast(`❌ Rà soát lỗi: ${(data && data.message) || r.error || 'không rõ nguyên nhân'}`, 'error');
+        return;
+      }
+      const quá = Number(r.total_overdue || 0);
+      const sắp = Number(r.total_upcoming || 0);
+      showToast(quá
+        ? `🔴 Rà soát xong: ${quá} việc quá hạn, ${sắp} sắp đến hạn.`
+        : `✅ Rà soát xong: không có việc quá hạn, ${sắp} việc sắp đến hạn.`,
+        quá ? 'warning' : 'success');
+      await loadOpsHealth();
+      if (box) {
+        const lines = (r.details || []).slice(0, 3).map((d) => _esc(d.message || '').slice(0, 160));
+        if (lines.length) showToast(lines.join('<br>'), 'info');
+      }
+    } catch (err) {
+      showToast(`❌ Lỗi mạng: ${err.message || err}`, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Chạy rà soát tức thì'; }
     }
   }
 
@@ -9022,10 +9396,24 @@ const CommandCenter = (() => {
     const route = classify(q);
     try {
       if (route.endpoint === 'cashflow') {
+        // Phase 71: bảng dòng tiền đã gỡ khỏi tab, nhưng câu hỏi thì vẫn
+        // phải trả lời được — bỏ panel không có nghĩa bỏ khả năng hỏi. Trả
+        // lời bằng chữ ngay trong ô kết quả thay vì âm thầm im lặng hoặc vẽ
+        // vào một phần tử không còn tồn tại (lỗi im lặng khó chịu nhất).
         const res = await apiFetch(`${API_BASE}/api/v1/enterprise/analytics/cashflow-health`);
         const d = await res.json();
-        renderCashflow(d.result || {});
-        if (out) out.innerHTML = '<span class="text-emerald-500">✔ Đã cập nhật sức khoẻ dòng tiền ở cột giữa.</span>';
+        const r = d?.result || {};
+        if (out) {
+          const parts = [];
+          if (r.net_balance != null) parts.push(`Số dư ròng: <strong>${_fmtVND(r.net_balance)}</strong>`);
+          if (r.runway_days != null) parts.push(`Runway: <strong>${Number(r.runway_days).toFixed(0)} ngày</strong>`);
+          if (r.message) parts.push(_esc(r.message));
+          out.innerHTML = `<div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">`
+            + `<p class="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">Sức khoẻ dòng tiền</p>`
+            + `<p class="text-slate-700 dark:text-slate-200">${parts.join('<br>') || 'Chưa có dữ liệu.'}</p>`
+            + `<p class="text-[9px] text-slate-400 dark:text-slate-500 mt-1.5">Bảng này không còn nằm trên Trung Tâm Chỉ Huy — chỉ trả lời khi bạn hỏi.</p>`
+            + `</div>`;
+        }
         return;
       }
       if (route.endpoint === 'policy') {
@@ -9166,8 +9554,10 @@ const CommandCenter = (() => {
 
 function onEnter() {
     loadPending();
-    loadCashflow();
     loadSecurity();
+    // Phase 71: `loadCashflow` bị gỡ, thay bằng lớp sức khoẻ vận hành. Gộp 6
+    // endpoint chạy song song nên độ trễ bằng một lần gọi, không phải sáu.
+    loadOpsHealth();
 
     // Vẽ biểu đồ đã bị hoãn lúc tab còn ẩn — giờ mới có kích thước thật.
     if (_pendingChart) {
@@ -9180,7 +9570,14 @@ function onEnter() {
 
     syncCommandCenterKpi();
 
-    if (!_pollTimer) _pollTimer = setInterval(loadPending, POLL_MS);
+    if (!_pollTimer) _pollTimer = setInterval(() => {
+      // Ô chờ duyệt phải cập nhật nhanh (admin đang ngồi duyệt), còn số liệu
+      // vận hành thì chậm một nhịp cũng không sao — 6 endpoint mỗi 5 giây
+      // là 7 req/s vô ích khi RAM/CPU thay đổi theo phút chứ không theo giây.
+      loadPending();
+      _slowPoll = !_slowPoll;
+      if (_slowPoll) loadOpsHealth();
+    }, POLL_MS);
   }
 
   function onLeave() {
@@ -9203,8 +9600,8 @@ function onEnter() {
 
   return {
     onEnter, onLeave, refresh, syncChartLayout,
-    loadPending, loadCashflow, loadSecurity,
-    ask, policyLookup, renderChart, renderCashflow, decide,
+    loadPending, loadSecurity, loadOpsHealth, loadOpsLog, renderOpsLog,
+    ask, policyLookup, renderChart, decide, runCommandCenterAudit,
     // `classify` và `_deaccent` được xuất ra để kiểm thử được bảng định tuyến
     // mà không phải bấm từng nút trên UI. Bảng này sai một ký tự là người
     // dùng bị định tuyến nhầm — đáng để có test riêng.
@@ -10652,24 +11049,17 @@ function switchCcSubTab(name) {
 
 // ── Dải KPI ───────────────────────────────────────────────────────────────
 // Gom số liệu từ các ô đã hiển thị sẵn thay vì gọi thêm API.
+//
+// Phase 71: bỏ phần dòng tiền. Ô "Sức khoẻ quỹ" không còn trong tab, nên
+// chép nó ở đây chỉ để đồng bộ với một phần tử đã bị xoá. Cảnh báo an ninh
+// cũng thế: `loadSecurity()` tự ghi thẳng vào `cc-security-count`, chép
+// thêm lần nữa ở đây là chép chính nó lấy chính nó — và sẽ hỏng nếu ai đó
+// xoá `cc-kpi-security` khỏi HTML rồi ai đó lại thêm id đó cho một việc
+// khác.
 function syncCommandCenterKpi() {
   const pending = _ccGet('cc-pending-count')?.textContent?.trim() || '0';
   const kpiPending = _ccGet('cc-kpi-pending');
   if (kpiPending) kpiPending.textContent = pending;
-
-  const sec = _ccGet('cc-security-count');
-  const secN = sec && !sec.classList.contains('hidden') ? (sec.textContent.trim() || '0') : '0';
-  const kpiSec = _ccGet('cc-kpi-security');
-  if (kpiSec) kpiSec.textContent = secN;
-
-  const cashText = _ccGet('cc-cashflow-badge')?.textContent?.trim() || '—';
-  const kpiCash = _ccGet('cc-kpi-cashflow');
-  if (kpiCash) {
-    kpiCash.textContent = cashText === '—' ? 'Chưa có dữ liệu' : cashText;
-    kpiCash.className = cashText === '—'
-      ? 'text-sm font-bold leading-tight text-slate-400 dark:text-slate-500'
-      : 'text-sm font-bold leading-tight text-slate-800 dark:text-slate-100';
-  }
 }
 
 // ── Dải KPI của tab "Tích Hợp Hệ Thống Báo Cáo" ───────────────────────────
@@ -11192,6 +11582,12 @@ function runPolicyLookup() {
   return CommandCenter.policyLookup(input ? input.value : '');
 }
 
+// Phase 71: rà soát là việc chỉ đọc nên để admin bấm tay chạy ngay, không
+// cần qua cổng HITL — đúng nguyên tắc "AI tự làm việc rủi ro thấp".
+function runCommandCenterAudit() {
+  return CommandCenter.runCommandCenterAudit();
+}
+
 // Live Event Log: hai hàm này được gọi bằng inline onclick trong index.html
 // nhưng LogViewer là IIFE nên không tự lộ ra window.
 function toggleLogAutoScroll(btn) {
@@ -11209,6 +11605,8 @@ if (typeof window !== 'undefined') {
   window.runCommandCenterAsk = runCommandCenterAsk;
   window.askCommandCenter = askCommandCenter;
   window.runPolicyLookup = runPolicyLookup;
+  // Phase 71: nút "Chạy rà soát tức thì" trong khung "AI Được Phép Làm Gì".
+  window.runCommandCenterAudit = runCommandCenterAudit;
   window.toggleLogAutoScroll = toggleLogAutoScroll;
   window.clearEventLog = clearEventLog;
   window.switchCcSubTab = switchCcSubTab;
