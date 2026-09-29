@@ -10161,6 +10161,30 @@ const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
 // Ghi ở đây mỗi khi có kết quả; `renderConnectionCards()` đọc lại khi vẽ.
 // Còn "Đang kiểm tra…" thì không lưu — trạng thái tạm, vẽ lại thì chạy mới.
 const _ccConnHealth = new Map();
+
+/**
+ * Khoá còn THIẾU của từng connector cốt lõi, lấy từ
+ * `GET /api/v1/enterprise/data-sources` (mảng `builtin`).
+ *
+ * Vì sao cần: server đã tính sẵn danh sách khoá bắt buộc còn thiếu
+ * (`missing_fields`) — nhưng giao diện trước đây chỉ đọc mảng `custom`, bỏ
+ * qua `builtin`. Hậu quả: bấm "Kiểm tra" thì API trả về
+ * "Authentication failed", và người dùng tưởng khoá họ nhập sai.
+ * Thực tế là họ CHƯA NHẬP khoá nào cả.
+ *
+ * Chỉ lưu TÊN khoá, không lưu giá trị — server cũng chỉ trả tên.
+ */
+const _ccBuiltinMissing = new Map();
+
+/**
+ * Connector đang được nhấn mạnh ở sub-tab Cấu Hình.
+ *
+ * Vì sao là cờ chứ không sửa phần tử: `loadConnectorConfigAll()` gọi API rồi
+ * gán lại `innerHTML` cho cả khối, nên phần tử đã tô sáng bị thay mới và mất
+ * luôn class. Đo thực tế: bấm nút, 400ms sau khối đã có nhưng KHÔNG còn vòng
+ * tô sáng. Đọc cờ lúc vẽ thì tồn tại đúng lâu như khối đang hiện.
+ */
+let _ccConfigFocus = null;
 // Extensions registered by enterprise plugins (populated at runtime).
 let _ccExtensions = [];
 // Tên trường bí mật — KHÔNG bao giờ chép vào value của <input>, chỉ ghi "đã lưu".
@@ -10394,6 +10418,45 @@ const _CC_CONNECTOR_LABEL = {
 };
 
 /**
+ * Từ card ở tab "Kết Nối" sang đúng khối cấu hình của connector đó.
+ *
+ * Vì sao cần hàm riêng: trước đây nút "Cấu hình" chỉ gọi
+ * `switchCcSubTab('config')` — sang đúng tab nhưng không dẫn tới đúng
+ * connector. Người dùng bấm ở card AWS thì phải tự nhìn xem khối nào là
+ * của AWS trong 4 khối chồng nhau. Đó là nút trông như dùng được nhưng
+ * không dẫn tới đâu, nên nay nó tự cuộn và tô sáng đúng khối.
+ */
+async function gotoConnectorConfig(name) {
+  // Bật cờ TRƯỚC khi chuyển tab: `switchCcSubTab('config')` gọi API rồi mới vẽ
+  // khối, nên cờ phải sẵn sàng từ đầu. Đặt sau sẽ tô sáng một phần tử sắp bị
+  // thay mới — đúng lỗi đã gặp.
+  _ccConfigFocus = name;
+  switchCcSubTab('config');
+
+  // Đợi khối thực sự xuất hiện rồi mới cuộn tới. Cuộn trước khi có phần tử
+  // sẽ cuộn sai chỗ hoặc không cuộn gì.
+  let card = null;
+  for (let i = 0; i < 40 && !card; i += 1) {
+    card = _ccGet(`${name}-config-card`);
+    if (!card) await new Promise((r) => setTimeout(r, 150));
+  }
+  if (!card) {
+    showToast(`Chưa thấy khối cấu hình của ${name.toUpperCase()} — xem thẻ trên.`, 'warning');
+    _ccConfigFocus = null;
+    return;
+  }
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Bỏ nhấn mạnh sau một lúc, nhưng phải xoá cờ TRƯỚC rồi vẽ lại — bỏ cờ
+  // một mình thì lần vẽ sau vẫn còn vòng sáng vĩnh viễn.
+  setTimeout(() => {
+    _ccConfigFocus = null;
+    const again = _ccGet(`${name}-config-card`);
+    if (again) renderConnectorForms().then(() => loadConnectorConfigAll());
+  }, 3200);
+}
+
+/**
  * Vẽ card cho MỌI kết nối ngoại vi — cốt lõi lẫn tùy chỉnh, trong MỘT lưới.
  *
  * Một bộ vẽ cho cả hai loại vì chúng là cùng một thứ: đều là kết nối ra
@@ -10414,6 +10477,7 @@ function renderConnectionCards() {
   for (const name of CC_CONNECTORS) {
     const icon = _CC_CONNECTOR_ICON[name] || _CC_CONNECTOR_ICON.einvoice;
     const tint = _CC_CONNECTOR_TINT[name] || _CC_CONNECTOR_TINT.einvoice;
+    const miss = _ccBuiltinMissing.get(name) || [];
     cards.push(`
       <div class="connector-card cc-conn-card flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 transition hover:border-slate-300 dark:hover:border-slate-600"
            data-connector="${name}">
@@ -10426,6 +10490,12 @@ function renderConnectionCards() {
             <div class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(_CC_CONNECTOR_LABEL[name] || '')}</div>
           </div>
         </div>
+        ${miss.length ? `
+          <div class="mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <p class="text-[9px] text-amber-800 dark:text-amber-200 leading-snug">
+              Chưa nhập khoá: <span class="font-mono">${_esc(miss.join(', '))}</span> — mọi lời gọi sẽ thất bại.
+            </p>
+          </div>` : ''}
         ${(() => {
           const h = _ccConnHealth.get(name);
           if (!h) return `
@@ -10442,9 +10512,9 @@ function renderConnectionCards() {
         <div class="mt-auto flex items-center gap-1.5">
           <button type="button" onclick="runConnectorHealth('${name}')"
             class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
-          <button type="button" onclick="switchCcSubTab('config')"
+          <button type="button" onclick="gotoConnectorConfig('${name}')"
             class="px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition"
-            title="Sửa cấu hình">Cấu hình</button>
+            title="Sang tab Cấu Hình và tới đúng khối của ${_esc(name.toUpperCase())}">Cấu hình</button>
         </div>
       </div>`);
   }
@@ -10472,7 +10542,7 @@ function renderConnectionCards() {
         <div class="flex items-center gap-1.5 mb-2.5">
           <span class="w-2 h-2 rounded-full shrink-0 ${h ? (h.ok ? 'bg-emerald-500' : 'bg-rose-500') : 'bg-slate-300 dark:bg-slate-600'}"
             id="${_esc(ds.id)}-health" title="${h ? _esc(h.text) : 'Chưa kiểm tra'}"></span>
-          <span class="text-[10px] truncate ${h ? (h.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400') : 'text-slate-500 dark:text-slate-400'}">${h ? _esc(h.text) : 'Chưa kiểm tra'}</span>
+          <span id="${_esc(ds.id)}-health-text" class="text-[10px] truncate ${h ? (h.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400') : 'text-slate-500 dark:text-slate-400'}">${h ? _esc(h.text) : 'Chưa kiểm tra'}</span>
         </div>
         <div id="${_esc(ds.id)}-preview"></div>
         <div class="mt-auto flex items-center gap-1.5">
@@ -11057,11 +11127,20 @@ function _ccHealthVerdict(payload, httpOk) {
 async function runDataSourceHealth(id) {
   const ds = _ccDataSourceRegistry[id];
   if (!ds || !ds.endpoints.health) return;
-  
+
   const indicator = _ccGet(`${id}-health`);
+  // Phase 81: cập nhật CẢ chữ chứ không chỉ màu chấm. Trước đây hàm này chỉ
+  // đổi `className` của chấm và đặt `title`, còn dòng chữ "Chưa kiểm tra" là
+  // HTML tĩnh — nên bấm "Kiểm tra" xong nhìn vào không có gì thay đổi, tưởng
+  // nút hỏng. Chấm đổi màu mà chữ vẫn "chưa kiểm tra" là hai nơi nói hai lệch.
+  const textEl = _ccGet(`${id}-health-text`);
   if (indicator) {
     indicator.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
     indicator.title = 'Đang kiểm tra…';
+  }
+  if (textEl) {
+    textEl.textContent = 'Đang kiểm tra…';
+    textEl.className = 'text-[10px] truncate text-amber-600 dark:text-amber-400';
   }
   
   try {
@@ -11080,13 +11159,29 @@ async function runDataSourceHealth(id) {
         : 'w-2 h-2 rounded-full bg-rose-500';
       indicator.title = success ? 'OK' : reason;
     }
+    if (textEl) {
+      textEl.textContent = success ? 'OK' : reason;
+      textEl.className = 'text-[10px] truncate ' + (success
+        ? 'text-emerald-600 dark:text-emerald-400'
+        : 'text-rose-600 dark:text-rose-400');
+    }
     _ccConnHealth.set(id, { ok: success, text: success ? 'OK' : reason, dot: true });
   } catch (err) {
     if (indicator) {
       indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
       indicator.title = `Lỗi: ${err.message}`;
     }
+    if (textEl) {
+      textEl.textContent = `Lỗi: ${err.message}`;
+      textEl.className = 'text-[10px] truncate text-rose-600 dark:text-rose-400';
+    }
     _ccConnHealth.set(id, { ok: false, text: `Lỗi: ${err.message}`, dot: true });
+  } finally {
+    // Ô KPI đếm cả nguồn tùy chỉnh, nên kiểm tra xong phải cập nhật — thiếu
+    // bước này thì bấm "Kiểm tra" trên nguồn tùy chỉnh, KPI vẫn giữ nguyên
+    // "chờ / chưa kiểm tra" dù đã có kết quả. `runConnectorHealth` đã có
+    // bước này từ trước; đây là chỗ tương ứng bị bỏ sót.
+    syncIntegrationKpi();
   }
 }
 
@@ -11428,6 +11523,14 @@ async function syncRemoteDataSources() {
     const remote = Array.isArray(d.custom) ? d.custom : [];
     const seen = new Set();
 
+    // `builtin` là dict { tên: {has_auth, missing_fields, title} }.
+    _ccBuiltinMissing.clear();
+    for (const [name, info] of Object.entries(d.builtin || {})) {
+      if (Array.isArray(info?.missing_fields) && info.missing_fields.length) {
+        _ccBuiltinMissing.set(name, info.missing_fields);
+      }
+    }
+
     for (const src of remote) {
       if (!src?.id) continue;
       seen.add(src.id);
@@ -11616,10 +11719,14 @@ function initCcDataSourceRegistry() {
   // `reloadActive` mặc định false vì `loadSystemIntegration()` vừa render xong —
   // render lại ở đây sẽ xoá kết quả các hàm load khác vừa ghi vào cùng pane.
   syncRemoteDataSources().then((n) => {
-    if (!n) return;
-    // Nguồn vừa nạp có thể thuộc tab đang mở -> vẽ lại để không phải bấm
-    // qua tab khác rồi quay lại mới thấy.
+    // Phase 81: luôn vẽ lại lưới card, kể cả khi không có nguồn tùy chỉnh nào
+    // mới. Lý do: `syncRemoteDataSources()` nạp cả danh sách khoá còn THIẾU của
+    // connector cốt lõi (`_ccBuiltinMissing`) — mà lần vẽ đầu tiên xảy ra TRƯỚC
+    // khi nạp xong, nên cảnh báo "chưa nhập khoá" sẽ không bao giờ hiện nếu
+    // chỉ vẽ lại khi có nguồn mới. Điều kiện `if (!n) return` là chính xác
+    // chỗ đã giấu lỗi này.
     renderConnCustomSources();
+    renderConnectionCards();
     const active = document.querySelector('[data-cc-subtab].bg-primary-600')?.dataset.ccSubtab;
     if (active && active !== 'conn') loadCcDataSourceTab(active);
   });
@@ -11713,15 +11820,36 @@ function switchCcSubTab(name) {
 // Tách khỏi `syncCommandCenterKpi` vì 4 ô này nằm ở tab khác: nếu để chung,
 // số liệu tích hợp sẽ phải nạp cả khi người dùng chỉ mở Trung Tâm Chỉ Huy.
 function syncIntegrationKpi() {
-  // "Sẵn sàng" = đã bấm kiểm tra và kết quả trả về OK. Connector chưa kiểm
-  // tra KHÔNG tính là sẵn sàng — nếu tính thì con số này chỉ phản ánh "đã tạo
-  // 4 thẻ", không phản ánh hệ thống có dùng được hay không.
-  let healthy = 0;
-  [...CC_CONNECTORS, ..._ccExtensions].forEach((n) => {
-    if (_ccGet(`${n}-health-indicator`)?.classList.contains('bg-emerald-500')) healthy += 1;
-  });
   const kpiConn = _ccGet('cc-kpi-connectors');
-  if (kpiConn) kpiConn.textContent = `${healthy}/${CC_CONNECTORS.length}`;
+  const kpiLabel = _ccGet('cc-kpi-connectors-label');
+
+  // Phase 81: đếm trên ĐÚNG những gì lưới card đang hiện — 4 connector cốt lõi
+  // cộng nguồn tùy chỉnh. Trước đây mẫu số cứng `CC_CONNECTORS.length` nên thêm
+  // một ERP của hệ thống thành "3/4" — tức là 5 kết nối nhưng báo thành 4, và
+  // ERP mới không bao giờ được tính. Số liệu phải khớp với thứ nhìn thấy.
+  const custom = Object.values(_ccDataSourceRegistry).filter(
+    ds => ds.isRemote && (ds.category === 'connector' || ds.category === 'custom')
+  );
+  const total = CC_CONNECTORS.length + custom.length;
+
+  // Trạng thái lấy từ bộ nhớ, không đọc class trong DOM: lưới card được vẽ
+  // lại mỗi lần đổi sub-tab, đọc DOM lúc đó sẽ ra 0 dù đã kiểm tra xong.
+  const all = [...CC_CONNECTORS, ..._ccExtensions.map((n) => n), ...custom.map((d) => d.id)];
+  const seen = all.filter((n) => _ccConnHealth.has(n));
+  const healthy = seen.filter((n) => _ccConnHealth.get(n).ok).length;
+
+  if (kpiConn) {
+    if (seen.length === 0) {
+      // Chưa kiểm tra gì thì KHÔNG ghi "0/N sẵn sàng": đọc thành "cả N cái
+      // đều hỏng", trong khi thực tế là chưa biết. Phải nói đúng là chưa rõ.
+      kpiConn.textContent = 'chờ';
+      kpiConn.className = 'text-xl font-bold leading-none text-slate-400 dark:text-slate-500 italic';
+    } else {
+      kpiConn.textContent = `${healthy}/${total}`;
+      kpiConn.className = 'text-xl font-bold leading-none text-slate-800 dark:text-slate-100';
+    }
+  }
+  if (kpiLabel) kpiLabel.textContent = seen.length === 0 ? 'chưa kiểm tra' : 'sẵn sàng';
 
   // `cc-plugin-total` / `cc-bg-task-count` / `cc-webhook-count` do các hàm tải
   // tương ứng ghi vào. Ô KPI chỉ chép lại, không tự tính — để hai nơi không
@@ -12171,8 +12299,14 @@ function _ccRenderCard(c) {
     .map((k) => _ccRenderField(c.id, k, props[k], required.has(k)))
     .join('');
 
+  // Được nhấn mạnh không: thêm class NGAY TRONG CHUỖI HTML, không sửa phần tử
+  // sau khi vẽ — xem giải thích ở khai báo `_ccConfigFocus`.
+  const focusCls = c.id === _ccConfigFocus
+    ? ' ring-2 ring-primary-500 border-primary-400'
+    : '';
+
   return (
-    `<div class="config-section rounded-xl border border-slate-200 dark:border-slate-700 p-3.5">` +
+    `<div id="${c.id}-config-card" class="config-section rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 transition${focusCls}">` +
       `<div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100 dark:border-slate-700/60">` +
         `<span class="text-xs font-bold text-slate-700 dark:text-slate-300">${_esc(c.display_name || c.id.toUpperCase())}</span>` +
         (c.description ? `<span class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(c.description)}</span>` : '') +
@@ -12419,6 +12553,7 @@ if (typeof window !== 'undefined') {
   window.loadConnectorConfigAll = loadConnectorConfigAll;
   window.renderConnectorForms = renderConnectorForms;
   window.renderConnectionCards = renderConnectionCards;
+  window.gotoConnectorConfig = gotoConnectorConfig;
   window.saveConnectorConfig = saveConnectorConfig;
   window.loadPluginRegistryStats = loadPluginRegistryStats;
   window.loadBackgroundTasks = loadBackgroundTasks;

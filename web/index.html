@@ -918,8 +918,11 @@
             <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Kết nối ngoại vi</span>
           </div>
           <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-connectors" class="text-xl font-bold leading-none text-slate-800 dark:text-slate-100">0/4</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">sẵn sàng</span>
+            <!-- Nhãn đổi theo trạng thái: chưa kiểm tra thì ghi "chờ" chứ không
+                 phải "0/4 sẵn sàng" — 0/4 đọc thành cả 4 cái đều hỏng, trong
+                 khi thực tế là chưa biết. -->
+            <span id="cc-kpi-connectors" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500 italic">chờ</span>
+            <span id="cc-kpi-connectors-label" class="text-[9px] text-slate-400 dark:text-slate-500">chưa kiểm tra</span>
           </div>
         </div>
 

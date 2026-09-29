@@ -119,6 +119,15 @@ const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
 // ReferenceError và test chết ngay, không báo đúng nguyên nhân.
 // (Không dùng backtick trong khối harness: đây là template literal.)
 const _ccConnHealth = new Map();
+// renderConnectionCards() đọc danh sách khoá còn THIẾU của connector cốt lõi
+// để cảnh báo ngay trên card. Rỗng ở test = không connector nào thiếu khoá,
+// nên card hiện đúng như lúc server chưa báo thiếu gì.
+const _ccBuiltinMissing = new Map();
+// runDataSourceHealth() goi syncIntegrationKpi() o khoi finally de o KPI
+// cap nhat sau khi kiem tra nguon tuy chinh. Harness khong can ham that —
+// chi can de ham ton tai, khong nem loi.
+function syncIntegrationKpi() { _ccKpiSync++; }
+let _ccKpiSync = 0;
 
 // apiFetch trả về Response giả lập theo kịch bản đặt trước.
 let _responses = {};

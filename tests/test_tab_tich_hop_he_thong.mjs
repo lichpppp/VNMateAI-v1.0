@@ -233,8 +233,18 @@ results.push('▸ Tách hai dải KPI');
     for (const id of ['cc-kpi-connectors', 'cc-kpi-plugins', 'cc-kpi-bg-tasks', 'cc-kpi-webhook-alerts']) {
       check(`syncIntegrationKpi() cập nhật "${id}"`, siKpi[1].includes(id));
     }
-    check('syncIntegrationKpi() đếm connector theo chấm sức khoẻ thật (đã kiểm tra OK)',
-      siKpi[1].includes('bg-emerald-500'));
+    // Phase 81: KPI không đọc class `bg-emerald-500` trong DOM nữa mà đọc
+    // `_ccConnHealth`. Lý do: lưới card được vẽ lại mỗi lần đổi sub-tab, đọc
+    // DOM lúc đó trả về 0 dù đã kiểm tra xong — tức số tụt về 0 không rõ lý do.
+    check('syncIntegrationKpi() đếm theo kết quả đã lưu, không đọc class trong DOM',
+      siKpi[1].includes('_ccConnHealth') && !siKpi[1].includes('bg-emerald-500'));
+    // Chưa kiểm tra gì thì phải nói "chờ", không ghi "0/N sẵn sàng" — 0/N đọc
+    // thành "cả N cái đều hỏng", trong khi thực tế là chưa biết.
+    check('syncIntegrationKpi() không bịa số 0 khi chưa kiểm tra',
+      siKpi[1].includes("'chờ'") && siKpi[1].includes('seen.length === 0'));
+    // Mẫu số phải cộng cả nguồn tùy chỉnh, không cứng CC_CONNECTORS.length.
+    check('syncIntegrationKpi() tính mẫu số trên cả nguồn tùy chỉnh',
+      siKpi[1].includes('CC_CONNECTORS.length + custom.length'));
   }
 
   // Mọi nơi ghi vào ô nguồn phải gọi lại hàm KPI, nếu không số sẽ kẹt.
