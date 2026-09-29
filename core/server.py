@@ -688,6 +688,20 @@ async def auth_middleware(request: Request, call_next):
     # còn /template thì hoàn toàn không xác thực).
     guarded_prefixes = ("/api/v1/", "/api/erp/")
 
+    # Phase 78: bỏ qua preflight CORS (OPTIONS).
+    #
+    # Trình duyệt gửi OPTIONS KHÔNG kèm Authorization, nên middleware này trả
+    # 401 và CORSMiddleware không bao giờ kịp gắn header. Kết quả: mọi
+    # frontend chạy khác origin (trang Admin ở cổng 3001) không gọi được API
+    # nào — lỗi "Failed to fetch" dù backend vẫn chạy bình thường.
+    #
+    # Đây KHÔNG phải nới lỏng xác thực: preflight chỉ hỏi "có cho phép
+    # method/header này không", không mang dữ liệu, không chạy nghiệp vụ, và
+    # không đọc được gì. Request thật (GET/POST/...) vẫn qua đủ kiểm tra JWT
+    # bên dưới.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     if path.startswith(guarded_prefixes):
         if path in public_endpoints:
             return await call_next(request)
@@ -6183,6 +6197,160 @@ async def api_connectors_health(
                 }
             except Exception as exc:  # pragma: no cover - phòng thủ
                 items[name] = {"configured": False, "error": str(exc)}
+
+        return {"status": "success", "connectors": items}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# Nhãn hiển thị + mô tả cho từng connector. Tách riêng khỏi base_connector vì
+# đây là thứ CHỈ giao diện dùng; lõi connector không biết tới chuyện hiển thị.
+_CONNECTOR_DISPLAY: Dict[str, Dict[str, str]] = {
+    "aws": {
+        "display_name": "Amazon Web Services",
+        "description": "Chi phí & trạng thái EC2/CloudWatch qua AWS API.",
+    },
+    "oci": {
+        "display_name": "Oracle Cloud Infrastructure",
+        "description": "Danh sách instance & chỉ số compute của OCI.",
+    },
+    "paperless": {
+        "display_name": "Paperless-ngx",
+        "description": "Tra cứu và tải tài liệu trong kho Paperless.",
+    },
+    "einvoice": {
+        "display_name": "Hóa đơn điện tử",
+        "description": "Phát hành & tra cứu hóa đơn qua nhà cung cấp hóa đơn.",
+    },
+}
+
+# Khoá nào phải che (không bao giờ trả về giá trị, kể cả khi đã cấu hình).
+_CONNECTOR_SECRET_FIELDS = frozenset({
+    "secret_access_key",
+    "api_token",
+    "client_secret",
+    "access_key_id",
+    "private_key",
+    "api_key",
+    "token",
+})
+
+
+def _build_connector_config_schema(name: str) -> Dict[str, Any]:
+    """
+    Sinh JSON Schema cấu hình cho một connector từ bảng khai báo sẵn có.
+
+    Mục tiêu: giao diện Admin không phải viết tay form cho từng connector. Backend
+    đã biết (a) khoá nào BẮT BUỘC và (b) khoá nào có sẵn giá trị mặc định —
+    hai bảng đó đủ để dựng form. Thêm connector mới ở Python là có form mới,
+    không cần sửa frontend.
+
+    Chỉ trả TÊN khoá, tuyệt đối không trả giá trị: `missing_required_fields()`
+    cũng vậy. Nếu form đã lưu khoá rồi, người dùng thấy dấu "đã đặt" chứ không
+    thấy khoá bí mật của họ.
+    """
+    from core.connectors.base_connector import (
+        CONNECTOR_DEFAULTS,
+        CONNECTOR_REQUIRED_FIELDS,
+        missing_required_fields,
+    )
+
+    defaults = CONNECTOR_DEFAULTS.get(name, {})
+    required = set(CONNECTOR_REQUIRED_FIELDS.get(name, ()))
+    missing = set(missing_required_fields(name))
+
+    properties: Dict[str, Any] = {}
+
+    # Trường bắt buộc đưa lên trước — đó là phần người vận hành phải điền.
+    ordered_keys = sorted(required) + sorted(k for k in defaults if k not in required)
+
+    for key in ordered_keys:
+        is_required = key in required
+        is_missing = key in missing
+        default_val = defaults.get(key)
+
+        prop: Dict[str, Any] = {
+            "type": "boolean" if isinstance(default_val, bool) else "string",
+            "title": key.replace("_", " ").capitalize(),
+        }
+        if is_required:
+            prop["description"] = "Bắt buộc — connector sẽ không chạy nếu thiếu."
+        if key in _CONNECTOR_SECRET_FIELDS:
+            # `format: secret` khiến DynamicForm hiện dấu *** và có nút bật/tắt.
+            prop["format"] = "secret"
+            prop["ui"] = {"widget": "text"}
+        if default_val not in (None, ""):
+            prop["default"] = default_val
+        elif is_required and key not in _CONNECTOR_SECRET_FIELDS:
+            prop["ui"] = {"widget": "text"}
+
+        properties[key] = prop
+
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": sorted(required),
+    }
+
+
+@app.get(
+    "/api/v1/enterprise/connectors/catalog",
+    summary="Danh mục connector + JSON Schema cấu hình (Admin No-code form)",
+    tags=["Enterprise OS Phase 59"],
+)
+async def api_connectors_catalog(
+    current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
+) -> Dict[str, Any]:
+    """
+    Danh mục đầy đủ connector cho trang Quản trị, kèm schema cấu hình.
+
+    Khác `.../connectors/health` ở chỗ endpoint này gom luôn metadata hiển thị và
+    JSON Schema, nên giao diện chỉ cần một vòng gọi là dựng được cả lưới card lẫn
+    form cấu hình. `.../connectors/health` vẫn giữ nguyên cho tab Tích hợp
+    Hệ Thống của portal.
+
+    Danh sách lấy đúng từ CONNECTOR_REGISTRY — nếu không có connector trong
+    registry thì không hiện, để trang quản trị không hứa ra thứ hệ thống
+    không có.
+    """
+    try:
+        from core.connectors import CONNECTOR_REGISTRY
+        from core.connectors.base_connector import missing_required_fields
+
+        items: Dict[str, Any] = {}
+        for name, connector in CONNECTOR_REGISTRY.items():
+            meta = _CONNECTOR_DISPLAY.get(name, {})
+            missing = missing_required_fields(name)
+            actions: List[str] = []
+            max_risk: Optional[int] = None
+            try:
+                from core.connectors import CONNECTOR_RISK_LEVELS
+
+                actions = sorted(
+                    k.split(":", 1)[1]
+                    for k in CONNECTOR_RISK_LEVELS
+                    if k.split(":", 1)[0] == name
+                )
+                risks = [
+                    lvl for k, lvl in CONNECTOR_RISK_LEVELS.items()
+                    if k.split(":", 1)[0] == name
+                ]
+                max_risk = max(risks) if risks else None
+            except Exception:  # pragma: no cover - phòng thủ
+                pass
+
+            items[name] = {
+                "id": name,
+                "display_name": meta.get("display_name", name),
+                "description": meta.get("description", ""),
+                # `configured` = đủ khoá bắt buộc. Chưa có thì giao diện hiện
+                # "chờ kết nối" thay vì "Đã kết nối" (giống quy ước Phase 73-76).
+                "configured": not missing,
+                "missing_fields": missing,
+                "actions": actions,
+                "max_risk_level": max_risk,
+                "config_schema": _build_connector_config_schema(name),
+            }
 
         return {"status": "success", "connectors": items}
     except Exception as e:
