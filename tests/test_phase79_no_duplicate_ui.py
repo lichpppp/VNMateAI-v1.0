@@ -128,20 +128,77 @@ for tab, ids in (
                 )
 
 check(
-    "tab Nhật Ký có bộ chuyển 3 chế độ",
-    all(f'data-log-view="{v}"' in section_html("logs") for v in ("stream", "security", "kpi")),
+    "tab Nhật Ký có bộ chuyển 4 chế độ",
+    all(
+        f'data-log-view="{v}"' in section_html("logs")
+        for v in ("stream", "security", "kpi", "recent")
+    ),
     "thiếu chế độ nghĩa là bảng nhật ký bị giấu không tìm thấy",
 )
 check(
-    "hàm switchLogView tồn tại",
-    "function switchLogView" in JS,
-    "không có hàm thì bộ chuyển không hoạt động",
+    "hàm switchLogView biết chế độ recent",
+    "'stream', 'security', 'kpi', 'recent'" in JS,
+    "thêm nút mà không thêm vào danh sách thì bấm không chuyển được",
 )
 check(
     "bảng nhật ký cũ có nút dẫn tới nơi mới",
     "switchLogView('security')" in section_html("security")
     and "switchLogView('kpi')" in section_html("tasks"),
     "bỏ bảng đi mà không có đường dẫn thì người dùng mất tính năng",
+)
+
+# ──────────────────────────────────────────────────────────────────────
+section("Hai bảng cùng endpoint /logs/recent đã gom một")
+
+# Đây là loại trùng lặp tệ nhất: cùng một endpoint, chắc chắn cùng dữ liệu, ở
+# hai màn hình. Trước Phase 79:
+#   #mon-log-list  (Bảng Điều Khiển, "Panel 11 — Nhật Ký Hệ Thống")
+#   #cc-ops-log    (Trung Tâm Chỉ Huy, "Nhật Ký Vận Hành")
+logs_body = section_html("logs")
+check(
+    "bảng nhật ký vận hành nằm ở tab Nhật Ký",
+    'id="log-recent-list"' in logs_body,
+    "chủ sở hữu của nhật ký phải là tab Nhật Ký",
+)
+check(
+    "không còn bảng nhật ký thứ hai ở Bảng Điều Khiển",
+    'id="mon-log-list"' not in section_html("dashboard"),
+    "cùng endpoint /api/v1/logs/recent — dữ liệu chắc chắn giống nhau",
+)
+check(
+    "không còn bảng nhật ký thứ hai ở Trung Tâm Chỉ Huy",
+    'id="cc-ops-log"' not in section_html("command-center"),
+    "cùng endpoint /api/v1/logs/recent — dữ liệu chắc chắn giống nhau",
+)
+check(
+    "hai nơi bị gỡ đều còn lối dẫn sang tab Nhật Ký",
+    "switchTab('logs')" in section_html("dashboard")
+    and "switchLogView('recent')" in section_html("command-center"),
+    "bỏ hẳn thì mất thông tin; phải để lại đường dẫn",
+)
+check(
+    "bộ lọc ẩn heartbeat được giữ lại",
+    'id="log-recent-verbose"' in logs_body,
+    "bản giữ lại là bản Trung Tâm Chỉ Huy vì có bộ lọc này",
+)
+
+# Hàm cũ phục vụ #mon-log-list nay là code chết — code chết còn tệ hơn trùng lặp
+# vì nó âm thầm chạy tới `if (!box) return;` rồi dừng, tưởng như đang hoạt động.
+for dead in ("renderSystemLogs", "paintMonLogs", "setMonLogFilter"):
+    check(
+        f"hàm chết '{dead}' đã bị gỡ",
+        f"function {dead}(" not in JS_CODE,
+        "giữ lại = code chết, không ai gọi được mà tưởng còn hoạt động",
+    )
+check(
+    "bộ đệm của panel đã gỡ cũng bị gỡ",
+    "monLogCache" not in JS_CODE and "MON_LOG_MAX_ROWS" not in JS_CODE,
+    "biến không còn ai đọc",
+)
+check(
+    "vòng poll không còn gọi endpoint nhật ký",
+    "/api/v1/logs/recent" not in JS_CODE.split("async function loadExtendedMonitors")[1].split("function renderQueueMonitor")[0],
+    "nạp rồi không ai đọc = mỗi vòng poll mất một request vô ích",
 )
 
 # ──────────────────────────────────────────────────────────────────────
@@ -232,6 +289,24 @@ for t in tabs:
         b.count("<div") == b.count("</div>"),
         f"thiếu {b.count('<div') - b.count('</div>')} thẻ mở",
     )
+
+# ĐẾM THẺ KHÔNG ĐỦ. Lần gom nhật ký trước nuốt mất thẻ đóng của
+# `log-view-stream`, khiến 3 chế độ còn lại lọt vào BÊN TRONG nó: wrapper đóng
+# rỗng, còn terminal thời gian thực nằm ngoài mọi wrapper. Tổng số thẻ vẫn
+# CÂN BẰNG nên phép đếm không bắt được — phải đo chiều sâu lồng nhau.
+depth = 0
+log_view_depths: dict[str, int] = {}
+for line in section_html("logs").split("\n"):
+    depth += line.count("<div") - line.count("</div>")
+    m = re.search(r'id="log-view-([a-z]+)"', line)
+    if m:
+        log_view_depths[m.group(1)] = depth
+check(
+    "4 chế độ nhật ký nằm cùng cấp (không lồng vào nhau)",
+    len(log_view_depths) == 4 and set(log_view_depths.values()) == {1},
+    f"chiều sâu từng chế độ: {log_view_depths} — lồng sai nghĩa là ẩn/hiện "
+    "không độc lập: chọn chế độ khác thì chế độ cũ vẫn che mất",
+)
 
 # ──────────────────────────────────────────────────────────────────────
 print("\n" + "─" * 60)

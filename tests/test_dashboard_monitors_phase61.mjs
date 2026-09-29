@@ -18,6 +18,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(HERE, '..', 'web', 'app.js'), 'utf-8');
+// Bản code đã bỏ comment. Bắt buộc phải có khi kiểm tra "cái gì đó đã bị gỡ":
+// các bình luận giải thích fix hay nhắc lại đúng tên biến/hằng đã xoá, nên quét
+// `src` thôi sẽ khẳng định sai là chúng còn tồn tại.
+const srcCode = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const html = readFileSync(join(HERE, '..', 'web', 'index.html'), 'utf-8');
 
 let pass = 0, fail = 0;
@@ -48,9 +52,8 @@ try {
   memFn   = cutBlock('\nfunction renderMemoryMonitor(mem, dom, sys) {');
   connFn  = cutBlock('\nfunction renderConnectorsStrip(d) {');
   secFn   = cutBlock('\nfunction renderSecurityMonitor(d) {');
-  logsFn  = cutBlock('\nfunction renderSystemLogs(d) {');
-  paintFn = cutBlock('\nfunction paintMonLogs() {');
-  filterFn= cutBlock('\nfunction setMonLogFilter(level, btn) {');
+  // Phase 79: gỡ `renderSystemLogs` / `paintMonLogs` / `setMonLogFilter` — chúng
+  // chỉ phục vụ `#mon-log-list`, bảng nhật ký đã gom vào tab Nhật Ký.
   extTimerFn = cutBlock('\nfunction _ensureExtendedMonitorTimer() {');
   // Dùng cutBlock, KHÔNG cắt theo mốc hàm kế tiếp: các hàm render nằm NGAY
   // SAU loadExtendedMonitors nên cắt theo mốc sẽ nuốt trùng → SyntaxError.
@@ -91,12 +94,14 @@ const monIds = [
   'mon-mem-employees', 'mon-mem-computers', 'mon-mem-users',
   'mon-mem-hud', 'mon-mem-lan',
   'mon-conn-list', 'mon-conn-ready', 'mon-conn-total',
-  'mon-log-list', 'mon-log-cache',
+  // Phase 79: 'mon-log-list' đã bị gỡ khỏi Bảng Điều Khiển. Bảng nhật ký ở
+  // đây nạp CÙNG endpoint /api/v1/logs/recent với "Nhật Ký Vận Hành" ở Trung
+  // Tâm Chỉ Huy — cùng dữ liệu ở hai màn hình. Cả hai đã gom vào tab Nhật Ký
+  // (chế độ "Nhật ký vận hành", id `log-recent-list`).
 ];
 
 const harness = `
 const API_BASE = '';
-const monLogFilterRef = () => monLogFilter;
 const __dom = {
 ${monIds.map((id) => `  '${id}': { _html: '', _text: '', style: {}, classList: { _t: new Set(), toggle(c, on){ on ? this._t.add(c) : this._t.delete(c); }, has(c){ return this._t.has(c); } },
     get innerHTML() { return this._html; }, set innerHTML(v) { this._html = String(v); },
@@ -106,10 +111,7 @@ const document = {
   getElementById: (id) => __dom[id] || null,
   querySelectorAll: () => [],
 };
-const MON_LOG_MAX_ROWS = 120;
 let monExtendedTimer = null;
-let monLogFilter = 'ALL';
-let monLogCache = [];
 // monLastHeavyRunAt và MON_HEAVY_DEDUPE_MS KHÔNG khai báo ở đây — chúng đã
 // nằm trong khối loadExtendedMonitors được cắt từ app.js. Khai báo lần hai
 // sẽ gây SyntaxError.
@@ -226,13 +228,11 @@ const HEALTH = {
   security_role: 'ADMIN',
 };
 
-const mod = harness + '\n' + [escFn, setFn, widthFn, fastFn, queueFn, toolFn, memFn, connFn, secFn, logsFn, paintFn, filterFn, extTimerFn, extLoadFn].join('\n')
+const mod = harness + '\n' + [escFn, setFn, widthFn, fastFn, queueFn, toolFn, memFn, connFn, secFn, extTimerFn, extLoadFn].join('\n')
   + `\nexport { document, __dom, renderMonitorFastPath, renderQueueMonitor, renderToolHealth,
              renderMemoryMonitor, renderConnectorsStrip, renderSecurityMonitor,
-             renderSystemLogs, paintMonLogs, setMonLogFilter,
              loadExtendedMonitors, _ensureExtendedMonitorTimer,
-             __reset, __getIntervals, __getApiCalls, MON_HEAVY_DEDUPE_MS,
-             monLogFilterRef, monLogCache, monLogFilter };\n`;
+             __reset, __getIntervals, __getApiCalls, MON_HEAVY_DEDUPE_MS };\n`;
 
 const dir = mkdtempSync(join(tmpdir(), 'mon61-'));
 const f = join(dir, 'm.mjs');
@@ -419,39 +419,36 @@ M.renderSecurityMonitor({ status: 'success', total: 5, logs: [{ status: 'success
 check('BLOCKED/denied (không phải chữ thường) vẫn bị tính là thất bại',
   txt('mon-sec-failed') === '2', txt('mon-sec-failed'));
 
-// ── 7. Panel 11: nhật ký hệ thống + bộ lọc ────────────────────────────────
-results.push('▸ Panel 11 — nhật ký hệ thống + bộ lọc mức độ');
-M.renderSystemLogs(LOGS);
-const allRows = D['mon-log-list'].innerHTML;
-check('vẽ đủ 4 dòng nhật ký', (allRows.match(/leading-relaxed/g) || []).length === 4,
-  String((allRows.match(/leading-relaxed/g) || []).length));
-check('nhãn mức độ ERR/WRN/INF đúng', allRows.includes('>ERR<') && allRows.includes('>WRN<') && allRows.includes('>INF<'));
-M.setMonLogFilter('ERROR', null);
-check('lọc ERROR → chỉ 1 dòng', (D['mon-log-list'].innerHTML.match(/leading-relaxed/g) || []).length === 1);
-check('dòng ERROR là dòng đúng', D['mon-log-list'].innerHTML.includes('Authentication failed'));
-M.setMonLogFilter('WARNING', null);
-check('lọc WARNING → chỉ 1 dòng', (D['mon-log-list'].innerHTML.match(/leading-relaxed/g) || []).length === 1);
-M.setMonLogFilter('ALL', null);
-check('bỏ lọc → trở lại đủ 4 dòng', (D['mon-log-list'].innerHTML.match(/leading-relaxed/g) || []).length === 4);
-check('đổi bộ lọc KHÔNG gọi lại server (dùng cache)',
-  M.monLogCache.length === 4, String(M.monLogCache.length));
-M.setMonLogFilter('DEBUG', null);
-check('mức không tồn tại → lời giải thích, không khung rỗng',
-  D['mon-log-list'].innerHTML.includes('Không có dòng nào'));
-M.renderSystemLogs({ status: 'success', logs: [] });
-check('nhật ký rỗng → lời giải thích', D['mon-log-list'].innerHTML.includes('Nhật ký trống'));
-check('message có ký tự nguy hiểm được escape', (() => {
-  // Phải trả bộ lọc về ALL: test trước để lại DEBUG nên dòng ERROR bị lọc mất.
-  M.setMonLogFilter('ALL', null);
-  M.renderSystemLogs({ logs: [{ level: 'ERROR', logger: 'x', message: '<script>alert(1)</script>', timestamp: '2026-01-01T00:00:00' }] });
-  const h = D['mon-log-list'].innerHTML;
-  return !h.includes('<script>') && h.includes('&lt;script&gt;');
-})());
-check('logger có ký tự nguy hiểm cũng được escape', (() => {
-  M.renderSystemLogs({ logs: [{ level: 'INFO', logger: '<b>evil</b>', message: 'ok', timestamp: '2026-01-01T00:00:00' }] });
-  const h = D['mon-log-list'].innerHTML;
-  return !h.includes('<b>evil</b>') && h.includes('&lt;b&gt;');
-})());
+// ── 7. Panel 11 đã rời Bảng Điều Khiển ──────────────────────────────────────
+//
+// Phase 79: bảng nhật ký ở đây (`#mon-log-list`) nạp CÙNG endpoint
+// /api/v1/logs/recent với "Nhật Ký Vận Hành" ở Trung Tâm Chỉ Huy — cùng dữ
+// liệu ở hai màn hình. Nay cả hai gom vào tab Nhật Ký và chỉ giữ một bản
+// (`#log-recent-list`, có bộ lọc ẩn dòng heartbeat mà bản cũ không có).
+// Các hàm renderSystemLogs / paintMonLogs / setMonLogFilter và bộ đệm
+// monLogCache / monLogFilter đã bị gỡ.
+results.push('▸ Panel 11 — đã gom vào tab Nhật Ký');
+{
+  const dash = (html.match(/<section[^>]*id="tab-dashboard"[\s\S]*?\n    <\/section>/) || [''])[0];
+  const logsTab = (html.match(/<section[^>]*id="tab-logs"[\s\S]*?\n    <\/section>/) || [''])[0];
+
+  check('bảng nhật ký đã rời khỏi Bảng Điều Khiển', !dash.includes('id="mon-log-list"'));
+  check('Bảng Điều Khiển còn lối dẫn sang tab Nhật Ký', dash.includes("switchTab('logs')"));
+  check('bảng nhật ký nằm trong tab Nhật Ký', logsTab.includes('id="log-recent-list"'));
+  check('tab Nhật Ký có chế độ "Nhật ký vận hành"', logsTab.includes('data-log-view="recent"'));
+  check('hàm cũ đã bị gỡ khỏi app.js',
+    !src.includes('function renderSystemLogs(')
+    && !src.includes('function paintMonLogs(')
+    && !src.includes('function setMonLogFilter('));
+  check('không còn bộ đệm nhật ký của panel đã gỡ',
+    !/^let monLog(Cache|Filter)\b/m.test(srcCode) && !srcCode.includes('MON_LOG_MAX_ROWS'));
+
+  // escape là hàng rào bảo mật: thông điệp log đến từ server rồi đổ thẳng vào
+  // innerHTML, nên phải escape trước khi chèn.
+  const opsLog = (src.match(/function renderOpsLog\(\)[\s\S]*?\n {2}\}/) || [''])[0];
+  check('renderOpsLog escape thông điệp log trước khi chèn HTML',
+    opsLog.includes('_esc(e.message') && opsLog.includes('_esc(e.level'));
+}
 
 // ── 7b. RACE TIMER: hai lần gọi song song KHÔNG được tạo 2 interval ────────
 //
@@ -488,7 +485,10 @@ check('ngưỡng chống trùng < kỳ 15s nhưng gần bằng nó',
 M.__reset();
 await M.loadExtendedMonitors();            // vòng 1 (8 request)
 const afterFirst = M.__getApiCalls();
-check('vòng đầu gọi đủ 8 endpoint', afterFirst === 8, String(afterFirst));
+// Phase 79: bỏ endpoint `/api/v1/logs/recent?limit=200` khỏi vòng nặng — bảng
+// nhật ký nó nuôi đã gom vào tab Nhật Ký, nạp ở đây là mỗi vòng poll mất một
+// request mà không ai đọc kết quả. 8 → 7.
+check('vòng đầu gọi đủ 7 endpoint', afterFirst === 7, String(afterFirst));
 // Giả lập timer thứ hai cùng kỳ bắn ngay sau đó:
 await M.loadExtendedMonitors();
 check('timer thứ hai bắn ngay sau → BỊ CHẶN, không bắn thêm request',
@@ -529,15 +529,19 @@ check('loadDashboard cũng chốt healthDashboardTimer TRƯỚC await đầu ti�
 // ── 8. HTML: mọi id mà JS ghi vào phải tồn tại trong index.html ─────────────
 results.push('▸ index.html — khớp id với JS');
 const missingIds = monIds
-  .filter((id) => id !== 'mon-log-cache')
   .filter((id) => !html.includes(`id="${id}"`));
 check('mọi id JS cập nhật đều có trong index.html', missingIds.length === 0, missingIds.join(', '));
-check('có đủ 4 nút lọc nhật ký gọi setMonLogFilter',
-  (html.match(/setMonLogFilter\(/g) || []).length === 4);
+// Phase 79: 4 nút lọc `setMonLogFilter` của Panel 11 đã bị gỡ cùng bảng nhật
+// ký. Bộ lọc còn lại trong tab Nhật Ký là công tắc "hiện cả nhiễu" của
+// `renderOpsLog` — phải còn, nếu mất thì người dùng không lọc được heartbeat.
+check('bộ lọc ẩn dòng heartbeat còn ở tab Nhật Ký',
+  html.includes('id="log-recent-verbose"'));
+check('không còn nút lọc mức độ của panel đã gỡ',
+  !html.includes('setMonLogFilter('));
 check('nút "Mở tab chi tiết" trỏ đúng tab system-integration',
   html.includes(`switchTab('system-integration')`));
-check('tab-dashboard chứa cả 6 panel mới',
-  ['mon-queue-', 'mon-tool-', 'mon-sec-', 'mon-mem-', 'mon-conn-', 'mon-log-']
+check('tab-dashboard chứa 5 panel monitor còn lại',
+  ['mon-queue-', 'mon-tool-', 'mon-sec-', 'mon-mem-', 'mon-conn-']
     .every((p) => html.includes(p)));
 
 // ── 9. Nhịp cập nhật: 2 panel tầng nhanh KHÔNG được gọi thêm API ───────────

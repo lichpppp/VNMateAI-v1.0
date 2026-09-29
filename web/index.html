@@ -1165,18 +1165,22 @@
         </div>
 
         <!-- Nhật ký vận hành -->
+        <!-- Phase 79: nhật ký vận hành đã gom vào tab Nhật Ký (chế độ
+             "Nhật ký vận hành"). Bản ở đây và bản ở Bảng Điều Khiển trước đây
+             cùng gọi /api/v1/logs/recent — cùng dữ liệu, hai màn hình. -->
         <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
           <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
             <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
             <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Nhật Ký Vận Hành</h3>
-            <label class="ml-auto flex items-center gap-1 text-[9px] text-slate-400 dark:text-slate-500 cursor-pointer select-none">
-              <input type="checkbox" id="cc-log-verbose" onchange="CommandCenter.renderOpsLog()"
-                class="w-3 h-3 rounded border-slate-300 dark:border-slate-600" />
-              hiện cả nhiễu
-            </label>
           </div>
-          <div id="cc-ops-log" class="p-3 space-y-1 max-h-80 overflow-y-auto font-mono text-[10px]">
-            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6 font-sans">Đang tải…</p>
+          <div class="p-3">
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 text-center mb-2">
+              Xem nhật ký vận hành tại
+            </p>
+            <button type="button" onclick="switchTab('logs'); switchLogView('recent')"
+              class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
+              Mở tab Nhật Ký
+            </button>
           </div>
         </div>
       </div>
@@ -2707,34 +2711,29 @@
         </div>
 
         <!-- Panel 11: Nhật Ký Hệ Thống -->
-        <div class="lg:col-span-7 glass-panel p-5 flex flex-col">
-          <div class="flex items-center justify-between mb-3">
-            <div class="flex items-center gap-2">
-              <div
-                class="w-7 h-7 rounded-lg bg-slate-500/10 border border-slate-500/20 flex items-center justify-center text-slate-400">
-                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                </svg>
-              </div>
-              <span class="text-sm font-bold text-slate-800 dark:text-white">Nhật Ký Hệ Thống</span>
+        <!-- Phase 79: Panel này từng hiện nhật ký hệ thống ở đây, nạp cùng
+             endpoint /api/v1/logs/recent với "Nhật Ký Vận Hành" ở Trung Tâm
+             Chỉ Huy — cùng dữ liệu ở hai màn hình. Nay cả hai gom vào tab
+             Nhật Ký; ở đây chỉ còn lối dẫn. -->
+        <div class="lg:col-span-7 glass-panel p-5 flex flex-col justify-center">
+          <div class="flex items-center gap-2 mb-3">
+            <div
+              class="w-7 h-7 rounded-lg bg-slate-500/10 border border-slate-500/20 flex items-center justify-center text-slate-400">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <polyline points="14 2 14 8 20 8" />
+              </svg>
             </div>
-            <div class="flex items-center gap-1" id="mon-log-filters">
-              <button onclick="setMonLogFilter('ALL', this)"
-                class="mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border bg-slate-100 dark:bg-slate-700/50 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300">Tất cả</button>
-              <button onclick="setMonLogFilter('INFO', this)"
-                class="mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-cyan-400">Info</button>
-              <button onclick="setMonLogFilter('WARNING', this)"
-                class="mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-amber-400">Cảnh báo</button>
-              <button onclick="setMonLogFilter('ERROR', this)"
-                class="mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-rose-400">Lỗi</button>
-            </div>
+            <span class="text-sm font-bold text-slate-800 dark:text-white">Nhật Ký Hệ Thống</span>
           </div>
-
-          <div id="mon-log-list"
-            class="flex-1 overflow-y-auto space-y-0.5 font-mono text-[10px] bg-slate-950/40 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/60 rounded-xl p-2.5 min-h-[150px] max-h-[220px] scrollbar-thin">
-            <div class="text-slate-500 italic">Đang tải nhật ký...</div>
-          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+            Toàn bộ nhật ký — thời gian thực, kiểm toán an ninh, công việc KPI và
+            nhật ký vận hành — nằm ở một tab duy nhất.
+          </p>
+          <button type="button" onclick="switchTab('logs')"
+            class="px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
+            Mở tab Nhật Ký
+          </button>
         </div>
       </div>
 
@@ -5236,106 +5235,15 @@
                   class="log-view-tab px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-900/50 text-slate-400 hover:text-slate-200 transition">
             📈 Công việc & KPI
           </button>
+          <button type="button" role="tab" data-log-view="recent"
+                  aria-selected="false" aria-controls="log-view-recent"
+                  onclick="switchLogView('recent')"
+                  class="log-view-tab px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-900/50 text-slate-400 hover:text-slate-200 transition">
+            🩺 Nhật ký vận hành
+          </button>
         </div>
 
         <div id="log-view-stream" role="tabpanel" aria-label="Luồng thời gian thực">
-
-        </div>
-        <div id="log-view-security" role="tabpanel" aria-label="Nhật ký kiểm toán an ninh" class="hidden">
-      <div class="glass-panel p-5 space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-              <span>📋 Nhật Ký Kiểm Toán An Ninh (Security Audit Logs)</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">logs/security_audit.log</span>
-            </h3>
-          </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <select id="filter-audit-risk" onchange="filterAuditLogs()" class="input-dark text-xs py-1.5">
-              <option value="ALL">Tất cả mức độ rủi ro</option>
-              <option value="BLOCKED">Chỉ hiển thị: BỊ CHẶN (BLOCKED)</option>
-              <option value="NEED_CONFIRM">Chỉ hiển thị: CẦN DUYỆT (NEED_CONFIRM)</option>
-              <option value="SAFE">Chỉ hiển thị: AN TOÀN (SAFE)</option>
-            </select>
-            <button onclick="exportAuditLogsJson()" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm flex items-center gap-1" title="Tải xuống toàn bộ nhật ký dưới dạng file JSON">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>Xuất JSON</span>
-            </button>
-            <button onclick="clearAuditLogsUI()" class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold whitespace-nowrap transition" title="Xóa toàn bộ nhật ký kiểm toán (Yêu cầu quyền Quản trị viên)">
-              🗑️ Làm Sạch Log
-            </button>
-            <button onclick="loadSecurityCenter(); showToast('Đã làm mới nhật ký kiểm toán', 'info')"
-              class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm">
-              Làm mới
-            </button>
-          </div>
-        </div>
-
-        <div
-          class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50 max-h-80 overflow-y-auto">
-          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
-            <thead>
-              <tr
-                class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
-                <th class="py-2.5 px-3">THỜI GIAN</th>
-                <th class="py-2.5 px-3">THIẾT BỊ / MÁY</th>
-                <th class="py-2.5 px-3">TÁC VỤ / SKILL</th>
-                <th class="py-2.5 px-3">MỨC RỦI RO</th>
-                <th class="py-2.5 px-3">TRẠNG THÁI</th>
-                <th class="py-2.5 px-3">CHI TIẾT THAM SỐ</th>
-              </tr>
-            </thead>
-            <tbody id="audit-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-              <!-- Dynamically rendered -->
-            </tbody>
-          </table>
-        </div>
-      </div>
-        </div>
-
-        <div id="log-view-kpi" role="tabpanel" aria-label="Nhật ký công việc KPI" class="hidden">
-      <div class="glass-panel p-5 space-y-4">
-        <div
-          class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-white/10 pb-3">
-          <div>
-            <h3 class="text-sm font-bold text-slate-800 dark:text-white tracking-wide">Lịch Sử Nhắc Việc & Nhật Ký KPI
-              (kpi_logs.csv)</h3>
-            <p class="text-[11px] text-slate-400">Toàn bộ phản hồi từ nhân viên được lưu trực tiếp dạng CSV để AI phân
-              tích và tổng hợp siêu tốc</p>
-          </div>
-          <div class="flex items-center gap-2">
-            <select id="kpi-filter-status" onchange="loadKpiLogs()" class="input-dark text-xs py-1.5 px-3">
-              <option value="">Tất cả trạng thái</option>
-              <option value="completed">✔ Đã hoàn thành</option>
-              <option value="issue">⚠ Đang xử lý / Vướng mắc</option>
-            </select>
-          </div>
-        </div>
-
-        <div
-          class="overflow-x-auto border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-slate-900/80 max-h-96 overflow-y-auto">
-          <table class="w-full text-left text-xs text-slate-300 border-collapse">
-            <thead>
-              <tr
-                class="border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
-                <th class="py-2.5 px-3 w-40">THỜI GIAN</th>
-                <th class="py-2.5 px-3 w-36">MÁY TRẠM</th>
-                <th class="py-2.5 px-3">NỘI DUNG NHẮC VIỆC</th>
-                <th class="py-2.5 px-3 w-44">TRẠNG THÁI</th>
-              </tr>
-            </thead>
-            <tbody id="kpi-logs-table-body" class="divide-y divide-white/5 text-xs">
-              <!-- Dynamically populated from kpi_logs.csv -->
-              <tr>
-                <td colspan="4" class="py-6 text-center text-slate-500 italic">Chưa có nhật ký công việc nào được ghi
-                  nhận.</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-        </div>
-
       <!-- Header toolbar -->
       <div class="glass-panel p-4">
         <div class="flex flex-wrap items-center gap-3">
@@ -5452,6 +5360,123 @@
           <div class="text-slate-500 italic">⏳ Đang kết nối WebSocket... Chờ log từ server.</div>
         </div>
       </div>
+        </div>
+        <div id="log-view-security" role="tabpanel" aria-label="Nhật ký kiểm toán an ninh" class="hidden">
+      <div class="glass-panel p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <span>📋 Nhật Ký Kiểm Toán An Ninh (Security Audit Logs)</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">logs/security_audit.log</span>
+            </h3>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="filter-audit-risk" onchange="filterAuditLogs()" class="input-dark text-xs py-1.5">
+              <option value="ALL">Tất cả mức độ rủi ro</option>
+              <option value="BLOCKED">Chỉ hiển thị: BỊ CHẶN (BLOCKED)</option>
+              <option value="NEED_CONFIRM">Chỉ hiển thị: CẦN DUYỆT (NEED_CONFIRM)</option>
+              <option value="SAFE">Chỉ hiển thị: AN TOÀN (SAFE)</option>
+            </select>
+            <button onclick="exportAuditLogsJson()" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm flex items-center gap-1" title="Tải xuống toàn bộ nhật ký dưới dạng file JSON">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Xuất JSON</span>
+            </button>
+            <button onclick="clearAuditLogsUI()" class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold whitespace-nowrap transition" title="Xóa toàn bộ nhật ký kiểm toán (Yêu cầu quyền Quản trị viên)">
+              🗑️ Làm Sạch Log
+            </button>
+            <button onclick="loadSecurityCenter(); showToast('Đã làm mới nhật ký kiểm toán', 'info')"
+              class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm">
+              Làm mới
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50 max-h-80 overflow-y-auto">
+          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
+            <thead>
+              <tr
+                class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
+                <th class="py-2.5 px-3">THỜI GIAN</th>
+                <th class="py-2.5 px-3">THIẾT BỊ / MÁY</th>
+                <th class="py-2.5 px-3">TÁC VỤ / SKILL</th>
+                <th class="py-2.5 px-3">MỨC RỦI RO</th>
+                <th class="py-2.5 px-3">TRẠNG THÁI</th>
+                <th class="py-2.5 px-3">CHI TIẾT THAM SỐ</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+              <!-- Dynamically rendered -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+        </div>
+
+        <div id="log-view-kpi" role="tabpanel" aria-label="Nhật ký công việc KPI" class="hidden">
+      <div class="glass-panel p-5 space-y-4">
+        <div
+          class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-white/10 pb-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 dark:text-white tracking-wide">Lịch Sử Nhắc Việc & Nhật Ký KPI
+              (kpi_logs.csv)</h3>
+            <p class="text-[11px] text-slate-400">Toàn bộ phản hồi từ nhân viên được lưu trực tiếp dạng CSV để AI phân
+              tích và tổng hợp siêu tốc</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <select id="kpi-filter-status" onchange="loadKpiLogs()" class="input-dark text-xs py-1.5 px-3">
+              <option value="">Tất cả trạng thái</option>
+              <option value="completed">✔ Đã hoàn thành</option>
+              <option value="issue">⚠ Đang xử lý / Vướng mắc</option>
+            </select>
+          </div>
+        </div>
+
+        <div
+          class="overflow-x-auto border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-slate-900/80 max-h-96 overflow-y-auto">
+          <table class="w-full text-left text-xs text-slate-300 border-collapse">
+            <thead>
+              <tr
+                class="border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
+                <th class="py-2.5 px-3 w-40">THỜI GIAN</th>
+                <th class="py-2.5 px-3 w-36">MÁY TRẠM</th>
+                <th class="py-2.5 px-3">NỘI DUNG NHẮC VIỆC</th>
+                <th class="py-2.5 px-3 w-44">TRẠNG THÁI</th>
+              </tr>
+            </thead>
+            <tbody id="kpi-logs-table-body" class="divide-y divide-white/5 text-xs">
+              <!-- Dynamically populated from kpi_logs.csv -->
+              <tr>
+                <td colspan="4" class="py-6 text-center text-slate-500 italic">Chưa có nhật ký công việc nào được ghi
+                  nhận.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+        </div>
+
+        <!-- Phase 79: chế độ này thay cho HAI bảng cùng gọi /api/v1/logs/recent
+             (một ở Bảng Điều Khiển, một ở Trung Tâm Chỉ Huy). Giữ bản của Trung
+             Tâm Chỉ Huy vì có bộ lọc ẩn dòng heartbeat. -->
+        <div id="log-view-recent" role="tabpanel" aria-label="Nhật ký vận hành gần đây" class="hidden">
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Nhật Ký Vận Hành</h3>
+            <label class="ml-auto flex items-center gap-1 text-[9px] text-slate-400 dark:text-slate-500 cursor-pointer select-none">
+              <input type="checkbox" id="log-recent-verbose" onchange="CommandCenter.renderOpsLog()"
+                class="w-3 h-3 rounded border-slate-300 dark:border-slate-600" />
+              hiện cả nhiễu
+            </label>
+          </div>
+          <div id="log-recent-list" class="p-3 space-y-1 max-h-80 overflow-y-auto font-mono text-[10px]">
+            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6 font-sans">Đang tải…</p>
+          </div>
+        </div>
+        </div>
+
+
     </section>
 
   </main>

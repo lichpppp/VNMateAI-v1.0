@@ -341,10 +341,24 @@ console.log('\n── 9. HTML có đủ id mà JS tìm ──');
   const need = ['cc-kpi-infra', 'cc-kpi-bg', 'cc-kpi-pending', 'cc-kpi-incident',
     'cc-health-dot', 'cc-health-uptime', 'cc-stat-skills', 'cc-stat-users',
     'cc-stat-tickets', 'cc-stat-disk', 'cc-infra-list', 'cc-infra-badge',
-    'cc-ops-log', 'cc-log-verbose', 'cc-risk-tiers', 'cc-audit-btn',
-    'cc-subsystems', 'cc-btn-sentinel', 'cc-btn-ad-sync'];
+    'cc-risk-tiers', 'cc-audit-btn',
+    'cc-subsystems', 'cc-btn-sentinel', 'cc-btn-ad-sync',
+    // Phase 79: `cc-ops-log` + `cc-log-verbose` đã gom vào tab Nhật Ký (chế độ
+    // "Nhật ký vận hành") và đổi tên `log-recent-list` / `log-recent-verbose`.
+    // Bảng ở đây nạp CÙNG endpoint /api/v1/logs/recent với một bảng nữa ở Bảng
+    // Điều Khiển — cùng dữ liệu ở hai màn hình.
+    'log-recent-list', 'log-recent-verbose'];
   const missing = need.filter((id) => !html.includes(`id="${id}"`));
   check('mọi id Phase 71 đều tồn tại trong HTML', missing.length === 0, `thiếu: ${missing.join(', ')}`);
+
+  // Vị trí mới phải đúng: nhật ký vận hành thuộc tab Nhật Ký, không phải
+  // Trung Tâm Chỉ Huy. Nếu quay lại vị trí cũ thì lại có hai bảng cùng nguồn.
+  const ccTab = (html.match(/<section[^>]*id="tab-command-center"[\s\S]*?\n    <\/section>/) || [''])[0];
+  const logsTab = (html.match(/<section[^>]*id="tab-logs"[\s\S]*?\n    <\/section>/) || [''])[0];
+  check('nhật ký vận hành nằm ở tab Nhật Ký, không ở Trung Tâm Chỉ Huy',
+    logsTab.includes('id="log-recent-list"') && !ccTab.includes('id="log-recent-list"'));
+  check('Trung Tâm Chỉ Huy còn lối dẫn sang nơi nhật ký duy nhất',
+    ccTab.includes("switchLogView('recent')"));
 
   // Mỗi id phải có dấu chấm chấm trước để JS lấy được — và mỗi id phải xuất
   // hiện đúng 1 lần (lặp id là HTML không hợp lệ, getElementById chỉ lấy cái

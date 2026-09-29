@@ -721,7 +721,7 @@ function restoreActiveTab() {
  * nào là chính. Nay gom hết về đây, mỗi nguồn một chế độ.
  */
 function switchLogView(view) {
-  const views = ['stream', 'security', 'kpi'];
+  const views = ['stream', 'security', 'kpi', 'recent'];
   if (!views.includes(view)) view = 'stream';
 
   for (const v of views) {
@@ -740,15 +740,20 @@ function switchLogView(view) {
     btn.classList.toggle('text-slate-400', !on);
   });
 
-  // Mỗi bảng nạp riêng khi người dùng chuyển tới, thay vì cả 3 cùng lúc.
+  // Mỗi bảng nạp riêng khi người dùng chuyển tới, thay vì cả 4 cùng lúc.
   // `loadSecurityCenter` nạp cả chính sách lẫn nhật ký kiểm toán; `loadKpiLogs`
-  // nạp nhật ký công việc. Cả hai vẫn chạy khi mở tab gốc, ở đây chỉ nạp lại
-  // để bảng hiện đúng lúc người dùng nhìn vào nó.
+  // nạp nhật ký công việc. `loadOpsLog` nằm trong IIFE của CommandCenter nên
+  // phải gọi qua đối tượng được export — nó đã được nạp khi vào màn hình C.E.O
+  // nhưng bảng của nó giờ ở tab Nhật Ký, nạp lại để hiện đúng lúc người dùng
+  // nhìn vào nó.
   if (view === 'security' && typeof loadSecurityCenter === 'function') {
     loadSecurityCenter();
   }
   if (view === 'kpi' && typeof loadKpiLogs === 'function') {
     loadKpiLogs();
+  }
+  if (view === 'recent' && typeof CommandCenter !== 'undefined') {
+    CommandCenter.loadOpsLog();
   }
 }
 
@@ -1166,10 +1171,12 @@ async function loadDashboard() {
 //     nên poll nhanh hơn 15s cũng không thu được thêm dữ liệu nào.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const MON_LOG_MAX_ROWS = 120;
+// Phase 79: xoá `MON_LOG_MAX_ROWS`, `monLogFilter`, `monLogCache`.
+// Chúng chỉ phục vụ `#mon-log-list` — bảng nhật ký ở Bảng Điều Khiển nạp CÙNG
+// endpoint /api/v1/logs/recent với "Nhật Ký Vận Hành" ở Trung Tâm Chỉ Huy.
+// Cả hai đã gom vào tab Nhật Ký; bản giữ lại là bản của Trung Tâm Chỉ Huy
+// (có bộ lọc ẩn dòng heartbeat), xem `loadOpsLog` / `renderRecentLog`.
 let monExtendedTimer = null;
-let monLogFilter = 'ALL';
-let monLogCache = [];
 
 /** Ghi text vào #id nếu phần tử tồn tại. Không tạo DOM rác. */
 function _monSet(id, text) {
@@ -1270,7 +1277,9 @@ async function loadExtendedMonitors() {
     ['domain', '/api/v1/domain/stats'],
     ['conns', '/api/v1/enterprise/connectors/health'],
     ['audit', '/api/v1/audit-logs'],
-    ['logs', '/api/v1/logs/recent?limit=200'],
+    // Phase 79: bỏ `['logs', '/api/v1/logs/recent?limit=200']`. Bảng nhật ký
+    // ở Bảng Điều Khiển đã gom vào tab Nhật Ký, nên vẫn nạp endpoint này ở
+    // đây nghĩa là mỗi vòng poll mất một request mà không ai đọc kết quả.
   ];
 
   const results = await Promise.allSettled(
@@ -1288,7 +1297,6 @@ async function loadExtendedMonitors() {
   renderMemoryMonitor(get('memory'), get('domain'), get('system'));
   renderConnectorsStrip(get('conns'));
   renderSecurityMonitor(get('audit'));
-  renderSystemLogs(get('logs'));
 }
 
 /** Panel 6 — phân bố trạng thái tác vụ ERP. */
@@ -1468,52 +1476,14 @@ function renderSecurityMonitor(d) {
   }
 }
 
-/** Panel 11 — nhật ký hệ thống, có bộ lọc mức độ. */
-function renderSystemLogs(d) {
-  if (!d) return;
-  // Giữ bộ đệm để đổi bộ lọc không cần gọi lại server.
-  monLogCache = (Array.isArray(d.logs) ? d.logs : []).slice(0, MON_LOG_MAX_ROWS);
-  paintMonLogs();
-}
-
-function paintMonLogs() {
-  const box = document.getElementById('mon-log-list');
-  if (!box) return;
-  if (monLogCache.length === 0) {
-    box.innerHTML = '<div class="text-slate-500 italic">Nhật ký trống — server chưa ghi dòng nào.</div>';
-    return;
-  }
-  const rows = monLogCache.filter((r) => monLogFilter === 'ALL' || String(r?.level || '').toUpperCase() === monLogFilter);
-  if (rows.length === 0) {
-    box.innerHTML = `<div class="text-slate-500 italic">Không có dòng nào ở mức ${_esc(monLogFilter)}.</div>`;
-    return;
-  }
-  box.innerHTML = rows.map((r) => {
-    const lvl = String(r?.level || '').toUpperCase();
-    const color = lvl === 'ERROR' ? 'text-rose-400' : lvl === 'WARNING' ? 'text-amber-400' : 'text-slate-300';
-    const tag = lvl === 'ERROR' ? 'ERR' : lvl === 'WARNING' ? 'WRN' : 'INF';
-    const ts = String(r?.timestamp || '').replace('T', ' ').slice(0, 19);
-    return `<div class="flex items-start gap-1.5 leading-relaxed hover:bg-slate-800/40 rounded px-1">
-      <span class="text-slate-600 shrink-0">${_esc(ts)}</span>
-      <span class="${color} font-semibold shrink-0 w-7">${tag}</span>
-      <span class="text-slate-500 shrink-0 max-w-[110px] truncate" title="${_esc(r?.logger || '')}">${_esc(r?.logger || '-')}</span>
-      <span class="${color} break-all">${_esc(r?.message || '')}</span>
-    </div>`;
-  }).join('');
-}
-
-/** Đổi bộ lọc nhật ký. Chỉ vẽ lại từ cache, không gọi server. */
-function setMonLogFilter(level, btn) {
-  monLogFilter = level;
-  document.querySelectorAll('.mon-log-filter').forEach((b) => {
-    b.className = 'mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border border-slate-200 dark:border-slate-600 text-slate-500 dark:text-slate-400 hover:text-cyan-400';
-  });
-  if (btn) {
-    btn.className = 'mon-log-filter px-2 py-0.5 rounded text-[10px] font-semibold border bg-cyan-500/10 border-cyan-500/30 text-cyan-500 dark:text-cyan-400';
-  }
-  paintMonLogs();
-}
-
+// Phase 79: đã gỡ `renderSystemLogs`, `paintMonLogs`, `setMonLogFilter` và
+// các bộ đệm `monLogCache` / `monLogFilter`.
+// Chúng chỉ vẽ `#mon-log-list` — bảng nhật ký ở Bảng Điều Khiển, nạp cùng
+// endpoint /api/v1/logs/recent với "Nhật Ký Vận Hành" ở Trung Tâm Chỉ Huy.
+// Hai bảng cùng dữ liệu ở hai màn hình; nay cả hai gom vào tab Nhật Ký và
+// chỉ giữ một bản, có bộ lọc ẩn dòng heartbeat (xem `renderRecentLog`).
+// Giữ lại hàm chết cũng vô nghĩa: element đã xoá nên chúng chỉ chạy tới
+// dòng `if (!box) return;` rồi dừng.
 // ═══════════════════════════════════════════════════════════════════════════
 // ── PHASE 25: STATE MANAGEMENT & PENDING ACTION APPROVAL ────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
@@ -9698,6 +9668,15 @@ const CommandCenter = (() => {
       }).join('')}`;
   }
 
+  /**
+   * Nhật ký vận hành — ảnh chụp gần đây của /api/v1/logs/recent.
+   *
+   * Phase 79: bảng này trước đây nằm ở Trung Tâm Chỉ Huy (`#cc-ops-log`), còn
+   * Bảng Điều Khiển có một bảng thứ hai (`#mon-log-list`) nạp CÙNG endpoint —
+   * cùng dữ liệu ở hai màn hình. Nay cả hai gom vào tab Nhật Ký (chế độ
+   * "Nhật ký vận hành") và chỉ giữ bản này, vì nó có bộ lọc ẩn dòng
+   * heartbeat mà bản kia không có.
+   */
   async function loadOpsLog() {
     try {
       const res = await apiFetch(`${API_BASE}/api/v1/logs/recent`);
@@ -9705,7 +9684,7 @@ const CommandCenter = (() => {
       _opsLogCache = (data && data.logs) || [];
     } catch (err) {
       _opsLogCache = null;
-      const box = $('cc-ops-log');
+      const box = $('log-recent-list');
       if (box) box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-4 font-sans">`
         + `Không tải được nhật ký: ${_esc(err.message || err)}</p>`;
       return;
@@ -9716,14 +9695,14 @@ const CommandCenter = (() => {
   let _opsLogCache = null;
 
   function renderOpsLog() {
-    const box = $('cc-ops-log');
+    const box = $('log-recent-list');
     if (!box) return;
     if (_opsLogCache === null) {
       box.innerHTML = '<p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6 font-sans">Đang tải…</p>';
       return;
     }
 
-    const verbose = !!$('cc-log-verbose')?.checked;
+    const verbose = !!$('log-recent-verbose')?.checked;
     const rows = verbose ? _opsLogCache : _opsLogCache.filter((e) => !_isOpsNoise(e));
     const hidden = _opsLogCache.length - rows.length;
 
