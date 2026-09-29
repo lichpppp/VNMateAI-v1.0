@@ -2656,6 +2656,12 @@
                   </svg>
                 </button>
               </div>
+              <!-- Phase 81: báo trạng thái khoá NGAY dưới ô. Trước đây chỉ tab
+                   Cấu Hình có dòng này, tab này không có — người dán khoá lưu
+                   xong bấm F5 thấy ô trống, tưởng mất khoá, dán lại. Khoá
+                   KHÔNG BAO GIỜ được gửi về trình duyệt, nên ô trống là đúng;
+                   thiếu là thiếu bằng chứng cho biết đã lưu hay chưa. -->
+              <p id="ai-llm-key-hint" class="text-[10px] italic"></p>
             </div>
 
             <!-- Streaming Toggle -->
@@ -2948,6 +2954,7 @@
                 <div class="space-y-1.5">
                   <label class="font-semibold text-slate-600 dark:text-slate-300">GROQ API KEY</label>
                   <input type="password" id="ai-groq-key" class="input-dark font-mono w-full" placeholder="gsk_..." />
+                  <p id="ai-groq-key-hint" class="text-[10px] italic"></p>
                 </div>
                 <div class="space-y-1.5">
                   <label class="font-semibold text-slate-600 dark:text-slate-300">GROQ BASE URL</label>
@@ -3901,7 +3908,7 @@
                  (chỉ trả ký hiệu) nên không có gì để điền vào. Ghi chú này nói
                  rõ để trống khi Lưu nghĩa là GIỮ khoá đang có, tránh người
                  dùng tưởng phải nhập lại mỗi lần mở trang. -->
-            <p id="cfg-llm-key-hint" class="text-[11px] text-slate-500 dark:text-slate-400 italic">
+            <p id="cfg-llm-key-hint" class="text-[10px] italic">
               Đang kiểm tra khoá đã lưu...
             </p>
           </div>

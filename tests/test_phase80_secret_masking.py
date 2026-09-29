@@ -543,6 +543,34 @@ check(
     "connector khai báo bí mật mà hàm che không biết, tức sẽ lộ",
 )
 
+
+
+# ══ Phase 81: ô mật khẩu phải NÓI ra là đã lưu, không để người dùng tưởng mất ══
+# Người dùng phản ánh: dán API key vào rồi bấm F5 là mất. Đo thật: khoá CÓ
+# trong config.json, nhưng ô luôn trống sau mỗi lần tải trang (đúng — không
+# gửi bí mật về trình duyệt), nên nhìn hệt lúc chưa lưu.
+section("Giao diện báo được tình trạng ô mật khẩu")
+appjs2 = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+idx2 = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+check("có hàm báo trạng thái dùng chung", "function _ccSecretStatus" in appjs2)
+check("có hàm nhận biết khoá đã lưu", "function _ccHasStoredKey" in appjs2)
+# Ô trống mới là lúc KHÔNG có khoá. Ký hiệu che là bằng chứng ĐÃ CÓ — nếu bỏ
+# nó đi trước khi kiểm thì hàm luôn trả false và báo sai cho mọi người.
+haskey = appjs2.split("function _ccHasStoredKey", 1)[-1].split("\nfunction ", 1)[0]
+check("coi ký hiệu che là ĐÃ CÓ khoá", "_ccSafeField" not in haskey,
+      "bỏ ký hiệu che trước khi kiểm -> luôn false")
+check("chỉ coi là có khoá khi giá trị không rỗng", 'k.trim() !== ""' in haskey)
+for oid in ("ai-llm-key-hint", "ai-groq-key-hint", "cfg-llm-key-hint"):
+    check(f"có chỗ gợi ý cho ô {oid}", f'id="{oid}"' in idx2)
+check("báo ngay sau khi bấm Lưu", "✔ Đã lưu khoá" in appjs2)
+check("giải thích luôn việc ô trống sau F5",
+      "F5" in appjs2 and "vẫn trống" in appjs2,
+      "không nói rõ thì người dùng tưởng mất khoá")
+# Không được khẳng định "đã lưu khoá" khi người dùng không gõ gì.
+check("chỉ nói 'vừa lưu' khi thật sự gõ khoá",
+      "vuaGao" in appjs2 and "|| true" not in appjs2.split("vuaGao")[0][-200:],
+      "có ép kết quả luôn đúng")
+
 # ──────────────────────────────────────────────────────────────────────
 print("\n" + "─" * 60)
 print(f"Tổng: {PASSED + FAILED} | Pass: {PASSED} | Fail: {FAILED}")

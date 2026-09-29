@@ -3497,6 +3497,72 @@ function _ccSafeField(val) {
   return val === SECRET_MASK ? '' : val;
 }
 
+/**
+ * Báo trạng thái của một ô mật khẩu: đã có khoá chưa, vừa lưu xong không.
+ *
+ * Vì sao cần (người dùng phản ánh: "dán API key vào rồi bấm F5 là mất"):
+ * Khoá KHÔNG BAO GIỜ được gửi về trình duyệt — đúng, phải vậy. Nhưng ô mật
+ * khẩu luôn trống sau mỗi lần tải trang, nên nhìn y hệt lúc chưa lưu. Đo được:
+ * dán khoá → bấm Lưu → kiểm tra config.json thì khoá CÓ trong đó, nhưng sau
+ * F5 ô trắng xóa. Người dùng không có cách nào phân biệt "đã lưu" với
+ * "chưa lưu", nên dán lại y hệt lần trước.
+ *
+ * Nay ô trống vẫn kèm hai dấu hiệu: placeholder và dòng gợi ý nói rõ đã có
+ * khoá, cộng thêm xác nhận ngay sau khi bấm Lưu.
+ *
+ * Dùng chung một hàm cho mọi ô để ba nơi không lệch nhau — trước đây chỉ ô
+ * ở tab Cấu Hình có dòng gợi ý, hai ô ở tab Trợ lý AI không có.
+ *
+ * @param {string} inputId  id của ô mật khẩu
+ * @param {string} hintId   id của dòng gợi ý (bỏ trống = không có)
+ * @param {boolean} hasKey  máy chủ đang lưu khoá cho ô này
+ * @param {string} sample   gợi ý định dạng, ví dụ "sk-..."
+ * @param {boolean} justSaved vừa bấm Lưu xong (đổi câu chữ cho dễ nhận ra)
+ */
+// Máy chủ đang lưu khoá hay không — nhớ lại sau mỗi lần nạp cấu hình. Cần cho
+// lúc bấm Lưu: người dùng để ô trống thì máy chủ giữ khoá cũ, nhưng phía
+// giao diện không có gì để khẳng định là còn.
+const _ccLastKnownHasKey = { llm: false, groq: false };
+
+function _ccHasStoredKey(block) {
+  /*
+   * Máy chủ có đang lưu khoá cho khối cấu hình này không?
+   *
+   * CỐ Ý KHÔNG bỏ ký hiệu che trước khi kiểm. Bản đầu của hàm này có làm vậy
+   * và luôn trả về false: máy chủ chỉ thay khoá thật bằng ký hiệu khi bản lưu
+   * CÓ giá trị, nên `••••••••` chính là bằng chứng "đã có khoá". Bỏ nó đi rồi
+   * hỏi "còn gì không" thì không bao giờ có. Ô trống mới là lúc không có khoá.
+   */
+  if (!block || typeof block !== "object") return false;
+  const k = block.api_key;
+  if (typeof k === "string" && k.trim() !== "") return true;
+  if (Array.isArray(block.api_keys)) {
+    return block.api_keys.some((x) => typeof x === "string" && x.trim() !== "");
+  }
+  return false;
+}
+
+function _ccSecretStatus(inputId, hintId, hasKey, sample, justSaved) {
+  const input = document.getElementById(inputId);
+  if (input) {
+    input.placeholder = hasKey
+      ? `${sample} — đã có khoá lưu sẵn, để trống nếu không đổi`
+      : sample;
+  }
+  const hint = hintId ? document.getElementById(hintId) : null;
+  if (!hint) return;
+  if (justSaved) {
+    hint.textContent = '✔ Đã lưu khoá. F5 xong ô này vẫn trống — đó là bảo mật, khoá vẫn còn.';
+    hint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400';
+  } else if (hasKey) {
+    hint.textContent = '✔ Đã có khoá lưu sẵn — để trống rồi bấm Lưu sẽ giữ nguyên khoá cũ.';
+    hint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400';
+  } else {
+    hint.textContent = 'Chưa có khoá nào được lưu.';
+    hint.className = 'text-[10px] text-amber-600 dark:text-amber-400 italic';
+  }
+}
+
 async function loadConfig() {
   const cfg = await apiGetConfig();
   if (!cfg) return;
@@ -3546,16 +3612,9 @@ async function loadConfig() {
   // server giữ khoá cũ (xem `_restore_masked_secrets`).
   const keyEl = document.getElementById('cfg-llm-key');
   if (keyEl) keyEl.value = '';
-  const keyHint = document.getElementById('cfg-llm-key-hint');
-  if (keyHint) {
-    const hasKey = apiKey === SECRET_MASK || !!llm.api_key;
-    keyHint.textContent = hasKey
-      ? '✔ Đã có khoá đã lưu — để trống và bấm Lưu thì giữ nguyên khoá cũ.'
-      : 'Chưa có khoá nào được lưu.';
-    keyHint.className = hasKey
-      ? 'text-[11px] text-emerald-600 dark:text-emerald-400'
-      : 'text-[11px] text-amber-600 dark:text-amber-400 italic';
-  }
+  // Dùng hàm chung để hai tab báo trạng thái giống hệt nhau.
+  _ccLastKnownHasKey.llm = _ccHasStoredKey(llm);
+  _ccSecretStatus('cfg-llm-key', 'cfg-llm-key-hint', _ccLastKnownHasKey.llm, 'sk-...');
   const chainEl = document.getElementById('cfg-chain-primary');
   if (chainEl) chainEl.textContent = modelName;
 
@@ -3711,6 +3770,15 @@ async function saveFullConfig() {
     setIf('ai-asr-engine', getVal('cfg-asr') || 'google');
     setIf('ai-groq-key', getVal('cfg-groq-key'));
     setIf('ai-groq-url', getVal('cfg-groq-url'));
+
+    // Phase 81: xác nhận ngay ở ô mật khẩu, không chỉ ở toast. Toast biến mất
+    // sau vài giây; ô mật khẩu thì vẫn còn, nên người dùng nhìn xuống thấy
+    // màn hình trắng và tưởng lưu hỏng.
+    const gaoKey = _ccSafeField(apiKey);
+    const coKey = gaoKey || _ccLastKnownHasKey.llm;
+    _ccSecretStatus('cfg-llm-key', 'cfg-llm-key-hint', coKey, 'sk-...', !!gaoKey);
+    _ccSecretStatus('ai-llm-key', 'ai-llm-key-hint', coKey, 'sk-...', !!gaoKey);
+    if (gaoKey) _ccLastKnownHasKey.llm = true;
   } else {
     showToast(`❌ Lỗi lưu cấu hình: ${res.message}`, 'error');
   }
@@ -3783,6 +3851,13 @@ async function loadAIManagerConfig() {
   setVal('ai-asr-engine', asrEngine);
   setVal('ai-groq-key', cfg.GROQ_API_KEY || '');
   setVal('ai-groq-url', cfg.GROQ_BASE_URL || 'https://api.groq.com/openai/v1');
+
+  // Trạng thái hai ô mật khẩu. Dùng hàm chung với tab Cấu Hình để hai nơi
+  // không lệch nhau — trước đây chỉ ô tab Cấu Hình có gợi ý.
+  _ccLastKnownHasKey.llm = _ccHasStoredKey(cfg.llm);
+  _ccLastKnownHasKey.groq = _ccHasStoredKey({ api_key: cfg.GROQ_API_KEY });
+  _ccSecretStatus('ai-llm-key', 'ai-llm-key-hint', _ccLastKnownHasKey.llm, 'sk-...');
+  _ccSecretStatus('ai-groq-key', 'ai-groq-key-hint', _ccLastKnownHasKey.groq, 'gsk_...');
 
   // Show/hide Groq section
   onAIASREngineChange();
@@ -3921,6 +3996,23 @@ async function saveAIConfig() {
     if (legacyKey) legacyKey.value = _ccSafeField(apiKey);
     const chainEl = document.getElementById('cfg-chain-primary');
     if (chainEl) chainEl.textContent = modelName;
+
+    // Phase 81: báo ngay "đã lưu" ở từng ô mật khẩu. Không có dòng này thì
+    // sau khi bấm Lưu, ô vẫn trống và không có gì cho biết khoá đã vào
+    // config.json — người dùng tưởng lưu hỏng rồi dán lại.
+    // Chỉ nói "vừa lưu khoá" khi người dùng THẬT SỰ gõ khoá. Nếu ô trống thì
+    // máy chủ giữ khoá cũ — ta không biết còn hay không, nên đừng khẳng định
+    // là đã có.
+    const vuaGao = !!_ccSafeField(apiKey);
+    const coKeyLLM = vuaGao || _ccLastKnownHasKey.llm;
+    _ccSecretStatus('ai-llm-key', 'ai-llm-key-hint', coKeyLLM, 'sk-...', vuaGao);
+    _ccSecretStatus('cfg-llm-key', 'cfg-llm-key-hint', coKeyLLM, 'sk-...', vuaGao);
+
+    const vuaGaoGroq = !!_ccSafeField(groqKey);
+    const coKeyGroq = vuaGaoGroq || _ccLastKnownHasKey.groq;
+    _ccSecretStatus('ai-groq-key', 'ai-groq-key-hint', coKeyGroq, 'gsk_...', vuaGaoGroq);
+    if (vuaGao) _ccLastKnownHasKey.llm = true;
+    if (vuaGaoGroq) _ccLastKnownHasKey.groq = true;
   } else {
     showToast(`❌ Lỗi lưu cấu hình: ${res?.message || 'Không xác định'}`, 'error');
   }
