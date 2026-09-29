@@ -90,9 +90,14 @@ if (dash && si) {
 
   // Thanh sub-tab đi kèm phải ở tab mới.
   const subtabBtns = (html.match(/switchCcSubTab\('/g) || []).length;
-  check('đủ 5 nút sub-tab trong tab mới',
-    (siHtml.match(/switchCcSubTab\('/g) || []).length === 5,
-    `thấy ${(siHtml.match(/switchCcSubTab\('/g) || []).length}/${subtabBtns} toàn trang`);
+  // Phase 81: thêm sub-tab 'Máy Trạm' (khối máy trạm 194 dòng trước đây nằm
+  // tràn dưới sub-tab Hệ Thống) -> 5 thành 6 nút.
+  const siSubtabs = (siHtml.match(/switchCcSubTab\('/g) || []).length;
+  check('đủ 6 nút sub-tab trong tab mới', siSubtabs === 6,
+    `thấy ${siSubtabs}/${subtabBtns} toàn trang`);
+  check('có nút sub-tab Máy Trạm', siHtml.includes("data-cc-subtab=\"devices\""));
+  check('khối máy trạm nằm trong pane cc-int-devices',
+    /id="cc-int-devices"[\s\S]*?devices-table-body/.test(siHtml));
 
   // Các ô KPI của tích hợp phải ở tab tích hợp, không lẫn sang Bảng Điều Khiển.
   const movedKpi = ['cc-kpi-connectors', 'cc-kpi-plugins'];

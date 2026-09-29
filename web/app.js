@@ -815,12 +815,11 @@ function switchTab(tabId) {
   // Phase 59/60: khối tích hợp đã tách sang tab riêng nên nạp dữ liệu ở đây,
   // không gắn vào CommandCenter.onEnter() — nếu không, mở Trung Tâm Chỉ Huy sẽ
   // tải 4 API của tích hợp dù trên màn hình đó không còn dòng dữ liệu nào.
-  if (tabId === 'system-integration') {
-    loadSystemIntegration();
-    // Phase 78: nội dung tab "Thiết Bị" đã gộp vào đây (cùng miền kết nối
-    // ra ngoài), nên danh sách máy trạm nạp kèm.
-    loadDevices();
-  }
+  // Phase 81: KHÔNG gọi `loadDevices()` ở đây nữa. Danh sách máy trạm đã
+  // chuyển vào sub-tab "Máy Trạm" và chỉ nạp khi người dùng bấm vào
+  // (`switchCcSubTab('devices')`). Gọi ở đây nghĩa là mở tab Tích Hợp phải trả
+  // thêm một request cho danh sách mà người dùng chưa nhìn tới.
+  if (tabId === 'system-integration') loadSystemIntegration();
   if (tabId === 'ai-manager') loadAIManagerConfig();
   if (tabId === 'skills') loadSkills();
   // Phase 79: `loadConfig()` trước đây KHÔNG được gọi ở đâu cả — không trong
@@ -10152,6 +10151,16 @@ function onEnter() {
 
 // Hằng số dùng chung cho toàn bộ khối Phase 59/60.
 const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
+
+// Phase 81: lưới card giờ do `renderConnectionCards()` vẽ lại MỖI LẦN bấm
+// sub-tab "Kết Nối" (trước đây 4 card nằm cứng trong HTML, không mất gì khi
+// đổi sub-tab). Nếu không nhớ kết quả ra ngoài DOM thì bấm "Kiểm tra" xong
+// chuyển sang tab khác rồi quay lại -> mọi chấm sức khoẻ về lại "Chưa kiểm tra",
+// tức mất thông tin vừa tốn công lấy.
+//
+// Ghi ở đây mỗi khi có kết quả; `renderConnectionCards()` đọc lại khi vẽ.
+// Còn "Đang kiểm tra…" thì không lưu — trạng thái tạm, vẽ lại thì chạy mới.
+const _ccConnHealth = new Map();
 // Extensions registered by enterprise plugins (populated at runtime).
 let _ccExtensions = [];
 // Tên trường bí mật — KHÔNG bao giờ chép vào value của <input>, chỉ ghi "đã lưu".
@@ -10168,7 +10177,10 @@ function _ccSetStatus(el, ok, okText, idleText) {
 }
 
 // ── Sub-tab của khối "Trung Tâm Tích Hợp Doanh Nghiệp" ───────────────────
-const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys'];
+// Phase 81: thêm 'devices' — khối máy trạm 194 dòng trước đây nằm tràn dưới
+// sub-tab "Hệ Thống", kéo dài màn hình Tích Hợp bằng nội dung không liên quan.
+// Nay là sub-tab riêng và chỉ nạp dữ liệu khi bấm vào.
+const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys', 'devices'];
 // Daftar sub-tab có thể mở rộng bởi enterprise plugins.
 let _ccSubTabExtensions = [];
 let _ccSubTabConfig = {};
@@ -10314,25 +10326,30 @@ const CC_APP_PRESETS = [
  * Không đụng vào card nào trong HTML — chúng dùng `runConnectorHealth` riêng.
  */
 function renderConnCustomSources() {
+  // Phase 81: hàm này chỉ còn giữ phần TIÊU ĐỀ + nút thêm.
+  //
+  // Trước đây nó vẽ luôn danh sách card, tách khỏi 4 connector cốt lõi nằm
+  // cứng trong HTML — nên kết nối người dùng tự thêm trông khác hẳn loại cốt
+  // lõi, dù server trả về cùng một cấu trúc cho cả hai. Nay `renderConnectionCards()`
+  // vẽ chung một lưới, một bố cục.
   let box = _ccGet('cc-conn-custom');
   if (!box) {
     const connPane = _ccGet('cc-int-conn');
-    if (!connPane) return;
-
+    if (!box && !connPane) return;
     box = document.createElement('div');
     box.id = 'cc-conn-custom';
-    box.className = 'mt-5 pt-4 border-t border-slate-200 dark:border-slate-700';
+    box.className = 'mt-4 pt-3 border-t border-slate-200 dark:border-slate-700';
     connPane.appendChild(box);
   }
 
-  // Nguồn nhóm "connector" mà người dùng tự khai = kết nối mới của họ.
+  // Nhóm "connector"/"custom" mà người dùng tự khai = kết nối mới của họ.
   // Nhóm khác (báo cáo/phân tích) đã có chỗ riêng, không nhân bản ở đây.
   const custom = Object.values(_ccDataSourceRegistry).filter(
     ds => ds.isRemote && (ds.category === 'connector' || ds.category === 'custom')
   );
 
   box.innerHTML = `
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <div class="flex items-center gap-2 min-w-0">
         <span class="text-base">🔌</span>
         <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100">Kết nối tùy chỉnh</h4>
@@ -10340,66 +10357,145 @@ function renderConnCustomSources() {
           ${custom.length ? `${custom.length} nguồn` : 'chưa có nguồn nào'}
         </span>
       </div>
-      <button type="button" onclick="openAddDataSourceModal('connector')"
-        class="px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition">
-        + Thêm kết nối
-      </button>
+      <div class="flex items-center gap-2">
+        ${custom.length ? `
+          <button type="button" onclick="toggleCcPresetPicker()"
+            class="px-3 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">
+            + Thêm từ mẫu ứng dụng
+          </button>` : ''}
+        <button type="button" onclick="openAddDataSourceModal('connector')"
+          class="px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition">
+          + Thêm kết nối
+        </button>
+      </div>
     </div>
-
-    ${custom.length === 0 ? _ccPresetPicker() : `
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="cc-conn-custom-grid"></div>
-      <button type="button" onclick="toggleCcPresetPicker()"
-        class="mt-3 text-[10px] font-medium text-primary-600 dark:text-primary-400 hover:underline transition">
-        + Thêm từ mẫu ứng dụng
-      </button>
-    `}
+    ${custom.length === 0 ? _ccPresetPicker() : ''}
   `;
+}
 
-  if (custom.length === 0) return;
+/** Icon SVG cho connector cốt lõi. Nguồn tùy chỉnh dùng emoji của chính nó. */
+const _CC_CONNECTOR_ICON = {
+  aws: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>',
+  oci: '<path d="M12 2l9 5v10l-9 5-9-5V7l9-5z"/><path d="M12 7v10M7 9.5v5M17 9.5v5"/>',
+  paperless: '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+  einvoice: '<path d="M9 7h6M9 11h6M9 15h4"/><rect x="4" y="3" width="16" height="18" rx="2"/>',
+};
+const _CC_CONNECTOR_TINT = {
+  aws: 'text-amber-500',
+  oci: 'text-red-500',
+  paperless: 'text-blue-500',
+  einvoice: 'text-emerald-500',
+};
+const _CC_CONNECTOR_LABEL = {
+  aws: 'Cost Explorer · EC2',
+  oci: 'Compute · Object Storage',
+  paperless: 'Tài liệu OCR',
+  einvoice: 'Hóa đơn điện tử',
+};
 
-  const grid = _ccGet('cc-conn-custom-grid');
+/**
+ * Vẽ card cho MỌI kết nối ngoại vi — cốt lõi lẫn tùy chỉnh, trong MỘT lưới.
+ *
+ * Một bộ vẽ cho cả hai loại vì chúng là cùng một thứ: đều là kết nối ra
+ * ngoài hệ thống, đều kiểm tra sức khoẻ được, đều cần cấu hình. Trước đây có
+ * hai bộ vẽ nên người dùng thêm một ERP của hệ thống rồi thấy nó trông như
+ * thuộc loại khác.
+ */
+function renderConnectionCards() {
+  const grid = _ccGet('cc-connector-health-grid');
   if (!grid) return;
 
+  const custom = Object.values(_ccDataSourceRegistry).filter(
+    ds => ds.isRemote && (ds.category === 'connector' || ds.category === 'custom')
+  );
+
+  const cards = [];
+
+  for (const name of CC_CONNECTORS) {
+    const icon = _CC_CONNECTOR_ICON[name] || _CC_CONNECTOR_ICON.einvoice;
+    const tint = _CC_CONNECTOR_TINT[name] || _CC_CONNECTOR_TINT.einvoice;
+    cards.push(`
+      <div class="connector-card cc-conn-card flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 transition hover:border-slate-300 dark:hover:border-slate-600"
+           data-connector="${name}">
+        <div class="flex items-start gap-2 mb-2">
+          <div class="w-8 h-8 shrink-0 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="${tint}">${icon}</svg>
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">${_esc(name.toUpperCase())}</div>
+            <div class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(_CC_CONNECTOR_LABEL[name] || '')}</div>
+          </div>
+        </div>
+        ${(() => {
+          const h = _ccConnHealth.get(name);
+          if (!h) return `
+        <div class="flex items-center gap-1.5 mb-2.5">
+          <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" id="${name}-health-indicator"></span>
+          <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate" id="${name}-health-text">Chưa kiểm tra</span>
+        </div>`;
+          return `
+        <div class="flex items-center gap-1.5 mb-2.5">
+          <span class="w-2 h-2 rounded-full shrink-0 ${h.ok ? 'bg-emerald-500' : 'bg-rose-500'}" id="${name}-health-indicator"></span>
+          <span class="text-[10px] truncate ${h.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}" id="${name}-health-text">${_esc(h.text)}</span>
+        </div>`;
+        })()}
+        <div class="mt-auto flex items-center gap-1.5">
+          <button type="button" onclick="runConnectorHealth('${name}')"
+            class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
+          <button type="button" onclick="switchCcSubTab('config')"
+            class="px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition"
+            title="Sửa cấu hình">Cấu hình</button>
+        </div>
+      </div>`);
+  }
+
   for (const ds of custom) {
-    const card = document.createElement('div');
-    card.className = 'cc-ds-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 bg-white dark:bg-slate-800/60';
-    card.dataset.dsId = ds.id;
-    card.innerHTML = `
-      <div class="flex items-start justify-between gap-2 mb-2">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="text-xl shrink-0">${ds.icon || '🔌'}</span>
-          <div class="min-w-0">
+    const h = _ccConnHealth.get(ds.id);
+    cards.push(`
+      <div class="connector-card cc-conn-card cc-ds-card flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 transition hover:border-slate-300 dark:hover:border-slate-600"
+           data-connector="${_esc(ds.id)}" data-ds-id="${_esc(ds.id)}">
+        <div class="flex items-start gap-2 mb-2">
+          <div class="w-8 h-8 shrink-0 rounded-lg bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-base leading-none">${ds.icon || '🔌'}</div>
+          <div class="min-w-0 flex-1">
             <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">${_esc(ds.title)}</div>
             <div class="text-[9px] text-slate-400 dark:text-slate-500 truncate font-mono">${_esc(ds.baseUrlLabel || '')}</div>
           </div>
-        </div>
-        <div class="flex items-center gap-1.5 shrink-0">
           <button type="button" onclick="openAddDataSourceModal('connector', '${_esc(ds.id)}')"
-            class="text-slate-400 hover:text-primary-500 transition" title="Sửa cấu hình">
+            class="shrink-0 text-slate-400 hover:text-primary-500 transition" title="Sửa cấu hình">
             <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           </button>
-          <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="${ds.id}-health"></span>
         </div>
-      </div>
-      ${!ds.hasAuth ? `
-        <div class="mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-          <p class="text-[9px] text-amber-800 dark:text-amber-200 leading-snug">Chưa có khoá xác thực — mọi lời gọi sẽ thất bại.</p>
-        </div>` : ''}
-      <div id="${ds.id}-preview" class="mb-2"></div>
-      <div class="flex items-center gap-2">
-        <button type="button" onclick="runDataSourceHealth('${_esc(ds.id)}')"
-          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
-        <button type="button" onclick="runDataSourceAction('${_esc(ds.id)}', 'sync')"
-          class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition disabled:opacity-40">
-          Xem dữ liệu
-        </button>
-      </div>
-      ${_ccExportButtons(ds.id)}
-    `;
-    grid.appendChild(card);
+        ${!ds.hasAuth ? `
+          <div class="mb-2 px-2 py-1.5 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+            <p class="text-[9px] text-amber-800 dark:text-amber-200 leading-snug">Chưa có khoá xác thực — mọi lời gọi sẽ thất bại.</p>
+          </div>` : ''}
+        <div class="flex items-center gap-1.5 mb-2.5">
+          <span class="w-2 h-2 rounded-full shrink-0 ${h ? (h.ok ? 'bg-emerald-500' : 'bg-rose-500') : 'bg-slate-300 dark:bg-slate-600'}"
+            id="${_esc(ds.id)}-health" title="${h ? _esc(h.text) : 'Chưa kiểm tra'}"></span>
+          <span class="text-[10px] truncate ${h ? (h.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400') : 'text-slate-500 dark:text-slate-400'}">${h ? _esc(h.text) : 'Chưa kiểm tra'}</span>
+        </div>
+        <div id="${_esc(ds.id)}-preview"></div>
+        <div class="mt-auto flex items-center gap-1.5">
+          <button type="button" onclick="runDataSourceHealth('${_esc(ds.id)}')"
+            class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
+          <button type="button" onclick="runDataSourceAction('${_esc(ds.id)}', 'sync')"
+            class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition disabled:opacity-40">
+            Xem dữ liệu
+          </button>
+        </div>
+        ${_ccExportButtons(ds.id)}
+      </div>`);
   }
 
-  for (const ds of custom) runDataSourceHealth(ds.id);
+  grid.innerHTML = cards.join('');
+
+  // KHÔNG tự kiểm tra sức khoẻ lúc vẽ. Lý do: lưới được vẽ lại mỗi lần bấm
+  // sub-tab, nên tự gọi ở đây là mỗi lần bấm lại lại bắn request ra ngoài —
+  // và kết quả mới ghi đè luôn kết quả đã lưu trong `_ccConnHealth`.
+  // Người dùng bấm "Kiểm tra" thì mới chạy, như connector cốt lõi vốn vậy.
+  //
+  // Nguồn chưa từng kiểm tra sẽ hiện "Chưa kiểm tra" — đúng thực trạng, không
+  // phải số 0 bịa. Xem `_ccConnHealth` khai báo ở trên.
 }
 
 /** Thêm nút sub-tab vào thanh điều hướng, nếu chưa có. */
@@ -10533,9 +10629,18 @@ function renderEmptyDataSourceTab(subTabId) {
 }
 
 async function loadCcDataSourceTab(subTabId) {
-  // Tab 'conn' đã có 4 card connector cốt lõi trong HTML. Không vẽ đè lên
-  // chúng — chỉ bổ sung phần nguồn tùy chỉnh vào dưới.
-  if (subTabId === 'conn') return renderConnCustomSources();
+  // Phase 81: tab 'conn' KHÔNG còn 4 card viết cứng trong HTML nữa — cả 4
+  // connector cốt lõi lẫn nguồn tùy chỉnh đều do `renderConnectionCards()`
+  // vẽ vào cùng một lưới, nên kết nối người dùng tự thêm trông giống hệt
+  // loại cốt lõi. Hàm này chỉ còn dựng phần tiêu đề + nút thêm.
+  //
+  // Phải gọi ở ĐÂY chứ không thêm vào `switchCcSubTab`: 'conn' nằm trong
+  // `_ccSubTabExtensions` nên nó đi nhánh `loadFn` chứ không tới nhánh tab
+  // cốt lõi — thêm nhánh còn lại sẽ không bao giờ chạy.
+  if (subTabId === 'conn') {
+    renderConnCustomSources();
+    return renderConnectionCards();
+  }
 
   const sources = getCcDataSourcesByCategory(subTabId);
   // Nhóm không có nguồn nào: vẫn giữ lại khung + nút thêm, để người dùng
@@ -10975,11 +11080,13 @@ async function runDataSourceHealth(id) {
         : 'w-2 h-2 rounded-full bg-rose-500';
       indicator.title = success ? 'OK' : reason;
     }
+    _ccConnHealth.set(id, { ok: success, text: success ? 'OK' : reason, dot: true });
   } catch (err) {
     if (indicator) {
       indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
       indicator.title = `Lỗi: ${err.message}`;
     }
+    _ccConnHealth.set(id, { ok: false, text: `Lỗi: ${err.message}`, dot: true });
   }
 }
 
@@ -11580,7 +11687,11 @@ function switchCcSubTab(name) {
     cfg2.loadFn();
   } else if (pane && !pane.classList.contains('hidden')) {
     // Với tab cốt lõi: chỉ load khi pane đã tồn tại và đang hiển thị.
+    // 'conn' KHÔNG ở đây: nó thuộc `_ccSubTabExtensions` nên đã đi nhánh
+    // `loadFn` = `loadCcDataSourceTab`, và hàm đó gọi `renderConnectionCards()`.
+    // Thêm lệnh ở đây sẽ là code chết — không chạy mà nhìn tưởng có chạy.
     if (name === 'config') loadConnectorConfigAll();
+    if (name === 'devices') loadDevices();
     if (name === 'sys') { loadPluginRegistryStats(); loadBackgroundTasks(); }
     if (name === 'webhook') loadWebhookAlerts();
   }
@@ -11658,13 +11769,16 @@ async function runConnectorHealth(connectorName) {
     if (c?.success) {
       if (indicator) indicator.className = 'w-2 h-2 rounded-full bg-emerald-500';
       if (textEl) textEl.textContent = `OK (${(c.latency_ms || 0).toFixed(0)}ms)`;
+      _ccConnHealth.set(connectorName, { ok: true, text: `OK (${(c.latency_ms || 0).toFixed(0)}ms)` });
     } else {
       if (indicator) indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
       if (textEl) textEl.textContent = c?.error || 'Thất bại';
+      _ccConnHealth.set(connectorName, { ok: false, text: c?.error || 'Thất bại' });
     }
   } catch (err) {
     if (indicator) indicator.className = 'w-2 h-2 rounded-full bg-rose-500';
     if (textEl) textEl.textContent = `Lỗi: ${err.message}`;
+    _ccConnHealth.set(connectorName, { ok: false, text: `Lỗi: ${err.message}` });
   } finally {
     // Ô KPI "Kết nối ngoại vi" đếm theo màu của chấm sức khoẻ vừa cập nhật.
     syncIntegrationKpi();
@@ -11672,10 +11786,26 @@ async function runConnectorHealth(connectorName) {
 }
 
 async function runConnectorHealthAll() {
-  for (const name of CC_CONNECTORS) {
-    await runConnectorHealth(name);
-  }
-  showToast('✔ Đã kiểm tra 4 kết nối ngoại vi', 'success');
+  // Phase 81: trước đây toast ghi cứng "4 kết nối ngoại vi". Nay lưới card
+  // chứa cả nguồn tùy chỉnh, nên con số phải đếm thật — ghi cứng sẽ thành lời
+  // nói sai ngay khi người dùng thêm ERP/CRM của hệ thống.
+  const custom = Object.values(_ccDataSourceRegistry).filter(
+    ds => ds.isRemote && (ds.category === 'connector' || ds.category === 'custom')
+  );
+
+  for (const name of CC_CONNECTORS) await runConnectorHealth(name);
+  for (const ds of custom) await runDataSourceHealth(ds.id);
+
+  const total = CC_CONNECTORS.length + custom.length;
+  // Nói số nào hỏng, không chỉ "xong" — nếu không người dùng tưởng tất cả ổn.
+  const failed = [..._ccConnHealth.entries()].filter(([, h]) => !h.ok).length;
+  showToast(
+    failed
+      ? `Kiểm tra ${total} kết nối: ${total - failed} ổn, ${failed} lỗi`
+      : `✔ Đã kiểm tra ${total} kết nối ngoại vi — tất cả OK`,
+    failed ? 'warning' : 'success'
+  );
+  syncIntegrationKpi();
 }
 
 // ── Plugin Registry ───────────────────────────────────────────────────────
@@ -12288,6 +12418,7 @@ if (typeof window !== 'undefined') {
   window.loadSystemIntegration = loadSystemIntegration;
   window.loadConnectorConfigAll = loadConnectorConfigAll;
   window.renderConnectorForms = renderConnectorForms;
+  window.renderConnectionCards = renderConnectionCards;
   window.saveConnectorConfig = saveConnectorConfig;
   window.loadPluginRegistryStats = loadPluginRegistryStats;
   window.loadBackgroundTasks = loadBackgroundTasks;

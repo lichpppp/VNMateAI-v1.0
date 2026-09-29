@@ -27,10 +27,26 @@ function cut(startMark, endMark) {
   return src.slice(a, b + endMark.length);
 }
 
-const subtab = cut(
-  "const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys'];",
-  "    if (name === 'webhook') loadWebhookAlerts();\n  }\n}",
-);
+/**
+ * Cắt một hằng `const X = ...;` bằng regex, bỏ qua nội dung bên trong.
+ *
+ * Vì sao không dùng `cut()`: nó khớp CHUỖI, nên mỗi lần thêm một sub-tab vào
+ * `CC_SUBTABS` là mọi test cắt theo hằng đó hỏng cùng lúc — thêm mục mới xong
+ * thì phải sửa lại hàng loạt test, và dễ quên. Ở đây khớp tên hằng + dấu
+ * `=`, nên nội dung mảng tự do thay đổi mà test không cần biết.
+ */
+function cutConst(name, endMark) {
+  const a = src.search(new RegExp('const ' + name + '\\s*='));
+  if (a < 0) throw new Error('không tìm thấy hằng: ' + name);
+  const b = src.indexOf(endMark, a);
+  if (b < 0) throw new Error('không tìm thấy end: ' + endMark);
+  return src.slice(a, b + endMark.length);
+}
+
+// Phase 81: CC_SUBTABS nay có thêm 'devices' (khối máy trạm tách thành
+// sub-tab riêng). Cắt bằng regex tên hằng để lần sau thêm sub-tab nữa,
+// test không phải sửa theo.
+const subtab = cutConst('CC_SUBTABS', "    if (name === 'webhook') loadWebhookAlerts();\n  }\n}")
 
 const secrets = cut(
   "const CC_SECRET_FIELDS =",
@@ -45,6 +61,12 @@ const harness = `
 const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
 const API_BASE = '';
 const CC_CONNECTORS_CONST = CC_CONNECTORS;
+// Phase 81: runConnectorHealth / runDataSourceHealth ghi kết quả vào
+// _ccConnHealth để renderConnectionCards() vẽ lại lưới không mất trạng thái.
+// Harness dựng lại hàm từ app.js nên phải có hằng này, không thì hàm ném
+// ReferenceError và test chết ngay, không báo đúng nguyên nhân.
+// (Không dùng backtick trong khối harness: đây là template literal.)
+const _ccConnHealth = new Map();
 const $store = {};
 function _ccGet(id) { return $store[id] || null; }
 function _esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -80,7 +102,9 @@ function showToast() {}
   const { switchCcSubTab, CC_SUBTABS } = await import(pathToFileURL(f).href);
 
   results.push('\n▸ switchCcSubTab');
-  check('có đủ 5 sub-tab', CC_SUBTABS.length === 5, CC_SUBTABS.join(','));
+  // Phase 81: thêm sub-tab 'devices' -> 5 thành 6.
+  check('có đủ 6 sub-tab', CC_SUBTABS.length === 6, CC_SUBTABS.join(','));
+  check('có sub-tab Máy Trạm', CC_SUBTABS.includes('devices'));
   switchCcSubTab('config');
   check('bấm "config" -> nút config được làm nổi bật',
     btns.find(b => b.dataset.ccSubtab === 'config').className.includes('bg-primary-600'));

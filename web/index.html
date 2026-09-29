@@ -980,87 +980,29 @@
               class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Công Cụ</button>
             <button type="button" onclick="switchCcSubTab('sys')" data-cc-subtab="sys"
               class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Hệ Thống</button>
+          <button type="button" onclick="switchCcSubTab('devices')" data-cc-subtab="devices"
+            class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Máy Trạm</button>
           </div>
         </div>
 
         <!-- ── Sub-tab: KẾT NỐI ──────────────────────────────────── -->
         <div id="cc-int-conn" class="p-4">
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3" id="cc-connector-health-grid">
-            <div class="connector-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 text-center"
-              data-connector="aws">
-              <div class="flex items-center justify-center gap-1.5 mb-2">
-                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-amber-500">
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
-                <span class="text-xs font-bold text-slate-700 dark:text-slate-300">AWS</span>
-              </div>
-              <p class="text-[9px] text-slate-400 dark:text-slate-500 mb-2">Cost Explorer · EC2</p>
-              <div class="flex items-center justify-center gap-1.5 mb-2.5">
-                <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="aws-health-indicator"></span>
-                <span class="text-[10px] text-slate-500 dark:text-slate-400" id="aws-health-text">Chưa kiểm tra</span>
-              </div>
-              <button type="button" onclick="runConnectorHealth('aws')"
-                class="w-full px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
-            </div>
+          <!-- Phase 81: 4 card connector viết cứng (78 dòng HTML) bị thay
+               bằng card do `renderConnectionCards()` sinh ra cho TẤT CẢ kết
+               nối — cốt lõi lẫn nguồn tùy chỉnh.
 
-            <div class="connector-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 text-center"
-              data-connector="oci">
-              <div class="flex items-center justify-center gap-1.5 mb-2">
-                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-red-500">
-                  <circle cx="12" cy="12" r="10" />
-                  <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
-                </svg>
-                <span class="text-xs font-bold text-slate-700 dark:text-slate-300">OCI</span>
-              </div>
-              <p class="text-[9px] text-slate-400 dark:text-slate-500 mb-2">Compute · Monitoring</p>
-              <div class="flex items-center justify-center gap-1.5 mb-2.5">
-                <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="oci-health-indicator"></span>
-                <span class="text-[10px] text-slate-500 dark:text-slate-400" id="oci-health-text">Chưa kiểm tra</span>
-              </div>
-              <button type="button" onclick="runConnectorHealth('oci')"
-                class="w-full px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
-            </div>
+               Trước đây có hai ngôn ngữ hiển thị cho cùng một thứ: 4 connector
+               cốt lõi nằm cứng trong HTML (canh giữa, icon SVG, lưới 4 cột,
+               chỉ nút "Kiểm tra"), còn nguồn tùy chỉnh do JS vẽ ra (canh trái,
+               icon emoji, lưới 3 cột, có thêm "Xem dữ liệu"/"Excel"/"CSV").
+               Người dùng thêm một ERP của hệ thống rồi thấy nó trông như thuộc
+               loại khác — dù server trả về CÙNG một cấu trúc cho cả hai.
 
-            <div class="connector-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 text-center"
-              data-connector="paperless">
-              <div class="flex items-center justify-center gap-1.5 mb-2">
-                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-blue-500">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                  <polyline points="10 9 9 9 8 9" />
-                </svg>
-                <span class="text-xs font-bold text-slate-700 dark:text-slate-300">Paperless</span>
-              </div>
-              <p class="text-[9px] text-slate-400 dark:text-slate-500 mb-2">Tìm kiếm · OCR</p>
-              <div class="flex items-center justify-center gap-1.5 mb-2.5">
-                <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="paperless-health-indicator"></span>
-                <span class="text-[10px] text-slate-500 dark:text-slate-400" id="paperless-health-text">Chưa kiểm tra</span>
-              </div>
-              <button type="button" onclick="runConnectorHealth('paperless')"
-                class="w-full px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
-            </div>
-
-            <div class="connector-card rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 text-center"
-              data-connector="einvoice">
-              <div class="flex items-center justify-center gap-1.5 mb-2">
-                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-emerald-500">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <path d="M16 13H8" />
-                  <path d="M16 17H8" />
-                  <path d="M10 9H9" />
-                </svg>
-                <span class="text-xs font-bold text-slate-700 dark:text-slate-300">eInvoice</span>
-              </div>
-              <p class="text-[9px] text-slate-400 dark:text-slate-500 mb-2">Hóa đơn điện tử</p>
-              <div class="flex items-center justify-center gap-1.5 mb-2.5">
-                <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600" id="einvoice-health-indicator"></span>
-                <span class="text-[10px] text-slate-500 dark:text-slate-400" id="einvoice-health-text">Chưa kiểm tra</span>
-              </div>
-              <button type="button" onclick="runConnectorHealth('einvoice')"
-                class="w-full px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
+               Nay một hàm vẽ, một bố cục. Thêm connector cốt lõi cũng không
+               cần sửa HTML nữa. -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" id="cc-connector-health-grid">
+            <div class="col-span-full py-6 text-center text-xs text-slate-400 dark:text-slate-500 italic">
+              Đang tải danh sách kết nối...
             </div>
           </div>
 
@@ -1221,16 +1163,14 @@
             </div>
           </div>
         </div>
-      </div>
-
-    
-        <!-- Gộp từ tab "Thiết Bị" (Phase 78) — cùng miền kết nối ra ngoài với connector. -->
-        <div class="mb-3 mt-6 first:mt-0">
-          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            <!-- THIẾT BỊ MÁY TRẠM (WORKER NODES) -->
-          </h3>
-        </div>
-
+        <!-- ── Sub-tab: MÁY TRẠM (WORKER NODES) ─────────────────────
+             Phase 81: trước đây khối máy trạm nằm tràn dưới sub-tab
+             "Hệ Thống" — 195 dòng HTML khiến màn hình Tích Hợp bị kéo
+             dài bởi nội dung không liên quan tới tích hợp. Nay là sub-tab
+             riêng, chỉ nạp dữ liệu khi bấm vào. -->
+        <div id="cc-int-devices" class="p-4 hidden">
+        <!-- Phase 81: tiêu đề "THIẾT BỊ MÁY TRẠM (WORKER NODES)" bị gỡ —
+             nút sub-tab đã ghi rõ "Máy Trạm", tiêu đề lặp chỉ chiếm chỗ. -->
       <!-- Header & Stats Overview -->
       <div class="glass-panel p-6">
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
@@ -1418,6 +1358,9 @@
             </p>
           </div>
         </div>
+      </div>
+        </div>
+
       </div>
     </section>
 

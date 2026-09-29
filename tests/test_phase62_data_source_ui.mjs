@@ -31,7 +31,9 @@ const harness = `
 const window = globalThis;
 globalThis.window = window;
 const CC_SECRET_FIELDS = ['auth_value'];
-const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys'];
+// Phase 81: có thêm 'devices'. Khai báo trong harness nên tự cập nhật
+// theo CC_SUBTABS của app.js, không cần sửa test mỗi lần thêm sub-tab.
+const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys', 'devices'];
 let _ccSubTabExtensions = [];
 let _ccSubTabConfig = {};
 const $store = {};
@@ -93,6 +95,8 @@ const document = {
 };
 // Tab Kết Nối tồn tại sẵn trong HTML thật; DOM giả phải có nó để render chạy được.
 $store['cc-int-conn'] = _fakeEl('cc-int-conn');
+// Phase 81: card kết nối (cốt lõi + tùy chỉnh) nằm trong lưới này.
+$store['cc-connector-health-grid'] = _fakeEl('cc-connector-health-grid');
 $store['tab-system-integration'] = _fakeEl('tab-system-integration');
 
 const confirm = () => true;
@@ -104,6 +108,17 @@ function getAuthToken() { return 'tok'; }
 let _toasts = [];
 function showToast(msg, kind) { _toasts.push({ msg, kind }); }
 const API_BASE = '';
+// Phase 81: renderConnectionCards() vẽ chung card cho cả connector cốt lõi
+// lẫn nguồn tùy chỉnh, nên nó đọc CC_CONNECTORS. Harness phải có hằng số này,
+// không thì hàm ném ReferenceError và test báo nhầm là "chưa thấy card".
+// (Không dùng backtick trong khối này: harness là template literal.)
+const CC_CONNECTORS = ['aws', 'oci', 'paperless', 'einvoice'];
+// Phase 81: runConnectorHealth / runDataSourceHealth ghi kết quả vào
+// _ccConnHealth để renderConnectionCards() vẽ lại lưới không mất trạng thái.
+// Harness dựng lại hàm từ app.js nên phải có hằng này, không thì hàm ném
+// ReferenceError và test chết ngay, không báo đúng nguyên nhân.
+// (Không dùng backtick trong khối harness: đây là template literal.)
+const _ccConnHealth = new Map();
 
 // apiFetch trả về Response giả lập theo kịch bản đặt trước.
 let _responses = {};
@@ -161,7 +176,7 @@ const code = harness + '\n' + registry + '\n' + registry2 + '\n' + [tabLoader, u
   + '  openAddDataSourceModal, syncRemoteDataSources, previewDataSource,\n'
   + '  _ccRenderPreview, _ccDataSourceRegistry,\n'
   + '  _resetProbe, _setResponses, _toasts, _lastCall, CC_DATA_SOURCE_CATEGORIES,\n'
-  + '  _capturedHtml, _resetModal, _setForm, saveCcDataSource, _callTo,\n  _ccHealthVerdict, CC_APP_PRESETS, renderConnCustomSources, applyCcPreset,\n  toggleCcPresetPicker, _ccPresetPicker\n};\n';
+  + '  _capturedHtml, _resetModal, _setForm, saveCcDataSource, _callTo,\n  _ccHealthVerdict, CC_APP_PRESETS, renderConnCustomSources, renderConnectionCards, applyCcPreset,\n  toggleCcPresetPicker, _ccPresetPicker\n};\n';
 
 const dir = mkdtempSync(join(tmpdir(), 'ds62-'));
 const file = join(dir, 'm.mjs');
@@ -436,7 +451,10 @@ m._ccDataSourceRegistry['cong-ty-abc'] = {
   endpoints: { health: '/h', data: '/d' }, healthMethod: 'POST',
 };
 m.renderConnCustomSources();
+m.renderConnectionCards();
 const connHtml = m._capturedHtml();
+// Phase 81: card do `renderConnectionCards()` vẽ CHUNG với connector cốt lõi,
+// nên `renderConnCustomSources()` giờ chỉ ra tiêu đề + nút thêm.
 check('render nguồn nhóm connector', connHtml.includes('ERP Công ty ABC'), 'chưa thấy card');
 check('hiện domain để nhận ra nguồn', connHtml.includes('erp.abc.vn'));
 check('có nút thêm kết nối', connHtml.includes("openAddDataSourceModal('connector')"));
@@ -447,6 +465,7 @@ check('có nút xem dữ liệu', connHtml.includes("runDataSourceAction('cong-t
 m._resetModal();
 m._ccDataSourceRegistry['bao-cao-xyz'] = { id: 'bao-cao-xyz', title: 'Báo cáo XYZ', category: 'reporting', isRemote: true, endpoints: {} };
 m.renderConnCustomSources();
+m.renderConnectionCards();
 check('nguồn nhóm báo cáo KHÔNG lọt sang tab Kết Nối',
   !m._capturedHtml().includes('Báo cáo XYZ'), m._capturedHtml().slice(0, 120));
 
@@ -454,6 +473,7 @@ check('nguồn nhóm báo cáo KHÔNG lọt sang tab Kết Nối',
 m._resetModal();
 m._ccDataSourceRegistry['chua-co-khoa'] = { id: 'chua-co-khoa', title: 'Chưa có khoá', category: 'connector', isRemote: true, hasAuth: false, endpoints: {} };
 m.renderConnCustomSources();
+m.renderConnectionCards();
 check('nguồn chưa có khoá -> cảnh báo trên card',
   m._capturedHtml().includes('Chưa có khoá xác thực'));
 delete m._ccDataSourceRegistry['chua-co-khoa'];
