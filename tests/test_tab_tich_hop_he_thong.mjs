@@ -131,8 +131,11 @@ check("VALID_TABS có 'system-integration'",
   /const VALID_TABS = \[[^\]]*'system-integration'[^\]]*\]/.test(src));
 check("TAB_TITLES['system-integration'] = 'Tích Hợp Hệ Thống Báo Cáo'",
   src.includes("'system-integration': 'Tích Hợp Hệ Thống Báo Cáo',"));
+// Khớp theo HÀNH VI, không khớp chuỗi tuyệt đối. Phase 78 đổi dòng này thành
+// khối nhiều dòng (tab Tích Hợp nay nạp thêm danh sách máy trạm sau khi gộp
+// tab "Thiết Bị"), nên so khớp chuỗi sẽ báo đỏ oan dù hàm vẫn được gọi đúng.
 check('tab mới được nạp dữ liệu khi mở',
-  src.includes("if (tabId === 'system-integration') loadSystemIntegration();"));
+  /if \(tabId === 'system-integration'\)[\s\S]{0,140}loadSystemIntegration\(\)/.test(src));
 check('loadSystemIntegration() nạp đủ 4 nhóm dữ liệu Phase 59/60',
   (() => {
     const m = src.match(/function loadSystemIntegration\(\) \{([\s\S]*?)\n\}/);

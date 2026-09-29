@@ -716,16 +716,6 @@
           Kho Kỹ Năng
         </div>
 
-        <div class="nav-btn" id="nav-devices" onclick="switchTab('devices')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <line x1="8" y1="21" x2="16" y2="21" />
-            <line x1="12" y1="17" x2="12" y2="21" />
-          </svg>
-          <span>Quản Lý Thiết Bị</span>
-          <span id="badge-online-clients"
-            class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-700">0</span>
-        </div>
 
         <div class="nav-btn" id="nav-voice" onclick="switchTab('voice')">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -796,17 +786,6 @@
             class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hidden">0</span>
         </div>
 
-        <div class="nav-btn hidden" id="nav-users" onclick="switchTab('users')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-          </svg>
-          <span>Quản Lý Tài Khoản</span>
-          <span id="badge-users-count"
-            class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-700">RBAC</span>
-        </div>
       </nav>
     </div>
 
@@ -1145,18 +1124,24 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
 
         <!-- Hàng đợi phê duyệt -->
+        <!-- Phase 78: hàng đợi phê duyệt đã gom về Bảng Điều Khiển (chủ sở
+             hữu) để chỉ có một danh sách duy nhất, không lệch số liệu. -->
         <div id="cc-pending-card"
           class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
           <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
             <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Chờ Bạn Phê Duyệt</h3>
             <span id="cc-pending-count"
-              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">0</span>
+              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">—</span>
           </div>
-          <div id="cc-pending-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
-            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">
-              Không có tác vụ nào chờ duyệt.
+          <div class="p-3">
+            <p class="text-xs text-slate-500 dark:text-slate-400 text-center py-3">
+              Xem hàng đợi đầy đủ tại
             </p>
+            <button type="button" onclick="switchTab('dashboard'); setTimeout(() => document.getElementById('dash-pending-list')?.scrollIntoView({behavior:'smooth',block:'center'}), 120)"
+              class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
+              Mở Bảng Điều Khiển
+            </button>
           </div>
         </div>
 
@@ -1744,6 +1729,202 @@
         </div>
       </div>
 
+    
+        <!-- Gộp từ tab "Thiết Bị" (Phase 78) — cùng miền kết nối ra ngoài với connector. -->
+        <div class="mb-3 mt-6 first:mt-0">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <!-- THIẾT BỊ MÁY TRẠM (WORKER NODES) -->
+          </h3>
+        </div>
+
+      <!-- Header & Stats Overview -->
+      <div class="glass-panel p-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
+          <div>
+            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
+                ENTERPRISE ORCHESTRATOR
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                LAN WEBSOCKET 2-WAY
+              </span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
+                ZERO-TRUST SSL PINNED
+              </span>
+            </div>
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Quản Lý Thiết Bị Máy Trạm (Worker Nodes)</h2>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Điều phối và đồng bộ tự động hóa từ xa tới các máy trạm trong mạng nội bộ thông qua Secure Client Agent.</p>
+          </div>
+
+          <!-- Phase 32: Quick HUD Trigger & Tools -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
+              <span class="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 px-2 flex items-center gap-1">
+                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                HUD LY LY:
+              </span>
+              <button onclick="triggerVisualOverlay('network_map')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Sơ đồ mạng HUD">🌐 Mạng</button>
+              <button onclick="triggerVisualOverlay('metric_chart')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Biểu đồ CPU/RAM HUD">📊 CPU/RAM</button>
+              <button onclick="triggerVisualOverlay('alert')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-red-500 shadow-sm transition active:scale-95" title="Hiển thị Cảnh báo an ninh HUD">⚠️ Cảnh Báo</button>
+              <a href="/hud" target="_blank" class="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:shadow-cyan-500/30 transition active:scale-95 flex items-center gap-1" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình">🖥️ 3D HUD</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 Live Telemetry & Control Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
+          <!-- Card 1: Total Workers -->
+          <div class="glass-panel p-3.5 flex items-center justify-between border-cyan-500/20 hover:border-cyan-500/40 transition">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm shrink-0">
+                🖥️
+              </div>
+              <div class="min-w-0">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">TỔNG MÁY TRẠM</div>
+                <div id="stat-total-clients" class="text-sm font-mono font-bold text-cyan-400">0 NODES</div>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">LAN WORKERS</span>
+          </div>
+
+          <!-- Card 2: Online Workers -->
+          <div class="glass-panel p-3.5 flex items-center justify-between border-emerald-500/20 hover:border-emerald-500/40 transition">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0">
+                🟢
+              </div>
+              <div class="min-w-0">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">TRỰC TUYẾN REALTIME</div>
+                <div id="stat-online-clients" class="text-sm font-mono font-bold text-emerald-400">0 ONLINE</div>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">WSS ACTIVE</span>
+          </div>
+
+          <!-- Card 3: Master Port & Security -->
+          <div class="glass-panel p-3.5 flex items-center justify-between border-purple-500/20 hover:border-purple-500/40 transition">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 font-bold text-sm shrink-0">
+                🔒
+              </div>
+              <div class="min-w-0">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">CỔNG MASTER & TLS</div>
+                <div class="text-xs font-mono font-bold text-purple-300 flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>:443 (SSL PINNED)</span>
+                </div>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30 shrink-0">ANTI-MITM</span>
+          </div>
+
+          <!-- Card 4: Quick Actions & Local Worker Toggle -->
+          <div class="glass-panel p-3 flex items-center justify-between gap-2 border-slate-500/20">
+            <button type="button" onclick="downloadClientAgent()" id="btn-download-agent-devices" title="Tải xuống gói Client Agent (.zip) kèm cấu hình IP máy chủ tự động"
+              class="flex-1 py-1.5 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>⬇️ Tải Agent</span>
+            </button>
+            <button type="button" onclick="toggleLocalWorkerNode()" id="btn-local-worker-toggle" title="Bật hoặc tắt Worker Node chạy ngầm trên máy chủ để thử nghiệm"
+              class="flex-1 py-1.5 px-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1">
+              <span id="btn-local-worker-text">⚡ Bật Local</span>
+            </button>
+            <button type="button" onclick="loadDevices()" title="Nạp lại danh sách máy trạm từ orchestrator"
+              class="py-1.5 px-2 rounded-lg bg-slate-500/10 hover:bg-slate-500/20 text-slate-300 border border-slate-500/30 text-[10px] font-bold transition flex items-center justify-center">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Devices Table Panel -->
+      <div class="glass-panel p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-white">Danh Sách Máy Trạm Worker (LAN)</h3>
+            <span class="text-[11px] text-slate-500 dark:text-slate-400">Cập nhật tự động realtime</span>
+          </div>
+          <div class="relative">
+            <input type="text" id="filter-devices-input" onkeyup="filterDevices()" placeholder="Lọc theo tên, IP hoặc hệ điều hành..."
+              class="input-dark text-xs pr-8 py-1.5 w-64" />
+            <svg class="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" width="14" height="14"
+              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
+            <thead>
+              <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 sticky top-0">
+                <th class="py-3 px-4">TÊN THIẾT BỊ / HOSTNAME</th>
+                <th class="py-3 px-4">ĐỊA CHỈ IP LAN</th>
+                <th class="py-3 px-4">HỆ ĐIỀU HÀNH</th>
+                <th class="py-3 px-4">SỐ KỸ NĂNG</th>
+                <th class="py-3 px-4">TRẠNG THÁI</th>
+                <th class="py-3 px-4">THỜI GIAN KẾT NỐI</th>
+                <th class="py-3 px-4 text-right">THAO TÁC</th>
+              </tr>
+            </thead>
+            <tbody id="devices-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+              <!-- Dynamically rendered by app.js loadDevices() -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Empty state placeholder -->
+        <div id="devices-empty-state" class="p-8 text-center hidden">
+          <div class="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-400/20 text-cyan-400 mx-auto flex items-center justify-center mb-3 text-2xl shadow-[0_0_15px_rgba(34,211,238,0.2)]">
+            🖥️
+          </div>
+          <h4 class="text-sm font-bold text-slate-800 dark:text-white">Chưa có máy trạm nào kết nối</h4>
+          <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
+            Khởi chạy Client Agent trên các máy con trong cùng mạng LAN để kết nối về máy chủ Master này, hoặc bật ngay Worker Cục Bộ để thử nghiệm tức thời.
+          </p>
+          <div class="mt-4 flex items-center justify-center gap-2.5 flex-wrap">
+            <button onclick="toggleLocalWorkerNode()"
+              class="btn-neon-cyan py-2 px-4 text-xs font-bold flex items-center gap-2 shadow-lg">
+              <span>⚡ Khởi Chạy Local Worker Agent (Thử Nghiệm Ngay)</span>
+            </button>
+            <button onclick="downloadClientAgent()"
+              class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 text-xs font-semibold transition-all">
+              <span>⬇️ Tải Gói Cài Đặt Agent (.zip)</span>
+            </button>
+          </div>
+          <div class="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px] text-cyan-400">
+            <code>python agent.py --server wss://&lt;IP_MAY_CHU&gt;:443/ws/client</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Instruction Guide Card -->
+      <div class="glass-panel p-5 border border-slate-200 dark:border-slate-800">
+        <div class="flex items-start gap-3">
+          <div
+            class="w-8 h-8 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 flex-shrink-0 mt-0.5">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+          </div>
+          <div class="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+            <h4 class="font-bold text-slate-900 dark:text-white text-sm">Hướng Dẫn Triển Khai Máy Con (Worker Node)
+              Trong Doanh Nghiệp</h4>
+            <p class="text-slate-500 dark:text-slate-400 leading-relaxed">
+              1. Sao chép thư mục <code class="text-primary-600 dark:text-cyan-300 font-semibold">client_agent/</code>
+              sang máy con cần điều khiển tự động.<br />
+              2. Cài đặt các thư viện cần thiết: <code
+                class="text-primary-600 dark:text-cyan-300 font-semibold">pip install websockets psutil</code>.<br />
+              3. Chạy lệnh: <code
+                class="text-primary-600 dark:text-cyan-300 font-mono font-semibold">python agent.py --server wss://&lt;IP_MAY_CHU&gt;:443/ws/client --id "TEN_MAY"</code>.<br />
+              4. Máy trạm sẽ tự động xác thực chứng chỉ SSL và kết nối bảo mật tới Master.
+            </p>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- TAB 1: DASHBOARD — GRAFANA-STYLE OBSERVABILITY (PHASE 24)     -->
@@ -2310,6 +2491,22 @@
         </div>
 
         <!-- Panel 7: Sức Khỏe Công Cụ (Plugin Registry + Circuit Breaker) -->
+        <!-- ═══ PHÊ DUYỆT (chủ sở hữu — Phase 78) ══════════ -->
+        <div id="dash-pending-card"
+          class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Chờ Bạn Phê Duyệt</h3>
+            <span id="dash-pending-count"
+              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">0</span>
+          </div>
+          <div id="dash-pending-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
+            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">
+              Không có tác vụ nào chờ duyệt.
+            </p>
+          </div>
+        </div>
+
         <div class="lg:col-span-8 glass-panel p-5">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
@@ -4286,199 +4483,6 @@
       </div>
     </section>
 
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- TAB 5: DEVICE MANAGER (QUẢN LÝ THIẾT BỊ LAN & MÁY TRẠM)        -->
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <section class="tab-pane space-y-6" id="tab-devices">
-      <!-- Header & Stats Overview -->
-      <div class="glass-panel p-6">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
-          <div>
-            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
-                ENTERPRISE ORCHESTRATOR
-              </span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                LAN WEBSOCKET 2-WAY
-              </span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-                ZERO-TRUST SSL PINNED
-              </span>
-            </div>
-            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Quản Lý Thiết Bị Máy Trạm (Worker Nodes)</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Điều phối và đồng bộ tự động hóa từ xa tới các máy trạm trong mạng nội bộ thông qua Secure Client Agent.</p>
-          </div>
-
-          <!-- Phase 32: Quick HUD Trigger & Tools -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
-              <span class="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 px-2 flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                HUD LY LY:
-              </span>
-              <button onclick="triggerVisualOverlay('network_map')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Sơ đồ mạng HUD">🌐 Mạng</button>
-              <button onclick="triggerVisualOverlay('metric_chart')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Biểu đồ CPU/RAM HUD">📊 CPU/RAM</button>
-              <button onclick="triggerVisualOverlay('alert')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-red-500 shadow-sm transition active:scale-95" title="Hiển thị Cảnh báo an ninh HUD">⚠️ Cảnh Báo</button>
-              <a href="/hud" target="_blank" class="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:shadow-cyan-500/30 transition active:scale-95 flex items-center gap-1" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình">🖥️ 3D HUD</a>
-            </div>
-          </div>
-        </div>
-
-        <!-- 4 Live Telemetry & Control Cards -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
-          <!-- Card 1: Total Workers -->
-          <div class="glass-panel p-3.5 flex items-center justify-between border-cyan-500/20 hover:border-cyan-500/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm shrink-0">
-                🖥️
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] text-slate-400 uppercase font-semibold">TỔNG MÁY TRẠM</div>
-                <div id="stat-total-clients" class="text-sm font-mono font-bold text-cyan-400">0 NODES</div>
-              </div>
-            </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">LAN WORKERS</span>
-          </div>
-
-          <!-- Card 2: Online Workers -->
-          <div class="glass-panel p-3.5 flex items-center justify-between border-emerald-500/20 hover:border-emerald-500/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0">
-                🟢
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] text-slate-400 uppercase font-semibold">TRỰC TUYẾN REALTIME</div>
-                <div id="stat-online-clients" class="text-sm font-mono font-bold text-emerald-400">0 ONLINE</div>
-              </div>
-            </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">WSS ACTIVE</span>
-          </div>
-
-          <!-- Card 3: Master Port & Security -->
-          <div class="glass-panel p-3.5 flex items-center justify-between border-purple-500/20 hover:border-purple-500/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 font-bold text-sm shrink-0">
-                🔒
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] text-slate-400 uppercase font-semibold">CỔNG MASTER & TLS</div>
-                <div class="text-xs font-mono font-bold text-purple-300 flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>:443 (SSL PINNED)</span>
-                </div>
-              </div>
-            </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30 shrink-0">ANTI-MITM</span>
-          </div>
-
-          <!-- Card 4: Quick Actions & Local Worker Toggle -->
-          <div class="glass-panel p-3 flex items-center justify-between gap-2 border-slate-500/20">
-            <button type="button" onclick="downloadClientAgent()" id="btn-download-agent-devices" title="Tải xuống gói Client Agent (.zip) kèm cấu hình IP máy chủ tự động"
-              class="flex-1 py-1.5 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>⬇️ Tải Agent</span>
-            </button>
-            <button type="button" onclick="toggleLocalWorkerNode()" id="btn-local-worker-toggle" title="Bật hoặc tắt Worker Node chạy ngầm trên máy chủ để thử nghiệm"
-              class="flex-1 py-1.5 px-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1">
-              <span id="btn-local-worker-text">⚡ Bật Local</span>
-            </button>
-            <button type="button" onclick="loadDevices()" title="Nạp lại danh sách máy trạm từ orchestrator"
-              class="py-1.5 px-2 rounded-lg bg-slate-500/10 hover:bg-slate-500/20 text-slate-300 border border-slate-500/30 text-[10px] font-bold transition flex items-center justify-center">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Devices Table Panel -->
-      <div class="glass-panel p-5 space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-bold text-slate-800 dark:text-white">Danh Sách Máy Trạm Worker (LAN)</h3>
-            <span class="text-[11px] text-slate-500 dark:text-slate-400">Cập nhật tự động realtime</span>
-          </div>
-          <div class="relative">
-            <input type="text" id="filter-devices-input" onkeyup="filterDevices()" placeholder="Lọc theo tên, IP hoặc hệ điều hành..."
-              class="input-dark text-xs pr-8 py-1.5 w-64" />
-            <svg class="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" width="14" height="14"
-              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </div>
-        </div>
-
-        <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50">
-          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
-            <thead>
-              <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 sticky top-0">
-                <th class="py-3 px-4">TÊN THIẾT BỊ / HOSTNAME</th>
-                <th class="py-3 px-4">ĐỊA CHỈ IP LAN</th>
-                <th class="py-3 px-4">HỆ ĐIỀU HÀNH</th>
-                <th class="py-3 px-4">SỐ KỸ NĂNG</th>
-                <th class="py-3 px-4">TRẠNG THÁI</th>
-                <th class="py-3 px-4">THỜI GIAN KẾT NỐI</th>
-                <th class="py-3 px-4 text-right">THAO TÁC</th>
-              </tr>
-            </thead>
-            <tbody id="devices-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-              <!-- Dynamically rendered by app.js loadDevices() -->
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Empty state placeholder -->
-        <div id="devices-empty-state" class="p-8 text-center hidden">
-          <div class="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-400/20 text-cyan-400 mx-auto flex items-center justify-center mb-3 text-2xl shadow-[0_0_15px_rgba(34,211,238,0.2)]">
-            🖥️
-          </div>
-          <h4 class="text-sm font-bold text-slate-800 dark:text-white">Chưa có máy trạm nào kết nối</h4>
-          <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-            Khởi chạy Client Agent trên các máy con trong cùng mạng LAN để kết nối về máy chủ Master này, hoặc bật ngay Worker Cục Bộ để thử nghiệm tức thời.
-          </p>
-          <div class="mt-4 flex items-center justify-center gap-2.5 flex-wrap">
-            <button onclick="toggleLocalWorkerNode()"
-              class="btn-neon-cyan py-2 px-4 text-xs font-bold flex items-center gap-2 shadow-lg">
-              <span>⚡ Khởi Chạy Local Worker Agent (Thử Nghiệm Ngay)</span>
-            </button>
-            <button onclick="downloadClientAgent()"
-              class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 text-xs font-semibold transition-all">
-              <span>⬇️ Tải Gói Cài Đặt Agent (.zip)</span>
-            </button>
-          </div>
-          <div class="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px] text-cyan-400">
-            <code>python agent.py --server wss://&lt;IP_MAY_CHU&gt;:443/ws/client</code>
-          </div>
-        </div>
-      </div>
-
-      <!-- Instruction Guide Card -->
-      <div class="glass-panel p-5 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-start gap-3">
-          <div
-            class="w-8 h-8 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 flex-shrink-0 mt-0.5">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
-          </div>
-          <div class="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
-            <h4 class="font-bold text-slate-900 dark:text-white text-sm">Hướng Dẫn Triển Khai Máy Con (Worker Node)
-              Trong Doanh Nghiệp</h4>
-            <p class="text-slate-500 dark:text-slate-400 leading-relaxed">
-              1. Sao chép thư mục <code class="text-primary-600 dark:text-cyan-300 font-semibold">client_agent/</code>
-              sang máy con cần điều khiển tự động.<br />
-              2. Cài đặt các thư viện cần thiết: <code
-                class="text-primary-600 dark:text-cyan-300 font-semibold">pip install websockets psutil</code>.<br />
-              3. Chạy lệnh: <code
-                class="text-primary-600 dark:text-cyan-300 font-mono font-semibold">python agent.py --server wss://&lt;IP_MAY_CHU&gt;:443/ws/client --id "TEN_MAY"</code>.<br />
-              4. Máy trạm sẽ tự động xác thực chứng chỉ SSL và kết nối bảo mật tới Master.
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <!-- TAB 6: SECURITY & AUDIT (TRUNG TÂM BẢO MẬT ZERO-TRUST)        -->
@@ -4527,38 +4531,28 @@
       </div>
 
       <!-- ─── PENDING SECURITY APPROVALS QUEUE (HITL) ─── -->
-      <div id="security-pending-card" class="glass-panel p-5 space-y-4 border border-amber-500/40 bg-amber-500/5">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-amber-500/20 pb-3">
-          <div class="flex items-center gap-2.5">
-            <div class="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/50 flex items-center justify-center text-amber-500 text-base animate-pulse">
-              🛡️
-            </div>
-            <div>
-              <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <span>Hàng Đợi Phê Duyệt An Ninh (HITL Pending Approvals)</span>
-                <span id="badge-pending-queue-count" class="text-[10px] px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-                  0 Đang Chờ
-                </span>
-              </h3>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Các tác vụ mức rủi ro cao (NEED_CONFIRM) bị chặn tự động và yêu cầu người quản trị bấm duyệt để tiếp tục.</p>
-            </div>
-          </div>
-          <button onclick="loadSecurityCenter(); showToast('Đã làm mới hàng đợi phê duyệt', 'info')"
-            class="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer">
-            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M23 4v6h-6" />
-              <path d="M1 20v-6h6" />
-              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
-            Làm mới hàng đợi
-          </button>
-        </div>
-
-        <!-- Pending Items Container -->
-        <div id="security-pending-list" class="space-y-3">
-          <!-- Dynamically populated by JS -->
-        </div>
-      </div>
+<div id="security-pending-card" class="glass-panel p-5 space-y-4 border border-amber-500/40 bg-amber-500/5">
+  <div class="flex items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <span class="text-base">🛡️</span>
+      <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Phê Duyệt An Ninh (HITL)</h3>
+    </div>
+    <span id="badge-pending-queue-count"
+      class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">—</span>
+  </div>
+  <!-- Phase 78: danh sách phê duyệt đã gom về Bảng Điều Khiển (chủ sở hữu).
+       Ở đây trước đây có một bảng đầy đủ thứ hai, nạp từ /security/pending-action
+       — khác endpoint với bản ở Bảng Điều Khiển (/enterprise/hitl/pending) nên
+       hai nơi có thể hiện số khác nhau cho cùng một hàng đợi. -->
+  <p class="text-xs text-slate-500 dark:text-slate-400">
+    Danh sách phê duyệt đầy đủ nằm ở Bảng Điều Khiển — một danh sách duy nhất
+    cho toàn hệ thống.
+  </p>
+  <button type="button" onclick="switchTab('dashboard'); setTimeout(() => document.getElementById('dash-pending-list')?.scrollIntoView({behavior:'smooth',block:'center'}), 120)"
+    class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition flex items-center justify-center gap-2">
+    Mở Hàng Đợi Phê Duyệt
+  </button>
+</div>
 
       <!-- ─── 3-TIER ZERO-TRUST SECURITY POLICY MANAGER ─── -->
       <div class="glass-panel p-5 space-y-4">
@@ -4674,53 +4668,239 @@
       </div>
 
       <!-- ─── AUDIT LOGS TABLE ─── -->
-      <div class="glass-panel p-5 space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-              <span>📋 Nhật Ký Kiểm Toán An Ninh (Security Audit Logs)</span>
-              <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">logs/security_audit.log</span>
-            </h3>
+        <!-- Phase 78: nhật ký kiểm toán an ninh đã gom vào tab Nhật Ký
+             (chế độ "Kiểm toán an ninh") để không lặp bảng ở nhiều nơi. -->
+        <button type="button" onclick="switchTab('logs'); switchLogView('security')"
+                class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/50 hover:border-cyan-500/50 text-xs font-semibold text-slate-300 hover:text-cyan-300 transition flex items-center justify-center gap-2">
+          📋 Mở Nhật Ký Kiểm Toán
+        </button>
+    
+        <!-- Gộp từ tab "Tài Khoản" (Phase 78) — cùng miền kiểm soát truy cập với chính sách bảo mật. -->
+        <div class="mb-3 mt-6 first:mt-0">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+            <!-- QUẢN LÝ TÀI KHOẢN & PHÂN QUYỀN -->
+          </h3>
+        </div>
+
+
+      <!-- Top Action Bar -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <svg class="text-cyan-400" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"
+              viewBox="0 0 24 24">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
+            Quản Lý Tài Khoản & Phân Quyền Người Dùng
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Admin toàn quyền tạo mới, phân quyền (Role-Based Access Control) và cấp lại mật khẩu cho các tài khoản Web
+            Portal
+          </p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button onclick="fetchUsers()"
+            class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 flex items-center gap-1.5 transition">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+            </svg>
+            Làm Mới
+          </button>
+          <button onclick="exportUsersList()"
+            class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 flex items-center gap-1.5 transition"
+            title="Xuất danh sách tài khoản dạng JSON an toàn">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            Xuất Dữ Liệu
+          </button>
+          <button onclick="openAddUserModal()"
+            class="btn-neon-cyan text-xs whitespace-nowrap px-4 py-2 flex items-center gap-1.5">
+            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Thêm Tài Khoản Mới
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards Row -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <!-- Card 1: Total Users -->
+        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-cyan-400 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('ALL')">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center text-cyan-400 shrink-0">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+              <circle cx="9" cy="7" r="4" />
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+            </svg>
           </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <select id="filter-audit-risk" onchange="filterAuditLogs()" class="input-dark text-xs py-1.5">
-              <option value="ALL">Tất cả mức độ rủi ro</option>
-              <option value="BLOCKED">Chỉ hiển thị: BỊ CHẶN (BLOCKED)</option>
-              <option value="NEED_CONFIRM">Chỉ hiển thị: CẦN DUYỆT (NEED_CONFIRM)</option>
-              <option value="SAFE">Chỉ hiển thị: AN TOÀN (SAFE)</option>
-            </select>
-            <button onclick="exportAuditLogsJson()" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm flex items-center gap-1" title="Tải xuống toàn bộ nhật ký dưới dạng file JSON">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>Xuất JSON</span>
-            </button>
-            <button onclick="clearAuditLogsUI()" class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold whitespace-nowrap transition" title="Xóa toàn bộ nhật ký kiểm toán (Yêu cầu quyền Quản trị viên)">
-              🗑️ Làm Sạch Log
-            </button>
-            <button onclick="loadSecurityCenter(); showToast('Đã làm mới nhật ký kiểm toán', 'info')"
-              class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm">
-              Làm mới
-            </button>
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">Tổng Tài Khoản</div>
+            <div class="text-xl font-black text-slate-800 dark:text-white" id="kpi-total-users">0</div>
           </div>
         </div>
 
-        <div
-          class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50 max-h-80 overflow-y-auto">
-          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
+        <!-- Card 2: Admins -->
+        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-rose-500 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('admin')">
+          <div class="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-400/30 flex items-center justify-center text-rose-400 shrink-0">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">Quản Trị Viên (Admin)</div>
+            <div class="text-xl font-black text-rose-400" id="kpi-admin-users">0</div>
+          </div>
+        </div>
+
+        <!-- Card 3: Managers -->
+        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-purple-500 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('manager')">
+          <div class="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-400/30 flex items-center justify-center text-purple-400 shrink-0">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">Trưởng Phòng (Manager)</div>
+            <div class="text-xl font-black text-purple-400" id="kpi-manager-users">0</div>
+          </div>
+        </div>
+
+        <!-- Card 4: Viewers -->
+        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-emerald-500 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('viewer')">
+          <div class="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          </div>
+          <div>
+            <div class="text-[11px] text-slate-400 font-medium">Nhân Viên (Viewer)</div>
+            <div class="text-xl font-black text-emerald-400" id="kpi-viewer-users">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Table Card with Search & Filter -->
+      <div class="glass-panel p-6 shadow-sm relative overflow-hidden space-y-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-primary-500 dark:bg-cyan-400"></span>
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Danh Sách Tài Khoản Phân Quyền</span>
+            <span id="users-count-tag"
+              class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">0
+              tài khoản</span>
+          </div>
+
+          <!-- Search & Filter Controls -->
+          <div class="flex flex-wrap items-center gap-2">
+            <div class="relative">
+              <input type="text" id="user-search-input" oninput="filterUsersList()"
+                placeholder="🔍 Tìm tên, họ tên, ID..."
+                class="px-3 py-1.5 pl-8 rounded-xl bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 w-56 transition" />
+              <svg class="absolute left-2.5 top-2 text-slate-400" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+            </div>
+
+            <select id="user-role-filter" onchange="filterUsersList()"
+              class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-400 transition cursor-pointer">
+              <option value="ALL">Tất cả vai trò</option>
+              <option value="admin">Quản Trị Viên (Admin)</option>
+              <option value="manager">Trưởng Phòng (Manager)</option>
+              <option value="viewer">Nhân Viên (Viewer)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-black/40">
+          <table class="w-full text-left text-xs text-slate-300 border-collapse">
             <thead>
               <tr
-                class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
-                <th class="py-2.5 px-3">THỜI GIAN</th>
-                <th class="py-2.5 px-3">THIẾT BỊ / MÁY</th>
-                <th class="py-2.5 px-3">TÁC VỤ / SKILL</th>
-                <th class="py-2.5 px-3">MỨC RỦI RO</th>
-                <th class="py-2.5 px-3">TRẠNG THÁI</th>
-                <th class="py-2.5 px-3">CHI TIẾT THAM SỐ</th>
+                class="border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 font-semibold bg-slate-50 dark:bg-white/[0.03]">
+                <th class="py-3 px-4 w-12 text-center">STT</th>
+                <th class="py-3 px-4 w-52">TÊN ĐĂNG NHẬP / ID</th>
+                <th class="py-3 px-4">HỌ VÀ TÊN</th>
+                <th class="py-3 px-4 w-44 text-center">VAI TRÒ PHÂN QUYỀN</th>
+                <th class="py-3 px-4 w-32 text-center">TRẠNG THÁI</th>
+                <th class="py-3 px-4 w-36 text-center">NGÀY TẠO</th>
+                <th class="py-3 px-4 w-36 text-center">THAO TÁC</th>
               </tr>
             </thead>
-            <tbody id="audit-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-              <!-- Dynamically rendered -->
+            <tbody id="users-table-body" class="divide-y divide-white/5 text-xs">
+              <tr>
+                <td colspan="7" class="py-8 text-center text-slate-500 italic">Đang tải danh sách tài khoản...</td>
+              </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- RBAC Security Matrix Reference Card -->
+      <div class="glass-panel p-5 relative overflow-hidden border border-slate-200 dark:border-white/10">
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <svg class="text-cyan-400" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Bảng Ma Trận Phân Quyền Vai Trò (Role-Based Access Control)</h4>
+          </div>
+          <span class="text-[10px] text-slate-400 font-mono">Bcrypt Salt 12 Rounds • JWT HS256 Expiry 24h</span>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
+          <!-- Admin Perms -->
+          <div class="p-3.5 rounded-xl bg-rose-500/5 border border-rose-500/20 space-y-2">
+            <div class="flex items-center gap-2 text-rose-300 font-bold">
+              <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
+              Quản Trị Viên (Admin)
+            </div>
+            <ul class="space-y-1 text-[11px] text-slate-300">
+              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Toàn quyền cấu hình AI Engine & Router</li>
+              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Quản trị tài khoản, phân quyền & đổi mật khẩu</li>
+              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Phê duyệt tác vụ an ninh nhạy cảm (Emergency)</li>
+              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Quản lý Active Directory & Telegram Bot</li>
+            </ul>
+          </div>
+
+          <!-- Manager Perms -->
+          <div class="p-3.5 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
+            <div class="flex items-center gap-2 text-purple-300 font-bold">
+              <span class="w-2 h-2 rounded-full bg-purple-400"></span>
+              Trưởng Phòng (Manager)
+            </div>
+            <ul class="space-y-1 text-[11px] text-slate-300">
+              <li class="flex items-center gap-1.5"><span class="text-purple-400">✓</span> Gửi chỉ lệnh và giao việc cho RPA Agent</li>
+              <li class="flex items-center gap-1.5"><span class="text-purple-400">✓</span> Quản trị danh mục kỹ năng (Skills) & Tác vụ</li>
+              <li class="flex items-center gap-1.5"><span class="text-purple-400">✓</span> Điều khiển Voice Studio & Thiết bị phần cứng</li>
+              <li class="flex items-center gap-1.5"><span class="text-slate-500">✗</span> Không truy cập Cài đặt hệ thống & Tài khoản</li>
+            </ul>
+          </div>
+
+          <!-- Viewer Perms -->
+          <div class="p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
+            <div class="flex items-center gap-2 text-emerald-300 font-bold">
+              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              Nhân Viên (Viewer)
+            </div>
+            <ul class="space-y-1 text-[11px] text-slate-300">
+              <li class="flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Xem trạng thái Dashboard & Nhật ký thời gian thực</li>
+              <li class="flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Tra cứu kết quả báo cáo & biểu đồ giám sát</li>
+              <li class="flex items-center gap-1.5"><span class="text-slate-500">✗</span> Chế độ chỉ đọc (Read-only), không chỉnh sửa</li>
+              <li class="flex items-center gap-1.5"><span class="text-slate-500">✗</span> Không gửi tác vụ hoặc thay đổi cấu hình</li>
+            </ul>
+          </div>
         </div>
       </div>
     </section>
@@ -5020,6 +5200,100 @@
       </div>
 
       <!-- KPI Logs Table (CSV Data) -->
+
+        <!-- Phase 78: nhật ký công việc KPI đã gom vào tab Nhật Ký
+             (chế độ "Công việc & KPI"). -->
+        <button type="button" onclick="switchTab('logs'); switchLogView('kpi')"
+                class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/50 hover:border-cyan-500/50 text-xs font-semibold text-slate-300 hover:text-cyan-300 transition flex items-center justify-center gap-2">
+          📈 Mở Nhật Ký Công Việc
+        </button>
+    </section>
+
+
+    <!-- ─── TAB: NHẬT KÝ HỆ THỐNG (Phase 21) ───────────────────────────── -->
+    <section class="tab-pane space-y-4" id="tab-logs">
+
+        <!-- Phase 78: bộ chuyển nguồn nhật ký.
+             Trước đây nhật ký nằm rải rác ở 5 tab với 5 bảng riêng — cùng dữ
+             liệu, dễ lệch số liệu, và người dùng không biết bản nào là chính.
+             Nay gom hết vào đây, mỗi nguồn một chế độ xem. -->
+        <div class="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Nguồn nhật ký">
+          <button type="button" role="tab" data-log-view="stream"
+                  aria-selected="true" aria-controls="log-view-stream"
+                  onclick="switchLogView('stream')"
+                  class="log-view-tab px-3.5 py-2 rounded-lg text-xs font-semibold border border-cyan-500/50 bg-cyan-500/10 text-cyan-400 transition">
+            🌊 Luồng thời gian thực
+          </button>
+          <button type="button" role="tab" data-log-view="security"
+                  aria-selected="false" aria-controls="log-view-security"
+                  onclick="switchLogView('security')"
+                  class="log-view-tab px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-900/50 text-slate-400 hover:text-slate-200 transition">
+            🛡️ Kiểm toán an ninh
+          </button>
+          <button type="button" role="tab" data-log-view="kpi"
+                  aria-selected="false" aria-controls="log-view-kpi"
+                  onclick="switchLogView('kpi')"
+                  class="log-view-tab px-3.5 py-2 rounded-lg text-xs font-semibold border border-slate-700 bg-slate-900/50 text-slate-400 hover:text-slate-200 transition">
+            📈 Công việc & KPI
+          </button>
+        </div>
+
+        <div id="log-view-stream" role="tabpanel" aria-label="Luồng thời gian thực">
+
+        </div>
+        <div id="log-view-security" role="tabpanel" aria-label="Nhật ký kiểm toán an ninh" class="hidden">
+      <div class="glass-panel p-5 space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <span>📋 Nhật Ký Kiểm Toán An Ninh (Security Audit Logs)</span>
+              <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">logs/security_audit.log</span>
+            </h3>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="filter-audit-risk" onchange="filterAuditLogs()" class="input-dark text-xs py-1.5">
+              <option value="ALL">Tất cả mức độ rủi ro</option>
+              <option value="BLOCKED">Chỉ hiển thị: BỊ CHẶN (BLOCKED)</option>
+              <option value="NEED_CONFIRM">Chỉ hiển thị: CẦN DUYỆT (NEED_CONFIRM)</option>
+              <option value="SAFE">Chỉ hiển thị: AN TOÀN (SAFE)</option>
+            </select>
+            <button onclick="exportAuditLogsJson()" class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm flex items-center gap-1" title="Tải xuống toàn bộ nhật ký dưới dạng file JSON">
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <span>Xuất JSON</span>
+            </button>
+            <button onclick="clearAuditLogsUI()" class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold whitespace-nowrap transition" title="Xóa toàn bộ nhật ký kiểm toán (Yêu cầu quyền Quản trị viên)">
+              🗑️ Làm Sạch Log
+            </button>
+            <button onclick="loadSecurityCenter(); showToast('Đã làm mới nhật ký kiểm toán', 'info')"
+              class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm">
+              Làm mới
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50 max-h-80 overflow-y-auto">
+          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
+            <thead>
+              <tr
+                class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
+                <th class="py-2.5 px-3">THỜI GIAN</th>
+                <th class="py-2.5 px-3">THIẾT BỊ / MÁY</th>
+                <th class="py-2.5 px-3">TÁC VỤ / SKILL</th>
+                <th class="py-2.5 px-3">MỨC RỦI RO</th>
+                <th class="py-2.5 px-3">TRẠNG THÁI</th>
+                <th class="py-2.5 px-3">CHI TIẾT THAM SỐ</th>
+              </tr>
+            </thead>
+            <tbody id="audit-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+              <!-- Dynamically rendered -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+        </div>
+
+        <div id="log-view-kpi" role="tabpanel" aria-label="Nhật ký công việc KPI" class="hidden">
       <div class="glass-panel p-5 space-y-4">
         <div
           class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-white/10 pb-3">
@@ -5060,237 +5334,8 @@
           </table>
         </div>
       </div>
-
-    </section>
-
-    <!-- ─── TAB: QUẢN LÝ TÀI KHOẢN (USER ADMIN - PHASE 14) ────────── -->
-    <section class="tab-pane space-y-6" id="tab-users">
-
-      <!-- Top Action Bar -->
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
-            <svg class="text-cyan-400" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"
-              viewBox="0 0 24 24">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-            Quản Lý Tài Khoản & Phân Quyền Người Dùng
-          </h2>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Admin toàn quyền tạo mới, phân quyền (Role-Based Access Control) và cấp lại mật khẩu cho các tài khoản Web
-            Portal
-          </p>
         </div>
 
-        <div class="flex items-center gap-3">
-          <button onclick="fetchUsers()"
-            class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 flex items-center gap-1.5 transition">
-            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-            </svg>
-            Làm Mới
-          </button>
-          <button onclick="exportUsersList()"
-            class="px-3 py-2 rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs font-semibold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 flex items-center gap-1.5 transition"
-            title="Xuất danh sách tài khoản dạng JSON an toàn">
-            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="7 10 12 15 17 10" />
-              <line x1="12" y1="15" x2="12" y2="3" />
-            </svg>
-            Xuất Dữ Liệu
-          </button>
-          <button onclick="openAddUserModal()"
-            class="btn-neon-cyan text-xs whitespace-nowrap px-4 py-2 flex items-center gap-1.5">
-            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Thêm Tài Khoản Mới
-          </button>
-        </div>
-      </div>
-
-      <!-- KPI Summary Cards Row -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <!-- Card 1: Total Users -->
-        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-cyan-400 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('ALL')">
-          <div class="w-10 h-10 rounded-xl bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center text-cyan-400 shrink-0">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-              <circle cx="9" cy="7" r="4" />
-              <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-              <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-            </svg>
-          </div>
-          <div>
-            <div class="text-[11px] text-slate-400 font-medium">Tổng Tài Khoản</div>
-            <div class="text-xl font-black text-slate-800 dark:text-white" id="kpi-total-users">0</div>
-          </div>
-        </div>
-
-        <!-- Card 2: Admins -->
-        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-rose-500 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('admin')">
-          <div class="w-10 h-10 rounded-xl bg-rose-500/15 border border-rose-400/30 flex items-center justify-center text-rose-400 shrink-0">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
-          </div>
-          <div>
-            <div class="text-[11px] text-slate-400 font-medium">Quản Trị Viên (Admin)</div>
-            <div class="text-xl font-black text-rose-400" id="kpi-admin-users">0</div>
-          </div>
-        </div>
-
-        <!-- Card 3: Managers -->
-        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-purple-500 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('manager')">
-          <div class="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-400/30 flex items-center justify-center text-purple-400 shrink-0">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
-              <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
-            </svg>
-          </div>
-          <div>
-            <div class="text-[11px] text-slate-400 font-medium">Trưởng Phòng (Manager)</div>
-            <div class="text-xl font-black text-purple-400" id="kpi-manager-users">0</div>
-          </div>
-        </div>
-
-        <!-- Card 4: Viewers -->
-        <div class="glass-panel p-4 flex items-center gap-3.5 border-l-4 border-emerald-500 cursor-pointer hover:bg-slate-800/40 transition" onclick="setRoleFilter('viewer')">
-          <div class="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center text-emerald-400 shrink-0">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
-          </div>
-          <div>
-            <div class="text-[11px] text-slate-400 font-medium">Nhân Viên (Viewer)</div>
-            <div class="text-xl font-black text-emerald-400" id="kpi-viewer-users">0</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- User Table Card with Search & Filter -->
-      <div class="glass-panel p-6 shadow-sm relative overflow-hidden space-y-4">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <span class="w-2.5 h-2.5 rounded-full bg-primary-500 dark:bg-cyan-400"></span>
-            <span class="text-xs font-bold uppercase tracking-wider text-slate-300">Danh Sách Tài Khoản Phân Quyền</span>
-            <span id="users-count-tag"
-              class="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">0
-              tài khoản</span>
-          </div>
-
-          <!-- Search & Filter Controls -->
-          <div class="flex flex-wrap items-center gap-2">
-            <div class="relative">
-              <input type="text" id="user-search-input" oninput="filterUsersList()"
-                placeholder="🔍 Tìm tên, họ tên, ID..."
-                class="px-3 py-1.5 pl-8 rounded-xl bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs text-slate-800 dark:text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400 w-56 transition" />
-              <svg class="absolute left-2.5 top-2 text-slate-400" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-            </div>
-
-            <select id="user-role-filter" onchange="filterUsersList()"
-              class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-black/50 border border-slate-200 dark:border-white/10 text-xs text-slate-700 dark:text-slate-300 focus:outline-none focus:border-cyan-400 transition cursor-pointer">
-              <option value="ALL">Tất cả vai trò</option>
-              <option value="admin">Quản Trị Viên (Admin)</option>
-              <option value="manager">Trưởng Phòng (Manager)</option>
-              <option value="viewer">Nhân Viên (Viewer)</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="overflow-x-auto border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-black/40">
-          <table class="w-full text-left text-xs text-slate-300 border-collapse">
-            <thead>
-              <tr
-                class="border-b border-slate-200 dark:border-white/10 text-slate-500 dark:text-slate-400 font-semibold bg-slate-50 dark:bg-white/[0.03]">
-                <th class="py-3 px-4 w-12 text-center">STT</th>
-                <th class="py-3 px-4 w-52">TÊN ĐĂNG NHẬP / ID</th>
-                <th class="py-3 px-4">HỌ VÀ TÊN</th>
-                <th class="py-3 px-4 w-44 text-center">VAI TRÒ PHÂN QUYỀN</th>
-                <th class="py-3 px-4 w-32 text-center">TRẠNG THÁI</th>
-                <th class="py-3 px-4 w-36 text-center">NGÀY TẠO</th>
-                <th class="py-3 px-4 w-36 text-center">THAO TÁC</th>
-              </tr>
-            </thead>
-            <tbody id="users-table-body" class="divide-y divide-white/5 text-xs">
-              <tr>
-                <td colspan="7" class="py-8 text-center text-slate-500 italic">Đang tải danh sách tài khoản...</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <!-- RBAC Security Matrix Reference Card -->
-      <div class="glass-panel p-5 relative overflow-hidden border border-slate-200 dark:border-white/10">
-        <div class="flex items-center justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <svg class="text-cyan-400" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-            </svg>
-            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-300">Bảng Ma Trận Phân Quyền Vai Trò (Role-Based Access Control)</h4>
-          </div>
-          <span class="text-[10px] text-slate-400 font-mono">Bcrypt Salt 12 Rounds • JWT HS256 Expiry 24h</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3.5 text-xs">
-          <!-- Admin Perms -->
-          <div class="p-3.5 rounded-xl bg-rose-500/5 border border-rose-500/20 space-y-2">
-            <div class="flex items-center gap-2 text-rose-300 font-bold">
-              <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse"></span>
-              Quản Trị Viên (Admin)
-            </div>
-            <ul class="space-y-1 text-[11px] text-slate-300">
-              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Toàn quyền cấu hình AI Engine & Router</li>
-              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Quản trị tài khoản, phân quyền & đổi mật khẩu</li>
-              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Phê duyệt tác vụ an ninh nhạy cảm (Emergency)</li>
-              <li class="flex items-center gap-1.5"><span class="text-rose-400">✓</span> Quản lý Active Directory & Telegram Bot</li>
-            </ul>
-          </div>
-
-          <!-- Manager Perms -->
-          <div class="p-3.5 rounded-xl bg-purple-500/5 border border-purple-500/20 space-y-2">
-            <div class="flex items-center gap-2 text-purple-300 font-bold">
-              <span class="w-2 h-2 rounded-full bg-purple-400"></span>
-              Trưởng Phòng (Manager)
-            </div>
-            <ul class="space-y-1 text-[11px] text-slate-300">
-              <li class="flex items-center gap-1.5"><span class="text-purple-400">✓</span> Gửi chỉ lệnh và giao việc cho RPA Agent</li>
-              <li class="flex items-center gap-1.5"><span class="text-purple-400">✓</span> Quản trị danh mục kỹ năng (Skills) & Tác vụ</li>
-              <li class="flex items-center gap-1.5"><span class="text-purple-400">✓</span> Điều khiển Voice Studio & Thiết bị phần cứng</li>
-              <li class="flex items-center gap-1.5"><span class="text-slate-500">✗</span> Không truy cập Cài đặt hệ thống & Tài khoản</li>
-            </ul>
-          </div>
-
-          <!-- Viewer Perms -->
-          <div class="p-3.5 rounded-xl bg-emerald-500/5 border border-emerald-500/20 space-y-2">
-            <div class="flex items-center gap-2 text-emerald-300 font-bold">
-              <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
-              Nhân Viên (Viewer)
-            </div>
-            <ul class="space-y-1 text-[11px] text-slate-300">
-              <li class="flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Xem trạng thái Dashboard & Nhật ký thời gian thực</li>
-              <li class="flex items-center gap-1.5"><span class="text-emerald-400">✓</span> Tra cứu kết quả báo cáo & biểu đồ giám sát</li>
-              <li class="flex items-center gap-1.5"><span class="text-slate-500">✗</span> Chế độ chỉ đọc (Read-only), không chỉnh sửa</li>
-              <li class="flex items-center gap-1.5"><span class="text-slate-500">✗</span> Không gửi tác vụ hoặc thay đổi cấu hình</li>
-            </ul>
-          </div>
-        </div>
-      </div>
-
-    </section>
-
-    <!-- ─── TAB: NHẬT KÝ HỆ THỐNG (Phase 21) ───────────────────────────── -->
-    <section class="tab-pane space-y-4" id="tab-logs">
       <!-- Header toolbar -->
       <div class="glass-panel p-4">
         <div class="flex flex-wrap items-center gap-3">

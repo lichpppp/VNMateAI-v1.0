@@ -676,7 +676,11 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // ── ĐIỀU HƯỚNG TAB & GIAO DIỆN ─────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
-const VALID_TABS = ['dashboard', 'command-center', 'system-integration', 'ai-manager', 'skills', 'devices', 'voice', 'config', 'security', 'tasks', 'users', 'logs'];
+// Phase 78: bỏ 'users' và 'devices' — nội dung hai tab này đã gộp vào
+// 'security' (kiểm soát truy cập) và 'system-integration' (kết nối ra ngoài).
+// Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices sẽ tự rơi
+// về dashboard thay vì mở một tab không có.
+const VALID_TABS = ['dashboard', 'command-center', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
 
 function getSavedTab() {
   const hash = (window.location.hash || '').replace('#', '').trim();
@@ -704,6 +708,47 @@ function restoreActiveTab() {
   checkPendingAction();
   if (!window._globalPendingTimer) {
     window._globalPendingTimer = setInterval(checkPendingAction, 3000);
+  }
+}
+
+/**
+ * Chuyển nguồn nhật ký trong tab "Nhật Ký".
+ *
+ * Phase 78: trước đây nhật ký nằm rải rác ở 5 tab với 5 bảng riêng — luồng
+ * thời gian thực ở tab Nhật Ký, kiểm toán an ninh ở tab Bảo Mật, công việc KPI
+ * ở tab Công Việc, cộng thêm bản trong Trung Tâm Chỉ Huy và Bảng Điều Khiển.
+ * Cùng dữ liệu ở nhiều nơi thì dễ lệch số liệu và người dùng không biết bản
+ * nào là chính. Nay gom hết về đây, mỗi nguồn một chế độ.
+ */
+function switchLogView(view) {
+  const views = ['stream', 'security', 'kpi'];
+  if (!views.includes(view)) view = 'stream';
+
+  for (const v of views) {
+    const panel = document.getElementById(`log-view-${v}`);
+    if (panel) panel.classList.toggle('hidden', v !== view);
+  }
+
+  document.querySelectorAll('.log-view-tab').forEach((btn) => {
+    const on = btn.dataset.logView === view;
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    btn.classList.toggle('border-cyan-500/50', on);
+    btn.classList.toggle('bg-cyan-500/10', on);
+    btn.classList.toggle('text-cyan-400', on);
+    btn.classList.toggle('border-slate-700', !on);
+    btn.classList.toggle('bg-slate-900/50', !on);
+    btn.classList.toggle('text-slate-400', !on);
+  });
+
+  // Mỗi bảng nạp riêng khi người dùng chuyển tới, thay vì cả 3 cùng lúc.
+  // `loadSecurityCenter` nạp cả chính sách lẫn nhật ký kiểm toán; `loadKpiLogs`
+  // nạp nhật ký công việc. Cả hai vẫn chạy khi mở tab gốc, ở đây chỉ nạp lại
+  // để bảng hiện đúng lúc người dùng nhìn vào nó.
+  if (view === 'security' && typeof loadSecurityCenter === 'function') {
+    loadSecurityCenter();
+  }
+  if (view === 'kpi' && typeof loadKpiLogs === 'function') {
+    loadKpiLogs();
   }
 }
 
@@ -753,15 +798,23 @@ function switchTab(tabId) {
   // Phase 59/60: khối tích hợp đã tách sang tab riêng nên nạp dữ liệu ở đây,
   // không gắn vào CommandCenter.onEnter() — nếu không, mở Trung Tâm Chỉ Huy sẽ
   // tải 4 API của tích hợp dù trên màn hình đó không còn dòng dữ liệu nào.
-  if (tabId === 'system-integration') loadSystemIntegration();
+  if (tabId === 'system-integration') {
+    loadSystemIntegration();
+    // Phase 78: nội dung tab "Thiết Bị" đã gộp vào đây (cùng miền kết nối
+    // ra ngoài), nên danh sách máy trạm nạp kèm.
+    loadDevices();
+  }
   if (tabId === 'ai-manager') loadAIManagerConfig();
   if (tabId === 'skills') loadSkills();
-  if (tabId === 'devices') loadDevices();
   if (tabId === 'tasks') {
     loadKpiLogs();
     loadErpStructure();
   }
-  if (tabId === 'users') fetchUsers();
+  if (tabId === 'security') {
+    // Phase 78: nội dung tab "Tài Khoản" đã gộp vào đây (cùng miền kiểm soát
+    // truy cập), nên bảng tài khoản nạp kèm.
+    fetchUsers();
+  }
   if (tabId === 'voice') {
     loadMicStatus();
     updateVoiceTelemetry();
@@ -6813,7 +6866,11 @@ async function apiChangeUserPassword(userId, newPassword) {
 async function fetchUsers() {
   const tbody = document.getElementById('users-table-body');
   const countTag = document.getElementById('users-count-tag');
-  const badgeCount = document.getElementById('badge-users-count');
+  // Phase 78: badge-users-count từng nằm trên nút nav "Quản Lý Tài Khoản".
+  // Nút đó bị gỡ khi gộp tab Tài Khoản vào Bảo Mật, nên badge cũng không còn.
+  // Số tài khoản nay hiện ở `users-count-tag` trong khối Tài khoản — cùng một
+  // con số, hiện đúng một lần.
+  const badgeCount = null;
 
   try {
     const data = await apiGetUsers();
@@ -8819,22 +8876,30 @@ const CommandCenter = (() => {
   // IIFE giữ một bản riêng rồi lệch nhau.
 
   // ── Cột 1: hàng đợi duyệt HITL ──────────────────────────────────────────
+  //
+  // Phase 78: bản đầy đủ của hàng đợi đã chuyển sang tab Bảng Điều Khiển
+  // (chủ sở hữu) nên ghi vào `dash-pending-list`. Trung Tâm Chỉ Huy giữ lại ô
+  // đếm `cc-pending-count` để người dùng vẫn thấy con số ngay trên màn hình
+  // C.E.O, mà không phải có hai danh sách song song dễ lệch nhau.
   async function loadPending() {
-    const box = $('cc-pending-list');
-    if (!box) return;
+    const box = $('dash-pending-list');
+    const countEl = $('cc-pending-count');
+    const navBadge = $('badge-cc-pending');
+    if (!box && !countEl && !navBadge) return;
     try {
       const res = await apiFetch(`${API_BASE}/api/v1/enterprise/hitl/pending`);
       const data = await res.json();
       const list = (data && data.pending_approvals) || [];
 
-      // Badge trên thanh điều hướng + badge trong tiêu đề cột
-      const badges = [$('cc-pending-count'), $('badge-cc-pending')];
+      // Badge trên thanh điều hướng + ô đếm ở Trung Tâm Chỉ Huy
+      const badges = [countEl, navBadge];
       badges.forEach((b) => {
         if (!b) return;
         b.textContent = String(list.length);
         b.classList.toggle('hidden', list.length === 0);
       });
 
+      if (!box) return;
       if (!list.length) {
         box.innerHTML = '<p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">'
           + 'Không có tác vụ nào chờ duyệt.</p>';
