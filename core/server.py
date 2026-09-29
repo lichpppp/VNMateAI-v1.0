@@ -2276,6 +2276,11 @@ async def save_config(
         DEFAULT_ROUTER_FALLBACKS = list(pool)
         DEFAULT_SPECIALIST_FALLBACKS = list(pool)
 
+        # Phase 73: các nhánh chuẩn hoá bên trên KHÔNG tự điền "sk-dummy" nữa.
+        # Khi cả payload lẫn cấu hình cũ đều không có khoá, ta ghi chuỗi rỗng —
+        # một khoá giả ghi xuống đĩa trông y hệt khoá thật. `settings` vẫn có
+        # mặc định riêng cho lúc dựng client, nên LLM vẫn chạy bình thường.
+
         if "llm" in payload and isinstance(payload["llm"], dict):
             existing_llm = existing.get("llm", {})
             new_model = payload["llm"].get("model_name", existing_llm.get("model_name", "")) or ""
@@ -2288,7 +2293,7 @@ async def save_config(
             payload["llm"] = {
                 "base_url": payload["llm"].get("base_url", existing_llm.get("base_url", "http://localhost:20128/v1")),
                 "model_name": new_model,
-                "api_key": payload["llm"].get("api_key", existing_llm.get("api_key", "sk-dummy")),
+                "api_key": payload["llm"].get("api_key") or existing_llm.get("api_key") or "",
                 "router_models": r_models,
                 "specialist_models": s_models,
             }
@@ -2299,7 +2304,7 @@ async def save_config(
             payload["llm"] = {
                 "base_url": primary.get("api_base", "http://localhost:20128/v1"),
                 "model_name": new_model,
-                "api_key": primary.get("api_key", "sk-dummy"),
+                "api_key": primary.get("api_key") or existing.get("llm", {}).get("api_key") or "",
                 "router_models": [new_model] + [m for m in DEFAULT_ROUTER_FALLBACKS if m != new_model],
                 "specialist_models": DEFAULT_SPECIALIST_FALLBACKS,
             }
@@ -2309,7 +2314,7 @@ async def save_config(
             payload["llm"] = {
                 "base_url": payload.get("BASE_URL", existing_llm.get("base_url", "http://localhost:20128/v1")),
                 "model_name": new_model,
-                "api_key": payload.get("API_KEY", existing_llm.get("api_key", "sk-dummy")),
+                "api_key": payload.get("API_KEY") or existing_llm.get("api_key") or "",
                 "router_models": [new_model] + [m for m in DEFAULT_ROUTER_FALLBACKS if m != new_model],
                 "specialist_models": DEFAULT_SPECIALIST_FALLBACKS,
             }

@@ -45,6 +45,61 @@ function _esc(s) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Phase 73 — Quy ước hiển thị dữ liệu thật
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Nguyên tắc: màn hình chỉ hiện số liệu đo được từ hệ thống đang chạy.
+// Khi chưa có kết nối, nói thẳng là "chờ kết nối" — KHÔNG bịa số và cũng
+// KHÔNG hiện 0. Vì 0 là một con số thật, người đọc dễ tưởng hệ thống đã đo
+// được 0 rồi (0 kỹ năng, 0 người dùng, 0 nhiệm vụ) — trong khi thực tế là
+// chưa hỏi được ai.
+//
+// `WAIT_TXT` được gắn thêm class `is-waiting` để CSS làm mờ, nên người đọc
+// phân biệt được "chưa có số liệu" với một giá trị bình thường ngoài đời.
+
+const WAIT_TXT = 'chờ kết nối';
+
+/** Giá trị này có phải số liệu thật không (không phải thiếu/rỗng/NaN). */
+function _isLive(v) {
+  if (v === null || v === undefined || v === '') return false;
+  if (typeof v === 'number' && !Number.isFinite(v)) return false;
+  return true;
+}
+
+/**
+ * Trả về `v` nếu là dữ liệu thật, ngược lại trả `fallback` (mặc định WAIT_TXT).
+ * Dùng cho mọi ô đang chờ dữ liệu thay vì `|| 0` hay `?? 100`.
+ */
+function _live(v, fallback = WAIT_TXT) {
+  return _isLive(v) ? v : fallback;
+}
+
+/**
+ * Định dạng số đo kèm đơn vị, hoặc "chờ kết nối" nếu chưa có dữ liệu.
+ * @param {*} v        giá trị thô từ API
+ * @param {object} opt {digits: số lẻ thập phân, unit: đơn vị, suffix}
+ */
+function _liveNum(v, { digits = null, unit = '', suffix = '' } = {}) {
+  if (!_isLive(v)) return WAIT_TXT;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return WAIT_TXT;
+  const shown = digits === null ? String(n) : n.toFixed(digits);
+  return `${shown}${unit}${suffix}`;
+}
+
+/**
+ * Ghi giá trị ra phần tử, tự gắn/bỏ class `is-waiting` theo tình trạng dữ liệu.
+ * `el` nhận selector hoặc element; không tồn tại thì bỏ qua (không ném lỗi).
+ */
+function _setLiveText(el, value, { waiting = WAIT_TXT } = {}) {
+  const node = typeof el === 'string' ? document.querySelector(el) : el;
+  if (!node) return;
+  const isWait = !_isLive(value) || value === waiting;
+  node.textContent = isWait ? waiting : String(value);
+  node.classList.toggle('is-waiting', isWait);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ── THEME ENGINE (LIGHT / DARK MODE) ────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -910,7 +965,8 @@ async function fetchAndRenderHealthDashboard() {
 
     const tg = data.services.telegram_gateway;
     if (tg && !tg.detail) {
-      tg.detail = tg.message || 'Telegram Bot Gateway đang chạy';
+      // Phase 73: không tự khẳng định gateway "đang chạy" khi server không nói.
+      tg.detail = tg.message || `${WAIT_TXT} — chưa có trạng thái từ server`;
     }
     updateServiceBadge('svc-tele-badge', 'svc-tele-detail', tg);
 
@@ -933,23 +989,56 @@ async function fetchAndRenderHealthDashboard() {
     if (upEl) upEl.textContent = data.nodes.uptime || data.nodes.uptime_human || '0m';
 
     // Skills Telemetry & Counters
-    const rawSkillsCount = data.nodes.skills_count ?? (typeof skillsData === 'object' && skillsData ? Object.keys(skillsData).length : 31);
-    const rawSkillsEnabled = data.nodes.skills_enabled ?? (typeof skillsData === 'object' && skillsData ? Object.values(skillsData).filter(s => s && s.enabled !== false).length : rawSkillsCount);
+    // Phase 73: bỏ số 31 bịa. Trước đây khi server không trả `skills_count` và
+    // cache rỗng, mọi ô hiển thị "31" — con số từng tồn tại trong HTML nhưng
+    // không có nguồn. Nay hiện "chờ kết nối" thay vì đoán.
+    const cachedCount = (typeof skillsData === 'object' && skillsData && !Array.isArray(skillsData))
+      ? Object.keys(skillsData).length
+      : null;
+    const rawSkillsCount = _live(data.nodes.skills_count ?? cachedCount);
+    const rawSkillsEnabled = _live(
+      data.nodes.skills_enabled
+      ?? ((typeof skillsData === 'object' && skillsData && !Array.isArray(skillsData))
+        ? Object.values(skillsData).filter(s => s && s.enabled !== false).length
+        : null)
+    );
 
     const skillsCountEl = document.getElementById('node-skills-count');
-    if (skillsCountEl) skillsCountEl.textContent = rawSkillsCount;
+    if (skillsCountEl) _setLiveText(skillsCountEl, rawSkillsCount);
 
     const skillsActiveEl = document.getElementById('node-skills-active');
-    if (skillsActiveEl) skillsActiveEl.textContent = `${rawSkillsEnabled} đang bật`;
+    if (skillsActiveEl) _setLiveText(skillsActiveEl, _liveNum(rawSkillsEnabled, { suffix: ' đang bật' }));
 
     const headerSkillsEl = document.getElementById('header-skills-count');
-    if (headerSkillsEl) headerSkillsEl.textContent = rawSkillsCount;
+    if (headerSkillsEl) _setLiveText(headerSkillsEl, rawSkillsCount);
 
     const svcSkillsTag = document.getElementById('svc-skills-tag');
-    if (svcSkillsTag) svcSkillsTag.textContent = `${rawSkillsCount} Skills`;
+    if (svcSkillsTag) _setLiveText(svcSkillsTag, _liveNum(rawSkillsCount, { suffix: ' Skills' }));
 
     const svcSkillsDetail = document.getElementById('svc-skills-detail');
-    if (svcSkillsDetail) svcSkillsDetail.textContent = `${rawSkillsCount} kỹ năng trong runtime (${rawSkillsEnabled} đang bật)`;
+    if (svcSkillsDetail) {
+      _setLiveText(
+        svcSkillsDetail,
+        _liveNum(rawSkillsCount) === WAIT_TXT
+          ? WAIT_TXT
+          : `${rawSkillsCount} kỹ năng trong runtime (${rawSkillsEnabled} đang bật)`
+      );
+    }
+
+    // Badge kho kỹ năng: server không có API trạng thái riêng cho registry,
+    // nên trước đây nó kẹt ở "Sẵn sàng" vĩnh viễn — một khẳng định không ai
+    // cập nhật. Nay bám theo `nodes.skills_count` (số đo thật): có số thì báo
+    // hoạt động, không có thì báo "Chờ".
+    const svcSkillsBadge = document.getElementById('svc-skills-badge');
+    if (svcSkillsBadge) {
+      if (_isLive(rawSkillsCount)) {
+        svcSkillsBadge.className = 'svc-badge svc-ok';
+        svcSkillsBadge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span> Hoạt động';
+      } else {
+        svcSkillsBadge.className = 'svc-badge svc-unknown is-waiting';
+        svcSkillsBadge.textContent = '⏳ Chờ';
+      }
+    }
   }
 
   // 4. Overall Health Badge & Timestamp
@@ -1637,14 +1726,18 @@ async function saveQuickConfig() {
   const modelVal = document.getElementById('quick-model').value;
   const asrVal = document.getElementById('quick-asr').value;
 
-  const existingRouting = currentConfig.routing || {
-    primary: { provider_model: modelVal, api_key: currentConfig.API_KEY || '', api_base: currentConfig.BASE_URL || '' },
-    fallback_1: { provider_model: 'gemini/gemini-1.5-flash', api_key: '', api_base: '' },
-    fallback_2: { provider_model: 'groq/llama3-8b-8192', api_key: '', api_base: '' },
-  };
-  if (existingRouting.primary) {
-    existingRouting.primary.provider_model = modelVal;
-  }
+  // Phase 73: KHÔNG tự chế model dự phòng. Trước đây khi cấu hình chưa có
+  // `routing`, hệ thống ghi sẵn gemini-1.5-flash + llama3-8b-8192 (không kèm
+  // khoá) rồi báo "đã lưu thành công" — nhưng auto-fallback sẽ luôn trượt.
+  // Nay chỉ dựng khung primary; phần dự phòng để trống tới khi người dùng
+  // tự chọn từ danh sách model thật mà server trả về.
+  const existingRouting = currentConfig.routing
+    ? { ...currentConfig.routing }
+    : { primary: {} };
+  if (!existingRouting.primary) existingRouting.primary = {};
+  existingRouting.primary.provider_model = modelVal;
+  existingRouting.primary.api_key = existingRouting.primary.api_key || currentConfig.API_KEY || '';
+  existingRouting.primary.api_base = existingRouting.primary.api_base || currentConfig.BASE_URL || '';
 
   const updatedConfig = {
     ...currentConfig,
@@ -1710,21 +1803,29 @@ async function loadSkills() {
 }
 
 function updateSkillsTelemetry() {
-  if (!skillsData) return;
-  const entries = Object.entries(skillsData).filter(([k]) => !k.startsWith('_'));
-  const total = entries.length;
-  const active = entries.filter(([, v]) => v.enabled !== false).length;
-  const moduleSet = new Set(entries.map(([, v]) => v.module ? v.module.split('.').pop() : 'skill'));
-
   const totalEl = document.getElementById('skills-stat-total');
   const activeEl = document.getElementById('skills-stat-active');
   const modulesEl = document.getElementById('skills-stat-modules');
   const catAllCount = document.getElementById('cat-count-all');
 
-  if (totalEl) totalEl.textContent = `${total} SKILLS`;
-  if (activeEl) activeEl.textContent = `${active} HOẠT ĐỘNG`;
-  if (modulesEl) modulesEl.textContent = `${moduleSet.size} MODULES`;
-  if (catAllCount) catAllCount.textContent = total;
+  // Phase 73: chưa nạp được danh sách kỹ năng thì nói thẳng "chờ kết nối"
+  // thay vì để ô trống — để trống dễ bị hiểu là hệ thống đang tính.
+  if (!skillsData) {
+    [[totalEl, ''], [activeEl, ''], [modulesEl, ''], [catAllCount, '']].forEach(([el]) => {
+      if (el) _setLiveText(el, null);
+    });
+    return;
+  }
+
+  const entries = Object.entries(skillsData).filter(([k]) => !k.startsWith('_'));
+  const total = entries.length;
+  const active = entries.filter(([, v]) => v.enabled !== false).length;
+  const moduleSet = new Set(entries.map(([, v]) => v.module ? v.module.split('.').pop() : 'skill'));
+
+  if (totalEl) _setLiveText(totalEl, `${total} SKILLS`);
+  if (activeEl) _setLiveText(activeEl, `${active} HOẠT ĐỘNG`);
+  if (modulesEl) _setLiveText(modulesEl, `${moduleSet.size} MODULES`);
+  if (catAllCount) _setLiveText(catAllCount, total);
 }
 
 function renderSkillsGridList(skills) {
@@ -1737,7 +1838,10 @@ function renderSkillsGridList(skills) {
     const borderClass = isCyan ? 'neon-card-cyan' : 'neon-card-purple';
     const accentColor = isCyan ? '#22d3ee' : '#a855f7';
     const meta = data.meta || {};
-    const desc = meta.description || 'Kỹ năng tự động hóa Windows native.';
+    // Phase 73: không bịa mô tả. Trước đây mọi kỹ năng thiếu `meta.description`
+    // đều hiện cùng một câu "Kỹ năng tự động hóa Windows native." trông như
+    // dữ liệu từ server. Nay nói thẳng là chưa có mô tả.
+    const desc = meta.description || 'Kỹ năng chưa có mô tả.';
     const icon = resolveSkillIcon(name);
     const isEnabled = data.enabled !== false;
     const opacityStyle = isEnabled ? '' : 'opacity: 0.6; filter: grayscale(35%);';
@@ -1815,10 +1919,17 @@ async function batchToggleSkills(enabled) {
     renderSkillsGridList(skillsData);
     updateSkillsTelemetry();
     applySkillsFilter();
+    // Phase 73: lấy đúng số server trả về. `res.count` rỗng thì báo không rõ
+    // số lượng, không thay bằng 37 (số từng nằm cứng trong HTML).
+    const affected = _liveNum(res.count, { suffix: ' kỹ năng' });
     showToast(
       enabled
-        ? `✅ Đã BẬT TOÀN BỘ ${res.count || 37} kỹ năng trong runtime!`
-        : `⏸️ Đã TẮT TOÀN BỘ ${res.count || 37} kỹ năng trong runtime!`,
+        ? (res.count != null
+          ? `✅ Đã BẬT ${affected} trong runtime!`
+          : '✅ Đã BẬT toàn bộ kỹ năng trong runtime (server không trả số lượng).')
+        : (res.count != null
+          ? `⏸️ Đã TẮT ${affected} trong runtime!`
+          : '⏸️ Đã TẮT toàn bộ kỹ năng trong runtime (server không trả số lượng).'),
       'info'
     );
   } else {
@@ -3000,7 +3111,7 @@ async function sendVoiceCommand() {
     const textEl = document.getElementById('voice-response-text');
     if (card && textEl) {
       card.classList.remove('hidden');
-      textEl.innerHTML = renderPortalMarkdown(res.reply || 'Đã hoàn thành tác vụ yêu cầu.');
+      textEl.innerHTML = renderPortalMarkdown(res.reply || '_(không có nội dung phản hồi)_');
       scheduleAiDownloadCheck();
     }
 
@@ -3403,7 +3514,14 @@ async function saveFullConfig() {
 
   const baseUrl = getVal('cfg-llm-base') || getVal('cfg-route-primary-base') || 'http://localhost:20128/v1';
   const modelName = getVal('cfg-llm-model') || getVal('cfg-route-primary-model') || '';
-  const apiKey = getVal('cfg-llm-key') || getVal('cfg-route-primary-key') || 'sk-dummy';
+
+  // Phase 73: KHÔNG tự điền khoá giả. Trước đây bỏ trống ô khoá rồi bấm "Lưu"
+  // sẽ ghi chuỗi "sk-dummy" vào config.json, đè lên khoá thật đang chạy được.
+  // Nay nếu người dùng không nhập gì thì giữ nguyên khoá đang lưu.
+  const typedKey = getVal('cfg-llm-key') || getVal('cfg-route-primary-key');
+  const existingKey = currentConfig?.llm?.api_key || currentConfig?.routing?.primary?.api_key || '';
+  const apiKey = typedKey || existingKey;
+  const apiKeyLeftUntouched = !typedKey;
 
   const tgAdminsRaw = getVal('cfg-tg-admins');
   const tgAdmins = tgAdminsRaw ? tgAdminsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -3455,7 +3573,12 @@ async function saveFullConfig() {
   if (res.success) {
     currentConfig = updated;
     autoExecState = isAutoExec;
-    showToast('✅ Đã lưu cấu hình 9router & hệ thống vào config.json!', 'success');
+    showToast(
+      apiKeyLeftUntouched
+        ? '✅ Đã lưu cấu hình vào config.json (giữ nguyên API key cũ — ô khoá đang trống).'
+        : '✅ Đã lưu cấu hình 9router & hệ thống vào config.json!',
+      'success',
+    );
     loadTelegramStatus();
     await loadDashboard();
 
@@ -4500,10 +4623,20 @@ async function testLLMConnection() {
 
   const baseUrl = (baseInput ? baseInput.value.trim() : '') || 'http://localhost:20128/v1';
   const modelName = (modelInput ? modelInput.value.trim() : '') || '';
-  const apiKey = (keyInput ? keyInput.value.trim() : '') || 'sk-dummy';
+  // Phase 73: không dùng khoá giả "sk-dummy" để thử. Nếu ô trống thì dùng khoá
+  // đang lưu; nếu cả hai đều không có thì nói thẳng, đừng báo kiểm tra xong
+  // với một khoá bịa ra.
+  const typedKey = keyInput ? keyInput.value.trim() : '';
+  const storedKey = currentConfig?.llm?.api_key || currentConfig?.routing?.primary?.api_key || '';
+  const apiKey = typedKey || storedKey;
 
   if (!modelName) {
     showToast('Vui lòng nhập tên mô hình trước khi kiểm tra.', 'warning');
+    return;
+  }
+
+  if (!apiKey) {
+    showToast('Chưa có API key nào để kiểm tra. Nhập khoá ở ô bên trên rồi thử lại.', 'warning');
     return;
   }
 
@@ -4913,7 +5046,9 @@ async function killClientProcess(pid, name) {
     const data = await res.json();
 
     if (data && data.status === 'success') {
-      showToast(`✅ ${data.result?.message || 'Đã tắt tiến trình'}`, 'success');
+      // Phase 73: báo đúng nội dung server trả về. Trước đây response rỗng vẫn
+      // hiện "Đã tắt tiến trình" — tức khẳng định việc đã xảy ra khi chưa có bằng chứng.
+      showToast(data.result?.message ? `✅ ${data.result.message}` : '✅ Server báo thành công, nhưng không trả về nội dung cụ thể.', 'success');
       setTimeout(fetchLiveProcesses, 500);
     } else {
       const err = (data && data.result && data.result.message) || (data && data.error) || 'Không thể tắt tiến trình';
@@ -5370,11 +5505,17 @@ async function analyzeSecuritySandbox() {
     resultBox.classList.remove('hidden');
 
     if (res && res.status === 'success') {
-      const risk = (res.risk || 'SAFE').toUpperCase();
-      let borderColor = 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300';
-      let badgeHtml = '<span class="px-2.5 py-0.5 rounded font-bold bg-emerald-500 text-white text-xs">✅ SAFE (AN TOÀN)</span>';
+      // Phase 73: KHÔNG mặc định "SAFE" khi server không nói. Trước đây thiếu
+      // trường rủi ro thì hệ thống hiện "✅ AN TOÀN" — tức fail-open sang phía
+      // an toàn giả. Nay hiện "KHÔNG RÕ" và nói rõ cần kiểm tra lại.
+      const risk = (res.risk || '').toUpperCase();
+      let borderColor = 'border-slate-500/50 bg-slate-500/10 text-slate-300';
+      let badgeHtml = '<span class="px-2.5 py-0.5 rounded font-bold bg-slate-600 text-white text-xs">❔ KHÔNG RÕ — server không trả mức rủi ro</span>';
 
-      if (risk === 'BLOCKED') {
+      if (risk === 'SAFE') {
+        borderColor = 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300';
+        badgeHtml = '<span class="px-2.5 py-0.5 rounded font-bold bg-emerald-500 text-white text-xs">✅ SAFE (AN TOÀN)</span>';
+      } else if (risk === 'BLOCKED') {
         borderColor = 'border-rose-500/50 bg-rose-500/10 text-rose-300';
         badgeHtml = '<span class="px-2.5 py-0.5 rounded font-bold bg-rose-600 text-white text-xs">🚫 BLOCKED (BỊ TỪ CHỐI TỨC THÌ)</span>';
       } else if (risk === 'NEED_CONFIRM') {
@@ -5505,14 +5646,18 @@ function renderAuditLogsTable(logs) {
     tr.className = 'hover:bg-white/[0.03] transition-colors';
 
     // Risk badge styling
+    // Phase 73: thiếu trường rủi ro thì hiện "KHÔNG RÕ", không mặc định SAFE
+    // (xem runSecuritySandbox — cùng lỗi fail-open sang phía an toàn giả).
     let riskBadge = '';
-    const risk = (log.risk || log.risk_level || 'SAFE').toUpperCase();
+    const risk = (log.risk || log.risk_level || '').toString().toUpperCase();
     if (risk === 'BLOCKED') {
       riskBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">BLOCKED</span>';
     } else if (risk === 'NEED_CONFIRM') {
       riskBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">NEED_CONFIRM</span>';
-    } else {
+    } else if (risk === 'SAFE') {
       riskBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">SAFE</span>';
+    } else {
+      riskBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-500/20 text-slate-400 border border-slate-500/40">KHÔNG RÕ</span>';
     }
 
     // Status badge
@@ -7260,7 +7405,7 @@ function initPortalWebSocket() {
       }
       if (card && textEl) {
         card.classList.remove('hidden');
-        textEl.innerHTML = renderPortalMarkdown(msg.reply || msg.speech_reply || 'Đã hoàn thành tác vụ yêu cầu.');
+        textEl.innerHTML = renderPortalMarkdown(msg.reply || msg.speech_reply || '_(không có nội dung phản hồi)_');
         scheduleAiDownloadCheck();
       }
       if (msg.audio_base64) {
@@ -7823,6 +7968,15 @@ document.addEventListener('DOMContentLoaded', () => {
   // Sync theme icon with already-applied class (set by inline <head> script)
   updateThemeUI(document.documentElement.classList.contains('dark'));
 
+  // Phase 73: bảng tài khoản mặc định (kèm mật khẩu) chỉ hiện trên máy local.
+  // Trước đây nó nằm sẵn trong HTML nên lộ ra ở mọi môi trường.
+  const devHint = document.getElementById('dev-accounts-hint');
+  if (devHint) {
+    const host = window.location.hostname;
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.local');
+    if (isLocal) devHint.classList.remove('hidden');
+  }
+
   // Pre-activate saved tab visually so there's zero layout shift on F5
   const preTab = getSavedTab();
   if (preTab && preTab !== 'dashboard') {
@@ -8352,118 +8506,181 @@ function renderInBrowserHUD(type = 'network_map', data = {}, customTitle = null,
 
   // --- Render Body HTML based on Type ---
   if (visualType === 'network_map') {
-    const master = data.master || { ip: window.location.hostname || '127.0.0.1', port: 443, ssl: 'TLSv1.3' };
-    const nodes = data.nodes && data.nodes.length ? data.nodes : [
-      { id: 'master', label: 'Master Server (Current)', ip: master.ip, role: 'master', status: 'online' },
-      { id: 'worker-01', label: 'Client Station 01', ip: '192.168.1.105', role: 'worker', status: 'online' },
-      { id: 'worker-02', label: 'Client Station 02', ip: '192.168.1.108', role: 'worker', status: 'standby' }
-    ];
-    const total = data.total_clients != null ? data.total_clients : (nodes.length - 1);
+    // Phase 73: KHÔNG bịa thiết bị. Trước đây khi server không trả `nodes`,
+    // HUD tự vẽ 2 máy trạm với IP 192.168.1.105/.108 kèm trạng thái
+    // online/standby, cộng thêm "ĐỘ TRỄ < 3ms" và badge "PINNED CERT" — toàn
+    // bộ đều là thông tin không có nguồn. Nay chỉ hiện thiết bị thật, phần
+    // còn lại báo rõ "chờ kết nối".
+    const master = data.master || null;
+    const nodes = Array.isArray(data.nodes) ? data.nodes : null;
+    const hasNodes = !!(nodes && nodes.length);
 
-    const nodesList = nodes.map(n => {
-      const isMaster = n.role === 'master' || n.id === 'master';
-      const isOnline = (n.status || 'online') === 'online';
-      return `
-        <div class="flex items-center justify-between p-2 rounded-lg ${isMaster ? 'bg-cyan-950/60 border border-cyan-500/40' : 'bg-slate-900/80 border border-slate-800'}">
+    const masterHtml = master
+      ? `
+        <div class="flex items-center justify-between p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/40">
           <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-400 shadow-sm shadow-emerald-400' : 'bg-amber-400'}"></span>
+            <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
             <div>
-              <div class="font-bold text-slate-200 text-[11px]">${n.label || n.id}</div>
-              <div class="text-[10px] text-slate-400">${n.ip} ${isMaster ? '• MASTER' : '• WORKER'}</div>
+              <div class="font-bold text-slate-200 text-[11px]">${_esc(master.label || 'Máy chủ chính')}</div>
+              <div class="text-[10px] text-slate-400">${_live(master.ip, WAIT_TXT)} • MASTER</div>
             </div>
           </div>
-          <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${isOnline ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}">
-            ${isOnline ? 'ONLINE' : 'STANDBY'}
-          </span>
-        </div>
-      `;
-    }).join('');
+        </div>`
+      : `
+        <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/80 border border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            <div>
+              <div class="font-bold text-slate-300 text-[11px] is-waiting">Máy chủ chính</div>
+              <div class="text-[10px] text-slate-400 is-waiting">${WAIT_TXT}</div>
+            </div>
+          </div>
+        </div>`;
+
+    const nodesList = hasNodes
+      ? nodes.map(n => {
+        const isMaster = n.role === 'master' || n.id === 'master';
+        const status = (n.status || '').toString().toLowerCase();
+        // Trạng thái lạ thì nói "chưa rõ", không tự coi là online.
+        const isOnline = status === 'online';
+        const isDown = status === 'standby' || status === 'offline' || status === 'disconnected';
+        const stateLabel = isOnline ? 'ONLINE' : (isDown ? status.toUpperCase() : 'CHƯA RÕ');
+        const dot = isOnline ? 'bg-emerald-400' : (isDown ? 'bg-amber-400' : 'bg-slate-500');
+        const chip = isOnline
+          ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+          : (isDown ? 'bg-amber-950 text-amber-300 border-amber-800' : 'bg-slate-900 text-slate-400 border-slate-700');
+        return `
+          <div class="flex items-center justify-between p-2 rounded-lg ${isMaster ? 'bg-cyan-950/60 border border-cyan-500/40' : 'bg-slate-900/80 border border-slate-800'}">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full ${dot}"></span>
+              <div>
+                <div class="font-bold text-slate-200 text-[11px]">${_esc(n.label || n.id || 'Thiết bị')}</div>
+                <div class="text-[10px] text-slate-400">${_live(n.ip, WAIT_TXT)} ${isMaster ? '• MASTER' : '• WORKER'}</div>
+              </div>
+            </div>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded ${chip}">${stateLabel}</span>
+          </div>
+        `;
+      }).join('')
+      : `<div class="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-center">
+           <div class="text-[11px] text-slate-400 is-waiting">Chưa nhận được danh sách thiết bị — ${WAIT_TXT}</div>
+         </div>`;
+
+    const totalLabel = _isLive(data.total_clients)
+      ? `${data.total_clients} máy trạm`
+      : 'chưa có máy trạm nào kết nối';
 
     bodyEl.innerHTML = `
       <div class="space-y-2.5 font-mono text-xs">
         <div class="flex items-center justify-between bg-cyan-950/40 p-2.5 rounded-xl border border-cyan-800/40">
           <div class="flex items-center gap-2">
-            <div class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping"></div>
+            <div class="w-2.5 h-2.5 rounded-full bg-cyan-400"></div>
             <div>
               <div class="font-bold text-cyan-300 tracking-wider">MẠNG LAN BẢO MẬT E2E</div>
-              <div class="text-[10px] text-slate-400">Master: ${master.ip} • Port ${master.port || 443} • ${master.ssl || 'TLSv1.3'}</div>
+              <div class="text-[10px] text-slate-400">${master
+                ? `Master: ${_esc(master.ip || 'chưa rõ IP')}${_isLive(master.port) ? ` • Port ${master.port}` : ''}`
+                : `<span class="is-waiting">Thông tin máy chủ: ${WAIT_TXT}</span>`}</div>
             </div>
           </div>
-          <span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">PINNED CERT</span>
         </div>
 
         <div class="text-[10px] text-cyan-400/80 font-bold uppercase tracking-wider flex items-center justify-between">
-          <span>DANH SÁCH THIẾT BỊ (${nodes.length})</span>
-          <span class="text-slate-400">ĐỘ TRỄ &lt; 3ms</span>
+          <span>DANH SÁCH THIẾT BỊ (${hasNodes ? nodes.length : 0})</span>
         </div>
 
         <div class="space-y-1.5 max-h-[170px] overflow-y-auto pr-1">
+          ${masterHtml}
           ${nodesList}
         </div>
 
         <div class="pt-2 border-t border-cyan-900/40 flex items-center justify-between text-[10px] text-slate-400">
           <span>Kênh đồng bộ: WSS WebSocket Secure</span>
-          <span class="text-cyan-400">Client: ${total} máy trạm</span>
+          <span class="${_isLive(data.total_clients) ? 'text-cyan-400' : 'is-waiting'}">Client: ${totalLabel}</span>
         </div>
       </div>
     `;
   } else if (visualType === 'metric_chart') {
-    const cpu = Number(data.cpu_percent != null ? data.cpu_percent : 24.5).toFixed(1);
-    const ramPct = Number(data.ram_percent != null ? data.ram_percent : 58.2).toFixed(1);
-    const ramUsed = data.ram_used_gb != null ? data.ram_used_gb : '9.3';
-    const ramTotal = data.ram_total_gb != null ? data.ram_total_gb : '16.0';
-    const disk = Number(data.disk_percent != null ? data.disk_percent : 45.0).toFixed(1);
-    const procs = data.processes_count != null ? data.processes_count : 148;
-    const history = (data.history && data.history.length) ? data.history : [15, 28, 42, 30, Number(cpu)];
+    // Phase 73: KHÔNG bịa số đo. Trước đây thiếu dữ liệu thì hiện
+    // CPU 24.5% / RAM 58.2% / 9.3GB / 16.0GB / Disk 45.0% / 148 tiến trình
+    // (đều có 1 chữ số thập phân nên trông như số đo thật), và vẽ luôn
+    // đường biểu đồ CPU giả [15, 28, 42, 30]. Nay mỗi ô hiện "chờ kết nối"
+    // và KHÔNG vẽ đường khi thiếu lịch sử thật.
+    const cpu = _liveNum(data.cpu_percent, { digits: 1, unit: '%' });
+    const ramPct = _liveNum(data.ram_percent, { digits: 1, unit: '%' });
+    const ramUsed = _liveNum(data.ram_used_gb, { digits: 1, unit: 'GB' });
+    const ramTotal = _liveNum(data.ram_total_gb, { digits: 1, unit: 'GB' });
+    const disk = _liveNum(data.disk_percent, { digits: 1, unit: '%' });
+    const procs = _liveNum(data.processes_count);
 
-    const maxVal = Math.max(...history, 100);
-    const pts = history.map((val, idx) => {
-      const x = (idx / (history.length - 1 || 1)) * 100;
-      const y = 30 - ((val / maxVal) * 26);
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
+    const cpuBar = _isLive(data.cpu_percent)
+      ? `<div class="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500 transition-all duration-500" style="width: ${Math.min(100, Number(data.cpu_percent))}%"></div>`
+      : '';
+    const ramBar = _isLive(data.ram_percent)
+      ? `<div class="h-full bg-gradient-to-r from-sky-400 to-indigo-500 transition-all duration-500" style="width: ${Math.min(100, Number(data.ram_percent))}%"></div>`
+      : '';
+    const diskBar = _isLive(data.disk_percent)
+      ? `<div class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500" style="width: ${Math.min(100, Number(data.disk_percent))}%"></div>`
+      : '';
+
+    const history = (Array.isArray(data.history) && data.history.length) ? data.history : null;
+    const chartHtml = history
+      ? (() => {
+        const maxVal = Math.max(...history, 100);
+        const pts = history.map((val, idx) => {
+          const x = (idx / (history.length - 1 || 1)) * 100;
+          const y = 30 - ((val / maxVal) * 26);
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        }).join(' ');
+        return `
+          <svg class="w-full h-9 overflow-visible" viewBox="0 0 100 30" preserveAspectRatio="none">
+            <polyline fill="none" stroke="#06b6d4" stroke-width="2" points="${pts}" />
+            <polyline fill="rgba(6, 182, 212, 0.15)" stroke="none" points="0,30 ${pts} 100,30" />
+          </svg>`;
+      })()
+      : `<div class="h-9 flex items-center justify-center text-[10px] text-slate-500 is-waiting">Chưa có lịch sử tải — ${WAIT_TXT}</div>`;
+
+    const chartNote = history
+      ? `<span class="text-cyan-400">${history.length} mẫu</span>`
+      : `<span class="is-waiting">${WAIT_TXT}</span>`;
 
     bodyEl.innerHTML = `
       <div class="space-y-3 font-mono text-xs">
         <div>
           <div class="flex justify-between text-[11px] mb-1">
-            <span class="text-slate-300 font-bold">CPU LOAD (${procs} tiến trình)</span>
-            <span class="text-cyan-400 font-bold">${cpu}%</span>
+            <span class="text-slate-300 font-bold ${_isLive(data.processes_count) ? '' : 'is-waiting'}">CPU LOAD${_isLive(data.processes_count) ? ` (${procs} tiến trình)` : ''}</span>
+            <span class="font-bold ${_isLive(data.cpu_percent) ? 'text-cyan-400' : 'is-waiting'}">${cpu}</span>
           </div>
           <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-cyan-950">
-            <div class="h-full bg-gradient-to-r from-cyan-500 via-sky-400 to-indigo-500 transition-all duration-500" style="width: ${cpu}%"></div>
+            ${cpuBar}
           </div>
         </div>
 
         <div>
           <div class="flex justify-between text-[11px] mb-1">
-            <span class="text-slate-300 font-bold">RAM MEMORY (${ramUsed}GB / ${ramTotal}GB)</span>
-            <span class="text-sky-400 font-bold">${ramPct}%</span>
+            <span class="text-slate-300 font-bold ${_isLive(data.ram_used_gb) ? '' : 'is-waiting'}">RAM MEMORY${_isLive(data.ram_used_gb) ? ` (${ramUsed} / ${ramTotal})` : ''}</span>
+            <span class="font-bold ${_isLive(data.ram_percent) ? 'text-sky-400' : 'is-waiting'}">${ramPct}</span>
           </div>
           <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-cyan-950">
-            <div class="h-full bg-gradient-to-r from-sky-400 to-indigo-500 transition-all duration-500" style="width: ${ramPct}%"></div>
+            ${ramBar}
           </div>
         </div>
 
         <div>
           <div class="flex justify-between text-[11px] mb-1">
             <span class="text-slate-300 font-bold">DISK STORAGE</span>
-            <span class="text-emerald-400 font-bold">${disk}%</span>
+            <span class="font-bold ${_isLive(data.disk_percent) ? 'text-emerald-400' : 'is-waiting'}">${disk}</span>
           </div>
           <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden border border-cyan-950">
-            <div class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500" style="width: ${disk}%"></div>
+            ${diskBar}
           </div>
         </div>
 
         <div class="p-2.5 bg-[#080e1a] rounded-xl border border-cyan-900/50">
           <div class="text-[10px] text-slate-400 mb-1.5 flex justify-between">
             <span class="font-bold text-cyan-300">BIỂU ĐỒ TẢI THỜI GIAN THỰC</span>
-            <span class="text-cyan-400">TELEMETRY LIVE</span>
+            ${chartNote}
           </div>
-          <svg class="w-full h-9 overflow-visible" viewBox="0 0 100 30" preserveAspectRatio="none">
-            <polyline fill="none" stroke="#06b6d4" stroke-width="2" points="${pts}" />
-            <polyline fill="rgba(6, 182, 212, 0.15)" stroke="none" points="0,30 ${pts} 100,30" />
-          </svg>
+          ${chartHtml}
         </div>
       </div>
     `;

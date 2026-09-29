@@ -71,6 +71,13 @@
       box-sizing: border-box;
     }
 
+    /* Phase 73 — ô đang chờ dữ liệu thật: làm mờ để không bị nhầm là số đo.
+       Gắn tự động bởi _setLiveText() trong app.js. */
+    .is-waiting {
+      opacity: 0.55;
+      font-style: italic;
+    }
+
     body {
       font-family: 'Inter', sans-serif;
       overflow-x: hidden;
@@ -1771,7 +1778,7 @@
               <polyline points="16 18 22 12 16 6" />
               <polyline points="8 6 2 12 8 18" />
             </svg>
-            <span>Kỹ Năng: <span id="header-skills-count" class="text-cyan-300 font-extrabold">31</span></span>
+            <span>Kỹ Năng: <span id="header-skills-count" class="text-cyan-300 font-extrabold is-waiting">—</span></span>
           </button>
           <span id="health-overall-badge"
             class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border bg-emerald-500/10 border-emerald-500/30 text-emerald-400 dark:text-emerald-300">
@@ -2022,12 +2029,12 @@
                 <div>
                   <div class="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
                     <span>Kho Kỹ Năng Tự Động Hóa</span>
-                    <span id="svc-skills-tag" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-mono font-semibold">31 Skills</span>
+                    <span id="svc-skills-tag" class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-400 font-mono font-semibold is-waiting">—</span>
                   </div>
-                  <div id="svc-skills-detail" class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">31 kỹ năng đã nạp vào runtime · Sẵn sàng thực thi</div>
+                  <div id="svc-skills-detail" class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 is-waiting">chờ kết nối</div>
                 </div>
               </div>
-              <span id="svc-skills-badge" class="svc-badge svc-ok">Sẵn sàng</span>
+              <span id="svc-skills-badge" class="svc-badge svc-ok is-waiting">Chờ</span>
             </div>
           </div>
         </div>
@@ -2084,8 +2091,8 @@
                 </div>
               </div>
               <div class="text-right">
-                <div id="node-skills-count" class="text-3xl font-black text-cyan-500 dark:text-cyan-400 tabular-nums">31</div>
-                <div id="node-skills-active" class="text-[9px] font-bold text-emerald-500 dark:text-emerald-400">31 đang bật</div>
+                <div id="node-skills-count" class="text-3xl font-black text-cyan-500 dark:text-cyan-400 tabular-nums is-waiting">—</div>
+                <div id="node-skills-active" class="text-[9px] font-bold text-emerald-500 dark:text-emerald-400 is-waiting">chờ kết nối</div>
               </div>
             </div>
 
@@ -2577,7 +2584,7 @@
             </div>
             <div class="min-w-0">
               <div class="text-[10px] text-slate-400 uppercase font-semibold">ĐỘ TRỄ PHẢN HỒI</div>
-              <div id="ai-status-latency" class="text-xs font-mono font-bold text-emerald-400">~240ms</div>
+              <div id="ai-status-latency" class="text-xs font-mono font-bold is-waiting">—</div>
             </div>
           </div>
           <button type="button" onclick="testAILLMConnection()" title="Đo lại độ trễ ngay" class="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition shrink-0">PROBE</button>
@@ -3224,7 +3231,7 @@
             </div>
             <div class="min-w-0">
               <div class="text-[10px] text-slate-400 uppercase font-semibold">TỔNG KỸ NĂNG</div>
-              <div id="skills-stat-total" class="text-xs font-mono font-bold text-cyan-400">37 SKILLS</div>
+              <div id="skills-stat-total" class="text-xs font-mono font-bold text-cyan-400 is-waiting">—</div>
             </div>
           </div>
           <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">REGISTRY</span>
@@ -3238,7 +3245,7 @@
             </div>
             <div class="min-w-0">
               <div class="text-[10px] text-slate-400 uppercase font-semibold">ĐANG KÍCH HOẠT</div>
-              <div id="skills-stat-active" class="text-xs font-mono font-bold text-emerald-400">37 HOẠT ĐỘNG</div>
+              <div id="skills-stat-active" class="text-xs font-mono font-bold text-emerald-400 is-waiting">—</div>
             </div>
           </div>
           <span class="text-[9px] text-emerald-400 font-mono font-bold">READY</span>
@@ -3252,7 +3259,7 @@
             </div>
             <div class="min-w-0">
               <div class="text-[10px] text-slate-400 uppercase font-semibold">MODULE NGUỒN</div>
-              <div id="skills-stat-modules" class="text-xs font-mono font-bold text-purple-300">11 MODULES</div>
+              <div id="skills-stat-modules" class="text-xs font-mono font-bold text-purple-300 is-waiting">—</div>
             </div>
           </div>
           <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30 shrink-0">PLUGINS</span>
@@ -3277,7 +3284,7 @@
 
       <!-- ── Category Filter Tabs ── -->
       <div class="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
-        <button type="button" onclick="filterSkillsByCategory('all')" id="btn-cat-all" class="skill-cat-btn px-3 py-1.5 rounded-lg font-semibold bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-300 border border-cyan-500/30 shadow-sm shrink-0 transition">🌟 Tất Cả (<span id="cat-count-all">37</span>)</button>
+        <button type="button" onclick="filterSkillsByCategory('all')" id="btn-cat-all" class="skill-cat-btn px-3 py-1.5 rounded-lg font-semibold bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-300 border border-cyan-500/30 shadow-sm shrink-0 transition">🌟 Tất Cả (<span id="cat-count-all" class="is-waiting">—</span>)</button>
         <button type="button" onclick="filterSkillsByCategory('pc_control_skills')" id="btn-cat-pc_control_skills" class="skill-cat-btn px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white border border-transparent shrink-0 transition">💻 Hệ Thống & OS</button>
         <button type="button" onclick="filterSkillsByCategory('domain_alert_skills')" id="btn-cat-domain_alert_skills" class="skill-cat-btn px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white border border-transparent shrink-0 transition">👥 Active Directory</button>
         <button type="button" onclick="filterSkillsByCategory('monitoring_skills')" id="btn-cat-monitoring_skills" class="skill-cat-btn px-3 py-1.5 rounded-lg font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white border border-transparent shrink-0 transition">📊 Giám Sát & Server</button>
@@ -3339,7 +3346,7 @@
               <div class="flex items-center justify-between text-xs">
                 <div class="flex items-center gap-2">
                   <span id="runner-result-status" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">THÀNH CÔNG</span>
-                  <span id="runner-result-latency" class="text-[11px] font-mono text-slate-400">12ms</span>
+                  <span id="runner-result-latency" class="text-[11px] font-mono text-slate-400 is-waiting">—</span>
                 </div>
                 <button type="button" onclick="copySkillResult()" class="text-[10px] text-slate-400 hover:text-white flex items-center gap-1">
                   <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
@@ -5744,11 +5751,11 @@
               <div class="space-y-2 text-slate-300">
                 <div class="flex justify-between">
                   <span class="text-slate-400">Trạng thái diệt virus:</span>
-                  <span id="sec-av-enabled" class="font-bold text-emerald-400">BẬT (Hoạt động)</span>
+                  <span id="sec-av-enabled" class="font-bold is-waiting">chờ kết nối</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-slate-400">Bảo vệ thời gian thực:</span>
-                  <span id="sec-av-realtime" class="font-bold text-emerald-400">ĐANG BẬT</span>
+                  <span id="sec-av-realtime" class="font-bold is-waiting">chờ kết nối</span>
                 </div>
                 <div class="flex justify-between">
                   <span class="text-slate-400">Phiên bản mẫu chữ ký virus:</span>
@@ -6304,11 +6311,13 @@
         </button>
       </form>
 
-      <!-- Demo Accounts Info Badge -->
-      <div class="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-1.5 text-[11px] text-slate-400">
+      <!-- Phase 73: chỉ hiện ở máy phát triển. Trước đây 3 cặp tài khoản +
+           mật khẩu thật hiện công khai trên form đăng nhập ở mọi môi trường,
+          kể cả bản triển khai thật. Không có cờ môi trường nào ở đây. -->
+      <div id="dev-accounts-hint" class="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-1.5 text-[11px] text-slate-400 hidden">
         <div class="font-bold text-slate-300 flex items-center gap-1.5">
-          <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
-          <span>Tài khoản truy cập theo phân quyền (RBAC):</span>
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          <span>Tài khoản mặc định (chỉ hiện ở máy local):</span>
         </div>
         <div class="grid grid-cols-3 gap-2 pt-1 font-mono text-[10px]">
           <div
