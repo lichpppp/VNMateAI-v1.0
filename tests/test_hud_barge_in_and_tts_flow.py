@@ -130,5 +130,50 @@ check("lệnh mới gọi hàm dừng", "hudStopSpeaking();" in hud_js)
 send_body = hud_js.split("async function sendHudVoiceCommand(query)", 1)[-1][:900]
 check("dừng ngay khi nhận lệnh mới", "hudStopSpeaking()" in send_body)
 
+# ══ 5. Chữ phải bám theo tiếng, không hiện hết trước ══════════════════════
+print("\n▸ Chữ và tiếng phải khớp nhau")
+check("HUD có chỗ đánh dấu vị trí đang đọc",
+      "spokenUpTo" in hud_js,
+      "thiếu vị trí đọc để chữ bám theo tiếng")
+check("card tô sáng phần đã đọc, mờ phần chưa đọc",
+      "opacity-40" in hud_js and "emerald-300" in hud_js)
+check("vị trí đọc được cập nhật lúc audio BẮT ĐẦU phát",
+      "spokenUpTo" in hud_js.split("player.onplay")[-1][:600],
+      "chỉ cập nhật khi nhận gói tin thì chữ vẫn chạy trước tiếng")
+# `display_text` là TOÀN BỘ câu trả lời. Nếu card hiện nguyên nó ngay khi gói
+# tin tới thì chữ luôn nhanh hơn tiếng — đúng triệu chứng người dùng báo.
+check("gói tin mang vị trí đọc xuống",
+      "spokenUpTo: packet.display_text" in hud_js)
+
+print("\n▸ Không được bày hiệu ứng nói khi không có tiếng")
+# Nhánh không có audio trước đây vẫn bật trạng thái "đang nói" và chạy chữ với
+# thời lượng ĐOÁN — nhìn như đang nói trong khi không có tiếng nào.
+noaudio = hud_js.split("} else {", 1)[-1].split("isAudioPlaying = false;", 1)[-1][:500]
+check("nhánh không có audio không bật hiệu ứng nói",
+      "setHudState('speaking'" not in noaudio,
+      "vẫn hiệu ứng đang nói dù không có audio")
+check("nhánh không có audio nói rõ là không có tiếng",
+      "không có tiếng" in hud_js)
+check("hiệu ứng chỉ bật trong onplay, không bật sớm",
+      "player.onplay" in hud_js and
+      hud_js.index("player.onplay") < hud_js.index("isAudioPlaying = true;", hud_js.index("function drainSpeechQueue")) + 200)
+
+print("\n▸ Máy chủ không chờ TTS trong vòng lặp LLM")
+check("có hàng đợi task TTS", "_tts_pending" in server_py)
+body = server_py.split("async def _process_hud_voice_command_body", 1)[-1]
+# BỎ COMMENT trước khi quét: bình luận giải thích lỗi cũ lại nhắc lại đúng dòng
+# đã xoá (`await s_task`), quét cả comment sẽ ra kết quả ngược.
+body_code = "\n".join(l.split("#", 1)[0] for l in body.split("\n"))
+check("TTS được đẩy vào hàng đợi thay vì chờ tại chỗ",
+      "_tts_pending.append(" in body_code)
+check("chỉ chờ khi hàng đợi vượt ngưỡng đệm",
+      "while len(_tts_pending) > _TTS_LOOKAHEAD" in body_code)
+check("không còn `await s_task` ngay lập tức",
+      "await s_task" not in body_code,
+      "tạo task rồi chờ ngay = không song song")
+check("rải nốt câu cuối sau khi vòng lặp kết thúc",
+      "for _pend_text, _pend_task in _tts_pending" in body_code,
+      "bỏ bước này thì câu cuối không bao giờ phát")
+
 print(f"\nTổng: {PASS + FAIL} | Pass: {PASS} | Fail: {FAIL}")
 sys.exit(1 if FAIL else 0)

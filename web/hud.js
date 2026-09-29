@@ -974,7 +974,7 @@
     return text;
   }
 
-  function showHudDisplayCard(displayText, queryText = '') {
+  function showHudDisplayCard(displayText, queryText = '', opts = {}) {
     if (!displayText || typeof displayText !== 'string' || !displayText.trim()) return;
     const cardEl = document.getElementById('hud-display-card');
     const contentEl = document.getElementById('hud-display-content');
@@ -984,7 +984,34 @@
     if (queryEl && queryText) {
       queryEl.textContent = `Lệnh: ${queryText}`;
     }
-    contentEl.innerHTML = renderHudMarkdown(displayText);
+
+    // Phase 81: bám theo tiếng nói.
+    //
+    // Trước đây card hiện TOÀN BỘ câu trả lời ngay khi gói tin đầu tiên tới,
+    // còn âm thanh còn đang phát câu đầu tiên — người dùng nhìn thấy cả câu
+    // trả lời trước khi nghe được nửa đầu, nên hai thứ lệch pha.
+    //
+    // Nay toàn bộ vẫn hiện (đọc trước vẫn được, không mất thông tin), nhưng
+    // phần CHƯA đọc tới thì mờ đi và phần đang đọc thì sáng lên. Vị trí đọc
+    // do máy chủ đẩy xuống cùng lúc gửi audio nên luôn khớp với tiếng.
+    if (typeof opts.spokenUpTo === 'number' && opts.spokenUpTo > 0) {
+      const done = displayText.slice(0, opts.spokenUpTo);
+      const rest = displayText.slice(opts.spokenUpTo);
+      contentEl.innerHTML =
+        `<span class="text-emerald-300 dark:text-emerald-400">${renderHudMarkdown(done)}</span>`
+        + (rest ? `<span class="opacity-40">${renderHudMarkdown(rest)}</span>` : '');
+    } else {
+      contentEl.innerHTML = renderHudMarkdown(displayText);
+    }
+    if (opts.silent) {
+      let warn = cardEl.querySelector('.hud-silent-warn');
+      if (!warn) {
+        warn = document.createElement('p');
+        warn.className = 'hud-silent-warn mt-2 text-[10px] text-amber-400/90';
+        cardEl.appendChild(warn);
+      }
+      warn.textContent = '⚠ Câu này không có tiếng — máy chủ không sinh được audio (TTS lỗi hoặc quá thời gian chờ).';
+    }
     cardEl.classList.remove('hidden');
 
     if (hudDisplayDismissTimer) clearTimeout(hudDisplayDismissTimer);
@@ -1038,11 +1065,6 @@
     const sourceDevice = packet.source_device || '';
     const now = Date.now();
 
-    // Phase 47: If packet carries detailed display_text, show Holographic Results Card!
-    if (packet.display_text) {
-      showHudDisplayCard(packet.display_text, packet.query || packet.text);
-    }
-
     // De-duplication: Prevent playing identical audio if received within 2.5s (e.g. from REST + WS broadcast)
     if (text && text === lastSpokenText && (now - lastSpokenTime < 2500)) {
       return;
@@ -1059,11 +1081,34 @@
       }
 
       // Xếp hàng, KHÔNG phát ngay — xem giải thích ở khai báo hàng đợi.
-      hudSpeechQueue.push({ text: text, audioB64: audioB64 });
+      //
+      // Phase 81: mang theo `spokenUpTo` = vị trí đã đọc tới trong display_text.
+      // Lý do: `display_text` là TOÀN BỘ câu trả lời, và LLM stream nhanh hơn
+      // TTS nhiều lần. Trước đây card hiện hết câu trả lời ngay khi gói tin
+      // đầu tiên tới, còn tiếng còn đang nói câu đầu — nên chữ luôn chạy
+      // trước tiếng, và người đọc không biết Ly Ly đang đọc tới đâu.
+      // Nay vị trí đọc được đẩy xuống cùng lúc phát audio.
+      hudSpeechQueue.push({
+        text: text,
+        audioB64: audioB64,
+        spokenUpTo: packet.display_text ? (packet.display_text.indexOf(text) + text.length) : null,
+        displayText: packet.display_text || '',
+      });
       drainSpeechQueue();
     } else {
+      // KHÔNG có audio. Trước đây vẫn bật trạng thái "đang nói" và chạy chữ
+      // chạy với thời lượng ĐOÁN (text.length * 65) — nhìn thì như đang nói
+      // trong khi không có tiếng nào. Đó là "hiệu ứng phát thanh hiện trước,
+      // lời nói chẳng bao giờ tới".
+      // Nay hiện chữ và nói rõ là không có tiếng.
       isAudioPlaying = false;
-      setHudState('speaking', text, text.length * 65);
+      if (packet.display_text) {
+        showHudDisplayCard(packet.display_text, packet.query || packet.text, {
+          silent: true,
+          spokenUpTo: text ? text.length : 0,
+        });
+      }
+      setHudState('idle', text ? `⚠ ${text} (không có tiếng — TTS không sinh được audio)` : 'Không có tiếng');
     }
   }
 
@@ -1109,13 +1154,20 @@
       // KHÔNG pause() ở đây. Đó chính là chỗ cắt ngang câu đang nói.
       player.src = 'data:audio/mp3;base64,' + audioB64;
       currentVoiceAudio = player;
-      isAudioPlaying = true;
+      // KHÔNG bật `isAudioPlaying` ở đây. Trình duyệt còn phải tải và giải mã
+      // mp3 mới ra tiếng; bật sớm thì sóng âm và nhãn "đang nói" chạy trước
+      // khi có âm thanh — đúng cảm giác "hiệu ứng trước, tiếng sau".
+      // Chỉ bật trong `onplay`, tức khi âm thật sự bắt đầu.
 
       player.onplay = () => {
         isAudioPlaying = true;
         const dur = player.duration;
         setHudState('speaking', text,
           (dur && !isNaN(dur) && dur > 0) ? dur * 1000 : text.length * 65);
+        // Chuyển vị trí đọc trên card sang câu đang phát, để chữ bám theo tiếng.
+        if (item.spokenUpTo) {
+          showHudDisplayCard(item.displayText, '', { spokenUpTo: item.spokenUpTo });
+        }
       };
       player.onended = next;
       player.onerror = () => {

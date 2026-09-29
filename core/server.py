@@ -286,6 +286,12 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
 
     # Phase 50: Full-Duplex Real-Time Voice Streaming for HUD
     full_sentences = []
+
+    # Hàng đợi task sinh audio: (câu, task). Giữ 2 câu đệm — đủ để lúc HUD
+    # phát câu n thì câu n+1 đã sinh xong. Xem giải thích ở chỗ dùng bên dưới.
+    _TTS_LOOKAHEAD = 2
+    _tts_pending: list = []
+
     try:
         async for sentence in llm_engine.stream_voice_response(
             query=cmd_query,
@@ -304,51 +310,95 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
                 )
             full_sentences.append(clean_s)
 
-            # Phase 67: sinh audio chạy SONG SONG với vòng lặp, không chặn.
+            # ── Phase 81: chạy song song THẬT, không phải tạo task rồi chờ ngay ────
             #
-            # Trước đây `await text_to_speech_bytes()` nằm thẳng trong vòng lặp:
-            # phải đợi xong câu n rồi mới xin được câu n+1 từ LLM. Câu dài 2-3s
-            # là câu sau bị đẩy lùi trọn vẹn 2-3s đó, nghe ngoài ra ngập ngừng
-            # giữa các câu. Nay câu n đang phát thì câu n+1 đã được sinh sẵn.
-            s_task = asyncio.create_task(
-                _safe_tts(audio_engine, clean_s)
+            # Bình luận cũ ghi "sinh audio chạy SONG SONG với vòng lặp" nhưng
+            # code là:
+            #     s_task = asyncio.create_task(_safe_tts(...))
+            #     s_b64 = await s_task        <-- chờ ngay lập tức
+            # Tạo task rồi chờ ngay là y hệt gọi thẳng: vòng lặp vẫn bị chặn
+            # cứng ở TTS.
+            #
+            # Đo thật trên máy này: Edge-TTS mất 6,6s cho câu 27 ký tự và 8,7s
+            # cho câu 128 ký tự — chậm hơn LLM nhiều lần. Hệ quả đo được: người
+            # dùng nói xong phải chờ 7-9s mới nghe thấy chữ đầu tiên, đúng triệu
+            # chứng "lời nói mãi lúc sau mới có". Với giới hạn 12s, câu dài hơn
+            # còn bị bỏ hẳn audio: HUD hiện chữ + hiệu ứng "đang nói" mà không
+            # có tiếng nào — đúng "hiệu ứng trước, tiếng sau".
+            #
+            # Nay giữ hàng đợi task TTS: câu n đang phát thì câu n+1 đang được
+            # sinh, vòng lặp LLM không phải đợi TTS nữa.
+            _tts_pending.append(
+                (clean_s, asyncio.create_task(_safe_tts(audio_engine, clean_s)))
             )
 
-            s_b64 = await s_task
-            _stop_filler()
+            # Chỉ chờ khi hàng đợi dài quá ngưỡng. Luôn giữ _TTS_LOOKAHEAD câu
+            # đệm phía trước để lúc phát câu n thì câu n+1 đã có sẵn.
+            while len(_tts_pending) > _TTS_LOOKAHEAD:
+                pend_text, pend_task = _tts_pending.pop(0)
+                s_b64 = await pend_task
+                _stop_filler()
 
-            # Stream immediate speech to HUD
-            await broadcast_hud({
-                "type": "voice_active",
-                "status": "speaking",
-                "text": clean_s,
-                "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences),
-                "query": cmd_query,
-                "audio_base64": s_b64,
-                "source_device": "hud",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
+                # Stream immediate speech to HUD
+                await broadcast_hud({
+                    "type": "voice_active",
+                    "status": "speaking",
+                    "text": pend_text,
+                    "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences),
+                    "query": cmd_query,
+                    "audio_base64": s_b64,
+                    "source_device": "hud",
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
 
-            # Also sync with Web Portal
-            await broadcast_portal_ui("voice_response", {
-                "query": cmd_query,
-                "reply": clean_s,
-                "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences),
-                "source_device": "hud",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
+                # Also sync with Web Portal
+                await broadcast_portal_ui("voice_response", {
+                    "query": cmd_query,
+                    "reply": pend_text,
+                    "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences),
+                    "source_device": "hud",
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
 
     except Exception as exc:
         logger.error("HUD voice stream error: %s", exc)
     finally:
         _stop_filler()
-        # Log tổng thời gian từ lúc nhận lệnh tới lúc nói xong. Trước đây không
-        # có chỗ nào đo, nên khi admin nói "chậm" thì không biết là chậm ở
-        # bước nào — chỉ đoán. Giờ có số để soi.
-        logger.info(
-            "[HUD] Hoàn tất lượt nói sau %.2fs (%d câu, %d câu đệm)",
-            time.monotonic() - _t_start, len(full_sentences), 1 if _filler_sent else 0,
-        )
+
+    # Rải nốt những câu còn nằm trong hàng đợi TTS. Bỏ qua bước này thì lượt
+    # nói kết thúc mà câu cuối chưa từng được phát — người dùng nghe bị cụt.
+    for _pend_text, _pend_task in _tts_pending:
+        try:
+            _s_b64 = await _pend_task
+        except Exception:  # pylint: disable=broad-except
+            _s_b64 = None
+        if not _s_b64:
+            continue
+        _stop_filler()
+        await broadcast_hud({
+            "type": "voice_active",
+            "status": "speaking",
+            "text": _pend_text,
+            "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences),
+            "query": cmd_query,
+            "audio_base64": _s_b64,
+            "source_device": "hud",
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+    _tts_pending.clear()
+
+    # Log tổng thời gian từ lúc nhận lệnh tới lúc nói xong. Trước đây không có
+    # chỗ nào đo, nên khi admin nói "chậm" thì không biết là chậm ở bước nào —
+    # chỉ đoán. Giờ có số để soi.
+    #
+    # Log SAU khối rải nối TTS, không phải trong `finally`: log trong `finally`
+    # chạy trước khi rải, tức trước khi audio của câu cuối được gửi đi, nên
+    # thời gian đo thiếu mất đúng phần đáng nhất.
+    logger.info(
+        "[HUD] Hoàn tất lượt nói sau %.2fs (%d câu, %d câu đệm)",
+        time.monotonic() - _t_start, len(full_sentences), 1 if _filler_sent else 0,
+    )
+
 
     # Phase 65: Ly Ly vừa nói xong. Ghi vào lịch sử rồi báo HUD biết có cần mở
     # mic chờ admin đáp tiếp không.
