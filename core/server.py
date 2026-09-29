@@ -1522,7 +1522,7 @@ async def health_check() -> HealthResponse:
         skill_count=plugin_manager.get_skill_count(),
         skill_names=plugin_manager.get_skill_names(),
         model=model_name,
-        asr_backend=getattr(settings, "ASR_BACKEND", "mock"),
+        asr_backend=getattr(settings, "ASR_BACKEND", "google"),
         tts_voice="vi-VN-HoaiMyNeural",
         routing_primary=model_name,
         routing_fallback_1="",

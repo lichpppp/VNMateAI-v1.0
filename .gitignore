@@ -84,3 +84,6 @@ Thumbs.db
 *.sublime-project
 .gemini/
 config/data_sources.json
+
+# Phase 73: sao lưu DB trước khi dọn dữ liệu mẫu
+*.db.bak-*

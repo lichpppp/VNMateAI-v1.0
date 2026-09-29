@@ -300,7 +300,7 @@ class AppSettings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level.")
 
     # Audio Pipeline Settings
-    ASR_BACKEND: str = Field(default="local_whisper", description="ASR backend (local_whisper, google, groq, whisper, mock).")
+    ASR_BACKEND: str = Field(default="local_whisper", description="ASR backend (local_whisper, google, groq, whisper).")
     GROQ_API_KEY: str = Field(default="", description="Groq API key.")
     GROQ_BASE_URL: str = Field(default="https://api.groq.com/openai/v1")
     MIC_AUTO_START: bool = Field(
@@ -381,10 +381,15 @@ class AppSettings(BaseSettings):
     def _validate_asr_backend(cls, v: str) -> str:
         if not v or not str(v).strip():
             return "google"
-        valid = {"local_whisper", "whisper", "groq", "mock", "google"}
+        # Phase 73: gỡ "mock" — backend giả lập trả câu mẫu theo độ dài byte âm
+        # thanh, khiến hệ thống tưởng người dùng đã nói câu đó.
+        valid = {"local_whisper", "whisper", "groq", "google"}
         lower = str(v).strip().lower()
         if lower == "openai":
             return "whisper"
+        if lower == "mock":
+            logger.warning("ASR_BACKEND='mock' đã bị gỡ (Phase 73), chuyển về mặc định 'google'.")
+            return "google"
         if lower not in valid:
             logger.warning("Giá trị ASR_BACKEND '%s' không hợp lệ, chuyển về mặc định 'google'", v)
             return "google"

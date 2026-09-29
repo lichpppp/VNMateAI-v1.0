@@ -36,6 +36,7 @@ import hmac
 import inspect
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -366,17 +367,23 @@ def test_database_lock_is_reentrant() -> None:
 
     from core.database import ERPDatabase
 
+    # Phase 73: mọi thao tác ở test này dùng DB TẠM. Trước đây gọn
+    # ERPDatabase() không tham số nên ghi thẳng vào vnmateai.db — mỗi lần
+    # chạy test lại đẩy 1 dòng "regression" vào dữ liệu thật của người dùng.
+    tmp_dir = tempfile.TemporaryDirectory()
+
+    def _fresh_db():
+        return ERPDatabase(Path(tmp_dir.name) / "phase60_lock_test.db")
+
     check(
         "khoá là RLock (cho phép add_finance_record -> log_audit_action lồng nhau)",
-        isinstance(ERPDatabase()._lock, type(_threading.RLock())),
-        f"thực tế: {type(ERPDatabase()._lock).__name__}",
+        isinstance(_fresh_db()._lock, type(_threading.RLock())),
+        f"thực tế: {type(_fresh_db()._lock).__name__}",
     )
 
     # Chạy thật có giới hạn thời gian: với Lock thường, lần lấy khoá thứ hai
     # của cùng luồng sẽ chờ vô hạn và test sẽ treo -> phải bắt bằng Event.
-    from core.database import ERPDatabase as _DB
-
-    db = _DB()
+    db = _fresh_db()
     outcome: dict = {}
 
     def _write() -> None:

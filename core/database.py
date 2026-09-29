@@ -1188,57 +1188,33 @@ class ERPDatabase:
                 "finances": fin,
             }
 
-    def seed_initial_enterprise_data_if_empty(self) -> None:
-        """Tự động chèn dữ liệu mẫu cho Tài chính và Chấm công nếu cơ sở dữ liệu còn trống."""
+    def purge_sample_data(self) -> Dict[str, int]:
+        """Phase 73: Xóa toàn bộ dữ liệu mẫu đã từng được nạp vào CSDL.
+
+        Trước đây module tự chèn sẵn số quỹ/chấm công giả và mã nhân sự mẫu
+        nên giao diện hiển thị như dữ liệu thật. Nay CSDL khởi đầu trống và mọi
+        ô số liệu báo "chờ kết nối" cho tới khi người dùng nhập/đồng bộ thật.
+        """
+        tables = ("tasks", "attendance", "finances", "devices", "records", "employees", "departments")
+        removed: Dict[str, int] = {}
         with self._lock:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM finances;")
-                count_fin = cursor.fetchone()[0]
-                if count_fin == 0:
-                    sample_fin = [
-                        ("income", 250000000.0, "Doanh thu hợp đồng", "Thanh toán đợt 1 dự án ERP Tập đoàn A", "admin", "2026-09-01 10:00:00"),
-                        ("income", 180000000.0, "Dịch vụ bảo trì", "Phí bảo trì hệ thống AI quý 3", "admin", "2026-09-10 14:30:00"),
-                        ("expense", 45000000.0, "Hạ tầng Cloud & Server", "Chi phí AWS Cloud & Máy chủ AI GPU", "system", "2026-09-05 09:15:00"),
-                        ("expense", 120000000.0, "Lương & Thưởng", "Chi lương nhân sự đợt 1 tháng 9", "hr", "2026-09-15 16:00:00"),
-                        ("expense", 15000000.0, "Văn phòng phẩm & Tiện ích", "Internet Leased line & văn phòng", "admin", "2026-09-18 11:20:00"),
-                        ("income", 95000000.0, "Tư vấn chuyển đổi số", "Tư vấn kiến trúc Multi-Agent doanh nghiệp B", "ceo", "2026-09-22 15:45:00"),
-                        ("expense", 22000000.0, "Nghiên cứu & Phát triển", "Bản quyền API mô hình ngôn ngữ lớn LLM", "cfo", "2026-09-25 08:30:00"),
-                    ]
-                    cursor.executemany(
-                        """
-                        INSERT INTO finances (type, amount, category, description, created_by, date)
-                        VALUES (?, ?, ?, ?, ?, ?);
-                        """,
-                        sample_fin,
-                    )
-                    conn.commit()
-                    logger.info("Đã tạo %d bản ghi mẫu cho sổ quỹ finances.", len(sample_fin))
-
-                cursor.execute("SELECT COUNT(*) FROM attendance;")
-                count_att = cursor.fetchone()[0]
-                if count_att == 0:
-                    cursor.execute("SELECT id FROM employees LIMIT 5;")
-                    emp_ids = [r[0] for r in cursor.fetchall()]
-                    if emp_ids:
-                        sample_att = []
-                        today = datetime.now().strftime("%Y-%m-%d")
-                        for eid in emp_ids:
-                            sample_att.append((eid, f"{today} 08:15:00", f"{today} 17:30:00", "present"))
-                        cursor.executemany(
-                            """
-                            INSERT INTO attendance (employee_id, check_in_time, check_out_time, status)
-                            VALUES (?, ?, ?, ?);
-                            """,
-                            sample_att,
-                        )
-                        conn.commit()
-                        logger.info("Đã tạo %d bản ghi chấm công mẫu.", len(sample_att))
+                # Thứ tự trên tôn trọng khoá ngoại: `tasks` tham chiếu `employees`
+                # với on_delete=NO ACTION nên phải xóa trước.
+                for table in tables:
+                    try:
+                        cursor.execute(f"DELETE FROM [{table}];")
+                        removed[table] = cursor.rowcount
+                    except Exception as _e:
+                        removed[table] = 0
+                        # Không nuốt lỗi: người vận hành cần biết bảng nào còn dữ liệu mẫu.
+                        logger.error("purge_sample_data: không xóa được %s — %s", table, _e)
+                conn.commit()
+        logger.info("Phase 73: đã xóa dữ liệu mẫu — %s", removed)
+        return removed
 
 
-# Khởi tạo singleton instance
+# Khởi tạo singleton instance. KHÔNG tự chèn dữ liệu mẫu: CSDL bắt đầu trống,
+# giao diện hiển thị "chờ kết nối" cho tới khi có nguồn dữ liệu thật.
 erp_db = ERPDatabase()
-try:
-    erp_db.seed_initial_enterprise_data_if_empty()
-except Exception as _e:
-    logger.warning("Không thể seed dữ liệu mẫu ERP: %s", _e)

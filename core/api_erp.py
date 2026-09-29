@@ -46,50 +46,31 @@ async def download_erp_template(
       - MayTinh
       - CongViec
       - SoSach
-    Mỗi Sheet có Header chuẩn và dữ liệu mẫu hướng dẫn chi tiết.
 
-    Yêu cầu đăng nhập: file mẫu tiết lộ cấu trúc cột của toàn bộ hệ thống ERP
+    Phase 73: mỗi Sheet CHỈ CÓ hàng tiêu đề cột, không kèm dòng dữ liệu mẫu.
+    Trước đây file chứa nhân viên/IP/tài liệu bịa; nạp vào đó sẽ tạo dữ liệu
+    giả trong hệ thống mà người dùng tưởng là thật.
+
+    Yêu cầu đăng nhập: file tiết lộ cấu trúc cột của toàn bộ hệ thống ERP
     (nhân sự, máy tính, sổ sách, công việc) nên không nên công khai.
     """
     output = io.BytesIO()
 
-    # Dữ liệu mẫu chuẩn
-    data_sheets = {
-        "PhongBan": [
-            {"TenPhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "MoTa": "Phụ trách hệ thống hạ tầng AI, vận hành RPA và giải pháp tự động hóa"},
-            {"TenPhongBan": "Phòng Nhân Sự", "MoTa": "Quản lý nhân sự, tuyển dụng, đào tạo và theo dõi đánh giá KPI toàn công ty"},
-            {"TenPhongBan": "Phòng Kế Toán", "MoTa": "Quản trị dòng tiền, báo cáo tài chính, quyết toán thuế và chứng từ sổ sách"},
-            {"TenPhongBan": "Phòng Kinh Doanh & Marketing", "MoTa": "Phát triển thị trường, chăm sóc khách hàng và truyền thông thương hiệu"},
-        ],
-        "NhanVien": [
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "HoTen": "Nguyễn Văn A", "ChucVu": "Kỹ Sư Trưởng AI", "Email": "nguyenvana@company.com", "SoDienThoai": "0901234567"},
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "HoTen": "Lê Hoàng C", "ChucVu": "Chuyên Viên DevOps", "Email": "lehoangc@company.com", "SoDienThoai": "0909876543"},
-            {"PhongBan": "Phòng Nhân Sự", "HoTen": "Trần Thị B", "ChucVu": "Trưởng Phòng HR", "Email": "tranthib@company.com", "SoDienThoai": "0912345678"},
-            {"PhongBan": "Phòng Kế Toán", "HoTen": "Phạm Minh D", "ChucVu": "Kế Toán Trưởng", "Email": "phamminhd@company.com", "SoDienThoai": "0933221100"},
-        ],
-        "MayTinh": [
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "TenMay": "SERVER-AI-MASTER", "DiaChiIP": "192.168.1.10", "LoaiThietBi": "Server", "NguoiSuDung": "Nguyễn Văn A"},
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "TenMay": "DEV-STATION-01", "DiaChiIP": "192.168.1.15", "LoaiThietBi": "Workstation", "NguoiSuDung": "Lê Hoàng C"},
-            {"PhongBan": "Phòng Nhân Sự", "TenMay": "PC-HR-LEAD", "DiaChiIP": "192.168.1.25", "LoaiThietBi": "Laptop", "NguoiSuDung": "Trần Thị B"},
-            {"PhongBan": "Phòng Kế Toán", "TenMay": "PC-ACC-CHIEF", "DiaChiIP": "192.168.1.30", "LoaiThietBi": "Workstation", "NguoiSuDung": "Phạm Minh D"},
-        ],
-        "CongViec": [
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "TieuDe": "Nâng cấp hệ thống AI Gateway Phase 47", "NguoiPhuTrach": "Nguyễn Văn A", "TrangThai": "in_progress", "HanChot": "2026-10-01"},
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "TieuDe": "Triển khai Agent giám sát máy chủ RPA", "NguoiPhuTrach": "Lê Hoàng C", "TrangThai": "pending", "HanChot": "2026-10-05"},
-            {"PhongBan": "Phòng Nhân Sự", "TieuDe": "Tổng hợp kết quả đánh giá KPI Quý 3", "NguoiPhuTrach": "Trần Thị B", "TrangThai": "pending", "HanChot": "2026-09-30"},
-            {"PhongBan": "Phòng Kế Toán", "TieuDe": "Quyết toán ngân sách quý và sao kê sổ cái", "NguoiPhuTrach": "Phạm Minh D", "TrangThai": "completed", "HanChot": "2026-09-20"},
-        ],
-        "SoSach": [
-            {"PhongBan": "Phòng Kỹ Thuật & Tự Động Hóa", "TenTaiLieu": "Sơ đồ kiến trúc hạ tầng VN-MateAI Enterprise.pdf", "DuongDan": "/records/tech/architecture_2026.pdf", "NgayTao": "2026-09-25"},
-            {"PhongBan": "Phòng Nhân Sự", "TenTaiLieu": "Quy chế xếp loại KPI và thưởng hiệu suất.docx", "DuongDan": "/records/hr/kpi_regulations_2026.docx", "NgayTao": "2026-09-15"},
-            {"PhongBan": "Phòng Kế Toán", "TenTaiLieu": "Báo cáo kiểm toán tài chính bán niên.xlsx", "DuongDan": "/records/acc/financial_audit_h1.xlsx", "NgayTao": "2026-07-31"},
-        ],
+    # Phase 73: chỉ khai báo TÊN CỘT. File xuất ra không có dòng dữ liệu nào,
+    # kể cả dòng trống — tránh việc người dùng tưởng đã có sẵn nhân sự.
+    sheet_columns: Dict[str, List[str]] = {
+        "PhongBan": ["TenPhongBan", "MoTa"],
+        "NhanVien": ["PhongBan", "HoTen", "ChucVu", "Email", "SoDienThoai"],
+        "MayTinh": ["PhongBan", "TenMay", "DiaChiIP", "LoaiThietBi", "NguoiSuDung"],
+        "CongViec": ["PhongBan", "TieuDe", "NguoiPhuTrach", "TrangThai", "HanChot"],
+        "SoSach": ["PhongBan", "TenTaiLieu", "DuongDan", "NgayTao"],
     }
 
     try:
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            for sheet_name, rows in data_sheets.items():
-                df = pd.DataFrame(rows)
+            for sheet_name, columns in sheet_columns.items():
+                # DataFrame 0 dòng nhưng đủ tên cột -> file chỉ có hàng tiêu đề.
+                df = pd.DataFrame({col: [] for col in columns})
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
 
                 # Format style cho từng worksheet

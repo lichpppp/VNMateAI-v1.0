@@ -5,7 +5,8 @@ Audio Pipeline Engine for VN-MateAI — Phase 23 Latency-Optimised.
 
 Responsibilities:
   - ASR  : `transcribe_audio(audio_bytes)` — chuyển đổi luồng byte âm thanh → văn bản tiếng Việt.
-           Backend priority: local_whisper (faster-whisper, ~0.3s) → google (2s) → mock
+           Backend priority: local_whisper (faster-whisper, ~0.3s) → google (2s).
+           Không nhận dạng được thì trả chuỗi rỗng — không tự bịa nội dung lời nói.
   - TTS  : `text_to_speech_stream(text)` — dùng edge-tts với giọng
             'vi-VN-HoaiMyNeural', yield các chunk MP3 byte ngay khi engine tạo ra (streaming).
 
@@ -18,7 +19,9 @@ ASR Backend (config.json ASR_BACKEND):
   - "whisper"       → OpenAI Whisper API (api.openai.com)
   - "groq"          → Groq Whisper API (ultra-fast cloud)
   - "google"        → Google Speech Recognition (free, fallback)
-  - "mock"          → Dev/test mode
+
+Phase 73: đã gỡ backend "mock". Backend đó trả câu văn bản mẫu dựa trên độ dài
+byte âm thanh, khiến hệ thống hành xử như thể người dùng đã nói đúng câu đó.
 
 Phase 23 Changes:
   - Local faster-whisper singleton (loaded once into RAM on first use).
@@ -397,7 +400,8 @@ class AudioEngine:
           2. groq          — cloud Groq Whisper, ~0.5s.
           3. whisper       — OpenAI Whisper API.
           4. google        — Google free ASR (~2s), last resort.
-          5. mock          — dev/test mode.
+
+        Không engine nào nhận dạng được -> trả "" (không đoán nội dung lời nói).
 
         Args:
             audio_bytes: Raw audio data.
@@ -431,15 +435,17 @@ class AudioEngine:
             elif backend == "whisper" and getattr(settings, "API_KEY", ""):
                 return await self._transcribe_whisper(audio_bytes)
 
-            elif backend == "mock":
-                return await self._transcribe_mock(audio_bytes)
-
             else:
                 # Default fallback: Google (free, no key)
                 result = await self._transcribe_google(audio_bytes)
                 if result:
                     return result
-                return await self._transcribe_mock(audio_bytes)
+                # Phase 73: KHÔNG bịa nội dung người dùng đã nói. Trước đây khi
+                # không engine nào nhận dạng được, hệ thống trả về câu mẫu ("xin
+                # chào"…) rồi đưa vào vòng lặp LLM — người dùng tưởng mình đã
+                # nói câu đó. Không nhận dạng được thì trả chuỗi rỗng.
+                logger.warning("Không có engine ASR nào nhận dạng được âm thanh; trả về chuỗi rỗng.")
+                return ""
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("ASR transcription failed [backend=%s]: %s", backend, exc)
@@ -606,20 +612,6 @@ class AudioEngine:
         if text:
             logger.info("Google ASR result: '%s'", text[:100])
         return text
-
-    @staticmethod
-    async def _transcribe_mock(audio_bytes: bytes) -> str:
-        """Mock transcription for development / unit testing."""
-        await asyncio.sleep(0.05)
-        size = len(audio_bytes)
-        if size < 5_000:
-            return "xin chào"
-        elif size < 20_000:
-            return "cho tôi biết thông tin hệ thống"
-        elif size < 50_000:
-            return "liệt kê các tiến trình đang chạy"
-        else:
-            return "tìm file PDF trên desktop"
 
     # ------------------------------------------------------------------
     # TTS — Text to Speech với Fallback Chain (Phase 23: with timeout)
