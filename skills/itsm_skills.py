@@ -456,14 +456,19 @@ def generate_daily_report(
         c = conn.cursor()
 
         # 1. Phiếu trong ngày
+        # COALESCE là bắt buộc: SUM() trên tập rỗng trả NULL, không trả 0.
+        # Thiếu nó thì `.get('completed', 0)` không cứu được — khoá vẫn TỒN TẠI
+        # với giá trị None, và giá trị mặc định của dict.get() chỉ dùng khi khoá
+        # vắng mặt. Hậu quả: báo cáo in ra "Thành công: None" ngay trước mắt
+        # người đọc, đúng lúc chưa có dữ liệu.
         c.execute(
             """
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS completed,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending,
-                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
-                SUM(CASE WHEN created_by_ai = 1 THEN 1 ELSE 0 END) AS ai_created
+                COALESCE(SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END), 0) AS completed,
+                COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0) AS pending,
+                COALESCE(SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END), 0) AS in_progress,
+                COALESCE(SUM(CASE WHEN created_by_ai = 1 THEN 1 ELSE 0 END), 0) AS ai_created
             FROM tasks
             WHERE created_at BETWEEN ? AND ? AND title IS NOT NULL;
             """,
@@ -471,14 +476,14 @@ def generate_daily_report(
         )
         task_row = dict(c.fetchone())
 
-        # 2. Audit logs trong ngày
+        # 2. Audit logs trong ngày — cùng lý do COALESCE như trên.
         c.execute(
             """
             SELECT
                 COUNT(*) AS total,
-                SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS success,
-                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
-                SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked
+                COALESCE(SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END), 0) AS success,
+                COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failed,
+                COALESCE(SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END), 0) AS blocked
             FROM audit_logs
             WHERE timestamp BETWEEN ? AND ?;
             """,
@@ -506,12 +511,24 @@ def generate_daily_report(
 
         # 5. Tính KPI
         ai_tasks = task_row.get("ai_created") or 0
-        hours_saved = round(ai_tasks * 0.25, 2)
+        # Giả định kinh doanh (1 phiếu AI = 15 phút), KHÔNG phải số đo — xem
+        # hằng số trong core/database.py. Trả kèm hệ số để UI dán nhãn "ước tính"
+        # thay vì bán nó như một con số đo được.
+        from core.database import HOURS_SAVED_PER_AI_TASK
+        hours_saved = round(ai_tasks * HOURS_SAVED_PER_AI_TASK, 2)
         completion_rate = 0.0
         if task_row.get("total", 0) > 0:
             completion_rate = round(
                 100 * (task_row.get("completed") or 0) / task_row["total"], 1
             )
+        # 0/0 không phải "0% hoàn thành" mà là KHÔNG ĐO ĐƯỢC. In "0 (0.0%)" là
+        # bịa ra một tỷ lệ chưa từng được tính — giao diện đã phân biệt hai
+        # chuyện này, văn bản báo cáo cũng phải vậy, nếu không hai chỗ nói lệch.
+        rate_txt = (
+            f" ({completion_rate}%)"
+            if task_row.get("total", 0) > 0
+            else " (chưa có phiếu nào để tính tỷ lệ)"
+        )
 
         # 6. Soạn báo cáo văn bản
         report_text = f"""
@@ -520,7 +537,7 @@ def generate_daily_report(
 
 🎟️  PHIẾU ITSM:
    • Tổng phiếu hôm nay   : {task_row.get('total', 0)}
-   • Hoàn thành           : {task_row.get('completed', 0)} ({completion_rate}%)
+   • Hoàn thành           : {task_row.get('completed', 0)}{rate_txt}
    • Đang xử lý           : {task_row.get('in_progress', 0)}
    • Chờ xử lý            : {task_row.get('pending', 0)}
    • Do AI tự tạo         : {ai_tasks}
@@ -534,6 +551,7 @@ def generate_daily_report(
 🤖 KPI AI:
    • Tác vụ AI tự động    : {ai_tasks}
    • Ước tính thời gian   : {hours_saved} giờ tiết kiệm
+     (quy đổi {HOURS_SAVED_PER_AI_TASK}h/phiếu — GIẢ ĐỊNH, không phải số đo)
 
 🏢 TỔ CHỨC:
    • Tổng nhân viên       : {emp_count}
@@ -559,7 +577,12 @@ def generate_daily_report(
                 "kpi": {
                     "ai_tasks_today": ai_tasks,
                     "hours_saved_today": hours_saved,
+                    "hours_saved_per_task": HOURS_SAVED_PER_AI_TASK,
                     "ticket_completion_rate": completion_rate,
+                    # Phân biệt "hôm nay không có phiếu nào" (0 phiếu thật) với
+                    # "chưa lấy được dữ liệu". UI cần biết để không hiện "0%"
+                    # như thể đã đo được tỷ lệ hoàn thành.
+                    "tickets_total": task_row.get("total", 0),
                 },
                 "org": {
                     "total_employees": emp_count,

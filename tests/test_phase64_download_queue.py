@@ -62,7 +62,22 @@ q2 = DownloadQueue(ttl_seconds=60)
 ids = {q2.put(source_id="s", source_title="t", report="r", fmt="csv", title="t",
               filename="f.csv", payload=b"x").job_id for _ in range(50)}
 check("50 job -> 50 mã khác nhau", len(ids) == 50, str(len(ids)))
-check("job_id không chứa tên nguồn", not any("erp" in i.lower() for i in ids))
+# Đừng khẳng định `job_id` không chứa một chuỗi con cụ thể: `put()` dùng
+# `secrets.token_urlsafe(12)` nên chuỗi là base64url — "erp" hoàn toàn CÓ THỂ
+# xuất hiện tình cờ (đo được ~0,04% mỗi mã, tức ~2% mỗi lần chạy với 50 mã).
+# Test hỏng ngẫu nhiên 1/50 lần làm cả bộ test mất uy tín.
+# Kiểm đúng ý định: mã sinh ra KHÔNG phải hàm của dữ liệu đầu vào.
+q2_same_input = DownloadQueue(ttl_seconds=60)
+ids_same_input = {
+    q2_same_input.put(source_id="s", source_title="t", report="r", fmt="csv",
+                      title="t", filename="f.csv", payload=b"x").job_id
+    for _ in range(50)
+}
+check(
+    "cùng đầu vào vẫn cho mã khác nhau (không suy ra từ tên nguồn)",
+    not (ids & ids_same_input),
+    "nếu mã bắt nguồn từ đầu vào thì hai lần put cùng dữ liệu phải trùng",
+)
 check("job_id không phải số đoán được", all(not i.isdigit() for i in ids))
 
 section("Hết hạn")

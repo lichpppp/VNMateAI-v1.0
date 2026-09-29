@@ -28,6 +28,15 @@ logger = logging.getLogger("core.database")
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DB_PATH = _PROJECT_ROOT / "vnmateai.db"
 
+# Số giờ tiết kiệm ước tính cho mỗi phiếu do AI tự xử lý.
+#
+# ĐÂY LÀ GIẢ ĐỊNH KINH DOANH, KHÔNG PHẢI SỐ ĐO. Không có thiết bị nào đo được
+# "AI tiết kiệm bao nhiêu giờ" — con số này chỉ là quy đổi 1 phiếu = 15 phút.
+# Vì vậy nó phải luôn được dán nhãn "ước tính" ở mọi nơi hiển thị, và chỉ được
+# khai báo DUY NHẤT một lần tại đây. Trước đây hằng số này bị chép ở hai chỗ
+# (database + itsm_skills); sửa một chỗ là hai màn hình lệch nhau.
+HOURS_SAVED_PER_AI_TASK = 0.25
+
 
 class ERPDatabase:
     """Quản lý các bảng dữ liệu tổ chức ERP trong SQLite với ràng buộc Khóa ngoại (Foreign Key)."""
@@ -130,10 +139,25 @@ class ERPDatabase:
                 existing_task_table = cursor.fetchone()
 
                 if not existing_task_table:
+                    # Bảng `tasks` do hai tầng cùng dùng: `db_manager` (schema cũ,
+                    # id TEXT) và `ERPDatabase` (các cột ERP thêm sau). Bản CREATE
+                    # dưới đây phải là hợp của cả hai — trước đây nó chỉ có phần
+                    # ERP, nên CSDL tạo mới bằng ERPDatabase hỏng ngay:
+                    #   • `id INTEGER PRIMARY KEY` mà create_erp_task() lại chèn
+                    #     "erp_<hex>" → SQLite ném "datatype mismatch".
+                    #   • thiếu created_at → generate_daily_report() ném
+                    #     "no such column: created_at", ROI Dashboard trắng bảng.
+                    # Chỉ chạy được ở máy đã có sẵn DB do db_manager tạo trước.
                     cursor.execute(
                         """
                         CREATE TABLE tasks (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            id TEXT PRIMARY KEY,
+                            timestamp TEXT,
+                            client_id TEXT,
+                            task_message TEXT,
+                            sender TEXT DEFAULT 'AI/ERP',
+                            created_at TEXT,
+                            updated_at TEXT,
                             dept_id INTEGER,
                             assignee_id INTEGER,
                             title TEXT NOT NULL,
@@ -157,6 +181,15 @@ class ERPDatabase:
                         ("due_date",          "TEXT"),
                         ("created_by_ai",     "INTEGER NOT NULL DEFAULT 0"),
                         ("resolution_notes",  "TEXT"),
+                        # Các cột dưới đây do db_manager tạo. Thiếu chúng thì
+                        # generate_daily_report() và create_erp_task() đều lỗi,
+                        # nên phải bổ sung cho CSDL nào chưa có.
+                        ("timestamp",         "TEXT"),
+                        ("client_id",         "TEXT"),
+                        ("task_message",      "TEXT"),
+                        ("sender",            "TEXT"),
+                        ("created_at",        "TEXT"),
+                        ("updated_at",        "TEXT"),
                     ]
                     for _col, _col_def in _task_migrations:
                         if _col not in existing_cols:
@@ -801,7 +834,9 @@ class ERPDatabase:
             "blocked_attempts": blocked,
             "auto_remediated": auto_remediated,
             "ai_tasks_created": ai_tasks,
-            "hours_saved_estimate": round(ai_tasks * 0.25, 2),  # 1 task = 15 phút
+            "hours_saved_estimate": round(ai_tasks * HOURS_SAVED_PER_AI_TASK, 2),
+            # Nói rõ con số trên từ đâu ra, để UI không bán nó như số đo.
+            "hours_saved_per_task": HOURS_SAVED_PER_AI_TASK,
         }
 
     # ── Phase 48: Task ORM Extensions ────────────────────────────────────────
