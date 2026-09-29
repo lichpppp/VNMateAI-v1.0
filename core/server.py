@@ -597,9 +597,70 @@ class _WebSocketLogHandler(logging.Handler):
 _ws_log_handler: Optional["_WebSocketLogHandler"] = None
 
 
+# Bí mật nằm trong URL mà thư viện HTTP tự ghi ra log.
+#
+# PHÁT HIỆN KHI QUÉT RÒ RỈ (Phase 80): `httpx` ở mức INFO ghi lại nguyên dòng
+# request, mà URL của Telegram Bot API có dạng `/bot<token>/sendMessage`. Nên
+# mỗi lần bot gửi tin là token bot thật nằm trong dòng log — và
+# `GET /api/v1/logs/recent` phục vụ chính dòng log đó cho MỌI tài khoản đã
+# đăng nhập, kể cả `viewer`. Che bí mật ở endpoint cấu hình không có tác dụng
+# với đường rò này.
+#
+# Tắt logger của httpx không đủ: bất kỳ thư viện hay dòng log nào khác cũng
+# có thể lọt bí mật ra. Nên che TẠI MỘT CHỖ: mọi bản ghi log đi qua bộ lọc này
+# trước khi tới handler nào.
+_SECRET_LOG_PATTERNS = (
+    # Token bot Telegram nằm trong URL API.
+    re.compile(r"(bot)(\d{5,}:[A-Za-z0-9_\-]{20,})"),
+    # Khoá dạng phổ biến.
+    re.compile(r"\b(sk|gsk|rk|pk|xoxb|xoxp)[-_][A-Za-z0-9_\-]{16,}"),
+)
+
+
+class _SecretRedactingFilter(logging.Filter):
+    """Thay bí mật trong mọi dòng log bằng ký hiệu, trước khi ghi ra."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            text = record.getMessage()
+        except Exception:  # noqa: BLE001 — lỗi format không được làm hỏng log
+            return True
+        cleaned = text
+        for pat in _SECRET_LOG_PATTERNS:
+            if pat.groups == 2:
+                cleaned = pat.sub(lambda m: m.group(1) + _SECRET_MASK, cleaned)
+            else:
+                cleaned = pat.sub(_SECRET_MASK, cleaned)
+        if cleaned != text:
+            record.msg = cleaned
+            record.args = ()
+        return True
+
+
+def _install_secret_redaction() -> None:
+    """Gắn bộ lọc che bí mật vào MỌI handler của logger gốc (một lần).
+
+    Phải gắn vào HANDLER chứ không gắn vào logger. Python chỉ chạy
+    `Logger.filter()` cho đúng logger được gọi tới; bản ghi của logger con
+    (`httpx`, `uvicorn.access`…) đi lên bằng `callHandlers()` và chỉ bị lọc
+    bởi filter của handler. Gắn lên logger gốc sẽ tưởng đã che mà thực ra
+    dòng log của httpx vẫn lộ nguyên vẹn.
+    """
+    root = logging.getLogger()
+    # Handler của chính logger con cũng phải gắn — record đi qua handler ở
+    # đâu thì bị lọc ở đó.
+    targets = list(root.handlers)
+    for name in ("httpx", "httpx.httpcore", "httpcore", "uvicorn.access", "asyncio"):
+        targets.extend(logging.getLogger(name).handlers)
+    for h in targets:
+        if not any(isinstance(f, _SecretRedactingFilter) for f in h.filters):
+            h.addFilter(_SecretRedactingFilter())
+
+
 def _install_ws_log_handler(loop: asyncio.AbstractEventLoop) -> None:
     """Attach WebSocket log handler to the root logger (once)."""
     global _ws_log_handler
+    _install_secret_redaction()
     root = logging.getLogger()
     for h in root.handlers:
         if isinstance(h, _WebSocketLogHandler):
@@ -612,6 +673,11 @@ def _install_ws_log_handler(loop: asyncio.AbstractEventLoop) -> None:
     fmt = logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
                             datefmt="%H:%M:%S")
     handler.setFormatter(fmt)
+    # Handler MỚI thì chưa qua `_install_secret_redaction()` (hàm đó chỉ
+    # gắn bộ lọc lên handler có sẵn lúc nó chạy). Bỏ dòng này thì nhật ký
+    # đẩy qua WebSocket lại chứa bí mật — và `/api/v1/logs/recent` đọc thẳng
+    # từ bộ đệm của handler này.
+    handler.addFilter(_SecretRedactingFilter())
     root.addHandler(handler)
     _ws_log_handler = handler
     logger.info("WebSocket real-time log handler installed (thread-safe).")
@@ -2260,6 +2326,178 @@ async def proxy_models_endpoint(
 # Config API — Read & Write config.json
 # ---------------------------------------------------------------------------
 
+# Ký hiệu thay cho giá trị thật của một trường bí mật khi trả ra ngoài.
+#
+# Dùng đúng ký hiệu mà giao diện đã dùng cho ô mật khẩu connector, nên
+# frontend nhận về cùng một giá trị quen thuộc ở mọi nơi có bí mật.
+_SECRET_MASK = "••••••••"
+
+# Tên trường được coi là bí mật. So KHỚP CHÍNH XÁC tên đã quy đổi chữ thường,
+# không dò chuỗi con — vì `security.forbidden_keywords` chứa chữ "key" mà
+# là CHÍNH SÁCH chặn lệnh nguy hiểm, không phải bí mật; che nhầm sẽ làm
+# mất cấu hình bảo mật mà không ai hiểu vì sao.
+#
+# `api_keys` (số nhiều) là danh sách khoá của lớp định tuyến cũ.
+_SECRET_FIELD_NAMES = frozenset({
+    "api_key",
+    "api_keys",
+    "apikey",
+    "api_token",
+    "access_key_id",
+    "secret",
+    "secret_access_key",
+    "client_secret",
+    "private_key",
+    "token",
+    "bot_token",
+    "password",
+    # Khoá dịch vụ nằm ở khối phẳng, tên viết HOA kiểu cũ. Có tiền tố nên
+    # không khớp "api_key" — quên nó thì khoá vừa KHÔNG bị che, vừa không
+    # được khôi phục khi người dùng gửi lại form.
+    "groq_api_key",
+})
+
+
+def _is_secret_field(name: str) -> bool:
+    return str(name).lower() in _SECRET_FIELD_NAMES
+
+
+def _mask_secrets(value: Any) -> Any:
+    """
+    Trả về bản sao của `value` với mọi trường bí mật đã thay bằng ký hiệu.
+
+    - Chỉ che khi trường CÓ giá trị. Rỗng vẫn hiện rỗng, để phân biệt
+      "chưa cấu hình" với "đã lưu nhưng không tiện hiện".
+    - Trường bí mật kiểu DANH SÁCH (`api_keys` của lớp định tuyến cũ) che TỪNG
+      phần tử và giữ nguyên kiểu list. Thay cả danh sách bằng một chuỗi là đổi
+      kiểu dữ liệu: bên đọc không còn biết có bao nhiêu khoá, và lúc ghi lại
+      cũng khôi phục không đúng số phần tử.
+    - `bool` không bị che: đó là cờ bật/tắt, che thành ký hiệu sẽ làm hỏng
+      công tắc trên giao diện.
+    """
+    if isinstance(value, dict):
+        return {k: _mask_secret_field(k, v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_secrets(v) for v in value]
+    return value
+
+
+def _mask_secret_field(name: str, value: Any) -> Any:
+    """Che đúng một trường, giữ nguyên kiểu dữ liệu của nó."""
+    if not _is_secret_field(name):
+        return _mask_secrets(value)
+    if isinstance(value, list):
+        out = []
+        for item in value:
+            if isinstance(item, dict):
+                out.append({k: _mask_secret_field(k, v) for k, v in item.items()})
+            elif _has_secret_value(item):
+                out.append(_SECRET_MASK)
+            else:
+                out.append(item)
+        return out
+    if isinstance(value, dict):
+        return {k: _mask_secret_field(k, v) for k, v in value.items()}
+    if _has_secret_value(value):
+        return _SECRET_MASK
+    return value
+
+
+def _has_secret_value(value: Any) -> bool:
+    """Trường bí mật này có đáng che không (có giá trị thật chứ không rỗng)."""
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (list, dict)):
+        return bool(value)
+    if isinstance(value, str):
+        return value.strip() != "" and value != _SECRET_MASK
+    return value is not None
+
+
+def _restore_masked_secrets(payload: Any, existing: Any) -> Any:
+    """
+    Trả về `payload` với bí mật đang lưu được giữ lại.
+
+    Ngược lại với `_mask_secrets`. Xử lý HAI trường hợp, cùng một ý nghĩa:
+    "bí mật mà người dùng không chủ động gửi lên thì giữ nguyên".
+
+    1. Gửi KÝ HIỆU. Giao diện đọc cấu hình, thấy `••••••••`, để nguyên ô rồi
+       bấm Lưu — ký hiệu sẽ đi thẳng xuống config.json và thay khoá thật.
+
+    2. KHÔNG GỬI FIELD ĐÓ, hoặc gửi RỖNG. Quan trọng hơn nhiều và dễ sót.
+       `merged = {**existing, **payload}` ghép NÔNG, nên `payload["telegram"]`
+       thay THẾ trọn khối telegram của bản lưu. Nếu khối đó không kèm
+       `bot_token`, token biến mất khỏi config.json trong khi người dùng chỉ
+       định sửa một trường khác. Bỏ field ở phía client KHÔNG cứu được:
+       client không gửi field, nhưng merge vẫn thay cả khối. Phải chép lại
+       từ bản lưu ở đây.
+
+    Hệ quả có chủ ý: KHÔNG có cách xoá bí mật qua form này — ô trống luôn
+    được hiểu là "giữ". Đổi lại: không bao giờ mất khoá một cách âm thầm. Muốn
+    xoá thì sửa config.json trực tiếp. Trước Phase 80 điều này vốn đã không
+    làm được với `llm.api_key` (nhánh `or existing...` chặn rồi), nên không
+    mất tính năng nào.
+
+    Chỉ chép trường THỰC SỰ là bí mật, và chỉ khi bản lưu có giá trị — không
+    tự thêm khoá vào config khi chưa từng có.
+    """
+    if isinstance(payload, dict):
+        if not isinstance(existing, dict):
+            existing = {}
+        # (1)+(2) Bí mật nào KHÔNG bị người dùng ghi đè bằng giá trị có
+        # thật thì lấy lại từ bản lưu. Ghi đè ở đây nghĩa là: payload có
+        # field đó VÀ giá trị gửi lên là thật (không phải rỗng, không phải
+        # ký hiệu).
+        out = {
+            k: v
+            for k, v in existing.items()
+            if _is_secret_field(k)
+            and _has_secret_value(v)
+            and not (
+                k in payload
+                and payload[k] != _SECRET_MASK
+                and _has_secret_value(payload[k])
+            )
+        }
+        # Đệ quy xuống khối con — payload lồng nhau (`{"llm": {...}}`,
+        # `{"telegram": {...}}`) và bí mật nằm sâu bên trong.
+        for k, v in payload.items():
+            if k in out and not isinstance(v, (dict, list)):
+                continue  # đã chép bản lưu ở trên
+            out[k] = _restore_masked_secrets(v, existing.get(k))
+        return out
+    if isinstance(payload, list):
+        # `api_keys` là danh sách: thay từng phần tử đang là ký hiệu.
+        if isinstance(existing, list):
+            return [
+                existing[i] if (i < len(existing) and item == _SECRET_MASK) else
+                _restore_masked_secrets(item, None)
+                for i, item in enumerate(payload)
+            ]
+        return [_restore_masked_secrets(item, None) for item in payload]
+    return payload
+
+
+def _deep_merge(base: Any, incoming: Any) -> Any:
+    """
+    Ghép `incoming` vào `base`, xuống từng khối con thay vì chỉ một tầng.
+
+    Vì sao cần: `{**existing, **payload}` ghép NÔNG. Giao diện gửi
+    `{"telegram": {"admin_chat_ids": [...]}}` thì khối telegram của bản lưu bị
+    thay TRỌN — mọi trường mà form không gửi (khoá bot, cờ `enabled`) biến
+    mất lặng lẽ trong khi người dùng chỉ định sửa một trường khác. Đây chính
+    là lỗi đã xảy ra thật: bấm "Lưu" ở tab Cấu Hình xoá token bot và tắt
+    gateway Telegram.
+
+    Danh sách vẫn THAY thế, không nối thêm — nối sẽ ra kết quả sai với ý
+    "danh sách admin Telegram này là danh sách này".
+    """
+    if isinstance(base, dict) and isinstance(incoming, dict):
+        out = dict(base)
+        for k, v in incoming.items():
+            out[k] = _deep_merge(base.get(k), v) if k in base else v
+        return out
+    return incoming
 
 
 @app.get(
@@ -2270,8 +2508,15 @@ async def proxy_models_endpoint(
 async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
     """
     Read and return the current config.json as JSON.
-    Sensitive fields (API keys) are returned to allow editing in the portal.
-    Ensures 'llm' and 'auto_execute' fields are always present.
+
+    Trường bí mật (API key, bot token) KHÔNG trả giá trị thật — thay bằng
+    `_SECRET_MASK`. Trước đây endpoint này trả khoá thật cho mọi tài khoản
+    `manager`/`admin`, nên chỉ cần token của một tài khoản đó là đủ để lấy
+    khoá 9router và token bot Telegram. Cần sửa bí mật thì nhập lại: ô trống
+    hoặc ký hiệu khi Lưu nghĩa là giữ nguyên giá trị đang lưu
+    (xem `_restore_masked_secrets`).
+
+    Đảm bảo khối 'llm' và cờ 'auto_execute' luôn có mặt.
     """
     try:
         raw = _CONFIG_PATH.read_text(encoding="utf-8")
@@ -2307,7 +2552,10 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
             }
         data["router"] = data["routing"]
 
-        return {k: v for k, v in data.items() if not k.startswith("_")}
+        # Che bí mật ở CỬA CUỐI cùng: mọi nhánh tương thích ngược phía trên
+        # (`API_KEY`, `routing.*`, `router.*`) đều nhân bản cùng một khoá ra
+        # nhiều đường dẫn, và che từng nhánh thì dễ sót. Ở đây một lần là xong.
+        return _mask_secrets({k: v for k, v in data.items() if not k.startswith("_")})
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="config.json not found.")
     except _json.JSONDecodeError as exc:
@@ -2406,6 +2654,15 @@ async def save_config(
             except Exception:  # pylint: disable=broad-except
                 pass
 
+        # Thay ký hiệu chỗ trống bằng giá trị đang lưu TRƯỚC KHI chuẩn hoá.
+        #
+        # Bắt buộc thực hiện ở đây, không làm sau: các nhánh chuẩn hoá bên dưới
+        # dùng `payload[...].get("api_key") or existing...` — ký hiệu "••••••••"
+        # là chuỗi TRÌNH (truthy) nên sẽ thắng, và khoá thật bị ghi đè bằng
+        # ký hiệu. Hậu quả: người dùng chỉ cần bấm "Lưu" để sửa một trường
+        # không liên quan là khoá LLM hỏng, mà không có lỗi nào báo ra.
+        payload = _restore_masked_secrets(payload, existing)
+
         # Phase 68: danh sách dự phòng lấy TỪ ROUTER thay vì hardcode.
         #
         # Trước đây danh sách này ghi cứng tên model của một provider cụ thể
@@ -2477,7 +2734,7 @@ async def save_config(
             payload["auto_execute"] = bool(payload["AUTO_EXECUTE_UNVERIFIED_CODE"])
 
         comment_keys = {k: v for k, v in existing.items() if k.startswith("_")}
-        merged = {**existing, **comment_keys, **payload}
+        merged = _deep_merge({**existing, **comment_keys}, payload)
 
         _CONFIG_PATH.write_text(
             _json.dumps(merged, indent=2, ensure_ascii=False),
@@ -2520,11 +2777,24 @@ async def save_config(
 
         # If telegram config was included, ensure gateway reflects changes
         if "telegram" in payload:
-            tg_token = payload["telegram"].get("bot_token", "")
+            # Đọc token từ CẤU HÌNH ĐÃ GHÉP, không phải từ payload.
+            #
+            # Phase 80: client không còn gửi `bot_token` (ô để trống nghĩa là
+            # giữ), nên `payload["telegram"].get("bot_token", "")` luôn rỗng →
+            # nhánh `if tg_token` không bao giờ chạy → gateway bị stop() rồi
+            # không khởi động lại, trong khi cờ `enabled` vẫn là true. Cấu
+            # hình và trạng thái thực lệch nhau.
+            tg_block = merged.get("telegram", {})
+            tg_token = tg_block.get("bot_token", "") if isinstance(tg_block, dict) else ""
+            tg_enabled = bool(tg_block.get("enabled")) if isinstance(tg_block, dict) else False
             try:
                 from core.telegram_gateway import telegram_gateway
-                telegram_gateway.stop()
-                if tg_token:
+                if not tg_enabled:
+                    telegram_gateway.stop()
+                elif tg_token and not getattr(telegram_gateway, "is_running", False):
+                    # Chỉ khởi động lại khi CẦN. Gateway đang chạy và cấu hình
+                    # không đổi thì không đụng tới — stop() rồi start() lúc
+                    # người dùng chỉ lưu một trường khác là mất kết nối thật.
                     import time; time.sleep(0.5)
                     telegram_gateway.start()
             except Exception as gw_err:
@@ -4759,7 +5029,15 @@ async def toggle_domain_sync(
 async def get_telegram_config(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Return Telegram Gateway settings and running status."""
+    """Return Telegram Gateway settings and running status.
+
+    Phase 79: `bot_token` trả về ký hiệu chỗ trống, KHÔNG phải giá trị thật.
+    Endpoint này dùng `get_current_user` nên mọi tài khoản đã đăng nhập đều gọi
+    được — kể cả role `viewer` chỉ được xem. Trả token thật ở đây tức bất kỳ
+    tài khoản nào cũng chiếm được quyền điều khiển bot Telegram.
+    Sửa token: nhập lại ở ô cấu hình. Gửi lại ký hiệu khi Lưu thì giữ token
+    cũ (xem `_restore_masked_secrets`).
+    """
     try:
         from core.config_loader import settings
         import json as _j
@@ -4772,10 +5050,11 @@ async def get_telegram_config(
         from core.telegram_gateway import telegram_gateway
         is_running = getattr(telegram_gateway, "is_running", False)
 
+        masked = _mask_secrets(dict(tg_data))
         return {
             "status": "success",
             "enabled": tg_data.get("enabled", False),
-            "bot_token": tg_data.get("bot_token", ""),
+            "bot_token": masked.get("bot_token", ""),
             "admin_chat_ids": tg_data.get("admin_chat_ids", []),
             "incident_group_id": tg_data.get("incident_group_id", ""),
             "is_running": is_running,
@@ -4942,14 +5221,31 @@ async def update_telegram_config(
 
         # Update telegram section
         raw.setdefault("telegram", {})
-        if payload.enabled is not None:
-            raw["telegram"]["enabled"] = payload.enabled
-        if payload.bot_token is not None:
-            raw["telegram"]["bot_token"] = payload.bot_token
-        if payload.admin_chat_ids is not None:
-            raw["telegram"]["admin_chat_ids"] = payload.admin_chat_ids
-        if payload.incident_group_id is not None:
-            raw["telegram"]["incident_group_id"] = payload.incident_group_id
+
+        # Phase 80: chốt bí mật cho endpoint này, y hệt `/api/v1/config`.
+        #
+        # `TelegramConfigRequest.bot_token` mặc định là `""` chứ không phải
+        # `None`, nên `if payload.bot_token is not None` LUÔN đúng — client chỉ
+        # cần bỏ trống ô là token thật bị ghi đè bằng chuỗi rỗng. Từ Phase 79
+        # ô trên giao diện luôn để trống (server không trả token nữa) nên mọi
+        # lần bấm Lưu cấu hình Telegram đều xoá token. Ô trống phải nghĩa là
+        # GIỮ, giống mọi ô bí mật khác.
+        incoming = {
+            "enabled": payload.enabled,
+            "bot_token": payload.bot_token,
+            "admin_chat_ids": payload.admin_chat_ids,
+            "incident_group_id": payload.incident_group_id,
+        }
+        incoming = _restore_masked_secrets(incoming, raw.get("telegram", {}))
+
+        if incoming["enabled"] is not None:
+            raw["telegram"]["enabled"] = incoming["enabled"]
+        if incoming["bot_token"]:
+            raw["telegram"]["bot_token"] = incoming["bot_token"]
+        if incoming["admin_chat_ids"] is not None:
+            raw["telegram"]["admin_chat_ids"] = incoming["admin_chat_ids"]
+        if incoming["incident_group_id"] is not None:
+            raw["telegram"]["incident_group_id"] = incoming["incident_group_id"]
 
         cfg_path.write_text(_json2.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
 

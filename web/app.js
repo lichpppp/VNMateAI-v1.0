@@ -823,6 +823,13 @@ function switchTab(tabId) {
   }
   if (tabId === 'ai-manager') loadAIManagerConfig();
   if (tabId === 'skills') loadSkills();
+  // Phase 79: `loadConfig()` trước đây KHÔNG được gọi ở đâu cả — không trong
+  // switchTab, không trong index.html. Nghĩa là tab Cấu Hình luôn mở ra với
+  // một form TRỐNG: base URL, model, tên trợ lý, mức log đều không có, dù
+  // server có dữ liệu. Người dùng thấy form rỗng rồi bấm Lưu thì ghi đè
+  // cấu hình bằng giá trị rỗng. Đúng loại "giao diện trông như có khả năng
+  // nhưng thực sự không có" mà dự án cấm.
+  if (tabId === 'config') loadConfig();
   if (tabId === 'tasks') {
     loadKpiLogs();
     loadErpStructure();
@@ -3467,6 +3474,10 @@ async function downloadClientAgent() {
 // ── LƯU CẤU HÌNH TOÀN DIỆN (TAB CẤU HÌNH) ──────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Ký hiệu server dùng cho trường bí mật chưa có giá trị thật.
+// Phải khớp byte-for-byte với `_SECRET_MASK` trong core/server.py.
+const SECRET_MASK = '••••••••';
+
 async function loadConfig() {
   const cfg = await apiGetConfig();
   if (!cfg) return;
@@ -3502,7 +3513,26 @@ async function loadConfig() {
   // Populate Thin Client 9router form
   setVal('cfg-llm-base', baseUrl);
   setVal('cfg-llm-model', modelName);
-  setVal('cfg-llm-key', apiKey);
+
+  // Ô khoá: để TRỐNG và ghi chú bên dưới, không điền ký hiệu vào.
+  //
+  // Phase 79: server không còn trả khoá thật. Trước đây `setVal` đổ thẳng giá
+  // trị vào `value`, tức bí mật nằm sẵn trong DOM của trang — ai mở
+  // DevTools là thấy, kể cả khi server đã che. Nay để trống: người dùng thấy
+  // placeholder "chưa nhập", gõ khoá mới thì mới ghi đè, bỏ trống khi Lưu thì
+  // server giữ khoá cũ (xem `_restore_masked_secrets`).
+  const keyEl = document.getElementById('cfg-llm-key');
+  if (keyEl) keyEl.value = '';
+  const keyHint = document.getElementById('cfg-llm-key-hint');
+  if (keyHint) {
+    const hasKey = apiKey === SECRET_MASK || !!llm.api_key;
+    keyHint.textContent = hasKey
+      ? '✔ Đã có khoá đã lưu — để trống và bấm Lưu thì giữ nguyên khoá cũ.'
+      : 'Chưa có khoá nào được lưu.';
+    keyHint.className = hasKey
+      ? 'text-[11px] text-emerald-600 dark:text-emerald-400'
+      : 'text-[11px] text-amber-600 dark:text-amber-400 italic';
+  }
   const chainEl = document.getElementById('cfg-chain-primary');
   if (chainEl) chainEl.textContent = modelName;
 
@@ -3510,7 +3540,7 @@ async function loadConfig() {
   setVal('cfg-route-primary-model', modelName);
   setVal('cfg-route-primary-base', baseUrl);
   const primaryKeyEl = document.getElementById('cfg-route-primary-key');
-  if (primaryKeyEl) primaryKeyEl.value = apiKey;
+  if (primaryKeyEl) primaryKeyEl.value = '';
 
   // Auto Execute Switch
   const isAuto = cfg.auto_execute !== undefined ? !!cfg.auto_execute : !!cfg.AUTO_EXECUTE_UNVERIFIED_CODE;
@@ -3522,14 +3552,17 @@ async function loadConfig() {
   }
 
   // System & ASR settings
-  setVal('cfg-groq-key', cfg.GROQ_API_KEY || '');
+  //
+  // `cfg-groq-key` cũng là bí mật: server trả về ký hiệu chỗ trống. Để trống
+  // ô như ô khoá LLM — điền ký hiệu vào là đưa bí mật (dù đã che) vào DOM.
+  setVal('cfg-groq-key', '');
   setVal('cfg-groq-url', cfg.GROQ_BASE_URL || '');
   setVal('cfg-asr', cfg.ASR_BACKEND || 'google');
   setVal('cfg-loglevel', cfg.LOG_LEVEL || 'INFO');
 
   // Phase 18: Telegram Config
   const tg = cfg.telegram || {};
-  setVal('cfg-tg-token', tg.bot_token || '');
+  setVal('cfg-tg-token', '');
   setVal('cfg-tg-admins', Array.isArray(tg.admin_chat_ids) ? tg.admin_chat_ids.join(', ') : (tg.admin_chat_ids || ''));
   setVal('cfg-tg-group', tg.incident_group_id || '');
   loadTelegramConfig();
@@ -3575,11 +3608,19 @@ async function saveFullConfig() {
 
   const tgAdminsRaw = getVal('cfg-tg-admins');
   const tgAdmins = tgAdminsRaw ? tgAdminsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
-  const telegram = {
-    bot_token: getVal('cfg-tg-token'),
-    admin_chat_ids: tgAdmins,
-    incident_group_id: getVal('cfg-tg-group'),
-  };
+  // Ô token để TRỐNG nghĩa là GIỮ token đang lưu — không gửi field này lên.
+  //
+  // Phase 79: trước đây ô token được điền sẵn giá trị thật nên lúc Lưu gửi
+  // lại nguyên văn, tự nhiên không mất. Nay server không trả token nữa, ô
+  // trống; nếu vẫn gửi `bot_token: ""` thì `merged = {**existing, **payload}`
+  // sẽ THAY THẾ cả khối telegram — token bot bị xoá khỏi config.json mà
+  // không hỏi, và gateway không khởi động lại vì nhánh `if tg_token` thấy rỗng.
+  // Bỏ hẳn field khi không gõ gì, y hệt cách `saveConnectorConfig` làm.
+  const telegram = {};
+  const typedTgToken = getVal('cfg-tg-token');
+  if (typedTgToken && typedTgToken !== SECRET_MASK) telegram.bot_token = typedTgToken;
+  telegram.admin_chat_ids = tgAdmins;
+  telegram.incident_group_id = getVal('cfg-tg-group') || '';
 
   const updated = {
     ...currentConfig,
@@ -3611,11 +3652,15 @@ async function saveFullConfig() {
     MODEL_NAME: modelName,
     API_KEY: apiKey,
     BASE_URL: baseUrl,
-    GROQ_API_KEY: getVal('cfg-groq-key'),
     GROQ_BASE_URL: getVal('cfg-groq-url'),
     ASR_BACKEND: getVal('cfg-asr') || 'google',
     LOG_LEVEL: getVal('cfg-loglevel'),
   };
+  // Ô khoá Groq để trống nghĩa là GIỮ khoá đang lưu. Gửi `GROQ_API_KEY: ""`
+  // sẽ xoá khoá trên đĩa, vì khối phẳng bị `{**existing, **payload}` thay thế
+  // theo từng khoá. Cùng cách với bot_token ở trên.
+  const typedGroqKey = getVal('cfg-groq-key');
+  if (typedGroqKey && typedGroqKey !== SECRET_MASK) updated.GROQ_API_KEY = typedGroqKey;
 
   const res = await apiSaveConfig(updated);
   setLoading(false);
@@ -7513,10 +7558,16 @@ async function loadTelegramConfig() {
       const enabled = data.enabled !== undefined ? !!data.enabled : !!cfg.enabled;
       if (toggle) toggle.checked = enabled;
 
+      // Phase 79: KHÔNG điền `cfg.bot_token` vào ô.
+      //
+      // Endpoint /api/v1/telegram/config đã trả ký hiệu chỗ trống, nên điền
+      // vào cũng chỉ ra ký hiệu — vô nghĩa. Nhưng nếu sau này ai đó bỏ che ở
+      // endpoint cho tiện thì dòng này lại đặt bí mật thật vào DOM. Bỏ hẳn:
+      // ô token do `loadConfig()` để trống, người dùng gõ khi muốn đổi.
       const inputToken = document.getElementById('cfg-tg-token');
+      if (inputToken) inputToken.value = '';
       const inputAdmins = document.getElementById('cfg-tg-admins');
       const inputGroup = document.getElementById('cfg-tg-group');
-      if (inputToken && !inputToken.value && cfg.bot_token) inputToken.value = cfg.bot_token;
       if (inputAdmins && !inputAdmins.value && cfg.admin_chat_ids) inputAdmins.value = Array.isArray(cfg.admin_chat_ids) ? cfg.admin_chat_ids.join(', ') : cfg.admin_chat_ids;
       if (inputGroup && !inputGroup.value && cfg.incident_group_id) inputGroup.value = cfg.incident_group_id;
     }
