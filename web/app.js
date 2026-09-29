@@ -218,17 +218,18 @@ let securityAuditLogs = [];
 let pendingEmergencyAction = null;
 
 // ─── Tiêu đề các Tab giao diện (Tiếng Việt) ───────────────────────────────
+// Phase 79: rút còn 9 mục khớp đúng các section còn lại trong index.html.
+// Mục cho tab đã gộp ('command-center' → dashboard, 'devices' → tích hợp,
+// 'users' → bảo mật) phải bị gỡ: tra ra vẫn thấy tiêu đề của một tab không
+// còn tồn tại, dễ khiến người đọc code tưởng những tab đó vẫn còn.
 const TAB_TITLES = {
   dashboard: 'Bảng Điều Khiển',
-  'command-center': 'Trung Tâm Chỉ Huy C.E.O',
   'system-integration': 'Tích Hợp Hệ Thống Báo Cáo',
   skills: 'Kho Kỹ Năng Hệ Thống',
-  devices: 'Quản Lý Thiết Bị & Máy Trạm (LAN)',
   security: 'Trung Tâm Bảo Mật & Kiểm Toán',
   tasks: 'Nhật Ký Công Việc & Báo Cáo KPI',
   voice: 'Kiểm Thử Lệnh Thoại & TTS',
   config: 'Cấu Hình Toàn Bộ Hệ Thống',
-  users: 'Quản Lý Tài Khoản (User Admin)',
   logs: 'Nhật Ký Hệ Thống (Real-time Logs)',
   'ai-manager': 'Quản Lý Trợ Lý AI — LLM · Persona · Audio',
 };
@@ -677,10 +678,11 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // Phase 78: bỏ 'users' và 'devices' — nội dung hai tab này đã gộp vào
-// 'security' (kiểm soát truy cập) và 'system-integration' (kết nối ra ngoài).
-// Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices sẽ tự rơi
-// về dashboard thay vì mở một tab không có.
-const VALID_TABS = ['dashboard', 'command-center', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
+// 'security' (kiểm soát truy cập) và 'system-integration' (kết nối ra ngoài);
+// sau đó 'command-center' cũng gộp vào 'dashboard'.
+// Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices /
+// #command-center sẽ tự rơi về dashboard thay vì mở một tab không có.
+const VALID_TABS = ['dashboard', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
 
 function getSavedTab() {
   const hash = (window.location.hash || '').replace('#', '').trim();
@@ -769,10 +771,15 @@ function switchTab(tabId) {
   // Dọn tài nguyên của tab vừa rời (Command Center có timer polling 5 giây;
   // không dừng thì tab ẩn vẫn gọi API liên tục). Phải LÀM TRƯỚC khi bật tab
   // mới, vì biến `tabId` đã bị gán đè ở trên.
+  // Phase 79: tab "Trung Tâm Chỉ Huy" đã gộp vào `dashboard`, nên móc vòng
+  // đời của CommandCenter bám theo tab Bảng Điều Khiển. Nếu để nguyên
+  // 'command-center' thì `onLeave` không bao giờ chạy → bộ hẹn giờ 5s gọi
+  // API cứ tiếp tục chạy sau khi người dùng đã rời đi, và `onEnter` không
+  // bao giờ chạy → phần C.E.O không bao giờ có dữ liệu.
   const _prevPane = document.querySelector('.tab-pane.active');
   if (_prevPane && typeof CommandCenter !== 'undefined') {
     const _prevId = (_prevPane.id || '').replace(/^tab-/, '');
-    if (_prevId === 'command-center' && _prevId !== tabId) {
+    if (_prevId === 'dashboard' && _prevId !== tabId) {
       CommandCenter.onLeave();
     }
   }
@@ -798,8 +805,13 @@ function switchTab(tabId) {
     console.warn('[Portal] Lỗi lưu trạng thái tab:', e);
   }
 
-  if (tabId === 'dashboard') loadDashboard();
-  if (tabId === 'command-center' && typeof CommandCenter !== 'undefined') CommandCenter.onEnter();
+  if (tabId === 'dashboard') {
+    loadDashboard();
+    // Phase 79: nội dung C.E.O gộp vào Bảng Điều Khiển nên `onEnter` bám theo
+    // tab này. Thiếu dòng này thì phần điều hành AI, biểu đồ và cảnh báo an
+    // ninh không bao giờ có dữ liệu.
+    if (typeof CommandCenter !== 'undefined') CommandCenter.onEnter();
+  }
   // Phase 59/60: khối tích hợp đã tách sang tab riêng nên nạp dữ liệu ở đây,
   // không gắn vào CommandCenter.onEnter() — nếu không, mở Trung Tâm Chỉ Huy sẽ
   // tải 4 API của tích hợp dù trên màn hình đó không còn dòng dữ liệu nào.
@@ -7385,9 +7397,12 @@ function initPortalWebSocket() {
           llmError: msg.llm_error,
         });
       }
-      // Không ép chuyển sang tab: người đang xem Dashboard không bị giật mình.
-      // Chỉ báo nhỏ để họ biết có gì mới ở tab kia.
-      if (!document.getElementById('tab-command-center')?.classList.contains('active')) {
+      // Không ép chuyển sang tab: người đang xem màn hình khác không bị giật mình.
+      // Chỉ báo nhỏ để họ biết có gì mới ở Bảng Điều Khiển.
+      // Phase 79: tab kia nay cũng là Bảng Điều Khiển — phần C.E.O đã gộp vào
+      // cùng một section, nên điều kiện trước đây ('không phải tab Trung Tâm
+      // Chỉ Huy' ⇒ đang ở nơi khác) phải theo `tab-dashboard` mới đúng.
+      if (!document.getElementById('tab-dashboard')?.classList.contains('active')) {
         console.info('[PortalWS] Có biểu đồ mới:', msg.title);
       }
       return;
@@ -8847,23 +8862,28 @@ const CommandCenter = (() => {
 
   // ── Cột 1: hàng đợi duyệt HITL ──────────────────────────────────────────
   //
-  // Phase 78: bản đầy đủ của hàng đợi đã chuyển sang tab Bảng Điều Khiển
-  // (chủ sở hữu) nên ghi vào `dash-pending-list`. Trung Tâm Chỉ Huy giữ lại ô
-  // đếm `cc-pending-count` để người dùng vẫn thấy con số ngay trên màn hình
-  // C.E.O, mà không phải có hai danh sách song song dễ lệch nhau.
+  // Phase 78: bản đầy đủ của hàng đợi chuyển sang Bảng Điều Khiển (chủ sở
+  // hữu) nên danh sách ghi vào `dash-pending-list`.
+  // Phase 79: tab Trung Tâm Chỉ Huy cũng gộp vào Bảng Điều Khiển, nên thẻ ô
+  // đếm `cc-pending-count` (chỉ để "giữ con số cho màn hình C.E.O") bị gỡ —
+  // trên cùng một trang thì ô đếm cạnh danh sách chỉ là bản sao. Con số giờ
+  // hiện ở ô KPI `cc-kpi-pending` ngay dải chỉ số trên cùng.
+  //
+  // Sửa `cc-pending-count` mà quên `syncCommandCenterKpi` thì ô KPI sẽ rơi
+  // về nhánh dự phòng `|| '0'` và hiện 0 bất kể thực tế — đúng loại số 0 bịa
+  // mà cả dự án cấm. Vì vậy `loadPending` ghi thẳng vào ô KPI.
   async function loadPending() {
     const box = $('dash-pending-list');
-    const countEl = $('cc-pending-count');
+    const kpiEl = $('cc-kpi-pending');
     const navBadge = $('badge-cc-pending');
-    if (!box && !countEl && !navBadge) return;
+    if (!box && !kpiEl && !navBadge) return;
     try {
       const res = await apiFetch(`${API_BASE}/api/v1/enterprise/hitl/pending`);
       const data = await res.json();
       const list = (data && data.pending_approvals) || [];
 
-      // Badge trên thanh điều hướng + ô đếm ở Trung Tâm Chỉ Huy
-      const badges = [countEl, navBadge];
-      badges.forEach((b) => {
+      // Ô KPI trên dải chỉ số + badge trên thanh điều hướng (nếu có).
+      [kpiEl, navBadge].forEach((b) => {
         if (!b) return;
         b.textContent = String(list.length);
         b.classList.toggle('hidden', list.length === 0);
@@ -8974,14 +8994,18 @@ const CommandCenter = (() => {
   function renderChart(chartConfig, meta) {
     if (!_paneVisible()) {
       _pendingChart = { config: chartConfig, meta: meta };
-      console.info('[CommandCenter] Biểu đồ mới được giữ lại, sẽ vẽ khi mở tab Trung Tâm Chỉ Huy.');
+      console.info('[CommandCenter] Biểu đồ mới được giữ lại, sẽ vẽ khi mở Bảng Điều Khiển.');
       return;
     }
     _drawChart(chartConfig, meta);
   }
 
   function _paneVisible() {
-    const pane = $('tab-command-center');
+    // Phase 79: nội dung C.E.O gộp vào Bảng Điều Khiển, nên phải hỏi
+    // `tab-dashboard`. Hỏi `tab-command-center` (không còn tồn tại) thì
+    // `!pane` luôn đúng → coi như luôn hiện → vẽ biểu đồ vào canvas đang bị
+    // ẩn, tức vẽ xong rồi mất, không ai thấy.
+    const pane = $('tab-dashboard');
     // Không tìm thấy pane (bản HTML cũ chưa có tab này) thì coi như hiện —
     // để biểu đồ vẫn được thử vẽ thay vì im lặng bỏ qua.
     return !pane || pane.classList.contains('active');
@@ -10027,7 +10051,8 @@ function onEnter() {
       syncChartLayout();
     }
 
-    syncCommandCenterKpi();
+    // Phase 79: bỏ `syncCommandCenterKpi()` — `loadPending()` ở trên đã ghi
+    // thẳng vào ô KPI `cc-kpi-pending`.
 
     if (!_pollTimer) _pollTimer = setInterval(() => {
       // Ô chờ duyệt phải cập nhật nhanh (admin đang ngồi duyệt), còn số liệu
@@ -11513,17 +11538,14 @@ function switchCcSubTab(name) {
 // ── Dải KPI ───────────────────────────────────────────────────────────────
 // Gom số liệu từ các ô đã hiển thị sẵn thay vì gọi thêm API.
 //
-// Phase 71: bỏ phần dòng tiền. Ô "Sức khoẻ quỹ" không còn trong tab, nên
-// chép nó ở đây chỉ để đồng bộ với một phần tử đã bị xoá. Cảnh báo an ninh
-// cũng thế: `loadSecurity()` tự ghi thẳng vào `cc-security-count`, chép
-// thêm lần nữa ở đây là chép chính nó lấy chính nó — và sẽ hỏng nếu ai đó
-// xoá `cc-kpi-security` khỏi HTML rồi ai đó lại thêm id đó cho một việc
-// khác.
-function syncCommandCenterKpi() {
-  const pending = _ccGet('cc-pending-count')?.textContent?.trim() || '0';
-  const kpiPending = _ccGet('cc-kpi-pending');
-  if (kpiPending) kpiPending.textContent = pending;
-}
+// Phase 79: đã gỡ `syncCommandCenterKpi`.
+// Nó chép số từ `cc-pending-count` sang `cc-kpi-pending` — nhưng sau khi gộp
+// tab Trung Tâm Chỉ Huy vào Bảng Điều Khiển, thẻ ô đếm đó đã bị gỏ (trên cùng
+// một trang thì ô đếm cạnh danh sách chỉ là bản sao). Hàm vẫn chạy, đọc
+// element không còn → rơi vào nhánh dự phòng `|| '0'` → ô KPI hiện 0 bất kể
+// thực tế. Chính là loại số 0 bịa mà dự án cấm.
+// `loadPending()` nay ghi thẳng vào `cc-kpi-pending` nên không cần chép nữa.
+
 
 // ── Dải KPI của tab "Tích Hợp Hệ Thống Báo Cáo" ───────────────────────────
 // Tách khỏi `syncCommandCenterKpi` vì 4 ô này nằm ở tab khác: nếu để chung,
@@ -12086,7 +12108,6 @@ if (typeof window !== 'undefined') {
   window.runOpsDomainSync = runOpsDomainSync;  window.toggleLogAutoScroll = toggleLogAutoScroll;
   window.clearEventLog = clearEventLog;
   window.switchCcSubTab = switchCcSubTab;
-  window.syncCommandCenterKpi = syncCommandCenterKpi;
   window.syncIntegrationKpi = syncIntegrationKpi;
   window.loadSystemIntegration = loadSystemIntegration;
   window.loadConnectorConfigAll = loadConnectorConfigAll;

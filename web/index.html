@@ -654,16 +654,6 @@
         </div>
 
         <!-- Phase 58 BƯỚC 1: Command Center — một màn hình gom hết việc C.E.O -->
-        <div class="nav-btn" id="nav-command-center" onclick="switchTab('command-center')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4M4.9 4.9l2.8 2.8M16.3 16.3l2.8 2.8M19.1 4.9l-2.8 2.8M7.7 16.3l-2.8 2.8" />
-          </svg>
-          Trung Tâm Chỉ Huy
-          <span id="badge-cc-pending"
-            class="ml-auto px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 hidden">0</span>
-        </div>
-
         <!-- Phase 59/60: TÁCH RIÊNG khỏi Trung Tâm Chỉ Huy. Mọi kết nối tới hệ
              thống bên ngoài + công cụ doanh nghiệp nằm ở đây, để sau này thêm
              connector mới chỉ việc thêm 1 thẻ vào khối bên dưới. -->
@@ -921,331 +911,6 @@
          Vì vậy thứ tự ưu tiên đảo lại: sức khoẻ hệ thống và hành động AI lên
          trên cùng, phần báo cáo tài chính lùi xuống hoặc bỏ hẳn. Số liệu lấy
          từ các endpoint đang chạy sẵn — không dựng thêm lớp tổng hợp. -->
-
-    <section class="tab-pane space-y-4" id="tab-command-center">
-
-      <!-- ═══ DẢI CHỈ SỐ SỨC KHOẺ VẬN HÀNH ═══════════════════════════
-           Bốn chỉ số trả lời trong một nháy: hạ tầng đã nối được bao nhiêu,
-           có tác vụ nền nào đang chạy, có gì đang chờ mình duyệt, và có sự
-           cố nào đang mở không.
-
-           Trước đây có thêm ô "Tài nguyên" (CPU · RAM) ở đây, cùng một thanh
-           đo nữa trong thẻ "Sức Khoẻ Hệ Thống" ngay dưới — và tab Tổng Quan
-           vốn đã có đồng hồ CPU/RAM. Cùng một số liệu hiện ba nơi. Nay bỏ
-           hẳn khỏi tab này: theo dõi tài nguyên thuộc về Tổng Quan, còn tab
-           này dành cho việc điều hành. Xem thẻ "Điều Hành Hệ Thống" bên dưới. -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-
-        <!-- Hạ tầng đã kết nối -->
-        <div id="cc-kpi-infra-card"
-          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span id="cc-kpi-infra-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Hạ tầng</span>
-          </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-infra" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">nguồn sẵn sàng</span>
-          </div>
-        </div>
-
-        <!-- Tác vụ nền đang chạy -->
-        <div id="cc-kpi-bg-card"
-          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span id="cc-kpi-bg-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tác vụ nền</span>
-          </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-bg" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">đang chạy</span>
-          </div>
-        </div>
-
-        <!-- Chờ phê duyệt (HITL) -->
-        <div id="cc-kpi-pending-card"
-          class="rounded-xl border border-amber-500/25 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span id="cc-kpi-pending-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Chờ phê duyệt</span>
-          </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-pending" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">tác vụ</span>
-          </div>
-        </div>
-
-        <!-- Sự cố đang mở -->
-        <div id="cc-kpi-incident-card"
-          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span id="cc-kpi-incident-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sự cố mở</span>
-          </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-incident" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">việc cần xử</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ HÀNH ĐỘNG AI  |  SỨC KHOẺ HỆ THỐNG ═══════════════════════
-           Hai việc admin làm nhiều nhất, nên hai việc đó lên trên cùng. -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-
-        <!-- ── ĐIỀU HÀNH AI ─────────────────────────────────────────── -->
-        <div class="space-y-4">
-          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Điều Hành AI</h3>
-              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">gõ bằng lời → tự chọn tool</span>
-            </div>
-            <div class="p-3 space-y-2.5">
-              <div class="flex gap-2">
-                <input type="text" id="cc-ask-input"
-                  placeholder="VD: hệ thống nào đang bất thường? / rà soát việc quá hạn / lập báo cáo giao ban"
-                  class="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  onkeydown="if(event.key==='Enter'){runCommandCenterAsk();}" />
-                <button type="button" onclick="runCommandCenterAsk()"
-                  class="px-3.5 py-2 text-xs font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition whitespace-nowrap">
-                  Hỏi
-                </button>
-              </div>
-              <div class="flex flex-wrap gap-1.5">
-                <button type="button" onclick="askCommandCenter('Rà soát toàn bộ hệ thống đang chạy, hệ thống nào bất thường?')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Sức khoẻ hệ thống</button>
-                <button type="button" onclick="askCommandCenter('Lập báo cáo giao ban tình hình 24 giờ qua')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Báo cáo giao ban</button>
-                <button type="button" onclick="askCommandCenter('Những kết nối hạ tầng nào đang thiếu cấu hình?')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Hạ tầng</button>
-                <button type="button" onclick="askCommandCenter('Việc nào đang quá hạn cần xử lý gấp?')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Quá hạn</button>
-                <button type="button" onclick="askCommandCenter('Quy trình xin nghỉ phép từ 2 đến 3 ngày')"
-                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Tra quy chế</button>
-              </div>
-              <div id="cc-ask-result" class="text-xs text-slate-500 dark:text-slate-400"></div>
-            </div>
-          </div>
-
-          <!-- Bảng hành động theo mức rủi ro -->
-          <!--
-            Admin chọn: "Cả hai — chọn mức theo rủi ro". Hệ thống đã có sẵn
-            thang Zero-Trust risk 1-5 (core/plugin_registry.py), và mọi tool
-            risk >= 3 đều phải qua cổng HITL. Nay hiện thang đó ra để admin
-            thấy rõ AI được tự làm gì và phải xin phép việc gì — thay vì
-            phải nhớ từng lệnh có cần duyệt hay không.
-          -->
-          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">AI Được Phép Làm Gì</h3>
-              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">thang Zero-Trust 1–5</span>
-            </div>
-            <div id="cc-risk-tiers" class="p-3 space-y-1.5">
-              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-3">Đang tải…</p>
-            </div>
-            <div class="px-3 pb-3">
-              <button type="button" id="cc-audit-btn" onclick="runCommandCenterAudit()"
-                class="w-full px-3 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition">
-                Chạy rà soát tức thì
-              </button>
-              <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 text-center">
-                Rà soát là việc chỉ đọc nên AI tự chạy, không cần duyệt.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── ĐIỀU HÀNH HỆ THỐNG ─────────────────────────────────────
-             Chỗ admin thực sự ra lệnh: bật/tắt từng hệ thống con, quét
-             sự cố, đồng bộ dữ liệu.
-
-             Trước đây vị trí này là thẻ "Sức Khoẻ Hệ Thống" với ba thanh đo
-             CPU / RAM / Ổ đĩa — trùng với ô "Tài nguyên" ngay phía trên và
-             với đồng hồ ở tab Tổng Quan. Ba bản của cùng một số liệu, đứng
-             sát nhau, đẩy những việc admin thật sự cần làm xuống dưới màn
-             hình. Nay thay bằng chỗ điều hành.
-
-             Danh sách hệ thống con do JS dựng từ `OPS_SUBSYSTEMS`, không ghi
-             cứng tên trong HTML: thêm một hệ thống điều hành được là thêm
-             một mục trong bảng đó, không phải sửa lại giao diện. -->
-        <div class="space-y-4">
-          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span id="cc-health-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Điều Hành Hệ Thống</h3>
-              <span id="cc-health-uptime"
-                class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">—</span>
-            </div>
-
-            <!-- Các hệ thống con: mỗi cái một hàng, trạng thái + nút bật/tắt -->
-            <div id="cc-subsystems" class="p-3 space-y-1.5">
-              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-2">Đang tải…</p>
-            </div>
-
-            <!-- Việc chạy một lần, không phải trạng thái -->
-            <div class="px-3 pb-3 flex flex-wrap gap-1.5">
-              <button type="button" id="cc-btn-sentinel" onclick="runOpsSentinelScan()"
-                class="cc-ops-action px-2.5 py-1.5 text-[10px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">
-                Quét Sentinel
-              </button>
-              <button type="button" id="cc-btn-ad-sync" onclick="runOpsDomainSync()"
-                class="cc-ops-action px-2.5 py-1.5 text-[10px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">
-                Đồng bộ AD ngay
-              </button>
-            </div>
-
-            <div class="grid grid-cols-4 gap-2 px-4 pb-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 text-center">
-              <div>
-                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kỹ năng</p>
-                <p id="cc-stat-skills" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-              </div>
-              <div>
-                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tài khoản</p>
-                <p id="cc-stat-users" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-              </div>
-              <div>
-                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cây ITSM</p>
-                <p id="cc-stat-tickets" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-              </div>
-              <div>
-                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Ổ đĩa</p>
-                <p id="cc-stat-disk" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ DUYỆT  |  HẠ TẦNG  |  NHẬT KÝ VẬN HÀNH ═════════════════ -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
-
-        <!-- Hàng đợi phê duyệt -->
-        <!-- Phase 78: hàng đợi phê duyệt đã gom về Bảng Điều Khiển (chủ sở
-             hữu) để chỉ có một danh sách duy nhất, không lệch số liệu. -->
-        <div id="cc-pending-card"
-          class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Chờ Bạn Phê Duyệt</h3>
-            <span id="cc-pending-count"
-              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">—</span>
-          </div>
-          <div class="p-3">
-            <p class="text-xs text-slate-500 dark:text-slate-400 text-center py-3">
-              Xem hàng đợi đầy đủ tại
-            </p>
-            <button type="button" onclick="switchTab('dashboard'); setTimeout(() => document.getElementById('dash-pending-list')?.scrollIntoView({behavior:'smooth',block:'center'}), 120)"
-              class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
-              Mở Bảng Điều Khiển
-            </button>
-          </div>
-        </div>
-
-        <!-- Kết nối hạ tầng có sẵn -->
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Kết Nối Hạ Tầng</h3>
-            <span id="cc-infra-badge"
-              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400">—</span>
-          </div>
-          <div id="cc-infra-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
-            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">Đang tải…</p>
-          </div>
-          <div class="px-3 pb-3">
-            <p class="text-[10px] text-slate-400 dark:text-slate-500">
-              Nguồn chưa đủ thông tin đăng nhập thì mọi lời gọi sẽ thất bại —
-              cấu hình ở tab <span class="font-semibold">Tích Hợp Hệ Thống</span>.
-            </p>
-          </div>
-        </div>
-
-        <!-- Nhật ký vận hành -->
-        <!-- Phase 79: nhật ký vận hành đã gom vào tab Nhật Ký (chế độ
-             "Nhật ký vận hành"). Bản ở đây và bản ở Bảng Điều Khiển trước đây
-             cùng gọi /api/v1/logs/recent — cùng dữ liệu, hai màn hình. -->
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Nhật Ký Vận Hành</h3>
-          </div>
-          <div class="p-3">
-            <p class="text-[11px] text-slate-500 dark:text-slate-400 text-center mb-2">
-              Xem nhật ký vận hành tại
-            </p>
-            <button type="button" onclick="switchTab('logs'); switchLogView('recent')"
-              class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
-              Mở tab Nhật Ký
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ BIỂU ĐỒ  |  CẢNH BÁO & QUY CHẾ ══════════════════════════ -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
-              <path d="M3 3v18h18" />
-              <path d="M7 14l3-4 3 3 5-7" />
-            </svg>
-            <h3 id="cc-chart-title" class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">Biểu Đồ Số Liệu</h3>
-            <span id="cc-chart-source"
-              class="ml-auto shrink-0 px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 hidden"></span>
-          </div>
-          <div class="p-3">
-            <div class="relative" style="height: 240px;">
-              <canvas id="cc-chart-canvas"></canvas>
-              <div id="cc-chart-empty"
-                class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"
-                  class="text-slate-300 dark:text-slate-600 mb-2" viewBox="0 0 24 24">
-                  <path d="M3 3v18h18" />
-                  <path d="M7 14l3-4 3 3 5-7" />
-                </svg>
-                <p class="text-[11px] text-slate-400 dark:text-slate-500">
-                  Hỏi trợ lý ở cột bên cạnh, hoặc ra lệnh bằng giọng nói —
-                  biểu đồ sẽ tự hiện tại đây.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="space-y-4">
-          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Cảnh Báo An Ninh</h3>
-              <span id="cc-security-count"
-                class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 hidden">0</span>
-            </div>
-            <div id="cc-security-list" class="p-3 space-y-2 max-h-56 overflow-y-auto">
-              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">Không có cảnh báo.</p>
-            </div>
-          </div>
-
-          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Tra Cứu Quy Chế</h3>
-              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">chỉ trả lời khi có căn cứ</span>
-            </div>
-            <div class="p-3 space-y-2">
-              <input type="text" id="cc-policy-input" placeholder="VD: nghỉ thai sản được mấy tháng?"
-                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                onkeydown="if(event.key==='Enter'){runPolicyLookup();}" />
-              <div id="cc-policy-result" class="text-xs"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </section>
 
     <!-- ═══ TAB: TÍCH HỢP HỆ THỐNG BÁO CÁO (PHASE 59/60) ══════════════
          Tách riêng khỏi "Trung Tâm Chỉ Huy" để mở rộng: thêm một connector
@@ -2734,6 +2399,317 @@
             class="px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
             Mở tab Nhật Ký
           </button>
+        </div>
+      </div>
+
+
+      <!-- ══════════════════════════════════════════════════════════════ -->
+      <!-- TRUNG TÂM CHỈ HUY C.E.O (gộp từ tab riêng — Phase 79)              -->
+      <!-- ══════════════════════════════════════════════════════════════ -->
+      <!-- Trước đây là một tab riêng. Nội dung ở đây và phần giám sát phía
+           trên cùng trả lời một câu hỏi nên tách làm hai tab chỉ tăng chi phí
+           điều hướng. Giữ nguyên id (cc-*) để JS hiện có không phải sửa. -->
+
+      <!-- ═══ DẢI CHỈ SỐ SỨC KHOẺ VẬN HÀNH ═══════════════════════════
+           Bốn chỉ số trả lời trong một nháy: hạ tầng đã nối được bao nhiêu,
+           có tác vụ nền nào đang chạy, có gì đang chờ mình duyệt, và có sự
+           cố nào đang mở không.
+
+           Trước đây có thêm ô "Tài nguyên" (CPU · RAM) ở đây, cùng một thanh
+           đo nữa trong thẻ "Sức Khoẻ Hệ Thống" ngay dưới — và tab Tổng Quan
+           vốn đã có đồng hồ CPU/RAM. Cùng một số liệu hiện ba nơi. Nay bỏ
+           hẳn khỏi tab này: theo dõi tài nguyên thuộc về Tổng Quan, còn tab
+           này dành cho việc điều hành. Xem thẻ "Điều Hành Hệ Thống" bên dưới. -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+
+        <!-- Hạ tầng đã kết nối -->
+        <div id="cc-kpi-infra-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-infra-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Hạ tầng</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-infra" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">nguồn sẵn sàng</span>
+          </div>
+        </div>
+
+        <!-- Tác vụ nền đang chạy -->
+        <div id="cc-kpi-bg-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-bg-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tác vụ nền</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-bg" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">đang chạy</span>
+          </div>
+        </div>
+
+        <!-- Chờ phê duyệt (HITL) -->
+        <div id="cc-kpi-pending-card"
+          class="rounded-xl border border-amber-500/25 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-pending-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Chờ phê duyệt</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-pending" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">tác vụ</span>
+          </div>
+        </div>
+
+        <!-- Sự cố đang mở -->
+        <div id="cc-kpi-incident-card"
+          class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span id="cc-kpi-incident-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Sự cố mở</span>
+          </div>
+          <div class="flex items-baseline gap-1">
+            <span id="cc-kpi-incident" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500">—</span>
+            <span class="text-[9px] text-slate-400 dark:text-slate-500">việc cần xử</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ HÀNH ĐỘNG AI  |  SỨC KHOẺ HỆ THỐNG ═══════════════════════
+           Hai việc admin làm nhiều nhất, nên hai việc đó lên trên cùng. -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+
+        <!-- ── ĐIỀU HÀNH AI ─────────────────────────────────────────── -->
+        <div class="space-y-4">
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
+                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+              </svg>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Điều Hành AI</h3>
+              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">gõ bằng lời → tự chọn tool</span>
+            </div>
+            <div class="p-3 space-y-2.5">
+              <div class="flex gap-2">
+                <input type="text" id="cc-ask-input"
+                  placeholder="VD: hệ thống nào đang bất thường? / rà soát việc quá hạn / lập báo cáo giao ban"
+                  class="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  onkeydown="if(event.key==='Enter'){runCommandCenterAsk();}" />
+                <button type="button" onclick="runCommandCenterAsk()"
+                  class="px-3.5 py-2 text-xs font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition whitespace-nowrap">
+                  Hỏi
+                </button>
+              </div>
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" onclick="askCommandCenter('Rà soát toàn bộ hệ thống đang chạy, hệ thống nào bất thường?')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Sức khoẻ hệ thống</button>
+                <button type="button" onclick="askCommandCenter('Lập báo cáo giao ban tình hình 24 giờ qua')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Báo cáo giao ban</button>
+                <button type="button" onclick="askCommandCenter('Những kết nối hạ tầng nào đang thiếu cấu hình?')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Hạ tầng</button>
+                <button type="button" onclick="askCommandCenter('Việc nào đang quá hạn cần xử lý gấp?')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Quá hạn</button>
+                <button type="button" onclick="askCommandCenter('Quy trình xin nghỉ phép từ 2 đến 3 ngày')"
+                  class="cc-quick px-2 py-1 text-[10px] rounded-md bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">Tra quy chế</button>
+              </div>
+              <div id="cc-ask-result" class="text-xs text-slate-500 dark:text-slate-400"></div>
+            </div>
+          </div>
+
+          <!-- Bảng hành động theo mức rủi ro -->
+          <!--
+            Admin chọn: "Cả hai — chọn mức theo rủi ro". Hệ thống đã có sẵn
+            thang Zero-Trust risk 1-5 (core/plugin_registry.py), và mọi tool
+            risk >= 3 đều phải qua cổng HITL. Nay hiện thang đó ra để admin
+            thấy rõ AI được tự làm gì và phải xin phép việc gì — thay vì
+            phải nhớ từng lệnh có cần duyệt hay không.
+          -->
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">AI Được Phép Làm Gì</h3>
+              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">thang Zero-Trust 1–5</span>
+            </div>
+            <div id="cc-risk-tiers" class="p-3 space-y-1.5">
+              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-3">Đang tải…</p>
+            </div>
+            <div class="px-3 pb-3">
+              <button type="button" id="cc-audit-btn" onclick="runCommandCenterAudit()"
+                class="w-full px-3 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition">
+                Chạy rà soát tức thì
+              </button>
+              <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1.5 text-center">
+                Rà soát là việc chỉ đọc nên AI tự chạy, không cần duyệt.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ĐIỀU HÀNH HỆ THỐNG ─────────────────────────────────────
+             Chỗ admin thực sự ra lệnh: bật/tắt từng hệ thống con, quét
+             sự cố, đồng bộ dữ liệu.
+
+             Trước đây vị trí này là thẻ "Sức Khoẻ Hệ Thống" với ba thanh đo
+             CPU / RAM / Ổ đĩa — trùng với ô "Tài nguyên" ngay phía trên và
+             với đồng hồ ở tab Tổng Quan. Ba bản của cùng một số liệu, đứng
+             sát nhau, đẩy những việc admin thật sự cần làm xuống dưới màn
+             hình. Nay thay bằng chỗ điều hành.
+
+             Danh sách hệ thống con do JS dựng từ `OPS_SUBSYSTEMS`, không ghi
+             cứng tên trong HTML: thêm một hệ thống điều hành được là thêm
+             một mục trong bảng đó, không phải sửa lại giao diện. -->
+        <div class="space-y-4">
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+              <span id="cc-health-dot" class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600"></span>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Điều Hành Hệ Thống</h3>
+              <span id="cc-health-uptime"
+                class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">—</span>
+            </div>
+
+            <!-- Các hệ thống con: mỗi cái một hàng, trạng thái + nút bật/tắt -->
+            <div id="cc-subsystems" class="p-3 space-y-1.5">
+              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-2">Đang tải…</p>
+            </div>
+
+            <!-- Việc chạy một lần, không phải trạng thái -->
+            <div class="px-3 pb-3 flex flex-wrap gap-1.5">
+              <button type="button" id="cc-btn-sentinel" onclick="runOpsSentinelScan()"
+                class="cc-ops-action px-2.5 py-1.5 text-[10px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">
+                Quét Sentinel
+              </button>
+              <button type="button" id="cc-btn-ad-sync" onclick="runOpsDomainSync()"
+                class="cc-ops-action px-2.5 py-1.5 text-[10px] font-semibold rounded-lg bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-primary-100 dark:hover:bg-primary-900/30 transition">
+                Đồng bộ AD ngay
+              </button>
+            </div>
+
+            <div class="grid grid-cols-4 gap-2 px-4 pb-3 pt-2.5 border-t border-slate-100 dark:border-slate-700/60 text-center">
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kỹ năng</p>
+                <p id="cc-stat-skills" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+              </div>
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tài khoản</p>
+                <p id="cc-stat-users" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+              </div>
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Cây ITSM</p>
+                <p id="cc-stat-tickets" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+              </div>
+              <div>
+                <p class="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-wider">Ổ đĩa</p>
+                <p id="cc-stat-disk" class="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">—</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ DUYỆT  |  HẠ TẦNG  |  NHẬT KÝ VẬN HÀNH ═════════════════ -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
+
+        <!-- Hàng đợi phê duyệt -->
+        <!-- Phase 78: hàng đợi phê duyệt đã gom về Bảng Điều Khiển (chủ sở
+             hữu) để chỉ có một danh sách duy nhất, không lệch số liệu. -->
+
+        <!-- Kết nối hạ tầng có sẵn -->
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Kết Nối Hạ Tầng</h3>
+            <span id="cc-infra-badge"
+              class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400">—</span>
+          </div>
+          <div id="cc-infra-list" class="p-3 space-y-2 max-h-80 overflow-y-auto">
+            <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">Đang tải…</p>
+          </div>
+          <div class="px-3 pb-3">
+            <p class="text-[10px] text-slate-400 dark:text-slate-500">
+              Nguồn chưa đủ thông tin đăng nhập thì mọi lời gọi sẽ thất bại —
+              cấu hình ở tab <span class="font-semibold">Tích Hợp Hệ Thống</span>.
+            </p>
+          </div>
+        </div>
+
+        <!-- Nhật ký vận hành -->
+        <!-- Phase 79: nhật ký vận hành đã gom vào tab Nhật Ký (chế độ
+             "Nhật ký vận hành"). Bản ở đây và bản ở Bảng Điều Khiển trước đây
+             cùng gọi /api/v1/logs/recent — cùng dữ liệu, hai màn hình. -->
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
+            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Nhật Ký Vận Hành</h3>
+          </div>
+          <div class="p-3">
+            <p class="text-[11px] text-slate-500 dark:text-slate-400 text-center mb-2">
+              Xem nhật ký vận hành tại
+            </p>
+            <button type="button" onclick="switchTab('logs'); switchLogView('recent')"
+              class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
+              Mở tab Nhật Ký
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ BIỂU ĐỒ  |  CẢNH BÁO & QUY CHẾ ══════════════════════════ -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
+              <path d="M3 3v18h18" />
+              <path d="M7 14l3-4 3 3 5-7" />
+            </svg>
+            <h3 id="cc-chart-title" class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">Biểu Đồ Số Liệu</h3>
+            <span id="cc-chart-source"
+              class="ml-auto shrink-0 px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 hidden"></span>
+          </div>
+          <div class="p-3">
+            <div class="relative" style="height: 240px;">
+              <canvas id="cc-chart-canvas"></canvas>
+              <div id="cc-chart-empty"
+                class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"
+                  class="text-slate-300 dark:text-slate-600 mb-2" viewBox="0 0 24 24">
+                  <path d="M3 3v18h18" />
+                  <path d="M7 14l3-4 3 3 5-7" />
+                </svg>
+                <p class="text-[11px] text-slate-400 dark:text-slate-500">
+                  Hỏi trợ lý ở cột bên cạnh, hoặc ra lệnh bằng giọng nói —
+                  biểu đồ sẽ tự hiện tại đây.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Cảnh Báo An Ninh</h3>
+              <span id="cc-security-count"
+                class="ml-auto px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 hidden">0</span>
+            </div>
+            <div id="cc-security-list" class="p-3 space-y-2 max-h-56 overflow-y-auto">
+              <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">Không có cảnh báo.</p>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
+            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
+              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Tra Cứu Quy Chế</h3>
+              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">chỉ trả lời khi có căn cứ</span>
+            </div>
+            <div class="p-3 space-y-2">
+              <input type="text" id="cc-policy-input" placeholder="VD: nghỉ thai sản được mấy tháng?"
+                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                onkeydown="if(event.key==='Enter'){runPolicyLookup();}" />
+              <div id="cc-policy-result" class="text-xs"></div>
+            </div>
+          </div>
         </div>
       </div>
 

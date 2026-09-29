@@ -5,8 +5,8 @@
 //   1. HTML: khối tích hợp nằm nửa trong tab này nửa kia, hoặc quên nút nav.
 //   2. JS:   `switchTab` không nạp dữ liệu, hoặc `CommandCenter.onEnter()`
 //             vẫn gọi 4 hàm tải của tích hợp (tốn API vô ích).
-//   3. KPI:  `syncCommandCenterKpi` còn đụng vào ô của tab kia → số hiển thị
-//             ở Trung Tâm Chỉ Huy là số chết, không bao giờ cập nhật.
+//   3. KPI:  ô KPI phê duyệt còn được chép qua một ô trung gian đã bị xoá
+//             → số hiển thị là số chết, không bao giờ cập nhật.
 //
 // Cả ba đều là loại lỗi "vẫn chạy, không báo lỗi, chỉ sai âm thầm" — nên
 // phải có test chặn thay vì tin vào việc click tay.
@@ -19,6 +19,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(HERE, '..', 'web', 'app.js');
 const HTML = join(HERE, '..', 'web', 'index.html');
 const src = readFileSync(APP, 'utf-8');
+// Bản code đã bỏ comment — bắt buộc khi kiểm tra "cái gì đó đã bị gỡ": các
+// bình luận giải thích fix hay nhắc lại đúng tên hàm đã xoá, nên quét `src`
+// thôi sẽ khẳng định sai là nó còn tồn tại.
+const srcCode = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 const html = readFileSync(HTML, 'utf-8');
 
 let pass = 0, fail = 0;
@@ -46,28 +50,43 @@ function sectionRange(id) {
   return null;
 }
 
-const cc = sectionRange('tab-command-center');
+// Phase 79: tab "Trung Tâm Chỉ Huy" đã gộp vào "Bảng Điều Khiển", nên
+// không còn section riêng. Phần tích hợp nằm trong `tab-dashboard`.
+const dash = sectionRange('tab-dashboard');
 const si = sectionRange('tab-system-integration');
 
+// Nguồn chân lý cho danh sách tab: VALID_TABS trong app.js. Nếu test tự định
+// nghĩa danh sách thì chỗ nào lệch cũng không ai báo.
+const VALID_TABS = [
+  ...(srcCode.match(/const VALID_TABS = \[([^\]]*)\]/) || [, ''])[1]
+    .matchAll(/'([a-z0-9-]+)'/g),
+].map(m => m[1]);
+
 results.push('▸ Cấu trúc HTML');
-check('có section #tab-command-center', cc !== null);
+check('tab Trung Tâm Chỉ Huy đã gộp, không còn section riêng',
+  sectionRange('tab-command-center') === null);
+check('có section #tab-dashboard', dash !== null);
 check('có section #tab-system-integration', si !== null);
 
-if (cc && si) {
-  const ccHtml = html.slice(cc[0], cc[1]);
+if (dash && si) {
+  const dashHtml = html.slice(dash[0], dash[1]);
   const siHtml = html.slice(si[0], si[1]);
 
-  check('tab mới nằm NGAY SAU tab Trung Tâm Chỉ Huy (không chen tab khác)',
-    si[0] > cc[1] && html.slice(cc[1], si[0]).indexOf('<section') === -1);
-  check('tab mới không lồng bên trong tab Trung Tâm Chỉ Huy',
-    si[0] > cc[1]);
+  // Nội dung C.E.O phải nằm trong Bảng Điều Khiển, không mất khi gộp.
+  // (Các sub-pane `cc-int-*` thuộc tab tích hợp, không phải phần C.E.O.)
+  check('nội dung C.E.O còn nguyên trong Bảng Điều Khiển',
+    ['cc-chart-canvas', 'cc-audit-btn', 'cc-subsystems', 'cc-kpi-infra', 'cc-policy-input']
+      .every(id => dashHtml.includes(`id="${id}"`)),
+    'mất id = gộp kiểu cắt rồi quên dán, màn hình C.E.O trắng');
+  check('tab tích hợp là section riêng biệt, không lồng trong Bảng Điều Khiển',
+    si[0] > dash[1] || si[1] < dash[0] || html.slice(Math.min(dash[1], si[1]), Math.max(dash[0], si[0])).indexOf('<section') === -1);
 
-  // 5 sub-pane phải nằm trong tab mới, không sót lại tab cũ.
+  // 5 sub-pane phải nằm ở đúng một chỗ — tab tích hợp, không phải Bảng Điều Khiển.
   const SUBPANES = ['cc-int-conn', 'cc-int-config', 'cc-int-webhook', 'cc-int-tools', 'cc-int-sys'];
   const missingInSi = SUBPANES.filter(id => !siHtml.includes(`id="${id}"`));
-  const leftInCc = SUBPANES.filter(id => ccHtml.includes(`id="${id}"`));
+  const leftInDash = SUBPANES.filter(id => dashHtml.includes(`id="${id}"`));
   check('đủ 5 sub-pane trong tab mới', missingInSi.length === 0, missingInSi.join(','));
-  check('không sub-pane nào còn sót trong Trung Tâm Chỉ Huy', leftInCc.length === 0, leftInCc.join(','));
+  check('không sub-pane nào còn sót trong Bảng Điều Khiển', leftInDash.length === 0, leftInDash.join(','));
 
   // Thanh sub-tab đi kèm phải ở tab mới.
   const subtabBtns = (html.match(/switchCcSubTab\('/g) || []).length;
@@ -75,11 +94,11 @@ if (cc && si) {
     (siHtml.match(/switchCcSubTab\('/g) || []).length === 5,
     `thấy ${(siHtml.match(/switchCcSubTab\('/g) || []).length}/${subtabBtns} toàn trang`);
 
-  // Các ô KPI của tích hợp phải theo khối sang tab mới.
+  // Các ô KPI của tích hợp phải ở tab tích hợp, không lẫn sang Bảng Điều Khiển.
   const movedKpi = ['cc-kpi-connectors', 'cc-kpi-plugins'];
   check('2 ô KPI cũ (Kết nối ngoại vi, Công cụ) đã sang tab mới',
     movedKpi.every(id => siHtml.includes(`id="${id}"`))
-    && !movedKpi.some(id => ccHtml.includes(`id="${id}"`)));
+    && !movedKpi.some(id => dashHtml.includes(`id="${id}"`)));
 
   // Dải KPI của Trung Tâm Chỉ Huy.
   //
@@ -91,14 +110,15 @@ if (cc && si) {
   // tài nguyên thuộc về Tổng Quan; tab này dành chỗ cho việc điều hành. Dải
   // KPI không được rỗng — mất nó thì tab không còn trả lời nhanh được "tình
   // hình thế nào", đúng thứ admin cần.
+  // Phase 79: dải KPI này nằm trong Bảng Điều Khiển (gộp từ Trung Tâm Chỉ Huy).
   for (const id of ['cc-kpi-infra', 'cc-kpi-bg',
                     'cc-kpi-pending', 'cc-kpi-incident']) {
-    check(`Trung Tâm Chỉ Huy có ô KPI "${id}"`, ccHtml.includes(`id="${id}"`));
+    check(`Bảng Điều Khiển có ô KPI "${id}"`, dashHtml.includes(`id="${id}"`));
   }
-  check('ô KPI "Tài nguyên" đã gỡ khỏi Trung Tâm Chỉ Huy',
-    !ccHtml.includes('cc-kpi-resource'));
-  check('ô KPI dòng tiền đã gỡ khỏi Trung Tâm Chỉ Huy',
-    !ccHtml.includes('cc-kpi-cashflow'));
+  check('ô KPI "Tài nguyên" đã gỡ khỏi dải chỉ số',
+    !dashHtml.includes('cc-kpi-resource'));
+  check('ô KPI dòng tiền đã gỡ khỏi dải chỉ số',
+    !dashHtml.includes('cc-kpi-cashflow'));
 
   // Ô KPI mới của tab tích hợp.
   for (const id of ['cc-kpi-bg-tasks', 'cc-kpi-webhook-alerts']) {
@@ -111,11 +131,23 @@ if (cc && si) {
   // Vị trí trong thanh điều hướng: phải kề nhau. So sánh theo thứ tự các
   // thẻ nav-btn chứ không theo byte offset — offset dễ bị lệch chỉ vì
   // `class=` đứng trước `id=` trong cùng một thẻ.
-  const navOrder = [...html.matchAll(/<div class="nav-btn" id="nav-([a-z-]+)"/g)].map(m => m[1]);
-  const iCc = navOrder.indexOf('command-center');
+  // Regex phải chịu được class bổ sung (`class="nav-btn active"`) — nút Bảng
+  // Điều Khiển có class `active` nên `<div class="nav-btn" id=` không khớp nó.
+  // Bỏ các mục không phải tab (`nav-admin-center` là link ra app Admin riêng,
+  // `nav-roi-dashboard` là màn hình ROI) — chúng xen vào giữa các tab.
+  const navOrder = [...html.matchAll(/<div class="nav-btn[^"]*" id="nav-([a-z-]+)"/g)]
+    .map(m => m[1])
+    .filter(id => VALID_TABS.includes(id));
+  const iDash = navOrder.indexOf('dashboard');
   const iSi = navOrder.indexOf('system-integration');
-  check('nút nav tab mới nằm ngay sau nút Trung Tâm Chỉ Huy',
-    iCc >= 0 && iSi === iCc + 1, navOrder.slice(Math.max(0, iCc - 1), iSi + 2).join(' > '));
+  check('nút nav tab tích hợp nằm ngay sau nút Bảng Điều Khiển',
+    iDash >= 0 && iSi === iDash + 1, navOrder.join(' > '));
+  check('mọi nút nav đều trỏ tới một tab thật',
+    navOrder.length === VALID_TABS.length,
+    `nav=${navOrder.length} VALID_TABS=${VALID_TABS.length}: ${navOrder.join(', ')}`);
+  check('không còn nút nav của tab đã gộp',
+    !navOrder.includes('command-center') && !navOrder.includes('users') && !navOrder.includes('devices'),
+    navOrder.join(', '));
 }
 
 // Không được để lại id trùng sau khi di chuyển — trùng id làm phần tử thứ hai
@@ -153,27 +185,42 @@ results.push('▸ Không còn tải tích hợp từ Trung Tâm Chỉ Huy');
       .filter(f => m[1].includes(f));
     check('CommandCenter.onEnter() KHÔNG gọi hàm tải của Phase 59/60',
       leaked.length === 0, leaked.join(','));
-    check('CommandCenter.onEnter() vẫn cập nhật KPI của riêng nó', m[1].includes('syncCommandCenterKpi()'));
+    // Phase 79: `syncCommandCenterKpi()` đã bị gỡ. Sau khi tab Trung Tâm Chỉ
+    // Huy gộp vào Bảng Điều Khiển, thẻ ô đếm `cc-pending-count` (chỉ để giữ
+    // con số cho màn hình C.E.O) biến mất; hàm đó đọc element không còn rồi rơi
+    // vào nhánh dự phòng `|| '0'` — ô KPI sẽ hiện 0 bất kể thực tế.
+    // Nay `loadPending()` ghi thẳng vào `cc-kpi-pending`.
+    // So trên thân hàm ĐÃ BỎ COMMENT: dòng giải thích ngay tại onEnter có
+    // nhắc lại đúng tên hàm, quét cả comment sẽ ra kết quả ngược.
+    const onEnterCode = m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    check('CommandCenter.onEnter() KHÔNG còn gọi hàm chép KPI đã gỡ',
+      !onEnterCode.includes('syncCommandCenterKpi()'), 'còn gọi hàm không tồn tại');
+    check('CommandCenter.onEnter() vẫn nạp hàng đợi phê duyệt', onEnterCode.includes('loadPending()'));
   }
 }
 
 results.push('▸ Tách hai dải KPI');
 {
-  const ccKpi = src.match(/function syncCommandCenterKpi\(\) \{([\s\S]*?)\n\}/);
-  check('tìm thấy syncCommandCenterKpi()', ccKpi !== null);
-  if (ccKpi) {
+  // Phase 79: hàm chép KPI của Trung Tâm Chỉ Huy đã bị gỡ (xem giải thích ở
+  // trên). Thay vào đó khẳng định ngược lại: ô KPI phê duyệt phải được
+  // `loadPending()` ghi thẳng, và không còn chép từ ô đếm trung gian nào.
+  check('syncCommandCenterKpi() đã bị gỡ khỏi app.js',
+    !/function syncCommandCenterKpi\(/.test(srcCode));
+  const loadPending = src.match(/async function loadPending\(\) \{([\s\S]*?)\n  \}/);
+  check('tìm thấy loadPending()', loadPending !== null);
+  if (loadPending) {
+    check('loadPending() ghi thẳng vào ô KPI cc-kpi-pending',
+      loadPending[1].includes('cc-kpi-pending'),
+      'ghi qua ô trung gian đã xoá thì ô KPI rơi về số 0 bịa');
+    check('loadPending() KHÔNG còn đọc ô đếm trung gian đã bị gỡ',
+      !loadPending[1].includes("'cc-pending-count'"));
     const foreign = ['cc-kpi-connectors', 'cc-kpi-plugins', 'cc-kpi-bg-tasks', 'cc-kpi-webhook-alerts']
-      .filter(id => ccKpi[1].includes(id));
-    check('syncCommandCenterKpi() KHÔNG đụng vào ô KPI của tab tích hợp',
+      .filter(id => loadPending[1].includes(id));
+    check('loadPending() KHÔNG đụng vào ô KPI của tab tích hợp',
       foreign.length === 0, foreign.join(','));
-    // Phase 71: `syncCommandCenterKpi()` nay chỉ chép ô chờ duyệt. Cảnh báo
-    // an ninh thì `loadSecurity()` tự ghi thẳng vào `cc-security-count`, còn
-    // dòng tiền đã bị gỡ. Chép lại hai thứ đó ở đây là chép một phần tử đã
-    // bị xoá — và sẽ hỏng nếu ai đó tái sử dụng id đó cho mục đích khác.
-    check('syncCommandCenterKpi() chép ô chờ duyệt', ccKpi[1].includes('cc-kpi-pending'));
-    check('syncCommandCenterKpi() KHÔNG chép ô dòng tiền đã gỡ',
-      !ccKpi[1].includes('cc-kpi-cashflow'));
   }
+  check('không còn ô đếm trung gian cc-pending-count trong HTML',
+    !html.includes('id="cc-pending-count"'));
 
   const siKpi = src.match(/function syncIntegrationKpi\(\) \{([\s\S]*?)\n\}/);
   check('tìm thấy syncIntegrationKpi()', siKpi !== null);

@@ -173,7 +173,7 @@ check(
 check(
     "hai nơi bị gỡ đều còn lối dẫn sang tab Nhật Ký",
     "switchTab('logs')" in section_html("dashboard")
-    and "switchLogView('recent')" in section_html("command-center"),
+    and "switchLogView('recent')" in section_html("dashboard"),
     "bỏ hẳn thì mất thông tin; phải để lại đường dẫn",
 )
 check(
@@ -210,21 +210,43 @@ check(
     "chủ sở hữu phải giữ danh sách đầy đủ",
 )
 for tab, eid in (("command-center", "cc-pending-list"), ("security", "security-pending-list")):
+    if not section_html(tab):
+        # Tab đã bị gỡ trong gộp sau — không còn gì để trùng.
+        continue
     check(
         f"tab {tab} không còn danh sách trùng",
         f'id="{eid}"' not in section_html(tab),
         "hai bản đầy đủ lấy từ 2 endpoint khác nhau nên số liệu có thể lệch",
     )
-for tab in ("command-center", "security"):
-    check(
-        f"tab {tab} còn ô đếm + nút dẫn tới chủ sở hữu",
-        "dash-pending-list" in section_html(tab),
-        "bỏ hẳn thì mất thông tin; phải để lại đường dẫn",
-    )
+check(
+    "tab Bảo Mật còn ô đếm + nút dẫn tới chủ sở hữu",
+    "dash-pending-list" in section_html("security"),
+    "bỏ hẳn thì mất thông tin; phải để lại đường dẫn",
+)
 check(
     "loadPending() ghi vào id của chủ sở hữu",
     "$('dash-pending-list')" in JS,
     "ghi vào id đã xoá thì danh sách không bao giờ có dữ liệu",
+)
+
+# Sau khi gộp tab, ô đếm trung gian `cc-pending-count` bị gỏ cùng thẻ nó nằm
+# trong (trên cùng trang với danh sách thì ô đếm chỉ là bản sao). Hàm chép
+# KPI `syncCommandCenterKpi` đọc ô đó — để lại thì ô KPI rơi về nhánh dự phòng
+# `|| '0'` và hiện 0 bất kể thực tế. Loại "0 bịa" này dễ tái phạm nhất.
+check(
+    "ô đếm trung gian cc-pending-count đã bị gỡ",
+    'id="cc-pending-count"' not in HTML,
+    "còn ô này thì syncCommandCenterKpi có thể quay lại chép số chết",
+)
+check(
+    "hàm chép KPI qua ô trung gian đã bị gỡ",
+    "function syncCommandCenterKpi(" not in JS_CODE,
+    "đọc element đã xoá rồi fallback '0' = số 0 bịa trên ô KPI",
+)
+check(
+    "loadPending() ghi thẳng vào ô KPI, không qua ô trung gian",
+    "$('cc-kpi-pending')" in JS and "'cc-pending-count'" not in JS_CODE,
+    "bỏ ô trung gian mà không nối lại thì ô KPI chết",
 )
 
 # ──────────────────────────────────────────────────────────────────────
@@ -249,18 +271,82 @@ check(
 )
 
 # ──────────────────────────────────────────────────────────────────────
+section("Gộp Trung Tâm Chỉ Huy vào Bảng Điều Khiển không làm hỏng vòng đời")
+
+# Nguy hiểm nhất của việc gộp tab không phải HTML mà là DÂY NỐI trong JS.
+# `CommandCenter` có vòng đời: onEnter nạp dữ liệu + bật bộ hẹn giờ 5s, onLeave
+# dừng bộ hẹn giờ. Cả hai móc vào TÊN TAB. Gộp tab mà quên sửa dây thì:
+#   - onEnter không chạy  → phần C.E.O không bao giờ có dữ liệu (trắng, im lặng)
+#   - onLeave không chạy  → bộ hẹn giờ 5s gọi API chạy mãi sau khi rời đi
+# Hai lỗi này đều không để lại dấu vết ở console.
+switch_tab = re.search(r"function switchTab\(tabId\) \{([\s\S]*?)\n\}\n", JS)
+check("tìm thấy switchTab()", switch_tab is not None)
+if switch_tab:
+    # Bỏ comment trước khi so khớp: các đoạn giải thích vừa thêm dài hơn
+    # mọi khoảng cách đặt trong regex, và chúng chứa đúng những chuỗi cần
+    # tìm — so khớp thẳng vào bình luận sẽ ra kết quả ngược.
+    st = re.sub(r"//.*$", "", switch_tab.group(1), flags=re.M)
+    check(
+        "onEnter của CommandCenter bám theo tab Bảng Điều Khiển",
+        re.search(r"if \(tabId === 'dashboard'\)[\s\S]{0,300}CommandCenter\.onEnter\(\)", st)
+        is not None,
+        "không gọi onEnter thì điều hành AI, biểu đồ và cảnh báo không bao giờ có dữ liệu",
+    )
+    check(
+        "onLeave của CommandCenter bám theo tab Bảng Điều Khiển",
+        "_prevId === 'dashboard'" in st and "CommandCenter.onLeave()" in st,
+        "không gọi onLeave thì bộ hẹn giờ 5s gọi API chạy mãi sau khi rời tab",
+    )
+
+pane_visible = re.search(r"function _paneVisible\(\) \{([\s\S]*?)\n  \}", JS_CODE)
+check("tìm thấy _paneVisible()", pane_visible is not None)
+check(
+    "_paneVisible() hỏi đúng tab Bảng Điều Khiển",
+    pane_visible is not None and "$('tab-dashboard')" in pane_visible.group(1),
+    "hỏi tab đã bị gỡ thì luôn coi là hiện → vẽ biểu đồ vào canvas đang ẩn, "
+    "vẽ xong rồi mất, không ai thấy",
+)
+check(
+    "không còn tham chiếu tới pane của tab đã gỡ",
+    "tab-command-center" not in JS_CODE,
+    "element không tồn tại → điều kiện luôn đúng → hành vi sai âm thầm",
+)
+check(
+    "nội dung C.E.O nằm trong Bảng Điều Khiển",
+    all(
+        f'id="{i}"' in section_html("dashboard")
+        for i in ("cc-chart-canvas", "cc-audit-btn", "cc-subsystems", "cc-kpi-infra")
+    ),
+    "mất id = gộp kiểu cắt rồi quên dán, màn hình C.E.O trắng",
+)
+check(
+    "không còn thẻ tự trỏ tới chính trang đang đứng",
+    'id="cc-pending-card"' not in HTML,
+    "thẻ 'Chờ Bạn Phê Duyệt' từng trỏ sang Bảng Điều Khiển; sau khi gộp nó nằm "
+    "ngay trên trang chứa danh sách mà nó trỏ tới → bấm không có gì xảy ra",
+)
+check(
+    "tiêu đề tab không còn mục của tab đã gộp",
+    all(
+        f"'{t}':" not in JS_CODE.split("const TAB_TITLES")[1].split("};")[0]
+        for t in ("command-center", "devices", "users")
+    ),
+    "mục cũ làm người đọc code tưởng tab đó vẫn còn",
+)
+
+# ──────────────────────────────────────────────────────────────────────
 section("Số tab đã giảm và không còn tab rỗng")
 
 tabs = re.findall(r'<section[^>]*id="tab-([a-z0-9-]+)"', HTML)
 check(
-    "còn 10 tab (từ 12)",
-    len(tabs) == 10,
+    "còn 9 tab (từ 12)",
+    len(tabs) == 9,
     f"hiện có {len(tabs)}: {tabs}",
 )
 navs = re.findall(r'id="nav-([a-z0-9-]+)"', HTML)
 check(
     "không còn nút nav cho tab đã gộp",
-    "users" not in navs and "devices" not in navs,
+    "users" not in navs and "devices" not in navs and "command-center" not in navs,
     f"còn: {navs}",
 )
 valid = re.search(r"const VALID_TABS = \[([^\]]*)\]", JS)

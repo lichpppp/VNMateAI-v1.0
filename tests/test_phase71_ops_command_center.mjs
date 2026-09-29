@@ -351,13 +351,13 @@ console.log('\n── 9. HTML có đủ id mà JS tìm ──');
   const missing = need.filter((id) => !html.includes(`id="${id}"`));
   check('mọi id Phase 71 đều tồn tại trong HTML', missing.length === 0, `thiếu: ${missing.join(', ')}`);
 
-  // Vị trí mới phải đúng: nhật ký vận hành thuộc tab Nhật Ký, không phải
-  // Trung Tâm Chỉ Huy. Nếu quay lại vị trí cũ thì lại có hai bảng cùng nguồn.
-  const ccTab = (html.match(/<section[^>]*id="tab-command-center"[\s\S]*?\n    <\/section>/) || [''])[0];
+  // Phase 79: tab Trung Tâm Chỉ Huy đã gộp vào Bảng Điều Khiển, nên lối dẫn
+  // sang nơi nhật ký duy nhất giờ nằm trong `tab-dashboard`.
+  const ccTab = (html.match(/<section[^>]*id="tab-dashboard"[\s\S]*?\n    <\/section>/) || [''])[0];
   const logsTab = (html.match(/<section[^>]*id="tab-logs"[\s\S]*?\n    <\/section>/) || [''])[0];
-  check('nhật ký vận hành nằm ở tab Nhật Ký, không ở Trung Tâm Chỉ Huy',
+  check('nhật ký vận hành nằm ở tab Nhật Ký, không ở Bảng Điều Khiển',
     logsTab.includes('id="log-recent-list"') && !ccTab.includes('id="log-recent-list"'));
-  check('Trung Tâm Chỉ Huy còn lối dẫn sang nơi nhật ký duy nhất',
+  check('Bảng Điều Khiển còn lối dẫn sang nơi nhật ký duy nhất',
     ccTab.includes("switchLogView('recent')"));
 
   // Mỗi id phải có dấu chấm chấm trước để JS lấy được — và mỗi id phải xuất
