@@ -11957,13 +11957,138 @@ async function runIntegrationTool(toolName, args) {
 }
 
 // ── Cấu hình kết nối ngoại vi ─────────────────────────────────────────────
-// Lưu ý bảo mật: GET /api/v1/config trả cả giá trị thật của các trường bí
-// mật (hành vi có sẵn của hệ thống, không sửa ở đây). Ta KHÔNG chép chúng vào
-// `value` của <input> — chỉ đánh dấu "đã lưu" và giữ chỗ trống. Ô trống khi
-// bấm Lưu = giữ nguyên giá trị cũ, nên người dùng không mất bí mật khi
-// chỉ muốn sửa một trường khác.
+//
+// Phase 81: form KHÔNG viết tay nữa. Cấu trúc trường lấy từ
+// `GET /api/v1/enterprise/connectors/catalog` — server sinh JSON Schema từ
+// CONNECTOR_REQUIRED_FIELDS / CONNECTOR_DEFAULTS. Thêm connector mới chỉ cần
+// khai báo ở đó, không sửa HTML.
+//
+// Bản form viết tay trước đây LỆCH TÊN với khóa cấu hình ở 7 trường, nên
+// những ô đó không bao giờ được nạp cũng không bao giờ được lưu đúng chỗ:
+//   cfg-aws-access-key      → thực ra là access_key_id
+//   cfg-aws-secret-key      → thực ra là secret_access_key
+//   cfg-aws-cost-explorer   → thực ra là cost_explorer_enabled
+//   cfg-oci-compartment     → thực ra là compartment_id
+//   cfg-paperless-url       → thực ra là base_url
+//   cfg-paperless-token     → thực ra là api_token
+//   cfg-einvoice-url        → thực ra là base_url
+// `saveConnectorConfig` bóc key từ id, nên `url` được ghi thành khoá `url` —
+// connector đọc `base_url` nên không thấy gì. Nay id sinh từ chính tên khoá
+// nên không thể lệch nữa.
+//
+// Bảo mật: ô bí mật LUÔN để trống, chỉ ghi "đã lưu". Ô trống khi bấm Lưu =
+// giữ nguyên giá trị cũ (server tự khôi phục), nên sửa một trường khác không
+// làm mất bí mật.
+
+const _ccFieldInput =
+  'w-full px-2.5 py-1.5 text-xs rounded-lg border border-slate-200 dark:border-slate-700 ' +
+  'bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary-500';
+
+/** Trường này có phải bí mật không — theo schema, không đoán theo tên. */
+function _ccIsSecretProp(prop) {
+  return prop && (prop.format === 'secret' || prop.format === 'password');
+}
+
+/** id phải BẰNG `cfg-{connector}-{key}` để bộ nạp và bộ lưu dùng chung quy ước. */
+function _ccFieldId(connector, key) {
+  return `cfg-${connector}-${key.replace(/_/g, '-')}`;
+}
+
+function _ccRenderField(connector, key, prop, required) {
+  const id = _ccFieldId(connector, key);
+  const secret = _ccIsSecretProp(prop);
+  const bool = prop.type === 'boolean';
+  const title = _esc(prop.title || key);
+  const hint = prop.description
+    ? `<div class="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5">${_esc(prop.description)}</div>`
+    : '';
+
+  let control;
+  if (bool) {
+    const cur = prop.default === true ? ' selected' : '';
+    control =
+      `<select id="${id}" class="${_ccFieldInput}">` +
+      `<option value="true"${cur}>Bật</option>` +
+      `<option value="false"${cur ? '' : ' selected'}>Tắt</option>` +
+      `</select>`;
+  } else if (prop.ui && prop.ui.widget === 'hidden') {
+    // `ui.widget: hidden` = trường có giá trị mặc định, người dùng không cần thấy.
+    return `<input type="hidden" id="${id}" value="${_esc(String(prop.default ?? ''))}" />`;
+  } else {
+    const type = secret ? 'password' : (prop.type === 'number' ? 'number' : 'text');
+    const ph = secret
+      ? '••••••••'
+      : (prop.default !== undefined && prop.default !== null ? String(prop.default) : '');
+    control =
+      `<input type="${type}" id="${id}" class="${_ccFieldInput}"` +
+      (ph ? ` placeholder="${_esc(ph)}"` : '') + ` />`;
+  }
+
+  return (
+    `<div>` +
+    `<label class="block text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-1">` +
+    `${title}${required ? ' <span class="text-rose-400">*</span>' : ''}</label>` +
+    control + hint +
+    `</div>`
+  );
+}
+
+function _ccRenderCard(c) {
+  const schema = c.config_schema || {};
+  const props = schema.properties || {};
+  const required = new Set(schema.required || []);
+  const fields = Object.keys(props)
+    .map((k) => _ccRenderField(c.id, k, props[k], required.has(k)))
+    .join('');
+
+  return (
+    `<div class="config-section rounded-xl border border-slate-200 dark:border-slate-700 p-3.5">` +
+      `<div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100 dark:border-slate-700/60">` +
+        `<span class="text-xs font-bold text-slate-700 dark:text-slate-300">${_esc(c.display_name || c.id.toUpperCase())}</span>` +
+        (c.description ? `<span class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(c.description)}</span>` : '') +
+        `<span id="${c.id}-config-status" class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">Chưa cấu hình</span>` +
+      `</div>` +
+      (fields
+        ? `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${fields}</div>`
+        : `<div class="text-[10px] text-slate-400 dark:text-slate-500 italic py-2">Connector này không có tham số cấu hình.</div>`) +
+      `<button type="button" onclick="saveConnectorConfig('${c.id}', this)"` +
+        ` class="mt-3 w-full px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition">` +
+        `Lưu cấu hình ${_esc(c.display_name || c.id)}</button>` +
+    `</div>`
+  );
+}
+
+/** Dựng lại toàn bộ form connector từ schema. */
+async function renderConnectorForms() {
+  const box = _ccGet('cc-connector-config-forms');
+  if (!box) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/enterprise/connectors/catalog`, {
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = await res.json();
+    const list = Object.values(body?.connectors || {});
+    if (!list.length) {
+      box.innerHTML =
+        `<div class="col-span-full py-6 text-center text-xs text-amber-600 dark:text-amber-400 italic">` +
+        `Server không trả về connector nào. Chưa kiểm tra được cấu hình.</div>`;
+      return;
+    }
+    box.innerHTML = list.map(_ccRenderCard).join('');
+  } catch (err) {
+    // Không có form nào để bấm — nói rõ thay vì để trống rồi im lặng.
+    box.innerHTML =
+      `<div class="col-span-full py-6 text-center text-xs text-rose-500 italic">` +
+      `Không tải được danh mục connector: ${_esc(err.message)}. ` +
+      `Chưa kiểm tra được cấu hình — không phải đã cấu hình xong.</div>`;
+  }
+}
 
 async function loadConnectorConfigAll() {
+  // Phải dựng form TRƯỚC rồi mới nạp giá trị: `loadConnectorConfig` tìm ô
+  // theo id, mà id chỉ tồn tại sau khi form được sinh ra.
+  await renderConnectorForms();
   for (const name of CC_CONNECTORS) {
     await loadConnectorConfig(name);
   }
@@ -12162,6 +12287,7 @@ if (typeof window !== 'undefined') {
   window.syncIntegrationKpi = syncIntegrationKpi;
   window.loadSystemIntegration = loadSystemIntegration;
   window.loadConnectorConfigAll = loadConnectorConfigAll;
+  window.renderConnectorForms = renderConnectorForms;
   window.saveConnectorConfig = saveConnectorConfig;
   window.loadPluginRegistryStats = loadPluginRegistryStats;
   window.loadBackgroundTasks = loadBackgroundTasks;
