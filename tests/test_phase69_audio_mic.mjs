@@ -82,9 +82,60 @@ check('có cờ nhớ mic đang bị chặn', has('let hudMicBlocked = false'));
 check('có hàm đánh dấu bị thu hồi quyền', src.includes('function hudMarkMicBlocked('));
 check('hàm đó đổi nút MIC thành trạng thái cấp lại quyền',
   src.includes('[🔒 CẤP LẠI QUYỀN]'));
-check('hàm đó chỉ đường cho người dùng',
-  src.includes('Nhấn nút MIC để cấp lại'));
 check('ghi log mất quyền', src.includes('Mất quyền micro'));
+
+// ── Phase 70: lời khuyên phải đúng với từng nguyên nhân ────────────────────
+// Đo trên trình duyệt thật: `navigator.permissions` = "denied". Khi đó
+// Chrome đã chặn vĩnh viễn và KHÔNG BAO GIỜ hỏi lại — bấm MIC vô ích vĩnh
+// viễn. Phase 69 vẫn bảo "nhấn nút MIC để cấp lại", tức hướng dẫn người
+// dùng làm điều không thể làm, rồi họ kết luận phần mềm hỏng.
+section('Lời khuyên đúng với từng nguyên nhân, không hứa hão');
+check('có đọc quyền thật từ trình duyệt',
+  src.includes("navigator.permissions.query"));
+check('lưu trạng thái quyền', src.includes("let hudMicPermission = 'unknown'"));
+check('có bảng lời khuyên riêng', src.includes('function hudMicAdvice('));
+
+// Ca bị chặn vĩnh viễn: phải nói thẳng là bấm nút không được.
+const deniedAt = src.indexOf("if (hudMicPermission === 'denied')");
+check('trạng thái denied có nhánh riêng', deniedAt !== -1);
+const deniedCase = src.slice(deniedAt, deniedAt + 700);
+check('nói thẳng bấm nút sẽ không được',
+  deniedCase.includes('bấm nút này sẽ không được'),
+  'hướng dẫn bấm MIC khi quyền đã bị chặn vĩnh viễn là đường cụt');
+check('chỉ đúng cách mở khoá thật sự',
+  deniedCase.includes('cài đặt trình duyệt'),
+  'phải chỉ vào cài đặt trình duyệt, không phải bảo bấm nút');
+check('nhãn nút nói bị chặn chứ không phải cấp lại được',
+  deniedCase.includes('ĐÃ CHẶN VĨNH VIỄN'));
+
+// Hai lỗi này KHÔNG phải về quyền mic, bảo cấp lại quyền là sai.
+check('service-not-allowed được nói là lỗi dịch vụ, không phải quyền',
+  src.includes('KHÔNG liên quan quyền mic'));
+check('audio-capture được nói là thiếu micro, không phải quyền',
+  src.includes('cần cắm micro'));
+
+section('Không bắt người dùng bấm mù');
+// start() với quyền denied hỏng ngay và bắn not-allowed lần nữa — mỗi lần
+// bấm chỉ khiến Chrome siết phiên thêm, không có gì tiến triển.
+const regrantAt = src.indexOf('function hudStartMicAfterRegrant()');
+check('bấm MIC khi bị chặn thì kiểm tra quyền trước', regrantAt !== -1);
+check('thấy denied thì không thử start()',
+  src.slice(regrantAt, regrantAt + 500).includes("if (state === 'denied')"));
+check('toggleHudMic gọi đường kiểm tra quyền',
+  src.includes('hudStartMicAfterRegrant();'));
+
+section('Tự phát hiện khi người dùng gỡ chặn trong cài đặt');
+// Người dùng đi mở khoá trong trình duyệt rồi quay lại tab. Không cần bắt
+// họ tìm nút bấm — HUD tự biết quyền đã được cấp.
+const onchangeAt = src.indexOf('st.onchange');
+check('theo dõi thay đổi quyền', onchangeAt !== -1);
+check('gỡ chặn xong thì bỏ cờ chặn',
+  src.slice(onchangeAt, onchangeAt + 500).includes('hudMicBlocked = false'));
+check('kiểm tra quyền ngay khi mở HUD, không đợi bấm MIC',
+  src.slice(
+    src.indexOf('function init()'),
+    src.indexOf('function init()') + 1200
+  ).includes('hudRefreshMicPermission()'));
 
 section('Phân biệt thu hồi quyền với lỗi khác');
 // Trước đây not-allowed / service-not-allowed / audio-capture bị gộp làm
@@ -104,8 +155,10 @@ check('xoá tham chiếu instance sau khi vứt',
   src.includes('hudSpeechRecognition = null'));
 check('có hàm dựng instance mới',
   src.includes('function hudBuildRecognition()'));
-check('dựng lại khi instance đã chết',
-  src.includes('if (hudMicBlocked || !hudSpeechRecognition)'));
+// Phase 70: dựng MỚI mỗi lần bấm, không tái dùng instance cũ. Instance
+// SpeechRecognition từng lỗi thì không hồi sinh được.
+check('luôn dựng instance mới khi bấm MIC',
+  /if \(!hudBuildRecognition\(\)\) return;/.test(src));
 check('bấm MIC xoá cờ chặn', src.includes('hudMicBlocked = false;'));
 check('onstart cũng xoá cờ chặn (quyền đã được cấp lại)',
   src.includes('hudMicBlocked = false;'));

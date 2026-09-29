@@ -1273,17 +1273,155 @@ function hudAttachRecognitionHandlers(rec) {
         };
 }
 
-/** Báo rõ trạng thái mic bị thu hồi, kèm cách lấy lại quyền. */
+/* ── ĐỌC QUYỀN MIC THẬT — Phase 70 ──────────────────────────────────────────
+ *
+ * Phase 69 đã tách ba mã lỗi riêng, nhưng vẫn cho cả ba cùng một lời khuyên:
+ * "nhấn nút MIC để cấp lại". Đo trên trình duyệt thật cho thấy lời khuyên đó
+ * SAI với phần lớn các ca:
+ *
+ *   not-allowed + quyền = prompt  → bấm được, Chrome hiện hộp thoại
+ *   not-allowed + quyền = denied  → bấm mãi cũng KHÔNG được. Chrome đã chặn
+ *                                   vĩnh viễn, không bao giờ hỏi lại lần nữa.
+ *                                   Phải vào cài đặt trình duyệt.
+ *   service-not-allowed            → KHÔNG liên quan quyền mic. Dịch vụ
+ *                                   nhận dạng giọng nói bị tắt.
+ *   audio-capture                  → KHÔNG liên quan quyền mic. Máy không
+ *                                   có micro nào.
+ *
+ * Người dùng bấm MIC đi bấm lại, không bao giờ được gì, rồi kết luận hệ
+ * thống hỏng — đúng cảm giác "mic mất quyền từ hub".
+ *
+ * Nay đọc quyền thật từ `navigator.permissions` rồi nói đúng việc cần làm.
+ */
+let hudMicPermission = 'unknown';
+let hudMicPermissionWatch = null;
+
+/**
+ * Hỏi trình duyệt quyền mic hiện đang ở thế nào.
+ *
+ * Trả về 'granted' | 'denied' | 'prompt' | 'unknown'. Không bao giờ ném lỗi:
+ * Firefox không hỗ trợ tên quyền 'microphone' và sẽ ném TypeError, mà lỗi ở
+ * đây chỉ có nghĩa là "không đọc được" chứ không phải hỏng.
+ */
+function hudRefreshMicPermission() {
+  return new Promise(function (resolve) {
+    if (!navigator.permissions || !navigator.permissions.query) {
+      hudMicPermission = 'unknown';
+      return resolve('unknown');
+    }
+    navigator.permissions.query({ name: 'microphone' }).then(function (st) {
+      hudMicPermission = st.state;
+
+      // Theo dõi thay đổi. Người dùng đi vào cài đặt trình duyệt gỡ chặn rồi
+      // quay lại tab này thì HUD tự biết — không bắt họ bấm MIC lần nữa.
+      if (!hudMicPermissionWatch) {
+        hudMicPermissionWatch = st;
+        st.onchange = function () {
+          hudMicPermission = st.state;
+          if (st.state === 'granted' && hudMicBlocked) {
+            hudMicBlocked = false;
+            appendSystemLog('Quyền micro đã được cấp lại. Nhấn MIC để bắt đầu nghe.', 'VOICE');
+            hudMarkMicIdle();
+          }
+        };
+      }
+      resolve(st.state);
+    }).catch(function () {
+      hudMicPermission = 'unknown';
+      resolve('unknown');
+    });
+  });
+}
+
+/** Nút MIC về trạng thái chờ, kèm nhãn dựa trên việc bấm có dùng được không. */
+function hudMarkMicIdle() {
+  const micBtn = document.getElementById('hud-mic-btn');
+  if (!micBtn) return;
+  micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
+  micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
+}
+
+/**
+ * Lời khuyên đúng cho từng nguyên nhân.
+ *
+ * Nguyên tắc: không được hứa điều mà bấm nút không làm được. Nếu người dùng
+ * làm theo mà không khỏi thì họ sẽ nghĩ phần mềm hỏng, chứ không nghĩ mình
+ * đang làm sai.
+ */
+function hudMicAdvice(reason) {
+  if (reason === 'audio-capture') {
+    return {
+      label: '[🎤 KHÔNG CÓ MIC]',
+      message: 'Máy không tìm thấy micro nào. Cắm micro vào rồi nhấn MIC lại.',
+      log: 'Không tìm thấy micro nào trên máy. Cấp quyền không giúp được — cần cắm micro.',
+    };
+  }
+  if (reason === 'service-not-allowed') {
+    return {
+      label: '[🔌 DỊCH VỤ TẮT]',
+      message: 'Trình duyệt đang tắt dịch vụ nhận dạng giọng nói. Không phải lỗi quyền micro.',
+      log: 'Dịch vụ nhận dạng giọng nói bị chặn (service-not-allowed) — không liên quan quyền micro.',
+    };
+  }
+  // not-allowed: cần biết quyền đang ở prompt hay denied mới nói được.
+  if (hudMicPermission === 'denied') {
+    return {
+      label: '[⛔ ĐÃ CHẶN VĨNH VIỄN]',
+      message: 'Trình duyệt đã chặn micro vĩnh viễn — bấm nút này sẽ không được. '
+        + 'Vào thanh địa chỉ → biểu tượng ổ khóa → Quyền → Microphone → Cho phép, rồi tải lại trang.',
+      log: 'Quyền micro đang ở trạng thái "denied" (bị chặn vĩnh viễn). '
+        + 'Bấm nút MIC không có tác dụng — cần mở khoá trong cài đặt trình duyệt.',
+    };
+  }
+  return {
+    label: '[🔒 CẤP LẠI QUYỀN]',
+    message: 'Trình duyệt chưa cấp quyền micro. Nhấn nút MIC để cấp.',
+    log: `Mất quyền micro (${reason}). Nhấn nút MIC để cấp lại quyền.`,
+  };
+}
+
+/** Báo đúng nguyên nhân, kèm đúng việc cần làm — không phải một lời khuyên chung. */
 function hudMarkMicBlocked(reason) {
   hudMicBlocked = true;
   isHudListening = false;
-  const micBtn = document.getElementById('hud-mic-btn');
-  if (micBtn) {
-    micBtn.className = 'hud-btn border-amber-500 bg-amber-950/60 text-amber-300 shadow-[0_0_15px_#f59e0b]';
-    micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> [🔒 CẤP LẠI QUYỀN]';
-  }
-  setHudState('idle', 'Trình duyệt đã thu hồi quyền micro. Nhấn nút MIC để cấp lại.');
-  appendSystemLog(`Mất quyền micro (${reason}). Nhấn nút MIC để cấp lại quyền.`, 'ERROR');
+  hudRefreshMicPermission().then(function () {
+    const advice = hudMicAdvice(reason);
+    const micBtn = document.getElementById('hud-mic-btn');
+    if (micBtn) {
+      micBtn.className = 'hud-btn border-amber-500 bg-amber-950/60 text-amber-300 shadow-[0_0_15px_#f59e0b]';
+      micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> ' + advice.label;
+    }
+    setHudState('idle', advice.message);
+    appendSystemLog(advice.log, 'ERROR');
+  });
+}
+
+/**
+ * Bấm MIC khi đang bị chặn: kiểm tra quyền thật trước, đừng thử lại mù.
+ *
+ * `start()` với quyền `denied` hỏng ngay lập tức và bắn `not-allowed` lần
+ * nữa — mỗi lần bấm lại chỉ khiến Chrome siết phiên thêm, mà không có gì
+ * tiến triển. Nói thẳng ra còn hơn bắt thử.
+ */
+function hudStartMicAfterRegrant() {
+  hudRefreshMicPermission().then(function (state) {
+    if (state === 'denied') {
+      hudMarkMicBlocked('not-allowed');
+      appendSystemLog('Vẫn đang bị chặn vĩnh viễn — cần mở khoá trong cài đặt trình duyệt.', 'WARNING');
+      return;
+    }
+    if (!hudBuildRecognition()) return;
+    hudAttachRecognitionHandlers(hudSpeechRecognition);
+    hudMicBlocked = false;
+    try {
+      hudSpeechRecognition.start();
+    } catch (err) {
+      const msg = String(err && err.message);
+      if (!/InvalidStateError|already started/i.test(msg)) {
+        appendSystemLog(`Không mở được mic: ${msg}`, 'WARNING');
+      }
+    }
+  });
 }
 
 /** Trạng thái vòng lặp hội thoại. */
@@ -1471,16 +1609,20 @@ function hudDrainOutboundSpeech() {
       return;
     }
 
-    try {
-      playCyberChime('wake');
+    playCyberChime('wake');
 
-      // Bấm MIC là cử chỉ của người dùng — đây là lúc duy nhất Chrome cho
-      // cấp lại quyền. Nếu quyền đã bị thu hồi, phải dựng instance MỚI:
-      // giữ lại instance cũ thì mọi lần bấm đều nhận lại đúng lỗi cũ.
-      if (hudMicBlocked || !hudSpeechRecognition) {
-        hudBuildRecognition();
-      }
-      if (!hudSpeechRecognition) return;
+    // Đang bị chặn thì phải hỏi lại quyền thật trước. Bấm mù vào `start()`
+    // khi quyền đã `denied` chỉ tạo ra thêm một vòng `not-allowed` nữa.
+    if (hudMicBlocked) {
+      hudStartMicAfterRegrant();
+      return;
+    }
+
+    try {
+      // Instance cũ có thể đã chết sau một phiên dài, hoặc chưa từng có.
+      // Dựng mới luôn: instance SpeechRecognition đã từng lỗi thì không tái
+      // sử dụng được, Chrome giữ nguyên trạng thái lỗi trên đó.
+      if (!hudBuildRecognition()) return;
       hudAttachRecognitionHandlers(hudSpeechRecognition);
       hudMicBlocked = false;
 
@@ -2095,6 +2237,17 @@ function hudDrainOutboundSpeech() {
         }
       })
       .catch(() => {});
+
+    // Kiểm tra quyền mic NGAY khi mở trang, không đợi tới lúc bấm MIC mới
+    // biết. Nếu quyền đã bị chặn vĩnh viễn thì báo trước, để admin không mất
+    // thời gian đi tìm micro rồi mới nghe ra không dùng được.
+    hudRefreshMicPermission().then(function (state) {
+      if (state === 'denied') {
+        hudMarkMicBlocked('not-allowed');
+      } else if (state === 'granted') {
+        appendSystemLog('Quyền micro đã được cấp. Nhấn nút MIC để bắt đầu nghe.', 'VOICE');
+      }
+    });
 
     appendSystemLog(`${currentAiName} Mark-85 3D Cybernetic HUD initialized at 60 FPS.`, 'SYS');
   }
