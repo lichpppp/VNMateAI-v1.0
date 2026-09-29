@@ -2757,6 +2757,15 @@ async function loadAudioNodes() {
     const count = nodes.length;
 
     if (statNodesVal) statNodesVal.textContent = `${count} THIẾT BỊ`;
+    // Ô tóm tắt ở tab Bảng Điều Khiển (Phase 78: sau khi gom ESP32 về một chỗ).
+    // Trước đây ô này có hàm riêng ở tab dashboard; nay dùng chung hàm này để
+    // hai nơi không thể hiện hai con số khác nhau cho cùng một thứ.
+    const summaryBadge = document.getElementById('badge-audio-nodes-count');
+    if (summaryBadge) {
+      summaryBadge.textContent = count > 0
+        ? `${count} mạch đang kết nối`
+        : 'chưa có mạch nào kết nối';
+    }
     if (statNodesBadge) {
       if (count > 0) {
         statNodesBadge.textContent = 'ONLINE';
@@ -2988,9 +2997,15 @@ function renderPortalMarkdown(rawText) {
   //
   // Khối code đã tự escape sẵn ở bước 1 nên phải cất ra chỗ riêng, nếu escape
   // lần nữa thì thẻ của nó cũng bị escape mất.
-  // Dùng ký tự NUL thật làm viền: văn bản người dùng/LLM không chứa NUL, còn
-  // chuỗi `\u0000` viết tay sẽ không khớp với regex khi khôi phục.
-  const CB = ' CB';
+  // Dùng ký tự NUL làm viền: văn bản người dùng/LLM không chứa NUL, còn
+  // chuỗi 6 ký tự "\u0000" do người viết tay sẽ không khớp regex khi khôi phục.
+  //
+  // Ghi sentinel bằng ESCAPE `\u0000` chứ không phải byte NUL thật: hai cách
+  // cho cùng giá trị runtime (đã kiểm chứng: cùng length 3, cùng charCode 0),
+  // nhưng escape giữ file là văn bản thuần. Trước đây ghi byte NUL thật khiến
+  // git đánh dấu app.js là file NHỊ PHÂN — git diff không hiện nội dung, mỗi
+  // thay đổi sau đó đều không review được.
+  const CB = '\u0000CB';
   const codeBlocks = [];
 
   // 1. Code blocks: ```...```
@@ -5953,104 +5968,18 @@ async function checkAuthAndInit() {
 // ── QUẢN LÝ MẠCH ÂM THANH (AUDIO NODES CONTROLLER) ─────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
-async function loadAudioNodes() {
-  const data = await apiGetAudioNodes();
-  const countBadge = document.getElementById('badge-audio-nodes-count');
-  const container = document.getElementById('audio-nodes-container');
-
-  if (data && data.status === 'success') {
-    audioNodesData = data.nodes || [];
-    if (countBadge) countBadge.textContent = `${audioNodesData.length} Mạch`;
-    renderAudioNodes(audioNodesData);
-  }
-}
-
-function renderAudioNodes(nodes) {
-  const container = document.getElementById('audio-nodes-container');
-  if (!container) return;
-  container.innerHTML = '';
-
-  if (!nodes || nodes.length === 0) {
-    container.innerHTML = `
-      <div class="col-span-full py-4 text-center text-slate-500 text-xs italic">
-        Chưa có trợ lý nào kết nối âm thanh.
-      </div>
-    `;
-    return;
-  }
-
-  nodes.forEach(node => {
-    const card = document.createElement('div');
-    card.className = 'p-3 rounded-xl bg-white/[0.03] border border-cyan-400/20 hover:border-cyan-400/50 transition-all flex flex-col gap-2.5';
-
-    const connTime = node.connected_at ? node.connected_at.substring(11, 19) : '--';
-    const lastActive = node.last_active ? node.last_active.substring(11, 19) : '--';
-    const state = node.state || 'idle';
-    const emotion = node.emotion || 'sleeping';
-
-    let stateColor = 'text-slate-400 bg-slate-800/60 border-slate-700';
-    let emotionEmoji = '😴';
-    if (state === 'listening') {
-      stateColor = 'text-cyan-400 bg-cyan-950/60 border-cyan-800';
-      emotionEmoji = '🧐';
-    } else if (state === 'processing') {
-      stateColor = 'text-indigo-400 bg-indigo-950/60 border-indigo-800';
-      emotionEmoji = '🤔';
-    } else if (state === 'alert') {
-      stateColor = 'text-red-400 bg-red-950/60 border-red-800 animate-pulse';
-      emotionEmoji = '⚠️';
-    } else if (state === 'speaking') {
-      stateColor = 'text-emerald-400 bg-emerald-950/60 border-emerald-800';
-      emotionEmoji = '😊';
-    }
-
-    card.innerHTML = `
-      <div class="flex items-start gap-2.5">
-        <div class="w-8 h-8 rounded-lg bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center text-cyan-400 flex-shrink-0 mt-0.5 shadow-[0_0_8px_rgba(34,211,238,0.3)]">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-        </div>
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center justify-between">
-            <span class="font-bold text-white text-xs truncate" title="${escapeHtml(node.device_id)}">${escapeHtml(node.device_id)}</span>
-            <span class="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              I2S 24kHz
-            </span>
-          </div>
-          <div class="text-[10px] text-slate-400 font-mono mt-0.5 truncate">IP: ${escapeHtml(node.client_host)}</div>
-        </div>
-      </div>
-
-      <!-- LCD Display / State Badge -->
-      <div class="flex items-center justify-between p-1.5 rounded-lg border text-[10px] font-mono ${stateColor}">
-        <span class="flex items-center gap-1">
-          <span>${emotionEmoji}</span>
-          <span class="font-bold uppercase">${escapeHtml(state)}</span>
-        </span>
-        <span class="opacity-80">Mặt: ${escapeHtml(emotion)}</span>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex items-center gap-1.5 pt-1 border-t border-white/5">
-        <button onclick="triggerXiaozhiInterrupt('${escapeHtml(node.device_id)}')" class="flex-1 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[10px] font-medium transition" title="Ngắt lời Barge-in ngay lập tức">
-          ⚡ Ngắt Lời
-        </button>
-        <button onclick="triggerXiaozhiUi('${escapeHtml(node.device_id)}', 'listening', 'focused')" class="py-1 px-2 rounded bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-[10px] font-medium transition" title="Đánh thức màn hình LCD">
-          🧐 Nghe
-        </button>
-        <button onclick="triggerXiaozhiWake('${escapeHtml(node.device_id)}')" class="py-1 px-2 rounded bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-300 text-[10px] font-medium transition" title="Phát cảnh báo Sentinel">
-          🚨 Báo
-        </button>
-      </div>
-
-      <div class="flex items-center justify-between text-[9px] text-slate-500 pt-0.5">
-        <span>Kết nối: ${connTime}</span>
-        <span>Hoạt động: ${lastActive}</span>
-      </div>
-    `;
-    container.appendChild(card);
-  });
-}
+// Phase 78: đã gỡ bản `loadAudioNodes` + `renderAudioNodes` ở đây.
+//
+// Trước đây có HAI hàm `loadAudioNodes` trong file. Bản này (sau) đè bản ở
+// trên, nên nó là bản chạy thật — và nó chỉ cập nhật vùng UI của tab dashboard.
+// Bản ở trên (phục vụ tab "Trợ Lý Thoại", mục "MẠCH THOẠI ESP32") không bao
+// giờ được gọi, nên `#voice-stat-nodes-val` kẹt ở chữ "0 THIẾT BỊ" viết cứng
+// trong HTML dù máy có bao nhiêu mạch.
+//
+// Cùng một tính năng (mạch ESP32) bị vẽ ở hai tab là trùng lặp — nên gom về
+// MỘT chỗ: tab "Trợ Lý Thoại" là chủ sở hữu, có mục riêng và UI đầy đủ.
+// Tab dashboard giờ chỉ hiện một dòng tóm tắt kèm link sang đó.
+// Các hàm `triggerXiaozhi*` bên dưới giữ nguyên, chúng điều khiển thiết bị.
 
 async function triggerXiaozhiInterrupt(deviceId) {
   try {
@@ -6416,7 +6345,7 @@ function renderErpTree(departments) {
 
           <!-- Sub-Tab Content 2: Devices -->
           <div id="erp-subtab-devices-${dept.id}" class="${activeSubTab === 'devices' ? 'block' : 'hidden'} overflow-x-auto">
-            ${renderDevicesTable(dept.devices)}
+            ${renderDeptDevicesTable(dept.devices)}
           </div>
 
           <!-- Sub-Tab Content 3: Tasks -->
@@ -6470,7 +6399,19 @@ function renderEmployeesTable(employees) {
   `;
 }
 
-function renderDevicesTable(devices) {
+/**
+ * Bảng thiết bị theo PHÒNG BAN (ERP).
+ *
+ * Phase 78: hàm này trước đây tên là `renderDevicesTable` — trùng đúng tên với
+ * hàm cùng chức năng khác ở trên. Trong JS, định nghĩa sau đè định nghĩa trước,
+ * nên bản này (trả về CHUỖI HTML) đã đè bản kia (ghi thẳng vào DOM). Hậu quả:
+ * `loadDevices()` gọi vào đây, nhận về một chuỗi rồi vứt đi, còn bảng
+ * `#devices-table-body` không bao giờ được điền và ô "chưa có thiết bị" cũng
+ * không hiện — người dùng thấy một bảng trống không giải thích.
+ *
+ * Đổi tên để hai chức năng không còn tranh nhau một tên.
+ */
+function renderDeptDevicesTable(devices) {
   if (!devices || devices.length === 0) {
     return `<div class="py-6 text-center text-xs text-slate-400 italic">Chưa có thiết bị nào được ghi nhận cho phòng ban này.</div>`;
   }
@@ -7058,17 +6999,9 @@ function renderUsersTable(users) {
 }
 
 // Password eye toggle helper
-function togglePasswordVisibility(inputId, btnEl) {
-  const input = document.getElementById(inputId);
-  if (!input) return;
-  if (input.type === 'password') {
-    input.type = 'text';
-    btnEl.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
-  } else {
-    input.type = 'password';
-    btnEl.innerHTML = `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
-  }
-}
+/**
+ * Bật/tắt hiển thị ô mật khẩu — xem bản đầy đủ ở dưới (hàm đã gộp Phase 78).
+ */
 
 // Password strength evaluator
 function checkPasswordStrength(inputId, barId, textId, containerId) {
@@ -7507,10 +7440,25 @@ let domainEmployeesList = [];
 let domainComputersList = [];
 let currentAdSubTab = 'users';
 
-function togglePasswordVisibility(inputId) {
+/**
+ * Bật/tắt hiển thị một ô mật khẩu.
+ *
+ * Phase 78: trước đây có HAI hàm cùng tên. Bản sau (chỉ nhận `inputId`) đè bản
+ * trước (nhận `inputId` + `btnEl` để đổi biểu tượng mắt). Hệ quả: 3 chỗ gọi
+ * truyền nút vào như mong đổi biểu tượng, nhưng biểu tượng mắt KHÔNG BAO GIỜ
+ * đổi — mật khẩu hiện ra mà vẫn tưởng đang ẩn.
+ *
+ * Nay gộp còn một hàm: `btnEl` là tuỳ chọn, có thì đổi biểu tượng.
+ */
+function togglePasswordVisibility(inputId, btnEl) {
   const input = document.getElementById(inputId);
   if (!input) return;
-  input.type = input.type === 'password' ? 'text' : 'password';
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  if (!btnEl) return;
+  btnEl.innerHTML = show
+    ? `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`
+    : `<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
 }
 
 async function loadTelegramConfig() {

@@ -2182,10 +2182,14 @@
         </div>
       </div>
 
-      <!-- ── ROW 3: Audio Nodes Monitor (existing component) ──────────── -->
-      <div class="glass-panel p-5 space-y-4">
-        <div
-          class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-700 pb-3">
+      <!-- ── ROW 3: Audio Nodes — chỉ tóm tắt, danh sách đầy đủ ở tab voice ──
+           Phase 78: trước đây khối này VẼ LẠI toàn bộ mạch ESP32, y hệt mục
+           "MẠCH THOẠI ESP32" ở tab Trợ Lý Thoại — cùng một dữ liệu ở hai chỗ,
+           và bản ở đây còn đè lên hàm của bản kia khiến ô đếm ở tab voice kẹt
+           ở số 0 viết cứng. Nay chỉ để lại một dòng tóm tắt + link, danh sách
+           và các nút điều khiển thuộc về tab Trợ Lý Thoại. -->
+      <div class="glass-panel p-5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <div
               class="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-700/50 flex items-center justify-center text-primary-600 dark:text-primary-400">
@@ -2197,27 +2201,21 @@
               </svg>
             </div>
             <div>
-              <div class="flex items-center gap-2">
-                <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Trợ Lý Xiaozhi Trực Tuyến
-                  (Hardw Audio Nodes)</h3>
-                <span id="badge-audio-nodes-count"
-                  class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 border border-primary-200 dark:border-primary-700/50">0
-                </span>
-              </div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Mạch thoại ESP32</h3>
+              <p class="text-xs text-slate-500 dark:text-slate-400">
+                <span id="badge-audio-nodes-count">chưa có dữ liệu</span>
+                · danh sách và điều khiển nằm ở tab
+                <button onclick="switchTab('voice')" class="underline hover:text-cyan-400 transition-colors">Trợ lý Thoại</button>
+              </p>
             </div>
           </div>
           <button onclick="loadAudioNodes()"
-            class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 transition-colors">
+            class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 transition-colors self-start">
             <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
             </svg>
             Làm mới
           </button>
-        </div>
-        <div id="audio-nodes-container" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          <div class="col-span-full py-4 text-center text-slate-400 dark:text-slate-500 text-xs italic">
-            Chưa có trợ lý nào kết nối tới WebSocket âm thanh.
-          </div>
         </div>
       </div>
 
