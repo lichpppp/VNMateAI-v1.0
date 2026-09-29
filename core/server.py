@@ -1275,17 +1275,122 @@ async def serve_portal() -> HTMLResponse:
     )
 
 
-@app.get(
-    "/hud",
-    include_in_schema=True,
-    response_class=HTMLResponse,
-    summary="VN-MateAI Sci-Fi HUD Standby Display (Phase 33)",
-)
+# ═══════════════════════════════════════════════════════════════════════════
+# ── Phase 78: Admin Control Center (Next.js, bản build tĩnh) ───────────────
+# ═══════════════════════════════════════════════════════════════════════════
+# Trước đây Admin chạy thành một server Next.js riêng ở cổng 3001. Người dùng
+# phải tự nhớ mở cổng đó, và nếu server ấy không chạy thì thấy "Failed to
+# fetch" — khó phân biệt với lỗi hệ thống thật.
+#
+# Nay Admin được build tĩnh (`npm run build` trong admin/ → admin/out) và
+# FastAPI phục vụ tại /admin. Lợi ích:
+#   - Một địa chỉ duy nhất: http://127.0.0.1:8000/admin
+#   - Cùng origin với API nên KHÔNG cần CORS
+#   - Không phát sinh tiến trình node khi chạy production
+#
+# Nếu admin/out chưa có, trả thông báo rõ để biết phải build chứ không im lặng
+# trả về 404 khiến người dùng tưởng tính năng không tồn tại.
+
+_PROJECT_ROOT = _WEB_DIR.parent
+_ADMIN_DIST = _PROJECT_ROOT / "admin" / "out"
+
+_ADMIN_MISSING_HTML = """<!DOCTYPE html>
+<html lang="vi"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Control Center — chưa build</title>
+<style>
+  body{background:#020813;color:#00f2fe;font-family:ui-monospace,monospace;
+       display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+  .box{max-width:640px;padding:2.5rem;border:1px solid #f59e0b55;border-radius:1rem;
+       background:#0f172a99;box-shadow:0 0 30px #f59e0b22}
+  h1{color:#f59e0b;font-size:1.4rem;margin:0 0 1rem}
+  p{color:#94a3b8;line-height:1.7;font-size:.95rem}
+  code{background:#020813;padding:.15rem .45rem;border-radius:.25rem;color:#00f2fe}
+  pre{background:#020813;padding:1rem;border-radius:.5rem;overflow-x:auto;color:#10b981}
+</style></head>
+<body><div class="box">
+  <h1>Admin Control Center chưa được build</h1>
+  <p>Thư mục <code>admin/out/</code> không tồn tại, nên chưa có gì để phục vụ.</p>
+  <p>Chạy lệnh sau ở thư mục gốc dự án rồi tải lại trang:</p>
+  <pre>cd admin &amp;&amp; npm install &amp;&amp; npm run build</pre>
+  <p>Phần còn lại của hệ thống (portal, HUD, ROI) không bị ảnh hưởng.</p>
+</div></body></html>"""
+
+
+def _admin_file(rel: str) -> Optional[Path]:
+    """
+    Ánh xạ đường dẫn URL của Admin sang file trong admin/out.
+
+    Có 3 kiểu đường dẫn cần phục vụ:
+      /admin/_next/static/...  → out/_next/static/...   (asset JS/CSS)
+      /admin/dashboard        → out/admin/dashboard.html (trang)
+      /admin/dashboard.txt    → out/admin/dashboard.txt (payload điều hướng
+                                                        phía client của Next)
+
+    Chặn path traversal: file phải nằm thật sự bên trong out/ sau khi resolve.
+    """
+    root = _ADMIN_DIST.resolve() if _ADMIN_DIST and _ADMIN_DIST.exists() else None
+    if root is None:
+        return None
+
+    if rel.startswith("_next/"):
+        candidate = (root / rel).resolve()
+    else:
+        candidate = (root / "admin" / rel).resolve()
+
+    # `..` hoặc symlink tinh vi ra ngoài out/ đều bị chặn ở đây.
+    if not str(candidate).startswith(str(root) + "/") and candidate != root:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+@app.get("/admin", include_in_schema=True, response_class=HTMLResponse,
+         summary="Phase 78: Admin Control Center (trang chủ)")
+async def admin_root():
+    """Mở Admin Control Center. Chuyển hướng sang trang dashboard chính."""
+    f = _admin_file("dashboard.html")
+    if f is None:
+        root_html = _ADMIN_DIST / "admin.html" if _ADMIN_DIST and _ADMIN_DIST.exists() else None
+        if root_html is not None and root_html.is_file():
+            return FileResponse(root_html, headers={"Cache-Control": "no-cache, must-revalidate"})
+        return HTMLResponse(_ADMIN_MISSING_HTML, status_code=503,
+                            headers={"Cache-Control": "no-cache, must-revalidate"})
+    return FileResponse(f, headers={"Cache-Control": "no-cache, must-revalidate"})
+
+
+@app.get("/admin/{rel:path}", include_in_schema=False)
+async def admin_asset(rel: str):
+    """
+    Phục vụ asset + trang con của Admin.
+
+    Nội dung trang (`html`) phải không cache để sửa code thấy ngay; asset
+    Next có tên nội dung băm trong tên file nên cache mạnh được.
+    """
+    # Thử đúng tên (asset có phần mở rộng, hoặc .txt cho client router).
+    f = _admin_file(rel)
+    if f is not None:
+        is_page = f.suffix in (".html", ".txt")
+        return FileResponse(
+            f,
+            headers={"Cache-Control": "no-cache, must-revalidate" if is_page else "public, max-age=31536000, immutable"},
+        )
+
+    # Thử thêm .html cho route không có phần mở rộng (/admin/plugins).
+    if not rel.endswith((".html", ".txt")):
+        for ext in (".html", ".txt"):
+            f2 = _admin_file(rel + ext)
+            if f2 is not None:
+                return FileResponse(f2, headers={"Cache-Control": "no-cache, must-revalidate"})
+
+    raise HTTPException(status_code=404, detail=f"Admin asset not found: {rel}")
+
+
+@app.get("/hud", include_in_schema=True, response_class=HTMLResponse,
+         summary="VN-MateAI Sci-Fi HUD Standby Display (Phase 33)")
 async def get_vnmate_hud():
     """Phục vụ giao diện HUD VN-MateAI 3D toàn màn hình cho màn hình phụ."""
     hud_file = _WEB_DIR / "hud.html"
-    if not hud_file.exists():
-        raise HTTPException(status_code=404, detail="web/hud.html not found.")
+    if not hud_file.exists():        raise HTTPException(status_code=404, detail="web/hud.html not found.")
     return HTMLResponse(
         # Xem giải thích ở serve_portal.
         _inject_asset_versions(hud_file.read_text(encoding="utf-8")),

@@ -677,6 +677,23 @@
           Tích Hợp Hệ Thống Báo Cáo
         </div>
 
+        <!-- Phase 78: Admin Control Center.
+             Mở tab MỚI, không phải switchTab: /admin là ứng dụng Next.js riêng
+             (bản build tĩnh do FastAPI phục vụ), không phải một tab-pane trong
+             portal. Dùng <a> thay vì onclick để người dùng vẫn mở được bằng
+             chuột phải → Mở tab mới, và đường dẫn hiện trong thanh địa chỉ. -->
+        <a class="nav-btn no-underline" id="nav-admin-center" href="/admin/dashboard"
+           target="_blank" rel="noopener"
+           title="Mở Admin Control Center (ứng dụng riêng, tab mới)">
+          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="9" rx="1" />
+            <rect x="14" y="3" width="7" height="5" rx="1" />
+            <rect x="14" y="12" width="7" height="9" rx="1" />
+            <rect x="3" y="16" width="7" height="5" rx="1" />
+          </svg>
+          Trung Tâm Quản Trị
+        </a>
+
         <div class="nav-btn" id="nav-ai-manager" onclick="switchTab('ai-manager')">
           <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <circle cx="12" cy="8" r="4"/>

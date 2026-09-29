@@ -22,16 +22,37 @@ import {
 } from 'lucide-react';
 
 const navigation = [
-  { name: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
-  { name: 'Plugins', href: '/admin/plugins', icon: PlugZap },
-  { name: 'Routing', href: '/admin/routing', icon: GitBranch },
-  { name: 'Workers', href: '/admin/workers', icon: Server },
-  { name: 'Settings', href: '/admin/settings', icon: Settings },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Plugins', href: '/plugins', icon: PlugZap },
+  { name: 'Routing', href: '/routing', icon: GitBranch },
+  { name: 'Workers', href: '/workers', icon: Server },
+  { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = React.useState(false);
+
+  /**
+   * Đăng xuất thật: xoá token ở CẢ khoá rồi quay về portal.
+   *
+   * Trước đây nút này có onClick rỗng kèm comment "logout" — bấm không làm
+   * gì. Một nút đăng xuất không đăng xuất là nói dối người dùng về việc phiên
+   * đã kết thúc, trong khi token vẫn nằm trong máy.
+   *
+   * Xoá cả `vnmateai_token` (portal) lẫn `vnmate_token` (admin) vì cả hai
+   * cùng đọc chung token trong localStorage.
+   */
+  const handleSignOut = () => {
+    try {
+      localStorage.removeItem('vnmateai_token');
+      localStorage.removeItem('vnmate_token');
+    } finally {
+      // Về portal để đăng nhập lại, thay vì đứng ở trang Admin với token đã
+      // xoá và mọi lệnh gọi API sau đó đều 401.
+      window.location.href = '/';
+    }
+  };
 
   return (
     <aside
@@ -43,7 +64,7 @@ export function Sidebar() {
       <div className="flex flex-col h-full">
         {/* Logo */}
         <div className={cn('flex items-center justify-between h-16 px-4 border-b border-vnmate-slate-800', collapsed && 'justify-center')}>
-          <Link href="/admin/dashboard" className="flex items-center gap-3">
+          <Link href="/dashboard" className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-vnmate-cyan to-vnmate-blue flex items-center justify-center">
               <Shield className="h-6 w-6 text-vnmate-darker" />
             </div>
@@ -87,24 +108,14 @@ export function Sidebar() {
 
         {/* Bottom section */}
         <div className={cn('p-4 border-t border-vnmate-slate-800', collapsed && 'hidden')}>
-          <div className="space-y-2">
-            <Link href="/admin/profile" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-vnmate-slate-400 hover:text-vnmate-neon hover:bg-vnmate-slate-800/50 transition-all">
-              <Users className="h-5 w-5" />
-              <span>Profile</span>
-            </Link>
-            <Link href="/admin/security" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-vnmate-slate-400 hover:text-vnmate-neon hover:bg-vnmate-slate-800/50 transition-all">
-              <Shield className="h-5 w-5" />
-              <span>Security</span>
-            </Link>
-            <Link href="/admin/help" className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-vnmate-slate-400 hover:text-vnmate-neon hover:bg-vnmate-slate-800/50 transition-all">
-              <HelpCircle className="h-5 w-5" />
-              <span>Help & Docs</span>
-            </Link>
-          </div>
           <div className="mt-4 pt-4 border-t border-vnmate-slate-800">
-            <Button variant="outline" className="w-full justify-start gap-2 text-vnmate-pink hover:text-vnmate-pink border-vnmate-pink/30 hover:border-vnmate-pink/50" onClick={() => { /* logout */ }}>
+            <Button
+              variant="outline"
+              className="w-full justify-start gap-2 text-vnmate-pink hover:text-vnmate-pink border-vnmate-pink/30 hover:border-vnmate-pink/50"
+              onClick={handleSignOut}
+            >
               <LogOut className="h-4 w-4" />
-              <span>Sign Out</span>
+              <span>Đăng xuất</span>
             </Button>
           </div>
         </div>

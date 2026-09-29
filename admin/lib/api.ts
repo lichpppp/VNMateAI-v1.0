@@ -1,4 +1,8 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+// Phase 78: Admin được FastAPI phục vụ ở /admin — CÙNG origin với backend.
+// Nên mặc định gọi API bằng đường dẫn TƯƠNG ĐỐI '/api/v1/...': không qua
+// CORS, không cần cấu hình thêm. Đường dẫn tuyệt đối chỉ dùng khi
+// NEXT_PUBLIC_API_BASE được đặt tường minh (tách Admin ra domain riêng).
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '/api/v1';
 
 interface RequestOptions extends RequestInit {
   params?: Record<string, string>;
@@ -11,13 +15,18 @@ class ApiClient {
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl;
     if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('vnmate_token');
+      // Đọc cả 2 khoá: portal (web/app.js) và admin dùng tên khác nhau.
+      // Đọc chung token nên mở /admin không phải đăng nhập lại lần nữa.
+      this.token =
+        localStorage.getItem('vnmateai_token') ||
+        localStorage.getItem('vnmate_token');
     }
   }
 
   setToken(token: string) {
     this.token = token;
     if (typeof window !== 'undefined') {
+      localStorage.setItem('vnmateai_token', token);
       localStorage.setItem('vnmate_token', token);
     }
   }
@@ -25,6 +34,7 @@ class ApiClient {
   clearToken() {
     this.token = null;
     if (typeof window !== 'undefined') {
+      localStorage.removeItem('vnmateai_token');
       localStorage.removeItem('vnmate_token');
     }
   }
@@ -32,15 +42,14 @@ class ApiClient {
   private async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { params, headers, ...restOptions } = options;
 
-    // Gọi thẳng backend (cùng origin khác port) nên cần URL tuyệt đối.
-    // Ở production đặt NEXT_PUBLIC_API_BASE=https://api.vnmateai.vn/v1
-    const base = this.baseUrl || (typeof window !== 'undefined' ? 'http://127.0.0.1:8000/api/v1' : '');
-    const url = new URL(`${base}${endpoint}`);
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        url.searchParams.append(key, value);
-      });
-    }
+    // Mặc định: đường dẫn TƯƠNG ĐỐI trên chính origin — FastAPI phục vụ cả
+    // /admin lẫn /api/v1 nên không qua CORS, không cần cấu hình thêm.
+    // Chỉ khi NEXT_PUBLIC_API_BASE được đặt tường minh (tách domain ở
+    // production) thì mới ghép thành URL tuyệt đối.
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const path = this.baseUrl
+      ? `${this.baseUrl}${endpoint}${query}`
+      : `${endpoint}${query}`;
 
     const defaultHeaders: HeadersInit = {
       'Content-Type': 'application/json',
@@ -48,7 +57,7 @@ class ApiClient {
       ...headers,
     };
 
-    const response = await fetch(url.toString(), {
+    const response = await fetch(path, {
       ...restOptions,
       headers: defaultHeaders,
     });
