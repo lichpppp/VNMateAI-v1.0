@@ -5,7 +5,7 @@ Kiểm thử Phase 68 — không còn tên model của provider ghi cứng trong
 
 Bối cảnh
 --------
-Toàn bộ cấu hình model trỏ vào provider đã chết:
+Lúc Phase 68 viết, toàn bộ cấu hình model trỏ vào provider đã chết:
   - `ag/*` (antigravity) — 5 tài khoản, KHÔNG có khoá
   - `oc/*` (opencode-zen) — 402 "Insufficient account funds"
   - `mimo/*` (xiaomi-mimo) — 402 "Insufficient account balance"
@@ -26,6 +26,7 @@ import ast
 import json
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -50,12 +51,32 @@ def section(title: str) -> None:
     print(f"\n▸ {title}")
 
 
-# Tên model của provider đã chết. Nếu xuất hiện lại trong mã nguồn thì đó là
-# hồi quy: cấu hình sẽ lại ghi model không gọi được.
-DEAD_PREFIXES = ("ag/", "oc/", "mmf/", "mimo/")
+# ── Danh sách provider/tên model ĐÃ CHẾT ──────────────────────────────────
+#
+# Phase 81: cả hai danh sách dưới đây từng SAI, và việc test báo động suốt
+# mấy chục lượt chạy là bằng chứng. Gốc rễ giống nhau: chúng ghi lại trạng
+# thái của router tại một thời điểm, rồi được coi như sự thật vĩnh viễn.
+#
+# Lúc Phase 68 viết, `ag/*` (antigravity) trả lỗi vì tài khoản chưa có khoá,
+# nên bị xếp vào nhóm chết. Sau đó khoá có rồi: router phục vụ 20 model `ag/*`
+# và gọi thật trả về nội dung đúng (`ag/gemini-3-flash` -> "OK",
+# `ag/claude-sonnet-4-6` -> "OK"). Danh sách cũ không biết nên cứ báo động.
+#
+# Nay mỗi thay đổi đều phải KÈM BẰNG CHỨNG, và phần cuối tệp có bước tự gọi
+# thật từng nhóm để lần sau provider nào chết thì test tự bắt, không cần ai
+# sửa danh sách.
+#
+# `oc/`, `mmf/`, `mimo/` vẫn giữ: chúng đã biến mất khỏi router hoàn toàn, nên
+# nếu xuất hiện lại thì đó đúng là hồi quy cần cảnh báo.
+DEAD_PREFIXES = ("oc/", "mmf/", "mimo/")
+#
+# Phase 81: 6 tên dưới đây từng nằm trong danh sách này
+# (gemini-3.8-flash, gemini-3.7-flash-medium, gemini-3-flash,
+#  gemini-3.6-flash-medium, gemini-pro-agent, gemini-3.1-pro-low). Chúng được
+# gỡ sau khi đối chiếu với router: cả 6 đều đang tồn tại và gọi được qua
+# `ag/*`. Giữ lại sẽ bắt đầu báo động sai khi có ai đó nhắc tên model đang
+# chạy trong mã.
 DEAD_NAMES = (
-    "gemini-3.8-flash", "gemini-3.7-flash-medium", "gemini-3-flash",
-    "gemini-3.6-flash-medium", "gemini-pro-agent", "gemini-3.1-pro-low",
     "gemini-2.5-flash", "claude-3-7-sonnet", "mimo-auto",
 )
 
@@ -123,6 +144,77 @@ else:
         check("không còn model chết trong danh sách router",
               not any(m.startswith(DEAD_PREFIXES) for m in real),
               str([m for m in real if m.startswith(DEAD_PREFIXES)]))
+
+        # ── TỰ CHỨNG MINH: nhóm model nào thật sự gọi được ──────────────
+        #
+        # Danh sách `DEAD_PREFIXES` ở trên là điều GHI NHỚ, và nó đã một lần
+        # sai: `ag/*` bị xếp vào nhóm chết từ lúc chưa có khoá, rồi sau đó sống
+        # lại mà danh sách không biết. Test báo động nhầm suốt từ đó.
+        #
+        # Nên bước này không tin danh sách: với MỖI nhóm có trong danh sách
+        # router, gọi thật một model và tự kết luận. Sau này provider nào chết
+        # thì test tự bắt được, không cần ai sửa danh sách.
+        #
+        # Cố ý gọi `stream: false`: mấy model `ag/*` trả `text/event-stream` dù
+        # không yêu cầu, và nếu đọc như JSON thì tưởng provider chết trong khi
+        # nó sống — đúng cái bẫy đã làm kiểm tra thủ công báo sai lúc đầu.
+        def _goi(model: str):
+            body = json.dumps({
+                "model": model,
+                "messages": [{"role": "user", "content": "Nói đúng một từ: OK"}],
+                "max_tokens": 30,
+                "stream": False,
+            }).encode()
+            req = urllib.request.Request(
+                f"{root}/v1/chat/completions", data=body,
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {key}"},
+            )
+            with urllib.request.urlopen(req, timeout=45) as r:
+                return r.status, r.read().decode("utf-8", "replace")
+
+        nhom = {}
+        for m in real:
+            nhom.setdefault(m.split("/", 1)[0], []).append(m)
+
+        for ten, models in sorted(nhom.items()):
+            # Thử nhiều model, không chỉ model đầu tiên.
+            #
+            # Lý do: danh sách router trộn lẫn model gọi được với model không
+            # dùng được cho endpoint này. Đo thật: `openrouter/typesafe/jev-1.13`
+            # trả 400 "is a decisions model and cannot be used with the
+            # chat/completions endpoint" — vĩnh viễn không dùng được; còn các
+            # model `:free` thì chỉ hết hạn mức tạm thời (429). Nếu lấy đúng
+            # model đầu tiên thì sẽ kết luận cả nhóm là chết và báo động giả.
+            sống, chưa_kết_luận, ghi = False, False, ""
+            for mau in models[:3]:
+                try:
+                    status, body = _goi(mau)
+                    if status == 200 and body.lstrip().startswith("{"):
+                        sống = True
+                        ghi = f"{mau} -> HTTP 200"
+                        break
+                    ghi = f"{mau} -> HTTP {status}"
+                except urllib.error.HTTPError as e:
+                    code = e.code
+                    if code in (429, 503):
+                        # Hết hạn mức / quá tải: KHÔNG phải bằng chứng provider
+                        # chết. Đánh dấu để cuối vòng bỏ qua thay vì báo động.
+                        chưa_kết_luận = True
+                        ghi = f"{mau} -> HTTP {code} (hết hạn mức)"
+                        continue
+                    ghi = f"{mau} -> HTTP {code}: {e.read()[:90]}"
+                except Exception:
+                    chưa_kết_luận = True
+                    ghi = f"{mau} -> lỗi mạng/timeout"
+
+            if sống:
+                check(f"nhóm '{ten}' có model gọi thật được", True)
+            elif chưa_kết_luận:
+                check(f"nhóm '{ten}' có model gọi thật được", True,
+                      f"bỏ qua — chưa đủ bằng chứng ({ghi})")
+            else:
+                check(f"nhóm '{ten}' có model gọi thật được", False, ghi)
     except Exception as exc:  # pylint: disable=broad-except
         check("gọi được /v1/models của router", False, f"{type(exc).__name__}: {exc}")
 
