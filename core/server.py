@@ -148,7 +148,51 @@ async def _safe_tts(audio_engine, text: str, timeout_s: float = 12.0):
     return _b.b64encode(audio).decode("utf-8") if audio else None
 
 
+#: Task đang xử lý lệnh thoại, theo phiên. Lệnh mới tới sẽ HUỶ task cũ.
+#:
+#: Phase 81: trước đây mỗi lệnh tạo một `asyncio.create_task()` rồi bỏ mặc.
+#: Nên khi người dùng nói lệnh thứ hai, lượt thứ nhất vẫn chạy tiếp: vẫn gọi
+#: LLM, vẫn sinh TTS, vẫn đẩy `voice_active` xuống HUD. HUD phát hết rồi
+#: câu mới mới lên tiếng — người dùng nói xong vẫn phải nghe tiếp, đúng triệu
+#: chứng "ra lệnh mà AI không dừng".
+#:
+#: Huỷ task cũ là đủ: `asyncio.CancelledError` ném ra giữa `await` nên vòng
+#: lặp stream LLM và `broadcast_hud` phía sau không chạy nữa.
+_hud_voice_tasks: Dict[str, "asyncio.Task"] = {}
+
+
+def _cancel_hud_voice_task(session_id: str) -> bool:
+    """Huỷ lượt đang xử lý của phiên. True nếu có thật sự huỷ được."""
+    task = _hud_voice_tasks.get(session_id)
+    if task is None or task.done():
+        _hud_voice_tasks.pop(session_id, None)
+        return False
+    task.cancel()
+    return True
+
+
 async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") -> None:
+    """
+    Bọc lượt thoại, tự dọn sổ task khi xong.
+
+    `finally` là chỗ duy nhất đảm bảo sổ không giữ task chết. Hàm thân có
+    nhiều nhánh `return` sớm; dọn ở từng nhánh thì sót nhánh là sổ giữ task đã
+    chết, và lệnh sau tới sẽ đi huỷ một task vô hại rồi tưởng đã dừng được lượt
+    cũ — sai. Ở đây `finally` chạy ở MỌI đường thoát, kể cả `CancelledError`
+    do lệnh mới huỷ, nên không sót đường nào.
+    """
+    task = asyncio.current_task()
+    _hud_voice_tasks[session_id] = task  # type: ignore[assignment]
+    try:
+        await _process_hud_voice_command_body(cmd_query, session_id)
+    finally:
+        # Chỉ xoá nếu sổ vẫn đang trỏ tới CHÍNH mình. Lệnh mới tới đã ghi đè
+        # sổ rồi, xoá vô điều kiện sẽ làm mất task của lượt đang chạy.
+        if _hud_voice_tasks.get(session_id) is task:
+            _hud_voice_tasks.pop(session_id, None)
+
+
+async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud") -> None:
     """
     Phase 33: Thực thi câu lệnh thoại từ VN-MateAI HUD qua WebSocket.
 
@@ -3335,6 +3379,20 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
             elif action == "voice_command":
                 cmd_query = (data.get("query") or "").strip()
                 if cmd_query:
+                    # Phase 81: huỷ lượt cũ trước khi nhận lượt mới. HUD đã
+                    # dừng phát audio phía trình duyệt, nhưng nếu lượt cũ còn
+                    # chạy ở đây thì nó vẫn sinh TTS và đẩy xuống — HUD sẽ phát
+                    # tiếp lời của lượt cũ sau khi lượt mới đã bắt đầu, nghe
+                    # như hai người nói chồng.
+                    if _cancel_hud_voice_task("hud"):
+                        logger.info("[HUD] Có lệnh mới — huỷ lượt thoại đang chạy")
+                        await broadcast_hud({
+                            "type": "voice_active",
+                            "status": "listening",
+                            "text": "",
+                            "interrupted": True,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        })
                     asyncio.create_task(_process_hud_voice_command(cmd_query))
             elif action == "confirm_action":
                 approved = bool(data.get("approved", True))

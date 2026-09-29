@@ -114,12 +114,18 @@ srv = Path(__file__).resolve().parents[1] / "core" / "server.py"
 src = srv.read_text(encoding="utf-8")
 tree = ast.parse(src)
 
-fn = None
-for node in ast.walk(tree):
-    if isinstance(node, ast.AsyncFunctionDef) and node.name == "_process_hud_voice_command":
-        fn = node
-        break
-check("tìm thấy _process_hud_voice_command", fn is not None)
+# Phase 81: `_process_hud_voice_command` giờ là hàm BỌC (đăng ký task + dọn sổ
+# ở finally), phần thân xử lý nằm ở `_process_hud_voice_command_body`. Test phải
+# soi phần thân, không phải lớp vỏ — nếu không sẽ báo sai là các kiểm tra
+# filler/TTS biến mất trong khi chúng vẫn còn nguyên.
+# `ast.walk` không bảo đảm thứ tự, nên phải thu cả hai rồi CHỌN ĐÚNG — quét
+# và `break` ở lần khớp đầu sẽ lấy nhầm hàm bọc (ngắn hơn) và báo sai.
+_hud_fns = {
+    n.name: n for n in ast.walk(tree)
+    if isinstance(n, ast.AsyncFunctionDef) and n.name.startswith("_process_hud_voice_command")
+}
+fn = _hud_fns.get("_process_hud_voice_command_body") or _hud_fns.get("_process_hud_voice_command")
+check("tìm thấy phần thân xử lý lệnh thoại HUD", fn is not None)
 
 fn_src = ast.get_source_segment(src, fn) or ""
 check("KHÔNG phát filler ngay trước khi gọi LLM",

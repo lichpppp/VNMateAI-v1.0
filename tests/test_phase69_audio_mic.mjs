@@ -67,13 +67,23 @@ check('hết hàng thì mới coi là nói xong', has('hudSpeechQueue.shift()'))
 section('Tắt tiếng không làm treo hàng đợi');
 // Nếu chỉ pause() mà để hudSpeechDraining = true, hàng đợi kẹt vĩnh viễn và
 // mọi câu sau đó im luôn — kể cả sau khi bật tiếng lại.
+//
+// Phase 81: tắt tiếng nay gọi chung hàm `hudStopSpeaking()` với lệnh mới, thay
+// vì viết lại logic hai chỗ. Nên test kiểm TRA HÀNH VI (tắt tiếng có đi qua
+// hàm dừng không, và hàm dừng có đủ hai việc không) thay vì đòi chuỗi mã lặp
+// lại — nếu không, lần refactor sau lại phải sửa test dù hành vi không đổi.
 const muteBlock = src.slice(
   src.indexOf('function toggleHudAudio()'),
   src.indexOf('window.toggleHudAudio')
 );
-check('tắt tiếng có xoá hàng đợi', muteBlock.includes('hudSpeechQueue = []'));
-check('tắt tiếng có mở lại cờ đang phát',
-  muteBlock.includes('hudSpeechDraining = false'),
+const stopBlock = src.slice(
+  src.indexOf('function hudStopSpeaking()'),
+  src.indexOf('function toggleHudAudio()')
+);
+check('tắt tiếng đi qua hàm dừng chung', muteBlock.includes('hudStopSpeaking()'));
+check('hàm dừng xoá hàng đợi', stopBlock.includes('hudSpeechQueue = []'));
+check('hàm dừng mở lại cờ đang phát',
+  stopBlock.includes('hudSpeechDraining = false'),
   'để true thì hàng đợi kẹt vĩnh viễn');
 
 // ══ 2. Mất quyền mic ═════════════════════════════════════════════════════

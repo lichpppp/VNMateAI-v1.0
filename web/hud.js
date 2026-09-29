@@ -1140,6 +1140,48 @@
     }
   }
 
+  /**
+   * Dừng ngay lời đang nói và xoá sạch hàng đợi.
+   *
+   * Vì sao cần (người dùng phản ánh: ra lệnh mới nhưng AI phải đọc hết câu cũ
+   * rồi mới dừng, mất cảm giác tương tác):
+   * Trước đây lệnh mới chỉ được gửi đi, không đụng tới audio đang phát. HUD
+   * cứ phát nốt hết hàng đợi của lượt cũ rồi mới tới lượt mới — người dùng
+   * nói xong vẫn phải nghe tiếp vài giây, đúng như bị cản.
+   *
+   * Phải xoá CẢ HÀNG ĐỢI chứ không chỉ `pause()` câu đang phát: các câu sau
+   * nó đã được tải sẵn và vẫn nằm trong `hudSpeechQueue`, nên chỉ dừng câu
+   * hiện tại thì lượt mới lại phải chờ chúng phát hết.
+   *
+   * Gọi ở mọi đường vào của lệnh mới: WebSocket, REST dự phòng, và cả nút
+   * MIC — không phụ thuộc lệnh đến từ đâu.
+   */
+  function hudStopSpeaking() {
+    // Bỏ handler trước rồi mới dừng: `onended` giữ lại sẽ gọi `next()` khi
+    // audio bị cắt, đẩy câu cũ vào lượt mới đang phát.
+    if (currentVoiceAudio) {
+      currentVoiceAudio.onended = null;
+      currentVoiceAudio.onerror = null;
+      try {
+        currentVoiceAudio.pause();
+        // Xoá `src` để trình duyệt ngắm ngải lượt phát, tránh câu cũ còn
+        // kẹt ở đệm phát khi có câu mới chen vào giữa.
+        currentVoiceAudio.removeAttribute('src');
+        currentVoiceAudio.load();
+      } catch (e) { /* phần tử đã bị tháo — không sao */ }
+      currentVoiceAudio = null;
+    }
+    const dropped = hudSpeechQueue.length;
+    hudSpeechQueue = [];
+    // Cờ draining phải về false, nếu không `drainSpeechQueue()` sẽ trả về ngay
+    // ở dòng đầu và HÀNG ĐỢI KẸT VĨNH VIỄN — kể cả các lượt sau.
+    hudSpeechDraining = false;
+    isAudioPlaying = false;
+    if (dropped) appendSystemLog(`Đã dừng lời đang nói, bỏ ${dropped} câu chưa phát.`, 'VOICE');
+    return dropped;
+  }
+  window.hudStopSpeaking = hudStopSpeaking;
+
   function toggleHudAudio() {
     playCyberChime('click');
     hudAudioEnabled = !hudAudioEnabled;
@@ -1151,17 +1193,9 @@
       } else {
         soundBtn.textContent = '[🔇 SOUND: TẮT]';
         soundBtn.className = 'hud-btn border-rose-500/60 bg-rose-950/40 text-rose-300 hover:border-rose-400';
-        // Dừng cả hàng đợi, không chỉ câu đang phát. Nếu chỉ pause() mà
-        // để lại `hudSpeechDraining = true`, hàng đợi kẹt vĩnh viễn và mọi
-        // câu sau đó im luôn — kể cả sau khi bật tiếng lại.
-        hudSpeechQueue = [];
-        hudSpeechDraining = false;
-        if (currentVoiceAudio) {
-          currentVoiceAudio.pause();
-          currentVoiceAudio.onended = null;
-          currentVoiceAudio = null;
-        }
-        isAudioPlaying = false;
+        // Dùng chung hàm dừng với lệnh mới: cùng một chỗ xử lý nên không có
+        // chỗ nào dừng được mà chỗ kia không.
+        hudStopSpeaking();
       }
     }
     appendSystemLog(`HUD Audio Output: ${hudAudioEnabled ? 'ENABLED' : 'MUTED'}`, 'SYS');
@@ -1661,6 +1695,18 @@ function hudDrainOutboundSpeech() {
 
     playCyberChime('wake');
 
+    // Dừng phát thanh trước khi mở mic.
+    //
+    // Nếu không, mic thu luôn giọng Ly Ly đang phát ra loa, nhận dạng nhầm
+    // thành lệnh của người dùng, rồi gửi đi — thành vòng lặp lệnh giả. Đây
+    // cũng là lý do nhóm tác vụ ở `handleVoiceState` cố tình chờ hết âm
+    // thanh mới mở mic.
+    //
+    // Người dùng bấm MIC là cố ý cất giọng, nên dừng câu đang đọc dở là đúng
+    // ý — khác với trường hợp tự mở lại mic sau khi AI hỏi, lúc đó không có
+    // gì đang phát nên không mất gì.
+    hudStopSpeaking();
+
     // Đang bị chặn thì phải hỏi lại quyền thật trước. Bấm mù vào `start()`
     // khi quyền đã `denied` chỉ tạo ra thêm một vòng `not-allowed` nữa.
     if (hudMicBlocked) {
@@ -1685,6 +1731,11 @@ function hudDrainOutboundSpeech() {
   window.toggleHudMic = toggleHudMic;
 
   async function sendHudVoiceCommand(query) {
+    // Dừng lời đang nói TRƯỚC khi gửi lệnh mới. Đặt ở đầu hàm để mọi đường
+    // đi (WebSocket, REST dự phòng) đều được dừng — không phải nhớ dừng ở
+    // từng nhánh. Nếu thiếu, người dùng nói lệnh mới vẫn phải nghe hết lượt
+    // cũ, đúng triệu chứng "ra lệnh rồi mà AI chưa dừng".
+    hudStopSpeaking();
     setHudState('processing', `Đang phân tích câu lệnh: "${query}"...`);
 
     // 1. Tuyến ưu tiên: Gửi trực tiếp qua kết nối WebSocket bảo mật
@@ -2267,6 +2318,13 @@ function hudDrainOutboundSpeech() {
             applyMetrics(packet.data);
           } else if (type === 'voice_active') {
             const status = packet.status || 'speaking';
+            // Máy chủ báo đã huỷ lượt cũ. Dừng ngay ở đây nữa, không chờ HUD
+            // tự phát hiện: lệnh mới có thể tới từ nguồn khác (ví dụ điện
+            // thoại), lúc đó không đi qua `sendHudVoiceCommand` của HUD.
+            if (packet.interrupted) {
+              hudStopSpeaking();
+              appendSystemLog('Lệnh mới tới — đã cắt lời đang nói.', 'VOICE');
+            }
             if (packet.display_text) {
               showHudDisplayCard(packet.display_text, packet.query || packet.text);
             }

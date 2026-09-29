@@ -1670,24 +1670,39 @@ class LLMEngine:
     @staticmethod
     def _extract_sentences(text: str) -> tuple[list[str], str]:
         """
-        Phase 50 Ultra-Low Latency Sentence Chunking:
-        1. Breaks on punctuation: ',', '.', '!', '?', '\n', ';', ':', '—'.
-        2. If buffer exceeds 10-12 words without punctuation, aggressively cuts at word boundary
-           so Edge-TTS can begin synthesis within < 200ms without waiting for a full sentence.
+        Tách câu cho TTS — ưu tiên NGHE TỰ NHIÊN hơn phát sớm.
 
-        Returns:
-            (list_of_complete_sentences, remaining_buffer)
+        Vì sao đổi (người dùng phản ánh: "đọc 2 3 chữ một, dẫn tới khó chịu"):
+
+        Bản cũ cắt theo DẤU PHẨY, và chỉ đòi mảnh dài tối thiểu 4 KÝ TỰ.
+        Câu tiếng Việt của LLM thì đầy dấu phẩy, nên một câu bị vỡ thành 3-5
+        mảnh. Mỗi mảnh thành một file mp3 riêng — mỗi file có khoảng lặng riêng
+        ở đầu và cuối — rồi phát nối tiếp nhau. Người nghe nghe rõ tiếng cắt
+        giữa chừng. Đó không phải độ trễ, mà là cách chia câu sai.
+
+        Nay:
+          - CHỈ cắt ở dấu kết câu thật (`. ! ? ;` xuống dòng, gạch dài).
+            Dấu phẩy và dấu hai chấm giữ lại TRONG câu — đó là chỗ thở tự
+            nhiên của giọng đọc, không phải chỗ cắt.
+          - Câu quá ngắn được GỘP với câu kế tiếp cho tới khi đủ từ, vì mảnh
+            2-3 từ nghe cũng ngắt, chỉ ngắt theo kiểu khác.
+          - Câu quá dài bị cắt, nhưng ưu tiên cắt sau dấu phẩy gần nhất để vẫn
+            nghe như lời người, không bị cắt giữa từ.
         """
-        import re
+        import re  # giữ đúng quy ước file: import cục bộ, không nâng lên module
+
         if not text:
             return [], ""
 
-        # Break on commas, periods, questions, exclamations, colons, semicolons, em-dash, newlines
-        boundary_pattern = re.compile(r'([^,.;:!?\n\—]+[,.;:!?\n\—])')
+        # Ngưỡng: dưới ngưỡng thì gộp, trên ngưỡng thì tách.
+        min_words = 8
+        max_words = 30
 
-        raw_parts = []
+        # Dấu kết câu THẬT. Dấu phẩy / hai chấm cố ý không nằm ở đây.
+        boundary_pattern = re.compile(r'[^.!?;\n\u2014\u2013]+[.!?;\n\u2014\u2013]')
+
+        raw_parts: list[str] = []
         remaining = text
-
         while True:
             m = boundary_pattern.search(remaining)
             if not m:
@@ -1697,23 +1712,31 @@ class LLMEngine:
             if part:
                 raw_parts.append(part)
 
-        sentences: list[str] = []
+        # Gộp các mảnh quá ngắn, rồi cắt các mảnh quá dài.
+        merged: list[str] = []
         for part in raw_parts:
-            # Yield any clean clause with at least 4 characters
-            if len(part.strip()) >= 4:
-                sentences.append(part.strip())
+            if merged and len(merged[-1].split()) < min_words:
+                merged[-1] = f"{merged[-1]} {part}"
+            else:
+                merged.append(part)
 
-        # Phase 50 Step 3.3: If remaining buffer is long (>= 10 words) without punctuation,
-        # aggressively cut at word boundary so Edge-TTS can synthesize chunk 1 immediately!
-        words = remaining.split()
-        if len(words) >= 10:
-            cut_idx = 10 if len(words) >= 12 else 8
-            first_chunk = " ".join(words[:cut_idx]).strip()
-            remaining = " ".join(words[cut_idx:]).strip()
-            if first_chunk:
-                sentences.append(first_chunk)
+        sentences: list[str] = []
+        for part in merged:
+            words = part.split()
+            while len(words) > max_words:
+                head = words[:max_words]
+                # Ưu tiên cắt sau dấu phẩy gần nhất trong phần đầu: đó là chỗ
+                # thở tự nhiên. Không có dấu phẩy thì mới cắt theo từ.
+                cut = max((i for i, w in enumerate(head) if w.endswith(',')), default=None)
+                if cut is not None and cut >= min_words // 2:
+                    head = head[: cut + 1]
+                sentences.append(" ".join(head).strip())
+                words = words[len(head):]
+            tail = " ".join(words).strip()
+            if tail:
+                sentences.append(tail)
 
-        return sentences, remaining
+        return [x for x in sentences if x], remaining
 
 
 
