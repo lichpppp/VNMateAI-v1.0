@@ -2213,7 +2213,31 @@ async def proxy_models_endpoint(
     models_url = f"{base}/models"
     headers: Dict[str, str] = {"Accept": "application/json"}
     if payload.api_key:
-        headers["Authorization"] = f"Bearer {payload.api_key}"
+        # Ô bí mật trên giao diện luôn để TRỐNG (ký hiệu che không được đổ
+        # vào ô). Nhưng nếu ký hiệu che lọt lên đây — hoặc người dùng dán
+        # nhầm chữ có dấu — thì header HTTP không encode được và httpx ném
+        # lỗi codec. Lỗi đó hiện ra là
+        #   'ascii' codec can't encode characters in position 7-14
+        # khiến người dùng tưởng proxy chết, trong khi proxy vẫn chạy thật.
+        # Chặn ở đây và nói đúng nguyên nhân.
+        if payload.api_key == _SECRET_MASK:
+            api_key = None
+        else:
+            try:
+                payload.api_key.encode("ascii")
+            except UnicodeEncodeError:
+                return {
+                    "success": False,
+                    "error": (
+                        "Mã bảo mật có ký tự không hợp lệ (chữ tiếng Việt hoặc "
+                        "ký hiệu che). Mã bảo mật chỉ gồm ký tự ASCII — thường "
+                        "bắt đầu bằng sk-... . Để trống ô này nếu 9router không "
+                        "yêu cầu mã."
+                    ),
+                    "models": [],
+                }
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
 
     try:
         async with httpx.AsyncClient(timeout=8.0) as client:
@@ -2230,6 +2254,19 @@ async def proxy_models_endpoint(
             "success": True,
             "count": len(model_ids),
             "models": model_ids,
+        }
+    except UnicodeEncodeError:
+        # Chặn sẵn ở trên, nhưng để nguyên `except Exception` bên dưới thì lỗi
+        # codec vẫn lọt ra khi chuỗi lọt qua chỗ khác (ví dụ URL có ký tự lạ).
+        # Người dùng không biết sửa gì từ "'ascii' codec can't encode".
+        return {
+            "success": False,
+            "error": (
+                "Địa chỉ proxy hoặc mã bảo mật có ký tự không hợp lệ — "
+                "HTTP header chỉ nhận ký tự ASCII. Kiểm tra lại ô địa chỉ và "
+                "ô mã bảo mật."
+            ),
+            "models": [],
         }
     except Exception as exc:
         return {

@@ -453,22 +453,79 @@ class AnalyticsEngine:
         daily_burn = fin["daily_burn_rate"]
         runway = fin["runway_days"]
 
+        # ── Chưa có dữ liệu thì KHÔNG kết luận gì cả ─────────────────────
+        # Lỗi đã xảy ra: bảng `finances` trống nên mọi số về 0, rồi
+        # `net_balance <= 0` bắt thành CẢNH BÁO ĐỎ và bắn Telegram, với nội
+        # dung vô lý: "Tốc độ chi tiêu (0 VND/ngày) đang vượt ngưỡng an toàn.
+        # Quỹ dự trữ (0 VND) sẽ cạn trong 0.0 ngày" — 0 không thể vượt ngưỡng
+        # nào, và 0 VND ở đây là KHÔNG CÓ giao dịch chứ không phải quỹ cạn.
+        #
+        # Không có số đo thì phải nói không có số đo. Không dùng 0 để đại diện
+        # cho "chưa biết", và không gửi cảnh báo cho một sự kiện không có.
+        if not fin.get("has_data", True):
+            return {
+                "status": "success",
+                "alert_level": "NO_DATA",
+                "is_critical": False,
+                "is_warning": False,
+                "has_data": False,
+                "runway_days": None,
+                "daily_burn_rate": None,
+                "net_balance": None,
+                "message": (
+                    "Chưa có giao dịch tài chính nào được ghi nhận — chưa đủ dữ liệu "
+                    "để dự báo dòng tiền. Chưa phải lúc kết luận quỹ an toàn hay "
+                    "cạn."
+                ),
+            }
+
         # Đánh giá mức độ rủi ro dòng tiền
         # Nguy cấp: Runway < 15 ngày hoặc net_balance âm
-        is_critical = (net_balance <= 0) or (daily_burn > 0 and runway < 15.0)
+        #
+        # Điều kiện cũ là `net_balance <= 0`, coi số dư bằng 0 là nguy cấp.
+        # Nhưng doanh nghiệp vừa lập, chi bằng 0, thu bằng 0 là chuyện bình
+        # thường, không phải "cạn quỹ". Chỉ coi là nguy cấp khi ÂM thật, hoặc
+        # khi thực sự đang đốt tiền mà runway ngắn.
+        is_critical = (net_balance < 0) or (daily_burn > 0 and runway < 15.0)
         is_warning = (daily_burn > 0 and runway < 30.0)
 
         alert_level = "NORMAL"
-        alert_message = f"Dòng tiền an toàn. Số dư quỹ {net_balance:,.0f} VND dự kiến đủ vận hành trong {runway} ngày."
+        if is_critical:
+            # Nói đúng LÝ DO. Trước đây mọi ca nguy cấp đều dùng một câu "tốc độ
+            # chi tiêu đang vượt ngưỡng an toàn" — nhưng khi số dư âm mà chi phí
+            # rất nhỏ thì câu đó sai: 266.000 VND/ngày không phải nguyên nhân,
+            # nguyên nhân là đã âm. Người đọc tìm nhầm chỗ cần sửa.
+            alert_message = (
+                f"🚨 CẢNH BÁO ĐỎ TÀI CHÍNH (PREDICTIVE WARNING):\n"
+                + (
+                    f"Số dư đang ÂM: {net_balance:,.0f} VND. "
+                    f"Chi tiêu {daily_burn:,.0f} VND/ngày. "
+                    f"Quỹ cạn ngay từ hiện tại — cần bơm tiền hoặc cắt chi.\n"
+                    if net_balance < 0 else
+                    f"Tốc độ chi tiêu ({daily_burn:,.0f} VND/ngày) khiến quỹ "
+                    f"chỉ còn đủ {runway:,.0f} ngày.\n"
+                )
+                + f"Quỹ dự trữ hiện còn {net_balance:,.0f} VND."
+            )
+        elif is_warning:
+            alert_message = f"⚠️ Cảnh báo dòng tiền: Số ngày an toàn (Runway) còn dưới 30 ngày ({runway} ngày)."
+        elif daily_burn == 0:
+            # Có dữ liệu nhưng không có chi phí nào trong 30 ngày. Runway kiểu
+            # cũ trả 0.0 ở trường hợp này (mẫu số bằng 0) — nói "còn 0 ngày"
+            # là sai, vì không có gì để cạn.
+            alert_message = (
+                f"Không có khoản chi nào trong 30 ngày gần nhất. Số dư "
+                f"{net_balance:,.0f} VND. Không tính được số ngày còn hoạt động "
+                f"vì không có chi tiêu để chia."
+            )
+        else:
+            alert_message = f"Dòng tiền an toàn. Số dư quỹ {net_balance:,.0f} VND dự kiến đủ vận hành trong {runway:,.0f} ngày."
 
         if is_critical:
             alert_level = "CRITICAL_RED"
-            alert_message = (
-                f"🚨 CẢNH BÁO ĐỎ TÀI CHÍNH (PREDICTIVE WARNING):\n"
-                f"Tốc độ chi tiêu ({daily_burn:,.0f} VND/ngày) đang vượt ngưỡng an toàn.\n"
-                f"Quỹ dự trữ ({net_balance:,.0f} VND) sẽ cạn trong {runway} ngày tới nếu không tăng thu hoặc cắt giảm chi!"
-            )
-            # Phát cảnh báo khẩn cấp sang Telegram
+            # Phát cảnh báo khẩn cấp sang Telegram. Chỉ khi có số đo thật —
+            # nhánh NO_DATA đã trả về từ trên nên không bao giờ tới đây mà
+            # chưa có giao dịch.
             try:
                 from core.telegram_gateway import telegram_gateway
                 telegram_gateway.send_incident_alert(alert_message)
@@ -477,14 +534,14 @@ class AnalyticsEngine:
 
         elif is_warning:
             alert_level = "WARNING_YELLOW"
-            alert_message = f"⚠️ Cảnh báo dòng tiền: Số ngày an toàn (Runway) còn dưới 30 ngày ({runway} ngày)."
 
         return {
             "status": "success",
             "alert_level": alert_level,
             "is_critical": is_critical,
             "is_warning": is_warning,
-            "runway_days": runway,
+            "has_data": True,
+            "runway_days": runway if daily_burn > 0 else None,
             "daily_burn_rate": daily_burn,
             "net_balance": net_balance,
             "message": alert_message,

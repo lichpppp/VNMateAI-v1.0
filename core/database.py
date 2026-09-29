@@ -1078,6 +1078,15 @@ class ERPDatabase:
             # Dự báo số ngày quỹ còn hoạt động (runway)
             runway_days = round(net_balance / daily_burn_rate, 1) if (daily_burn_rate > 0 and net_balance > 0) else (999.0 if net_balance > 0 else 0.0)
 
+            # Đếm số giao dịch thật. `COALESCE(SUM(...), 0)` khiến "chưa có
+            # giao dịch nào" và "tổng bằng 0" cho ra CÙNG một giá trị 0 — không
+            # phân biệt được. Người đọc số 0 đó là hiểu nhầm thành "quỹ cạn",
+            # và cảnh báo tài chính bắn đỏ lên một sự kiện không tồn tại.
+            # Trả kèm số dòng để tầng trên biết khi nào phải nói "chưa có dữ
+            # liệu" thay vì đưa ra con số.
+            cursor.execute("SELECT COUNT(*) FROM finances;")
+            transaction_count = int(cursor.fetchone()[0])
+
             return {
                 "total_income": total_income,
                 "total_expense": total_expense,
@@ -1085,6 +1094,10 @@ class ERPDatabase:
                 "daily_burn_rate": daily_burn_rate,
                 "runway_days": runway_days,
                 "is_critical_burn": (daily_burn_rate > 0 and runway_days < 15.0),
+                # False = bảng `finances` trống, mọi số 0 ở trên là do COALESCE
+                # chứ không phải số đo thật.
+                "has_data": transaction_count > 0,
+                "transaction_count": transaction_count,
                 "category_breakdown": category_breakdown,
                 "recent_transactions": recent_txs,
             }

@@ -3477,6 +3477,26 @@ async function downloadClientAgent() {
 // Phải khớp byte-for-byte với `_SECRET_MASK` trong core/server.py.
 const SECRET_MASK = '••••••••';
 
+/**
+ * Giá trị an toàn để đổ vào ô nhập.
+ *
+ * Máy chủ trả khoá đã che (`••••••••`) — đúng, không bao giờ gửi khoá thật ra
+ * trình duyệt. Nhưng nếu điền ký hiệu che vào ô mật khẩu thì ô đó chứa rác,
+ * và mọi chỗ đọc ô đó để gọi API sẽ gửi ký hiệu che đi như khoá thật.
+ *
+ * Lỗi đã xảy ra: ô "MÃ BẢO MẬT (API KEY)" nhận `••••••••`, bấm "Tải model
+ * từ 9router" thì máy chủ báo
+ *   'ascii' codec can't encode characters in position 7-14
+ * vì 8 ký tự `•` không encode được trong HTTP header. Người dùng tưởng
+ * 9router hỏng, trong khi proxy vẫn trả về 31 model bình thường.
+ *
+ * Ô bí mật LUÔN để trống. Ô trống nghĩa là "giữ khoá đang lưu" — đúng quy ước
+ * đã dùng ở form cấu hình connector.
+ */
+function _ccSafeField(val) {
+  return val === SECRET_MASK ? '' : val;
+}
+
 async function loadConfig() {
   const cfg = await apiGetConfig();
   if (!cfg) return;
@@ -3485,7 +3505,7 @@ async function loadConfig() {
 
   const setVal = (id, val) => {
     const el = document.getElementById(id);
-    if (el && val !== undefined && val !== null) el.value = val;
+    if (el && val !== undefined && val !== null) el.value = _ccSafeField(val);
   };
 
   const setKeysVal = (id, target) => {
@@ -3497,6 +3517,10 @@ async function loadConfig() {
     } else if (target.api_key) {
       keys = [target.api_key];
     }
+    // Lọc TỪNG khoá chứ không so sánh cả chuỗi: 3 khoá đã che nối bằng dấu
+    // xuống dòng tạo ra chuỗi `••••••••\n••••••••\n••••••••` — khác hẳn
+    // SECRET_MASK nên so sánh chuỗi sẽ bỏ sót.
+    keys = keys.filter((k) => k !== SECRET_MASK && k !== undefined && k !== null);
     el.value = keys.join('\n');
   };
 
@@ -3679,7 +3703,7 @@ async function saveFullConfig() {
     // Đồng bộ tức thì sang các trường của Tab Quản Lý Trợ Lý AI
     const setIf = (id, val) => {
       const el = document.getElementById(id);
-      if (el) el.value = val;
+      if (el) el.value = _ccSafeField(val);
     };
     setIf('ai-llm-base', baseUrl);
     setIf('ai-llm-model', modelName);
@@ -3708,8 +3732,10 @@ async function loadAIManagerConfig() {
   const setVal = (id, val) => {
     const el = document.getElementById(id);
     if (!el || val === undefined || val === null) return;
-    if (el.type === 'range') { el.value = val; el.dispatchEvent(new Event('input')); }
-    else el.value = val;
+    // Ký hiệu che không được đổ vào ô — xem giải thích ở `_ccSafeField`.
+    const safe = _ccSafeField(val);
+    if (el.type === 'range') { el.value = safe; el.dispatchEvent(new Event('input')); }
+    else el.value = safe;
   };
 
   // ── Card 1: LLM
@@ -3892,7 +3918,7 @@ async function saveAIConfig() {
     const legacyModel = document.getElementById('cfg-llm-model');
     if (legacyModel) legacyModel.value = modelName;
     const legacyKey = document.getElementById('cfg-llm-key');
-    if (legacyKey) legacyKey.value = apiKey;
+    if (legacyKey) legacyKey.value = _ccSafeField(apiKey);
     const chainEl = document.getElementById('cfg-chain-primary');
     if (chainEl) chainEl.textContent = modelName;
   } else {
@@ -3953,7 +3979,16 @@ async function loadAIProxyModels() {
       wrap.classList.remove('hidden');
       showToast(`✅ Đã tải ${data.models.length} model từ 9router!`, 'success');
     } else {
-      showToast(`⚠️ Không tìm thấy model nào từ 9router: ${data.error || 'Danh sách rỗng'}`, 'warning');
+      // Phân biệt hai ca: proxy lỗi/không trả được, và proxy trả về rỗng.
+      // Trước đây gộp chung thành "Không tìm thấy model nào" — khi thực ra là
+      // request hỏng, người dùng đi tìm vấn đề ở 9router trong khi lỗi nằm ở
+      // ô mã bảo mật của chính họ.
+      showToast(
+        data.success === false
+          ? `⚠️ Không lấy được danh sách model từ 9router: ${data.error || 'lỗi không rõ'}`
+          : `⚠️ 9router không có model nào để chọn (danh sách rỗng).`,
+        'warning',
+      );
     }
   } catch (e) {
     showToast('❌ Không kết nối được đến 9router: ' + e.message, 'error');
@@ -4695,7 +4730,12 @@ async function loadProxyModels() {
       if (selectWrap) selectWrap.classList.remove('hidden');
       showToast(`✅ Đã tải ${data.models.length} model từ 9router!`, 'success');
     } else {
-      showToast(`⚠️ Không tìm thấy model nào từ proxy: ${data.error || 'Danh sách rỗng'}`, 'warning');
+      showToast(
+        data.success === false
+          ? `⚠️ Không lấy được danh sách model từ proxy: ${data.error || 'lỗi không rõ'}`
+          : `⚠️ Proxy không có model nào để chọn (danh sách rỗng).`,
+        'warning',
+      );
     }
   } catch (err) {
     showToast(`❌ Lỗi kết nối 9router để lấy model: ${err.message}`, 'error');
