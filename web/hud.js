@@ -8,14 +8,69 @@
  * - Multi-tier holographic Arc Reactor rings with rotating degree notches.
  * - 3D Quantum Fibonacci Sphere with dynamic crystalline Plexus connections.
  * - Audio-reactive shockwave ripples & particle burst physics.
- * - Real-time Tactical Radar mini-sweep canvas.
+ * - Decorative radar mini-sweep canvas (hiệu ứng trang trí, không phải dữ liệu).
  * - Circular SVG dual arc gauges for CPU & RAM telemetry.
  * - Multi-band stereo equalizer oscilloscope with floating peak caps.
- * - Seamless WebSocket Neural Link with zero-latency streaming.
+ * - WebSocket telemetry link; mọi số đo thiếu đều hiện "chờ kết nối".
+ *
+ * Phase 76: HUD chỉ hiện dữ liệu thật. Xem `applyMetrics()` và
+ * `renderAuthStatus()` — đó là hai nơi quyết định mọi con số và vai trò
+ * hiển thị trên màn hình.
  */
 
 (function () {
   'use strict';
+
+  // ---------------------------------------------------------------------------
+  // 0. QUY ƯỚC "CHỜ KẾT NỐI" — chép NGUYÊN VĂN từ web/app.js
+  //
+  //   Phải khớp từng ký tự với app.js và roi_dashboard.html, nếu không mỗi
+  //   nơi sẽ hiển thị "chờ kết nối" theo một kiểu khác nhau. Test
+  //   tests/test_phase76_no_fake_hud.mjs so khớp tự động nên sửa một bên mà
+  //   quên bên kia là test đỏ.
+  // ---------------------------------------------------------------------------
+  const WAIT_TXT = 'chờ kết nối';
+  
+  /** Giá trị này có phải số liệu thật không (không phải thiếu/rỗng/NaN). */
+  function _isLive(v) {
+    if (v === null || v === undefined || v === '') return false;
+    if (typeof v === 'number' && !Number.isFinite(v)) return false;
+    return true;
+  }
+  
+  /**
+   * Trả về `v` nếu là dữ liệu thật, ngược lại trả `fallback` (mặc định WAIT_TXT).
+   * Dùng cho mọi ô đang chờ dữ liệu thay vì `|| 0` hay `?? 100`.
+   */
+  function _live(v, fallback = WAIT_TXT) {
+    return _isLive(v) ? v : fallback;
+  }
+  
+  /**
+   * Định dạng số đo kèm đơn vị, hoặc "chờ kết nối" nếu chưa có dữ liệu.
+   * @param {*} v        giá trị thô từ API
+   * @param {object} opt {digits: số lẻ thập phân, unit: đơn vị, suffix}
+   */
+  function _liveNum(v, { digits = null, unit = '', suffix = '' } = {}) {
+    if (!_isLive(v)) return WAIT_TXT;
+    const n = Number(v);
+    if (!Number.isFinite(n)) return WAIT_TXT;
+    const shown = digits === null ? String(n) : n.toFixed(digits);
+    return `${shown}${unit}${suffix}`;
+  }
+  
+  /**
+   * Ghi giá trị ra phần tử, tự gắn/bỏ class `is-waiting` theo tình trạng dữ liệu.
+   * `el` nhận selector hoặc element; không tồn tại thì bỏ qua (không ném lỗi).
+   */
+  function _setLiveText(el, value, { waiting = WAIT_TXT } = {}) {
+    const node = typeof el === 'string' ? document.querySelector(el) : el;
+    if (!node) return;
+    const isWait = !_isLive(value) || value === waiting;
+    node.textContent = isWait ? waiting : String(value);
+    node.classList.toggle('is-waiting', isWait);
+  }
+
 
   // ---------------------------------------------------------------------------
   // 1. STATE & COLOR PALETTES
@@ -84,11 +139,14 @@
   const fpsEl = document.getElementById('hud-fps');
   const connDotEl = document.getElementById('hud-conn-dot');
   const connTextEl = document.getElementById('hud-conn-text');
+  const linkBadgeEl = document.getElementById('hud-link-badge');
+  const secStatusEl = document.getElementById('hud-security-status');
   const statusBadgeEl = document.getElementById('core-status-badge');
 
   const cpuTextEl = document.getElementById('metric-cpu-text');
   const cpuCircleEl = document.getElementById('metric-cpu-circle');
   const cpuBarEl = document.getElementById('metric-cpu-bar');
+  const coresTextEl = document.getElementById('metric-cores-text');
   const procsTextEl = document.getElementById('metric-procs-text');
   
   const ramTextEl = document.getElementById('metric-ram-text');
@@ -110,6 +168,8 @@
   const voiceTagEl = document.getElementById('voice-indicator-tag');
   const typewriterTextEl = document.getElementById('typewriter-text');
   const logStreamEl = document.getElementById('hud-log-stream');
+  const logPlaceholderEl = document.getElementById('hud-log-placeholder');
+  const voiceStreamEl = document.getElementById('hud-voice-stream');
 
   // ---------------------------------------------------------------------------
   // 3. ZERO-ALLOCATION PRE-ALLOCATED POOLS FOR 3D QUANTUM SPHERE & PARTICLES
@@ -647,21 +707,11 @@
     radarCtx.stroke();
     radarCtx.restore();
 
-    // Target Blips (2 simulated satellite defense nodes)
-    const t1 = (timestamp * 0.001) % (Math.PI * 2);
-    radarCtx.fillStyle = '#10b981';
-    radarCtx.shadowColor = '#10b981';
-    radarCtx.shadowBlur = 6;
-    radarCtx.beginPath();
-    radarCtx.arc(cx + Math.cos(1.2) * radius * 0.65, cy + Math.sin(1.2) * radius * 0.65, 2.5, 0, Math.PI * 2);
-    radarCtx.fill();
-
-    radarCtx.fillStyle = '#00f2fe';
-    radarCtx.shadowColor = '#00f2fe';
-    radarCtx.beginPath();
-    radarCtx.arc(cx + Math.cos(3.8) * radius * 0.45, cy + Math.sin(3.8) * radius * 0.45, 2.0, 0, Math.PI * 2);
-    radarCtx.fill();
-    radarCtx.shadowBlur = 0;
+    // Phase 76: đã gỡ 2 chấm sáng "mục tiêu vệ tinh mô phỏng" vẽ ra.
+    // Chúng không đến từ dữ liệu nào — chỉ là hình tròn tĩnh đặt cứng toạ độ,
+    // mà bảng "TARGETS: 0 DETECTED" lại nói ngược lại. Giữ lại sẽ hiển thị
+    // mục tiêu không có thật. Ô quét radar giờ là hiệu ứng trang trí thuần,
+    // có nhãn "MINHỌA — KHÔNG PHẢI DỮ LIỆU" bên cạnh.
   }
 
   // ---------------------------------------------------------------------------
@@ -1745,6 +1795,13 @@ function hudDrainOutboundSpeech() {
   function appendSystemLog(message, level = 'INFO') {
     if (!logStreamEl) return;
 
+    // Phase 76: dòng "chờ kết nối — chưa có sự kiện nào" trong HTML chỉ là
+    // trạng thái lúc mới mở trang. Log thật đầu tiên tới là xoá đi, nếu không
+    // nó đứng vĩnh viễn ở đầu hàng như một sự kiện đã xảy ra.
+    if (logPlaceholderEl && logPlaceholderEl.parentNode) {
+      logPlaceholderEl.parentNode.removeChild(logPlaceholderEl);
+    }
+
     const timeStr = new Date().toTimeString().split(' ')[0];
     const item = document.createElement('div');
 
@@ -1799,6 +1856,15 @@ function hudDrainOutboundSpeech() {
       voiceTagEl.style.color = `rgb(${nextState.r}, ${nextState.g}, ${nextState.b})`;
     }
 
+    // Phase 76: nhãn này từng ghi cứng "VOICE STREAM ACTIVE" ngay khi mở trang,
+    // tức tuyên bố có luồng âm thanh dù mic chưa từng được bật. Nay bám theo
+    // trạng thái thật: chỉ "ACTIVE" khi đang nghe hoặc đang nói.
+    if (voiceStreamEl) {
+      const live = currentState === STATES.LISTENING || currentState === STATES.SPEAKING;
+      voiceStreamEl.textContent = live ? 'VOICE STREAM ACTIVE' : 'VOICE STREAM IDLE';
+      voiceStreamEl.classList.toggle('is-waiting', false);
+    }
+
     if (customText) {
       setTypewriterText(customText, durationMs);
     }
@@ -1843,86 +1909,185 @@ function hudDrainOutboundSpeech() {
 
   setInterval(updateClocks, 1000);
 
+  /**
+   * Ghi số đo vào giao diện, hoặc "chờ kết nối" khi chưa có.
+   *
+   * Phase 76: trước đây mỗi ô có một giá trị bịa riêng — `?? 50` cho số kỹ năng,
+   * `?? 0` cho mạch âm thanh, và "NVMe PRIMARY // OPTIMAL" khi không đọc được
+   * dung lượng đĩa. Nay không còn ô nào tự chế ra số: số nào không tới thì ô đó
+   * nói "chờ kết nối" (và được làm mờ); server lỡ gửi null thì ô đó quay lại
+   * trạng thái chờ chứ không giữ số cũ đọng lại như số liệu tối nay.
+   */
   function applyMetrics(rawData) {
     if (!rawData) return;
     const data = rawData.hardware ? { ...rawData.hardware, ...rawData } : rawData;
 
-    if (data.cpu_percent != null) {
-      const cpu = Math.min(100, Math.max(0, Number(data.cpu_percent)));
-      if (cpuTextEl) cpuTextEl.textContent = `${cpu.toFixed(1)}%`;
-      if (cpuBarEl) cpuBarEl.style.width = `${cpu}%`;
-      if (cpuCircleEl) {
+    // ── CPU ────────────────────────────────────────────────────────────────
+    if (cpuTextEl) {
+      if (_isLive(data.cpu_percent)) {
+        const cpu = Math.min(100, Math.max(0, Number(data.cpu_percent)));
+        cpuTextEl.textContent = `${cpu.toFixed(1)}%`;
+        cpuTextEl.classList.remove('is-waiting');
+        if (cpuBarEl) cpuBarEl.style.width = `${cpu}%`;
         // Circumference 238.76
-        const offset = CIRCLE_CIRCUMFERENCE * (1 - cpu / 100);
-        cpuCircleEl.style.strokeDashoffset = offset;
+        if (cpuCircleEl) cpuCircleEl.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE * (1 - cpu / 100);
+      } else {
+        cpuTextEl.textContent = '--';
+        cpuTextEl.classList.add('is-waiting');
+        if (cpuBarEl) cpuBarEl.style.width = '0%';
+        if (cpuCircleEl) cpuCircleEl.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE;
       }
     }
 
     const procs = data.processes_count ?? data.process_count;
-    if (procs != null && procsTextEl) {
-      procsTextEl.textContent = `PROCS: ${procs}`;
+    if (procsTextEl) {
+      procsTextEl.textContent = _isLive(procs) ? `PROCS: ${procs}` : 'PROCS: --';
+      procsTextEl.classList.toggle('is-waiting', !_isLive(procs));
     }
 
+    const cores = data.cpu_cores ?? data.cores;
+    if (coresTextEl) {
+      coresTextEl.textContent = _isLive(cores) ? `CORES: ${cores}` : 'CORES: --';
+      coresTextEl.classList.toggle('is-waiting', !_isLive(cores));
+    }
+
+    // ── RAM ────────────────────────────────────────────────────────────────
     const ramPctVal = data.memory?.percent ?? data.ram_percent;
-    if (ramPctVal != null) {
-      const ram = Math.min(100, Math.max(0, Number(ramPctVal)));
-      if (ramTextEl) ramTextEl.textContent = `${ram.toFixed(1)}%`;
-      if (ramBarEl) ramBarEl.style.width = `${ram}%`;
-      if (ramCircleEl) {
-        const offset = CIRCLE_CIRCUMFERENCE * (1 - ram / 100);
-        ramCircleEl.style.strokeDashoffset = offset;
-      }
-      const usedGb = data.memory?.used_gb ?? data.ram_used_gb;
-      if (ramGbEl && usedGb != null) {
-        ramGbEl.textContent = `USED: ${usedGb} GB`;
-      }
-      const totalGb = data.memory?.total_gb ?? data.ram_total_gb;
-      if (ramTotalEl && totalGb != null) {
-        ramTotalEl.textContent = `TOTAL: ${totalGb} GB`;
+    if (ramTextEl) {
+      if (_isLive(ramPctVal)) {
+        const ram = Math.min(100, Math.max(0, Number(ramPctVal)));
+        ramTextEl.textContent = `${ram.toFixed(1)}%`;
+        ramTextEl.classList.remove('is-waiting');
+        if (ramBarEl) ramBarEl.style.width = `${ram}%`;
+        if (ramCircleEl) ramCircleEl.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE * (1 - ram / 100);
+      } else {
+        ramTextEl.textContent = '--';
+        ramTextEl.classList.add('is-waiting');
+        if (ramBarEl) ramBarEl.style.width = '0%';
+        if (ramCircleEl) ramCircleEl.style.strokeDashoffset = CIRCLE_CIRCUMFERENCE;
       }
     }
 
+    const usedGb = data.memory?.used_gb ?? data.ram_used_gb;
+    if (ramGbEl) {
+      ramGbEl.textContent = _isLive(usedGb) ? `USED: ${usedGb} GB` : 'USED: chờ kết nối';
+      ramGbEl.classList.toggle('is-waiting', !_isLive(usedGb));
+    }
+
+    const totalGb = data.memory?.total_gb ?? data.ram_total_gb;
+    if (ramTotalEl) {
+      ramTotalEl.textContent = _isLive(totalGb) ? `TOTAL: ${totalGb} GB` : 'TOTAL: chờ kết nối';
+      ramTotalEl.classList.toggle('is-waiting', !_isLive(totalGb));
+    }
+
+    // ── Ổ đĩa ──────────────────────────────────────────────────────────────
     const diskPctVal = data.disk?.percent ?? data.disk_percent;
-    if (diskPctVal != null) {
-      const disk = Math.min(100, Math.max(0, Number(diskPctVal)));
-      if (diskTextEl) diskTextEl.textContent = `${disk.toFixed(1)}%`;
-      if (diskBarEl) diskBarEl.style.width = `${disk}%`;
-    }
-
-    const clients = data.clients_count ?? data.connected_clients ?? data.nodes?.active_web_clients;
-    if (clients != null && clientsCountEl) {
-      clientsCountEl.textContent = `${clients} ACTIVE`;
-    }
-
-    if (audioNodesEl) {
-      const aNodes = data.active_audio_hardware ?? data.nodes?.active_audio_hardware ?? 0;
-      audioNodesEl.textContent = `${aNodes} THIẾT BỊ`;
-    }
-
-    if (skillsCountEl) {
-      const sCount = data.skills_count ?? data.nodes?.skills_count ?? 50;
-      skillsCountEl.textContent = `${sCount} SKILLS ACTIVE`;
-    }
-
-    if (netIoEl && (data.net_sent_mbps != null || data.net_recv_mbps != null)) {
-      const up = Number(data.net_sent_mbps || 0).toFixed(1);
-      const down = Number(data.net_recv_mbps || 0).toFixed(1);
-      netIoEl.innerHTML = `<span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span> NET: ▲ ${up} MB/s ▼ ${down} MB/s`;
+    if (diskTextEl) {
+      if (_isLive(diskPctVal)) {
+        const disk = Math.min(100, Math.max(0, Number(diskPctVal)));
+        diskTextEl.textContent = `${disk.toFixed(1)}%`;
+        diskTextEl.classList.remove('is-waiting');
+        if (diskBarEl) diskBarEl.style.width = `${disk}%`;
+      } else {
+        diskTextEl.textContent = 'chờ kết nối';
+        diskTextEl.classList.add('is-waiting');
+        if (diskBarEl) diskBarEl.style.width = '0%';
+      }
     }
 
     if (diskFreeEl) {
-      if (data.disk_free_gb != null && data.disk_free_gb > 0) {
-        diskFreeEl.textContent = `FREE: ${data.disk_free_gb} GB / ${data.disk_total_gb || '--'} GB`;
+      const freeGb = data.disk_free_gb;
+      const diskTotalGb = data.disk_total_gb;
+      if (_isLive(freeGb)) {
+        diskFreeEl.textContent = `FREE: ${freeGb} GB / ${_isLive(diskTotalGb) ? diskTotalGb : '--'} GB`;
+        diskFreeEl.classList.remove('is-waiting');
       } else {
-        diskFreeEl.textContent = 'NVMe PRIMARY // OPTIMAL';
+        diskFreeEl.textContent = 'FREE: chờ kết nối';
+        diskFreeEl.classList.add('is-waiting');
       }
     }
 
+    // ── Clients / mạch âm thanh / kỹ năng ─────────────────────────────────
+    const clients = data.clients_count ?? data.connected_clients ?? data.nodes?.active_web_clients;
+    if (clientsCountEl) {
+      // 0 là số đo thật (không có client nào đang kết nối) nên vẫn hiện 0.
+      clientsCountEl.textContent = _isLive(clients) ? `${clients} ACTIVE` : 'chờ kết nối';
+      clientsCountEl.classList.toggle('is-waiting', !_isLive(clients));
+    }
+
+    if (audioNodesEl) {
+      const aNodes = data.active_audio_hardware ?? data.nodes?.active_audio_hardware;
+      audioNodesEl.textContent = _isLive(aNodes) ? `${aNodes} THIẾT BỊ` : 'chờ kết nối';
+      audioNodesEl.classList.toggle('is-waiting', !_isLive(aNodes));
+    }
+
+    if (skillsCountEl) {
+      const sCount = data.skills_count ?? data.nodes?.skills_count;
+      skillsCountEl.textContent = _isLive(sCount) ? `${sCount} SKILLS ACTIVE` : 'chờ kết nối';
+      skillsCountEl.classList.toggle('is-waiting', !_isLive(sCount));
+    }
+
+    // ── Lưu lượng mạng ─────────────────────────────────────────────────────
+    if (netIoEl) {
+      if (_isLive(data.net_sent_mbps) || _isLive(data.net_recv_mbps)) {
+        const up = Number(data.net_sent_mbps || 0).toFixed(1);
+        const down = Number(data.net_recv_mbps || 0).toFixed(1);
+        netIoEl.innerHTML = '<span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span> NET: ▲ ' + up + ' MB/s ▼ ' + down + ' MB/s';
+        netIoEl.classList.remove('is-waiting');
+      } else {
+        netIoEl.innerHTML = '<span class="w-1.5 h-1.5 bg-cyan-400 rounded-full animate-ping"></span> NET: chờ kết nối';
+        netIoEl.classList.add('is-waiting');
+      }
+    }
+
+    // Quyền hạn KHÔNG cập nhật ở đây nữa: payload telemetry là bản broadcast
+    // chung cho mọi màn hình nên không biết ai đang xem, không thể gán vai trò.
+    // Vai trò thật tới từ gói `hud_welcome` riêng của từng kết nối — xem
+    // `renderAuthStatus()`.
+  }
+
+  /**
+   * Vai trò hiển thị trên HUD.
+   *
+   * Phase 76: trước đây badge ghi cứng "QUYỀN: ADMIN // TOÀN QUYỀN" và dòng
+   * phụ ghi cứng "ZERO-TRUST SENTINEL // ONLINE" — ngay cả với khách chưa
+   * đăng nhập, và cả khi WebSocket đã rớt. Nay chỉ hiện thứ máy chủ xác thực
+   * thật cho phiên này; chưa rõ thì nói "chờ kết nối", không đoán là admin.
+   */
+  let currentAuth = { known: false, authenticated: false, role: null, username: null };
+
+  function renderAuthStatus() {
+    const authed = currentAuth.known && currentAuth.authenticated;
+
     if (permBadgeEl) {
-      const sRole = (data.security_role || 'ADMIN').toUpperCase();
-      permBadgeEl.textContent = `QUYỀN: ${sRole} // TOÀN QUYỀN`;
+      if (authed && currentAuth.role) {
+        permBadgeEl.textContent = `QUYỀN: ${String(currentAuth.role).toUpperCase()}`;
+        permBadgeEl.classList.remove('is-waiting');
+      } else if (currentAuth.known) {
+        permBadgeEl.textContent = 'QUYỀN: chưa xác thực';
+        permBadgeEl.classList.add('is-waiting');
+      } else {
+        permBadgeEl.textContent = 'QUYỀN: chờ kết nối';
+        permBadgeEl.classList.add('is-waiting');
+      }
+    }
+
+    if (secStatusEl) {
+      if (authed) {
+        const who = currentAuth.username ? ` (${currentAuth.username})` : '';
+        secStatusEl.textContent = `ĐÃ XÁC THỰC${who}`;
+        secStatusEl.classList.remove('is-waiting');
+      } else if (currentAuth.known) {
+        secStatusEl.textContent = 'CHƯA XÁC THỰC · CHỈ XEM';
+        secStatusEl.classList.add('is-waiting');
+      } else {
+        secStatusEl.textContent = WAIT_TXT;
+        secStatusEl.classList.add('is-waiting');
+      }
     }
   }
+
+  renderAuthStatus();
 
   // Fallback REST telemetry poller
   async function fetchTelemetryFallback() {
@@ -2060,6 +2225,11 @@ function hudDrainOutboundSpeech() {
         if (connTextEl) {
           connTextEl.textContent = 'LINK ACTIVE';
           connTextEl.className = 'text-xs font-bold text-cyan-300 font-orbitron tracking-wider';
+          connTextEl.classList.remove('is-waiting');
+        }
+        if (linkBadgeEl) {
+          linkBadgeEl.textContent = 'ACTIVE';
+          linkBadgeEl.classList.remove('is-waiting');
         }
         appendSystemLog('WebSocket Neural Link connected to Master Server.', 'SYS');
 
@@ -2079,6 +2249,14 @@ function hudDrainOutboundSpeech() {
             if (packet.assistant_name) {
               updateAssistantName(packet.assistant_name);
             }
+            // Vai trò THẬT của phiên này, do máy chủ xác thực JWT gửi kèm.
+            currentAuth = {
+              known: true,
+              authenticated: packet.authenticated === true,
+              role: packet.role || null,
+              username: packet.username || null,
+            };
+            renderAuthStatus();
             appendSystemLog(packet.message || `${currentAiName} Cybernetic Core Online.`, 'SYS');
           } else if (type === 'assistant_name_updated') {
             if (packet.assistant_name) {
@@ -2114,6 +2292,8 @@ function hudDrainOutboundSpeech() {
             appendSystemLog(packet.message || 'Yêu cầu phê duyệt bị từ chối.', 'SYS');
             hideSecurityApprovalModal();
           } else if (type === 'auth_required') {
+            currentAuth = { known: true, authenticated: false, role: null, username: null };
+            renderAuthStatus();
             appendSystemLog(packet.message || 'HUD chưa xác thực.', 'SYS');
           } else if (type === 'system_log') {
             appendSystemLog(packet.message || 'Log received', packet.level || 'INFO');
@@ -2129,7 +2309,18 @@ function hudDrainOutboundSpeech() {
         if (connTextEl) {
           connTextEl.textContent = 'LINK RECONNECTING';
           connTextEl.className = 'text-xs font-bold text-amber-400 font-orbitron';
+          connTextEl.classList.add('is-waiting');
         }
+        if (linkBadgeEl) {
+          linkBadgeEl.textContent = 'mất kết nối';
+          linkBadgeEl.classList.add('is-waiting');
+        }
+        // Vai trò lấy từ gói `hud_welcome` của chính kết nối này. Kết nối đã
+        // rớt thì không còn nguồn để xác nhận, nên về "chờ kết nối" thay vì giữ
+        // lại "ADMIN" của lần đăng nhập trước — giữ lại là hiện quyền hạn của
+        // một phiên đã không còn.
+        currentAuth = { known: false, authenticated: false, role: null, username: null };
+        renderAuthStatus();
         scheduleReconnect();
       };
 
@@ -2249,7 +2440,11 @@ function hudDrainOutboundSpeech() {
       }
     });
 
-    appendSystemLog(`${currentAiName} Mark-85 3D Cybernetic HUD initialized at 60 FPS.`, 'SYS');
+    // Phase 76: trước đây dòng này ghi cứng "initialized at 60 FPS". 60 là con
+    // số bịa — khung hình thực tế được đo ở vòng lặp render và đã có thể là
+    // 30, 45 hay 120 tuỳ máy. Chỉ ghi rằng giao diện đã khởi tạo; con số đo
+    // được nằm ở ô FPS và tự cập nhật.
+    appendSystemLog(`${currentAiName} Mark-85 3D Cybernetic HUD khởi tạo xong.`, 'SYS');
   }
 
   if (document.readyState === 'loading') {

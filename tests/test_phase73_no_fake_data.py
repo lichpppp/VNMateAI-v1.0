@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -253,6 +254,88 @@ index_html = (PROJECT_ROOT / "web" / "index.html").read_text(encoding="utf-8")
 check('không còn <option value="mock">', '<option value="mock">' not in index_html)
 check("không còn nhãn 'Mock (Giả lập'", "Mock (Giả lập" not in index_html)
 check("không còn nhãn 'Giả lập in-memory'", "Giả lập in-memory" not in index_html)
+
+
+# ──────────────────────────────────────────────────────────────────────
+section("Toàn bộ web/ không còn dữ liệu giả lập (quét mọi file)")
+
+# Các phase trước (74: app.js/index.html, 75: roi_dashboard, 76: hud) mỗi
+# phase dọn đúng một màn hình. Test mỗi phase vì thế cũng chỉ soi đúng file
+# của nó — thêm một màn hình mới là có thể mang dữ liệu bịa vào mà không
+# khẳng định nào soi tới. Khối này quét TOÀN BỘ web/ nên bất kỳ file nào
+# thêm về sau cũng tự động được canh.
+#
+# Comment được gỡ trước khi quét: nhiều file giải thích chi tiết những giá
+# trị bịa đã bị gỡ ("trước đây trả 45.0", "`?? 50` cho số kỹ năng"), và đó
+# là tài liệu cần giữ, không phải dữ liệu bịa còn sót.
+
+def strip_comments(src: str, is_html: bool) -> str:
+    if is_html:
+        src = re.sub(r"<!--[\s\S]*?-->", "", src)
+        src = re.sub(r"<script\b[\s\S]*?</script>", "", src, flags=re.I)
+        src = re.sub(r"<style\b[\s\S]*?</style>", "", src, flags=re.I)
+    src = re.sub(r"/\*[\s\S]*?\*/", "", src)
+    src = re.sub(r"^\s*//.*$", "", src, flags=re.M)
+    src = re.sub(r"//.*$", "", src, flags=re.M)
+    return src
+
+
+WEB_DIR = PROJECT_ROOT / "web"
+web_files = sorted(
+    [p for p in WEB_DIR.glob("*.html")] + [p for p in WEB_DIR.glob("*.js")]
+)
+check("có file trong web/ để quét", len(web_files) > 0, "không tìm thấy file .html/.js")
+
+# Từ khoá chỉ báo dữ liệu không phải do hệ thống sinh ra.
+# "placeholder" bị loại có chủ đích: placeholder= là thuộc tính HTML hợp lệ.
+FAKE_PATTERNS = [
+    (r"\bmock\b", "backend giả lập"),
+    (r"\bdemo\s+data\b", "dữ liệu demo"),
+    (r"dữ liệu\s+mẫu", "dữ liệu mẫu"),
+    (r"\bfake\b", "dữ liệu giả"),
+    (r"\bsample\s+data\b", "dữ liệu mẫu"),
+    (r"\blorem\s+ipsum\b", "văn bản mẫu"),
+    (r"\bTODO:.*\b(thay|bằng).*\breal\b", "ghi chú tạm dùng dữ liệu thật"),
+]
+
+for path in web_files:
+    raw = path.read_text(encoding="utf-8")
+    body = strip_comments(raw, path.suffix == ".html")
+    for pattern, why in FAKE_PATTERNS:
+        found = re.search(pattern, body, flags=re.I)
+        check(
+            f"{path.name} không còn {why}",
+            found is None,
+            f"khớp {found.group(0)!r}" if found else "",
+        )
+
+# Số liệu bịa gắn cứng từng là một con số riêng cho từng ô, nên phải quét
+# từng file chứ không gộp — gộp sẽ không biết số đó nằm ở đâu.
+HARDCODE_FAKES = ["99.98", "48-ALPHA", "10°46'37", "106°41'43", "45.0 MB/s"]
+for path in web_files:
+    body = strip_comments(path.read_text(encoding="utf-8"), path.suffix == ".html")
+    for token in HARDCODE_FAKES:
+        check(
+            f"{path.name} không còn số bịa {token!r}",
+            token not in body,
+            "hiện ngay từ đầu, trước khi có số liệu thật nào",
+        )
+
+# Mọi màn hình phải dùng chung đúng một câu "chờ kết nối" và có CSS làm mờ.
+for name in ("app.js", "roi_dashboard.html", "hud.js"):
+    path = WEB_DIR / name
+    if not path.exists():
+        check(f"{name} tồn tại", False, "không tìm thấy file")
+        continue
+    src = path.read_text(encoding="utf-8")
+    check(f"{name} dùng đúng câu WAIT_TXT", "const WAIT_TXT = 'chờ kết nối';" in src)
+
+for name in ("index.html", "roi_dashboard.html", "hud.html"):
+    path = WEB_DIR / name
+    if not path.exists():
+        check(f"{name} tồn tại", False, "không tìm thấy file")
+        continue
+    check(f"{name} có CSS .is-waiting", ".is-waiting" in path.read_text(encoding="utf-8"))
 
 
 # ──────────────────────────────────────────────────────────────────────

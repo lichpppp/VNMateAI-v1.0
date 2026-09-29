@@ -406,7 +406,18 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
 
 
 def _get_hud_metrics_payload() -> Dict[str, Any]:
-    """Tổng hợp đầy đủ telemetry phần cứng, mạng, clients và quyền hạn cho Standby HUD."""
+    """
+    Tổng hợp telemetry phần cứng, mạng và clients cho Standby HUD.
+
+    Phase 76: KHÔNG còn trường quyền hạn (`security_role` / `security_status` /
+    `permission_level`). Bản cũ trả cứng "ADMIN / ZERO-TRUST SENTINEL / FULL
+    UNRESTRICTED" cho MỌI kết nối — kể cả khi chưa đăng nhập — vì đây là payload
+    broadcast chung, không biết ai đang xem. Vai trò thật nay được gửi riêng
+    trong gói `hud_welcome` của từng kết nối (xem `websocket_hud_endpoint`).
+
+    Số đo thiếu được trả `None` (JSON null) để giao diện hiện "chờ kết nối",
+    tuyệt đối không bịa giá trị thay thế.
+    """
     from core.health_monitor import SYSTEM_HEALTH_CACHE
     from core.plugin_manager import plugin_manager
     from core.orchestrator import orchestrator
@@ -414,12 +425,33 @@ def _get_hud_metrics_payload() -> Dict[str, Any]:
     vmem = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=None)
     hw = SYSTEM_HEALTH_CACHE.get("hardware", {})
+
+    # Đĩa: lấy từ cache health; cache còn giá trị mặc định 0.0 (chưa đo) thì
+    # đo trực tiếp bằng psutil. Nếu psutil cũng lỗi mới trả None → giao diện
+    # hiện "chờ kết nối". Trước đây nhánh lỗi trả 45.0 — một con số bịa.
     disk_pct = hw.get("disk_percent")
-    if disk_pct is None or disk_pct == 0.0:
+    disk_free_gb = hw.get("disk_free_gb")
+    disk_total_gb = hw.get("disk_total_gb")
+    if not disk_pct or not disk_free_gb or not disk_total_gb:
         try:
-            disk_pct = psutil.disk_usage("/").percent
+            disk_root = psutil.disk_usage("/")
+            disk_pct = disk_root.percent
+            disk_free_gb = round(disk_root.free / (1024 ** 3), 2)
+            disk_total_gb = round(disk_root.total / (1024 ** 3), 2)
         except Exception:
-            disk_pct = 45.0
+            logger.warning("HUD: không đọc được dung lượng đĩa — trả null thay vì số bịa.")
+            disk_pct = None
+            disk_free_gb = None
+            disk_total_gb = None
+
+    # Xung nhịp CPU: cache 0.0 nghĩa là chưa đo được → thử psutil, không được thì None.
+    cpu_freq_mhz = hw.get("cpu_freq_mhz")
+    if not cpu_freq_mhz:
+        try:
+            freq = psutil.cpu_freq()
+            cpu_freq_mhz = round(freq.current, 0) if freq else None
+        except Exception:
+            cpu_freq_mhz = None
 
     procs = len(psutil.pids())
     connected_clients = len(orchestrator.get_connected_clients())
@@ -429,24 +461,21 @@ def _get_hud_metrics_payload() -> Dict[str, Any]:
     return {
         "cpu_percent": round(cpu, 1),
         "cpu_cores": hw.get("cpu_cores", psutil.cpu_count(logical=True) or 1),
-        "cpu_freq_mhz": hw.get("cpu_freq_mhz", 0.0),
+        "cpu_freq_mhz": cpu_freq_mhz,
         "ram_percent": round(vmem.percent, 1),
         "ram_used_gb": round(vmem.used / (1024**3), 2),
         "ram_total_gb": round(vmem.total / (1024**3), 2),
-        "disk_percent": round(disk_pct, 1),
-        "disk_free_gb": hw.get("disk_free_gb", 0.0),
-        "disk_total_gb": hw.get("disk_total_gb", 0.0),
+        "disk_percent": None if disk_pct is None else round(disk_pct, 1),
+        "disk_free_gb": disk_free_gb,
+        "disk_total_gb": disk_total_gb,
         "processes_count": procs,
         "connected_clients": connected_clients,
         "active_audio_hardware": len(active_audio_nodes),
         "active_web_clients": len(active_portal_websockets),
         "skills_count": skills_count,
         "skills_enabled": skills_enabled,
-        "net_sent_mbps": hw.get("net_sent_mbps", 0.0),
-        "net_recv_mbps": hw.get("net_recv_mbps", 0.0),
-        "security_role": "ADMIN",
-        "security_status": "ONLINE // ZERO-TRUST SENTINEL",
-        "permission_level": "FULL // UNRESTRICTED",
+        "net_sent_mbps": hw.get("net_sent_mbps"),
+        "net_recv_mbps": hw.get("net_recv_mbps"),
         "timestamp": datetime.utcnow().isoformat(),
     }
 
@@ -1582,7 +1611,10 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
     SYSTEM_HEALTH_CACHE["nodes"]["active_audio_hardware"] = len(active_audio_nodes)
     SYSTEM_HEALTH_CACHE["nodes"]["skills_count"] = plugin_manager.get_skill_count()
     SYSTEM_HEALTH_CACHE["nodes"]["skills_enabled"] = len(plugin_manager.get_all_tools())
-    SYSTEM_HEALTH_CACHE["security_role"] = "ADMIN"
+    # Phase 76: KHÔNG còn nhét "security_role" = "ADMIN" vào cache dùng chung.
+    # Endpoint này không có ngữ cảnh người gọi, nên mọi người — kể cả chưa đăng
+    # nhập — đều nhận một vai trò bịa. Vai trò thật lấy từ JWT ở nơi có ngữ cảnh
+    # (vd. gói hud_welcome của /ws/hud).
 
     # ── Phase 61: số kết nối WebSocket / LAN ────────────────────────────
     # active_hud_websockets trước đây không có chỗ nào lộ ra ngoài.
@@ -2921,6 +2953,12 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
             "message": f"Hệ thống trợ lý AI {ai_name} sẵn sàng. Neural Link established.",
             "assistant_name": ai_name,
             "status": "idle",
+            # Phase 76: vai trò THẬT của riêng kết nối này (None nếu chưa đăng nhập).
+            # Trước đây quyền hạn bị nhét vào payload telemetry broadcast chung nên
+            # luôn hiện "ADMIN" cho mọi người, kể cả khách chưa xác thực.
+            "authenticated": ws_user is not None,
+            "username": (ws_user or {}).get("username"),
+            "role": (ws_user or {}).get("role"),
             "timestamp": datetime.utcnow().isoformat(),
         }, ensure_ascii=False))
 
