@@ -1,147 +1,57 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { api, type DashboardStats, type AuditLog, type ApprovalRequest, type Worker } from '@/lib/api';
-import { useToast } from '@/hooks/useToast';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  api,
+  type SystemStats,
+  type AuditLog,
+  type ApprovalRequest,
+} from '@/lib/api';
 
+/**
+ * Dữ liệu cho trang Command Center của Admin.
+ *
+ * Phase 78: bản đầu gọi /dashboard/stats, /dashboard/audit-logs,
+ * /dashboard/approvals, /workers — không endpoint nào tồn tại, cả 4 trả 404,
+ * nên trang trắng hoàn toàn. Nay dùng lại đúng các endpoint portal đang gọi.
+ *
+ * Không có WebSocket ở đây: portal đã có luồng log thật qua
+ * /api/v1/logs/recent và đẩy qua ws://…/ws/logs. Admin poll cùng nguồn đó
+ * thay vì mở thêm một kênh real-time trùng chức năng.
+ */
 export function useDashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [stats, setStats] = useState<SystemStats | null>(null);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [approvals, setApprovals] = useState<ApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { success: toastSuccess, error: toastError, warning: toastWarning } = useToast();
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
-
-  const fetchStats = useCallback(async () => {
-    try {
-      const data = await api.getDashboardStats();
-      setStats(data);
-    } catch (err) {
-      console.error('Failed to fetch stats:', err);
-    }
-  }, []);
-
-  const fetchAuditLogs = useCallback(async () => {
-    try {
-      const data = await api.getAuditLogs(100);
-      setAuditLogs(data);
-    } catch (err) {
-      console.error('Failed to fetch audit logs:', err);
-    }
-  }, []);
-
-  const fetchApprovals = useCallback(async () => {
-    try {
-      const data = await api.getPendingApprovals();
-      setApprovals(data);
-    } catch (err) {
-      console.error('Failed to fetch approvals:', err);
-    }
-  }, []);
 
   const fetchAll = useCallback(async () => {
     try {
       setLoading(true);
-      await Promise.all([fetchStats(), fetchAuditLogs(), fetchApprovals()]);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch dashboard data');
+      // Promise.allSplash: một nguồn lỗi không được làm mất hai nguồn còn lại.
+      const [s, l, a] = await Promise.allSettled([
+        api.getDashboardStats(),
+        api.getAuditLogs(60),
+        api.getPendingApprovals(),
+      ]);
+      if (s.status === 'fulfilled') setStats(s.value);
+      if (l.status === 'fulfilled') setAuditLogs(l.value);
+      if (a.status === 'fulfilled') setApprovals(a.value);
+
+      const failed = [s, l, a].filter((r) => r.status === 'rejected').length;
+      setError(failed ? `${failed}/3 nguồn dữ liệu không tải được` : null);
     } finally {
       setLoading(false);
     }
-  }, [fetchStats, fetchAuditLogs, fetchApprovals]);
-
-  // WebSocket connection for real-time updates
-  const connectWebSocket = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
-
-    try {
-      const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'}/ws/admin`;
-      wsRef.current = new WebSocket(wsUrl);
-
-      wsRef.current.onopen = () => {
-        console.log('Admin WebSocket connected');
-      };
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          handleWebSocketMessage(message);
-        } catch (err) {
-          console.error('Failed to parse WS message:', err);
-        }
-      };
-
-      wsRef.current.onclose = () => {
-        console.log('Admin WebSocket disconnected, reconnecting...');
-        reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000);
-      };
-
-      wsRef.current.onerror = (error) => {
-        console.error('WebSocket error:', error);
-      };
-    } catch (err) {
-      console.error('Failed to create WebSocket:', err);
-    }
   }, []);
-
-  const handleWebSocketMessage = (message: { type: string; data: unknown }) => {
-    switch (message.type) {
-      case 'audit_log':
-        setAuditLogs(prev => [message.data as AuditLog, ...prev.slice(0, 99)]);
-        break;
-      case 'approval_request':
-        setApprovals(prev => [message.data as ApprovalRequest, ...prev]);
-        toastWarning('New approval request', (message.data as ApprovalRequest).description);
-        break;
-      case 'approval_update':
-        setApprovals(prev => prev.map(a => a.id === (message.data as ApprovalRequest).id ? message.data as ApprovalRequest : a));
-        break;
-      case 'stats_update':
-        setStats(message.data as DashboardStats);
-        break;
-      case 'worker_status':
-        // Handled by useWorkers hook
-        break;
-    }
-  };
-
-  const approveRequest = async (id: string, approved: boolean, note?: string): Promise<boolean> => {
-    try {
-      await api.approveRequest(id, approved, note);
-      toastSuccess(
-        approved ? 'Request approved' : 'Request rejected',
-        `Approval request has been ${approved ? 'approved' : 'rejected'}`
-      );
-      await fetchApprovals();
-      return true;
-    } catch (err) {
-      toastError('Failed to process approval', err instanceof Error ? err.message : 'Unknown error');
-      return false;
-    }
-  };
 
   useEffect(() => {
     fetchAll();
-    connectWebSocket();
-
-    // Poll stats every 30 seconds
-    const statsInterval = setInterval(fetchStats, 30000);
-    // Poll audit logs every 10 seconds
-    const logsInterval = setInterval(fetchAuditLogs, 10000);
-    // Poll approvals every 15 seconds
-    const approvalsInterval = setInterval(fetchApprovals, 15000);
-
-    return () => {
-      clearInterval(statsInterval);
-      clearInterval(logsInterval);
-      clearInterval(approvalsInterval);
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      wsRef.current?.close();
-    };
-  }, [fetchAll, connectWebSocket]);
+    // Số liệu tổng quan chậm; log và phê duyệt cần cập nhật nhanh hơn.
+    const t1 = setInterval(fetchAll, 15000);
+    return () => clearInterval(t1);
+  }, [fetchAll]);
 
   return {
     stats,
@@ -150,74 +60,43 @@ export function useDashboard() {
     loading,
     error,
     refetch: fetchAll,
-    approveRequest,
   };
 }
 
+/**
+ * Danh sách "worker ngoại vi" (Mac Mini, Ubuntu Gateway, Robot ESP32...).
+ *
+ * KHÔNG có endpoint nào trả danh sách này — hệ thống chưa đăng ký cụm máy
+ * nào. Briefing có vẽ "🟢 17/17 Mac Minis Online" nhưng con số đó không có
+ * nguồn, nên ở đây trả về mảng rỗng kèm lý do, để giao diện hiện "chưa có
+ * nguồn dữ liệu" thay vì bịa 17/17.
+ */
 export function useWorkers() {
-  const [workers, setWorkers] = useState<Worker[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const [workers] = useState<never[]>([]);
+  const [reason] = useState<string>(
+    'Hệ thống chưa đăng ký cụm máy ngoại vi nào — chưa có nguồn dữ liệu để hiển thị.',
+  );
+  const [loading] = useState(false);
+  const refetch = useCallback(() => {}, []);
 
-  const fetchWorkers = useCallback(async () => {
-    try {
-      const data = await api.getWorkers();
-      setWorkers(data);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch workers');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  return { workers, loading, error: null, reason, refetch };
+}
 
-  const connectWebSocket = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+/** Thời gian hoạt động (giây) → chuỗi dễ đọc. */
+export function formatUptime(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return '—';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d} ngày ${h} giờ`;
+  if (h > 0) return `${h} giờ ${m} phút`;
+  return `${m} phút`;
+}
 
-    try {
-      const wsUrl = `${process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'}/ws/workers`;
-      wsRef.current = new WebSocket(wsUrl);
-
-      wsRef.current.onmessage = (event) => {
-        try {
-          const message = JSON.parse(event.data);
-          if (message.type === 'worker_status') {
-            setWorkers(prev => prev.map(w => 
-              w.id === message.data.id ? { ...w, ...message.data } : w
-            ));
-          }
-        } catch (err) {
-          console.error('Failed to parse worker WS message:', err);
-        }
-      };
-
-      wsRef.current.onclose = () => {
-        reconnectTimeoutRef.current = setTimeout(connectWebSocket, 5000);
-      };
-    } catch (err) {
-      console.error('Failed to create worker WebSocket:', err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchWorkers();
-    connectWebSocket();
-
-    const interval = setInterval(fetchWorkers, 30000);
-
-    return () => {
-      clearInterval(interval);
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      wsRef.current?.close();
-    };
-  }, [fetchWorkers, connectWebSocket]);
-
-  return {
-    workers,
-    loading,
-    error,
-    refetch: fetchWorkers,
-  };
+/** Màu theo mức độ sử dụng: <60% xanh, <80% hổ phách, >=80% hồng. */
+export function loadColor(pct: number | null | undefined): string {
+  if (pct == null) return 'bg-slate-600';
+  if (pct >= 80) return 'bg-rose-500';
+  if (pct >= 60) return 'bg-amber-500';
+  return 'bg-emerald-500';
 }

@@ -98,16 +98,14 @@ class ApiClient {
     return Object.values(res.connectors ?? {});
   }
 
-  /** Trạng thái sống của connector (dùng để đồng bộ lại sau khi có thay đổi). */
-  async getConnectorHealth() {
-    const res = await this.request<{
-      status: string;
-      connectors: Record<string, { configured: boolean; enabled: boolean; missing_fields?: string[] }>;
-    }>('/enterprise/connectors/health');
-    return res.connectors ?? {};
-  }
-
-  // Routing Rules
+  // ── Routing Rules ─────────────────────────────────────────────────────
+  // PHẦN CHƯA CÓ BACKEND — giữ lại để sẵn sàng, KHÔNG gọi được ở thời điểm này.
+  //
+  // Đã kiểm tra: không có bảng `routing_rules` trong CSDL và
+  // GET /api/v1/routing/rules trả 404. Trang /admin/routing vì vậy hiện thông
+  // báo "chưa có nơi lưu quy tắc" thay vì một bảng bấm Lưu xong rơi mất dữ
+  // liệu. Các hàm dưới đây + `RoutingBuilder.tsx` + `useRoutingRules.ts` đã
+  // dựng sẵn: có endpoint CRUD là nối vào chạy, không phải làm lại giao diện.
   async getRoutingRules() {
     return this.request<RoutingRule[]>('/routing/rules');
   }
@@ -132,29 +130,60 @@ class ApiClient {
     });
   }
 
-  // Dashboard
+  // ── Dashboard ────────────────────────────────────────────────────────
+  //
+  // Phase 78: bản đầu dùng /dashboard/stats, /dashboard/audit-logs,
+  // /dashboard/approvals, /workers — KHÔNG endpoint nào tồn tại (cả 4 trả
+  // 404), nên trang dashboard trắng hoàn toàn. Nay dùng lại đúng các endpoint
+  // portal đang gọi, tức là dữ liệu đã được kiểm chứng hoạt động.
   async getDashboardStats() {
-    return this.request<DashboardStats>('/dashboard/stats');
+    return this.request<SystemStats>('/system/stats');
   }
 
+  /** Nhật ký hoạt động. Cùng nguồn với khung log của portal. */
   async getAuditLogs(limit = 50) {
-    return this.request<AuditLog[]>(`/dashboard/audit-logs`, { params: { limit: String(limit) } });
+    const res = await this.request<{
+      status: string;
+      count: number;
+      logs: AuditLog[];
+    }>('/logs/recent');
+    return (res.logs ?? []).slice(0, limit);
   }
 
+  /** Phê duyệt đang chờ (HITL). */
   async getPendingApprovals() {
-    return this.request<ApprovalRequest[]>('/dashboard/approvals');
+    const res = await this.request<{
+      status: string;
+      total_pending: number;
+      pending_approvals: ApprovalRequest[];
+    }>('/enterprise/hitl/pending');
+    return res.pending_approvals ?? [];
   }
 
-  async approveRequest(id: string, approved: boolean, note?: string) {
-    return this.request<ApprovalRequest>(`/dashboard/approvals/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ approved, note }),
+  /**
+   * Ping thật một connector qua skill `check_connector_health`.
+   *
+   * Đây là bản sao đúng cách portal đang làm: skill gọi thẳng API của
+   * dịch vụ nên trả về độ trễ và lỗi thật. Trước đây nút "Kiểm tra" của
+   * Admin chỉ đọc lại cấu hình trong bộ nhớ — đó không phải kiểm tra kết
+   * nối, chỉ là đọc trạng thái file cấu hình.
+   */
+  async pingConnector(pluginId: string) {
+    return this.request<{
+      success?: boolean;
+      data?: {
+        connectors?: Record<
+          string,
+          { success?: boolean; latency_ms?: number; error?: string }
+        >;
+      };
+    }>('/skills/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'check_connector_health',
+        arguments: { connectors: [pluginId] },
+      }),
     });
-  }
-
-  // Workers
-  async getWorkers() {
-    return this.request<Worker[]>('/workers');
   }
 }
 
@@ -229,69 +258,52 @@ export interface RoutingAction {
   config: Record<string, unknown>;
 }
 
-export interface DashboardStats {
-  workers: {
-    total: number;
-    online: number;
-    offline: number;
-  };
-  plugins: {
-    total: number;
-    connected: number;
-    disconnected: number;
+/**
+ * Số liệu tổng quan — đúng cấu trúc `GET /api/v1/system/stats`.
+ *
+ * Đây là endpoint portal đang dùng, không phải endpoint mới. Ở đây KHÔNG
+ * có "17/17 Mac Mini" hay "Ubuntu Gateway": hệ thống chưa đăng ký cụm máy
+ * nào, nên những ô đó sẽ báo "chưa có nguồn" thay vì bịa số.
+ */
+export interface SystemStats {
+  status: string;
+  timestamp: string;
+  hardware: {
+    cpu_percent: number;
+    ram_percent: number;
+    ram_used_gb: number;
+    ram_total_gb: number;
+    disk_percent: number;
+    uptime_seconds: number;
   };
   tasks: {
-    totalToday: number;
+    total: number;
     completed: number;
-    failed: number;
+    issues: number;
     pending: number;
   };
-  approvals: {
-    pending: number;
-    approved: number;
-    rejected: number;
-  };
-  system: {
-    cpu: number;
-    memory: number;
-    uptime: string;
-  };
+  users_count: number;
+  online_clients_count: number;
+  audio_nodes_count: number;
+  skills_count: number;
 }
 
+/** Dòng nhật ký — đúng cấu trúc phần tử của `GET /api/v1/logs/recent`. */
 export interface AuditLog {
-  id: string;
-  timestamp: string;
-  level: 'info' | 'warning' | 'error' | 'success';
-  source: string;
+  event?: string;
+  level: 'INFO' | 'WARNING' | 'ERROR' | 'DEBUG' | string;
+  color?: string;
+  logger: string;
   message: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface ApprovalRequest {
-  id: string;
   timestamp: string;
-  taskType: string;
-  riskLevel: 1 | 2 | 3 | 4 | 5;
-  description: string;
-  requestedBy: string;
-  status: 'pending' | 'approved' | 'rejected';
-  approvedBy?: string;
-  approvedAt?: string;
-  note?: string;
 }
 
-export interface Worker {
-  id: string;
-  name: string;
-  type: 'mac-mini' | 'ubuntu' | 'esp32' | 'custom';
-  status: 'online' | 'offline' | 'busy' | 'error';
-  ip: string;
-  lastSeen: string;
-  capabilities: string[];
-  currentTask?: string;
-  specs: {
-    cpu: string;
-    memory: string;
-    gpu?: string;
-  };
+/** Phê duyệt đang chờ — từ `GET /api/v1/enterprise/hitl/pending`. */
+export interface ApprovalRequest {
+  id?: string;
+  tool?: string;
+  risk_level?: number;
+  reason?: string;
+  created_at?: string;
+  [k: string]: unknown;
 }

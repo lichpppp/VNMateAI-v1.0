@@ -5,106 +5,76 @@ import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useDashboard } from '@/hooks/useDashboard';
-import { Loader2, CheckCircle, AlertCircle, AlertTriangle, Info, ExternalLink, RefreshCw, Activity } from 'lucide-react';
-import { formatDate } from '@/lib/utils';
+import { RefreshCw, Activity, Inbox } from 'lucide-react';
 
-const logIcons = {
-  info: Info,
-  warning: AlertTriangle,
-  error: AlertCircle,
-  success: CheckCircle,
+const LEVEL_STYLE: Record<string, { icon: React.ElementType; cls: string }> = {
+  ERROR: { icon: Activity, cls: 'border-rose-500/30 bg-rose-500/10 text-rose-300' },
+  WARNING: { icon: Activity, cls: 'border-amber-500/30 bg-amber-500/10 text-amber-300' },
+  INFO: { icon: Inbox, cls: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300' },
+  DEBUG: { icon: Inbox, cls: 'border-slate-700 bg-slate-800/60 text-slate-400' },
 };
 
-const logColors = {
-  info: 'text-vnmate-cyan border-vnmate-cyan/30 bg-vnmate-cyan/10',
-  warning: 'text-vnmate-amber border-vnmate-amber/30 bg-vnmate-amber/10',
-  error: 'text-vnmate-pink border-vnmate-pink/30 bg-vnmate-pink/10',
-  success: 'text-vnmate-emerald border-vnmate-emerald/30 bg-vnmate-emerald/10',
+const fmtTime = (iso?: string) => {
+  if (!iso) return '--:--:--';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '--:--:--' : d.toTimeString().slice(0, 8);
 };
 
-export function AuditLogFeed({ maxLogs = 50 }: { maxLogs?: number }) {
+/**
+ * Nhật ký hoạt động — cùng nguồn `/api/v1/logs/recent` mà portal dùng cho
+ * khung log, nên hai nơi không thể lệch nhau.
+ */
+export function AuditLogFeed({ maxLogs = 40 }: { maxLogs?: number }) {
   const { auditLogs, loading, refetch } = useDashboard();
-
-  const filteredLogs = auditLogs.slice(0, maxLogs);
-
-  if (loading && filteredLogs.length === 0) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-vnmate-cyan" />
-          <span className="ml-3 text-vnmate-slate-400">Loading audit logs...</span>
-        </CardContent>
-      </Card>
-    );
-  }
+  const rows = auditLogs.slice(0, maxLogs);
 
   return (
     <Card className="h-full">
-      <CardHeader className="border-b border-vnmate-slate-800">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-vnmate-cyan flex items-center gap-2">
-            <Activity className="h-5 w-5" />
-            Live Activity Feed
-          </CardTitle>
-          <Button variant="ghost" size="sm" onClick={refetch}>
-            <RefreshCw className="h-4 w-4" />
-          </Button>
-        </div>
+      <CardHeader className="border-b border-slate-800 flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-cyan-300 flex items-center gap-2">
+          <Activity className="h-5 w-5" />
+          Nhật ký hoạt động
+          <span className="text-xs font-normal text-slate-500 font-mono">({rows.length})</span>
+        </CardTitle>
+        <Button variant="ghost" size="sm" onClick={refetch} aria-label="Tải lại nhật ký">
+          <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+        </Button>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="max-h-[500px] overflow-y-auto custom-scrollbar">
-          {filteredLogs.length === 0 ? (
-            <div className="p-8 text-center text-vnmate-slate-500">
-              <Info className="h-12 w-12 text-vnmate-slate-600 mx-auto mb-4" />
-              <p>No activity logs yet</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-vnmate-slate-800">
-              {filteredLogs.map((log) => {
-                const Icon = logIcons[log.level];
-                const colorClass = logColors[log.level];
-                return (
-                  <div
-                    key={log.id}
-                    className={cn(
-                      'p-4 hover:bg-vnmate-slate-900/50 transition-colors animate-in slide-in-from-right',
-                      log.level === 'error' && 'border-l-4 border-vnmate-pink',
-                      log.level === 'warning' && 'border-l-4 border-vnmate-amber',
-                    )}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={cn('flex-shrink-0 mt-0.5 p-1.5 rounded', colorClass)}>
-                        <Icon className="h-4 w-4" />
+        {rows.length === 0 ? (
+          <div className="p-10 text-center text-slate-500">
+            <Inbox className="h-10 w-10 text-slate-700 mx-auto mb-3" />
+            <p className="text-sm">
+              {loading ? 'Đang tải nhật ký…' : 'Chưa có dòng nhật ký nào.'}
+            </p>
+          </div>
+        ) : (
+          <div className="max-h-[440px] overflow-y-auto divide-y divide-slate-800">
+            {rows.map((log, i) => {
+              const s = LEVEL_STYLE[log.level] ?? LEVEL_STYLE.DEBUG;
+              const Icon = s.icon;
+              return (
+                <div key={`${log.timestamp}-${i}`} className="px-4 py-2.5 hover:bg-slate-900/50">
+                  <div className="flex items-start gap-2.5">
+                    <span className={cn('shrink-0 mt-0.5 p-1 rounded', s.cls)}>
+                      <Icon className="w-3 h-3" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                        <span className="font-mono text-cyan-400">{fmtTime(log.timestamp)}</span>
+                        <span className="text-slate-500 font-mono">{log.logger}</span>
+                        <span className={cn('px-1.5 py-px rounded font-medium', s.cls)}>
+                          {log.level}
+                        </span>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-xs text-vnmate-cyan">{formatDate(log.timestamp)}</span>
-                          <span className="px-2 py-0.5 text-xs bg-vnmate-slate-800 rounded text-vnmate-slate-400">
-                            {log.source}
-                          </span>
-                          <span className={cn('px-2 py-0.5 text-xs rounded font-medium', colorClass)}>
-                            {log.level.toUpperCase()}
-                          </span>
-                        </div>
-                        <p className="mt-1 text-vnmate-neon text-sm">{log.message}</p>
-                        {log.metadata && Object.keys(log.metadata).length > 0 && (
-                          <details className="mt-2">
-                            <summary className="text-xs text-vnmate-slate-500 cursor-pointer hover:text-vnmate-slate-400">
-                              View metadata
-                            </summary>
-                            <pre className="mt-2 text-xs text-vnmate-slate-400 bg-vnmate-slate-900 p-2 rounded overflow-x-auto font-mono">
-                              {JSON.stringify(log.metadata, null, 2)}
-                            </pre>
-                          </details>
-                        )}
-                      </div>
+                      <p className="text-sm text-slate-200 mt-0.5 break-words">{log.message}</p>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

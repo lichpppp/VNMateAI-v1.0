@@ -10,7 +10,7 @@ import { RefreshCw, CircleAlert, ServerOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export default function AdminPlugins() {
-  const { plugins, loading, error, refetch, testConnection } = usePlugins();
+  const { plugins, loading, error, refetch, testConnection, testing } = usePlugins();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
 
   const waitingCount = plugins.filter((p) => !p.configured).length;
@@ -75,6 +75,7 @@ export default function AdminPlugins() {
                     key={plugin.id}
                     plugin={plugin}
                     onTestConnection={testConnection}
+                    testing={testing}
                   />
                 ))}
               </div>

@@ -306,17 +306,26 @@ check(
     "Chưa lưu được" in _admin_src,
     "báo 'đã lưu' khi chưa gửi đi đâu là báo cáo thành công giả",
 )
-# Thông điệp "đây không phải ping dịch vụ" nằm ở hook, vì hook mới là nơi
-# thực hiện lời gọi. PluginCard chỉ render kết quả.
+# Phase 78 (bản 2): nút Kiểm tra nay PING THẬT qua skill
+# `check_connector_health` — cùng cách portal đang làm. Bản trước chỉ đọc
+# lại cấu hình trong bộ nhớ rồi tự thú "chưa có lời gọi thật": đúng là thành
+# thật, nhưng vô dụng, vì người vận hành bấm nút là muốn biết dịch vụ còn
+# sống hay không.
 check(
-    "nút Kiểm tra nói rõ chưa gửi lời gọi thật (không hứa thành công)",
-    "lời gọi thật" in _plugins_hook,
-    "đọc lại cấu hình trong bộ nhớ không phải là ping dịch vụ — phải nói rõ, "
-    "nếu không người dùng tưởng đã kiểm tra kết nối thật",
+    "nút Kiểm tra gọi ping thật qua skill check_connector_health",
+    "pingConnector" in _plugins_hook and "check_connector_health" in _api_lib,
+    "đọc lại cấu hình trong bộ nhớ KHÔNG phải kiểm tra kết nối — chỉ là đọc file cấu hình",
 )
 check(
-    "nút Kiểm tra báo đúng tình trạng thiếu khoá",
-    "missing_fields" in _plugins_hook and "Chưa cấu hình xong" in _plugins_hook,
+    "nút Kiểm tra hiện lỗi do chính dịch vụ trả về",
+    "c.error" in _plugins_hook,
+    "giấu lỗi gốc thì người vận hành không biết vì sao hỏng",
+)
+# Danh sách khoá còn thiếu vẫn phải hiện — nhưng ở trên thẻ card, vì đó là
+# thông tin TRẠNG THÁI, không phải kết quả kiểm tra.
+check(
+    "thẻ card vẫn liệt kê tên khoá còn thiếu",
+    "missing_fields" in _admin_src or "missing_count" in _admin_src,
     "phải nêu tên khoá còn thiếu, không chỉ nói chung chung",
 )
 _hook = (PROJECT_ROOT / "admin" / "hooks" / "useToast.ts").read_text(encoding="utf-8")

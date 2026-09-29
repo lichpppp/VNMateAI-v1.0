@@ -3,123 +3,86 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
 import { useDashboard } from '@/hooks/useDashboard';
-import { Loader2, AlertTriangle, CheckCircle, XCircle, Clock, User, Shield, MessageSquare } from 'lucide-react';
-import { formatDate } from '@/lib/utils';
+import { ShieldCheck, CircleAlert } from 'lucide-react';
 
-const riskConfig = {
-  1: { label: 'Low', color: 'text-vnmate-emerald', bg: 'bg-vnmate-emerald/10 border-vnmate-emerald/30' },
-  2: { label: 'Low-Medium', color: 'text-vnmate-cyan', bg: 'bg-vnmate-cyan/10 border-vnmate-cyan/30' },
-  3: { label: 'Medium', color: 'text-vnmate-amber', bg: 'bg-vnmate-amber/10 border-vnmate-amber/30' },
-  4: { label: 'High', color: 'text-vnmate-orange', bg: 'bg-vnmate-orange/10 border-vnmate-orange/30' },
-  5: { label: 'Critical', color: 'text-vnmate-pink', bg: 'bg-vnmate-pink/10 border-vnmate-pink/30' },
-};
-
-export function PendingApprovals({ maxApprovals = 10 }: { maxApprovals?: number }) {
-  const { approvals, loading, approveRequest, refetch } = useDashboard();
-
-  const filteredApprovals = approvals
-    .filter(a => a.status === 'pending')
-    .slice(0, maxApprovals);
-
-  const handleApprove = async (id: string, approved: boolean) => {
-    const note = approved ? 'Approved via Admin Dashboard' : 'Rejected via Admin Dashboard';
-    await approveRequest(id, approved, note);
-  };
-
-  if (loading && filteredApprovals.length === 0) {
-    return (
-      <Card>
-        <CardContent className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-vnmate-cyan" />
-          <span className="ml-3 text-vnmate-slate-400">Loading approvals...</span>
-        </CardContent>
-      </Card>
-    );
-  }
+/**
+ * Phê duyệt đang chờ — cùng nguồn `/api/v1/enterprise/hitl/pending` với
+ * khung "Phê duyệt chờ" của portal.
+ *
+ * Không có nút Duyệt/Hủy ở đây: backend chưa có endpoint ghi quyết định, và
+ * cơ chế phê duyệt thật đang chạy qua HITL + Telegram. Hiện nút bấm được mà
+ * không có việc gì xảy ra thì tệ hơn là không có nút — nên ở đây chỉ liệt
+ * kê cho biết có gì đang chờ, kèm lý do nếu rỗng.
+ */
+export function PendingApprovals() {
+  const { approvals, loading } = useDashboard();
 
   return (
     <Card className="h-full">
-      <CardHeader className="border-b border-vnmate-slate-800">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-vnmate-pink flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Pending Approvals
-          </CardTitle>
-          {filteredApprovals.length > 0 && (
-            <span className="px-2 py-1 text-xs font-mono bg-vnmate-pink/10 text-vnmate-pink rounded">
-              {filteredApprovals.length} pending
+      <CardHeader className="border-b border-slate-800">
+        <CardTitle className="text-cyan-300 flex items-center gap-2">
+          <ShieldCheck className="h-5 w-5" />
+          Phê duyệt đang chờ
+          {approvals.length > 0 && (
+            <span className="px-2 py-0.5 text-xs font-mono bg-amber-500/15 text-amber-300 rounded">
+              {approvals.length}
             </span>
           )}
-        </div>
+        </CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        {filteredApprovals.length === 0 ? (
-          <div className="p-8 text-center text-vnmate-slate-500">
-            <CheckCircle className="h-12 w-12 text-vnmate-emerald/50 mx-auto mb-4" />
-            <p className="text-vnmate-neon">All caught up!</p>
-            <p className="text-sm mt-1">No pending approval requests</p>
+        {approvals.length === 0 ? (
+          <div className="p-8 text-center">
+            <ShieldCheck className="h-10 w-10 text-emerald-500/40 mx-auto mb-3" />
+            <p className="text-cyan-300 font-medium">
+              {loading ? 'Đang kiểm tra…' : 'Không có yêu cầu nào đang chờ'}
+            </p>
+            <p className="text-xs text-slate-500 mt-1.5">
+              Nguồn: <code className="text-cyan-400">/api/v1/enterprise/hitl/pending</code>
+            </p>
           </div>
         ) : (
-          <div className="divide-y divide-vnmate-slate-800">
-            {filteredApprovals.map((approval) => {
-              const risk = riskConfig[approval.riskLevel];
-              return (
-                <div
-                  key={approval.id}
-                  className={cn(
-                    'p-4 hover:bg-vnmate-slate-900/50 transition-colors',
-                    approval.riskLevel >= 4 && 'border-l-4 border-vnmate-pink bg-vnmate-pink/5'
+          <div className="divide-y divide-slate-800 max-h-[280px] overflow-y-auto">
+            {approvals.map((a, i) => (
+              <div key={a.id ?? i} className="px-4 py-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <CircleAlert className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="text-sm text-cyan-300 font-medium">
+                    {String(a.tool ?? a.id ?? 'Yêu cầu')}
+                  </span>
+                  {a.risk_level != null && (
+                    <span className="px-1.5 py-px text-[11px] rounded bg-rose-500/15 text-rose-300">
+                      Rủi ro {String(a.risk_level)}
+                    </span>
                   )}
-                >
-                  <div className="flex items-start gap-4">
-                    <div className={cn('flex-shrink-0 p-2 rounded-lg', risk.bg)}>
-                      <AlertTriangle className={cn('h-5 w-5', risk.color)} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-vnmate-neon">{approval.taskType}</span>
-                        <span className={cn('px-2 py-0.5 text-xs rounded font-medium', risk.bg)}>
-                          Risk Level {approval.riskLevel} - {risk.label}
-                        </span>
-                        <span className="text-xs text-vnmate-slate-500">
-                          {formatDate(approval.timestamp)}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-vnmate-slate-300 text-sm">{approval.description}</p>
-                      <div className="mt-2 flex items-center gap-3 text-xs text-vnmate-slate-500">
-                        <span className="flex items-center gap-1"><User className="h-3 w-3" /> {approval.requestedBy}</span>
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Requested {formatDate(approval.timestamp)}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <Button
-                        variant="cyber-emerald"
-                        size="sm"
-                        onClick={() => handleApprove(approval.id, true)}
-                        disabled={loading}
-                      >
-                        <CheckCircle className="mr-1.5 h-3.5 w-3.5" />
-                        Approve
-                      </Button>
-                      <Button
-                        variant="cyber-destructive"
-                        size="sm"
-                        onClick={() => handleApprove(approval.id, false)}
-                        disabled={loading}
-                      >
-                        <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                        Reject
-                      </Button>
-                    </div>
-                  </div>
                 </div>
-              );
-            })}
+                {a.reason != null && (
+                  <p className="text-sm text-slate-300 mt-1.5 break-words">
+                    {String(a.reason)}
+                  </p>
+                )}
+                {a.created_at != null && (
+                  <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                    {fmt(a.created_at as string)}
+                  </p>
+                )}
+              </div>
+            ))}
+            <div className="px-4 py-2.5 bg-slate-900/60">
+              <p className="text-[11px] text-amber-300/80">
+                Chưa có nút Duyệt/Hủy: backend chưa có endpoint ghi quyết định.
+                Phê duyệt thật đang chạy qua kênh HITL/Telegram.
+              </p>
+            </div>
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+
+const fmt = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('vi-VN');
+};

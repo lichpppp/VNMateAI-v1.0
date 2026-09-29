@@ -24,6 +24,9 @@ export function usePlugins() {
   const [plugins, setPlugins] = useState<ConnectorCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // connectorId đang được ping — để nút tương ứng hiện spinner, các nút
+  // khác vẫn bấm được (4 connector, mỗi cái một lệnh mất vài giây).
+  const [testing, setTesting] = useState<string | null>(null);
   const { success: toastSuccess, error: toastError } = useToast();
 
   const fetchPlugins = useCallback(async () => {
@@ -45,31 +48,31 @@ export function usePlugins() {
   }, [fetchPlugins]);
 
   /**
-   * Thử kết nối. Hiện chưa có endpoint ping riêng, nên ta chỉ đọc lại trạng
-   * thái cấu hình từ health endpoint và báo đúng mức độ sẵn sàng.
+   * Ping thật connector qua skill `check_connector_health`.
    *
-   * Cố tình KHÔNG báo "thành công" khi chưa thật sự gọi ra ngoài: báo thành
-   * công khi chỉ đọc lại cache là báo cáo thành công giả — đúng cái lỗi mà
-   * Phase 59 đã sửa trong chính endpoint health.
+   * Phase 78 (bản 2): trước đây hàm này chỉ đọc lại cấu hình trong bộ nhớ và
+   * tự nói "chưa có lời gọi thật" — đúng là thành thật, nhưng vô dụng: người
+   * vận hành bấm "Kiểm tra" là muốn biết dịch vụ còn sống không. Nay gọi đúng
+   * skill mà portal đang dùng, nên hai nơi cho cùng một kết quả thật.
    */
   const testConnection = async (pluginId: string): Promise<void> => {
+    setTesting(pluginId);
     try {
-      const health = await api.getConnectorHealth();
-      const entry = health[pluginId];
-      if (!entry) {
-        toastError('Không tìm thấy connector', `${pluginId} không có trong registry`);
-      } else if (entry.configured) {
-        toastSuccess('Đã đủ thông tin đăng nhập', 'Chưa có lời gọi thật nào được gửi đi bởi thao tác này');
+      const res = await api.pingConnector(pluginId);
+      const c = res.data?.connectors?.[pluginId];
+      if (!c) {
+        toastError('Không có kết quả', `Máy chủ không trả kết quả cho ${pluginId}`);
+      } else if (c.success) {
+        toastSuccess(`${pluginId} phản hồi OK`, `Độ trễ ${(c.latency_ms ?? 0).toFixed(0)} ms`);
       } else {
-        const missing = entry.missing_fields ?? [];
-        toastError(
-          'Chưa cấu hình xong',
-          missing.length ? `Còn thiếu: ${missing.join(', ')}` : 'Thiếu thông tin đăng nhập',
-        );
+        // Lỗi thật từ dịch vụ: "Authentication failed", "Not authenticated"...
+        toastError(`${pluginId} không kết nối được`, c.error || 'Không rõ lý do');
       }
       await fetchPlugins();
     } catch (err) {
       toastError('Không kiểm tra được', err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setTesting(null);
     }
   };
 
@@ -77,6 +80,7 @@ export function usePlugins() {
     plugins,
     loading,
     error,
+    testing,
     refetch: fetchPlugins,
     testConnection,
   };
