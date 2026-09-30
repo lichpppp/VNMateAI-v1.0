@@ -332,6 +332,27 @@ class AppSettings(BaseSettings):
         elif "AUTO_EXECUTE_UNVERIFIED_CODE" in data:
             data["auto_execute"] = bool(data["AUTO_EXECUTE_UNVERIFIED_CODE"])
 
+        # --- Sync audio block → top-level TTS_RATE / TTS_VOICE ---
+        # Frontend lưu audio.speech_rate (int) và audio.tts_voice (str).
+        # AppSettings chỉ có TTS_RATE (str) và TTS_VOICE (str) ở top-level.
+        # Nếu thiếu bước này, _get_tts_rate() luôn trả default "+15%".
+        audio_block = data.get("audio")
+        if isinstance(audio_block, dict):
+            # speech_rate: int → "+15%" format
+            if "speech_rate" in audio_block and "TTS_RATE" not in data:
+                sr = audio_block["speech_rate"]
+                try:
+                    sr_int = int(sr)
+                    data["TTS_RATE"] = ("+" if sr_int >= 0 else "") + str(sr_int) + "%"
+                except (TypeError, ValueError):
+                    pass
+            # tts_voice string sync
+            if "tts_voice" in audio_block and "TTS_VOICE" not in data:
+                data["TTS_VOICE"] = audio_block["tts_voice"]
+            # asr_engine sync
+            if "asr_engine" in audio_block and "ASR_BACKEND" not in data:
+                data["ASR_BACKEND"] = audio_block["asr_engine"]
+
         # --- BACKWARD COMPAT: migrate old 3-tier routing → new llm block ---
         if "llm" not in data:
             # Try to extract from old routing/router structure

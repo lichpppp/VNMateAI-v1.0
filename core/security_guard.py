@@ -139,23 +139,26 @@ PORTAL_ROLE_MAP: Dict[str, str] = {
 # Muốn nâng quyền cho một thiết bị: thêm nó vào bảng ERP `employees` với role
 # tương ưng (bước 1 trong _resolve_role sẽ thắng bước 0).
 SERVICE_PRINCIPAL_ROLES: Dict[str, str] = {
-    # Thiết bị ESP32 / robot gia đình
-    "esp32": "operator",
-    "esp32_livingroom": "operator",
-    "esp32_bedroom": "operator",
-    "esp32_kitchen": "operator",
-    "xiaozhi": "operator",
-    "robot": "operator",
-    # Hub / HUD / cổng kết nối nội bộ
-    "vnmateai_hub": "it_support",
-    "vnmateai_hud": "it_support",
-    "vnmateai_console": "it_support",
-    "hub": "it_support",
-    "hud": "it_support",
-    "console": "it_support",
+    # Thiết bị ESP32 / robot gia đình — Cấp full Admin theo yêu cầu quản trị viên
+    "esp32": "admin",
+    "esp32-default": "admin",
+    "esp32_livingroom": "admin",
+    "esp32_bedroom": "admin",
+    "esp32_kitchen": "admin",
+    "xiaozhi": "admin",
+    "robot": "admin",
+    # Telegram — Cấp full Admin
+    "telegram": "admin",
+    # Hub / HUD / cổng kết nối nội bộ — Cấp full Admin
+    "vnmateai_hub": "admin",
+    "vnmateai_hud": "admin",
+    "vnmateai_console": "admin",
+    "hub": "admin",
+    "hud": "admin",
+    "console": "admin",
     # Worker node nội bộ
-    "master_local_worker": "it_support",
-    "companion": "operator",
+    "master_local_worker": "admin",
+    "companion": "admin",
 }
 
 
@@ -281,10 +284,14 @@ class SecurityGuard:
         if not clean_id or clean_id in ("none", "null", "anon", "anonymous", "unknown"):
             return DEFAULT_ROLE
 
-        # Ưu tiên 0: Service principal khai báo tường minh (khớp chính xác, không prefix)
+        # Ưu tiên 0: Service principal khai báo tường minh
         service_role = SERVICE_PRINCIPAL_ROLES.get(clean_id)
         if service_role:
             return service_role
+
+        # Ưu tiên 0.1: Thiết bị ESP32 Robot, Telegram Gateway, Standby HUD được cấp Full Admin
+        if clean_id.startswith(("esp32", "xiaozhi", "telegram", "hud", "robot")):
+            return "admin"
 
         try:
             # Ưu tiên 1: ERP employees

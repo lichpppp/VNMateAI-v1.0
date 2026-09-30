@@ -198,8 +198,8 @@ function renderFallbackChain() {
   const all = cur ? [cur, ...routerModelList.filter(m => m !== cur)] : routerModelList;
   chain.innerHTML = all.length
     ? all.slice(0, 5).map((m, i) => `<span class="${i === 0
-        ? 'text-cyan-600 dark:text-cyan-400 font-semibold'
-        : 'text-slate-500'}">${i ? '➔ ' : ''}${m}</span>`).join('<span class="text-slate-400"> </span>')
+      ? 'text-cyan-600 dark:text-cyan-400 font-semibold'
+      : 'text-slate-500'}">${i ? '➔ ' : ''}${m}</span>`).join('<span class="text-slate-400"> </span>')
     : 'Chưa cấu hình model nào.';
 }
 
@@ -387,11 +387,22 @@ async function apiGetHealthDashboard() {
   }
 }
 
-async function apiGetConfig() {
+// Phase 70: Cache config 30s TTL — switch tab không re-fetch nếu data còn mới.
+let _cachedConfig = null;
+let _cachedConfigAt = 0;
+const _CONFIG_TTL_MS = 30_000;
+
+async function apiGetConfig({ forceRefresh = false } = {}) {
+  const now = Date.now();
+  if (!forceRefresh && _cachedConfig && (now - _cachedConfigAt) < _CONFIG_TTL_MS) {
+    return _cachedConfig;
+  }
   try {
     const res = await apiFetch(`${API_BASE}/api/v1/config`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
+    _cachedConfig = await res.json();
+    _cachedConfigAt = Date.now();
+    return _cachedConfig;
   } catch (err) {
     console.error('[API] Lỗi đọc cấu hình:', err);
     return null;
@@ -407,6 +418,10 @@ async function apiSaveConfig(configData) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    // Phase 70: Bust cache ngay sau khi lưu — lần đọc tiếp theo sẽ lấy
+    // data mới từ server thay vì trả về config cũ trong 30s TTL.
+    _cachedConfig = null;
+    _cachedConfigAt = 0;
     return { success: true, message: data.message || 'Đã lưu cấu hình thành công.' };
   } catch (err) {
     console.error('[API] Lỗi lưu cấu hình:', err);
@@ -682,7 +697,7 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // sau đó 'command-center' cũng gộp vào 'dashboard'.
 // Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices /
 // #command-center sẽ tự rơi về dashboard thay vì mở một tab không có.
-const VALID_TABS = ['dashboard', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
+const VALID_TABS = ['dashboard', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs', 'topology'];
 
 function getSavedTab() {
   const hash = (window.location.hash || '').replace('#', '').trim();
@@ -762,6 +777,12 @@ function switchLogView(view) {
 function switchTab(tabId) {
   if (!VALID_TABS.includes(tabId)) {
     tabId = 'dashboard';
+  }
+  // Topology is served as a standalone Next.js page — open in new tab
+  // to keep the portal session intact (same pattern as the sidebar link).
+  if (tabId === 'topology') {
+    window.open('/admin/topology', '_blank', 'noopener,noreferrer');
+    return;
   }
 
   document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
@@ -1820,7 +1841,8 @@ let _lastSkillExecutionResult = null;
 
 const CATEGORY_MODULE_MAP = {
   all: null,
-  pc_control_skills: ['pc_control_skills', 'file_system'],
+  computer_use_skills: ['computer_use_skills'],
+  pc_control_skills: ['pc_control_skills', 'file_system', 'computer_use_skills'],
   domain_alert_skills: ['domain_alert_skills'],
   monitoring_skills: ['monitoring_skills', 'lean_hr_skills'],
   sysadmin_skills: ['sysadmin_skills'],
@@ -1988,7 +2010,7 @@ async function batchToggleSkills(enabled) {
 
 function filterSkillsByCategory(category) {
   _currentSkillCategory = category;
-  
+
   // Highlight active category tab
   const buttons = document.querySelectorAll('.skill-cat-btn');
   buttons.forEach(btn => {
@@ -2038,6 +2060,7 @@ function applySkillsFilter() {
 
 function resolveSkillIcon(name) {
   const n = name.toLowerCase();
+  if (n.includes('gui') || n.includes('computer') || n.includes('worker') || n.includes('screen') || n.includes('mouse') || n.includes('keyboard')) return SKILL_ICONS.robot || SKILL_ICONS.system;
   if (n.includes('excel') || n.includes('sheet') || n.includes('table')) return SKILL_ICONS.excel;
   if (n.includes('powershell') || n.includes('cmd')) return SKILL_ICONS.powershell;
   if (n.includes('volume') || n.includes('sound') || n.includes('audio') || n.includes('tts') || n.includes('stt') || n.includes('speech')) return SKILL_ICONS.volume;
@@ -2945,46 +2968,124 @@ async function loadAudioNodes() {
     if (nodes.length === 0) {
       nodesContainer.innerHTML = `
         <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-center">
-          <div class="text-xs text-slate-500 dark:text-slate-400 font-medium">Chưa phát hiện mạch ESP32 Xiaozhi trong LAN</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400 font-medium">Chưa phát hiện Robot Trợ Lý trong LAN</div>
           <div class="text-[11px] text-slate-400 mt-1">Cổng WebSocket âm thanh <code class="font-mono text-cyan-400">:443/api/v1/xiaozhi/ws</code> đang sẵn sàng lắng nghe kết nối Opus 24kHz.</div>
         </div>
       `;
       return;
     }
 
-    nodesContainer.innerHTML = nodes.map(node => `
-      <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div class="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-xs">
-            📟
+    nodesContainer.innerHTML = nodes.map(node => {
+      let stateBadge = '';
+      const state = (node.state || '').toLowerCase();
+      if (state === 'listening') {
+        stateBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">👂 Lắng nghe</span>`;
+      } else if (state === 'processing' || state === 'thinking') {
+        stateBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 animate-pulse">🤔 Suy nghĩ...</span>`;
+      } else if (state === 'speaking') {
+        stateBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">🗣️ Nói (Lip-sync)</span>`;
+      } else if (state === 'alert') {
+        stateBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/40 animate-bounce">⚠️ Cảnh báo ToF</span>`;
+      } else {
+        stateBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-slate-500/20 text-slate-300 border border-slate-500/40">💤 Sẵn sàng</span>`;
+      }
+
+      const pCode = node.pairing_code ? `<span class="ml-1.5 px-1.5 py-0.2 rounded font-mono text-[9px] bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">MÃ: ${escapeHtml(node.pairing_code)}</span>` : '';
+
+      return `
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-sm shadow-[0_0_8px_rgba(0,242,254,0.15)]">
+              🤖
+            </div>
+            <div class="min-w-0">
+              <div class="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 flex items-center">
+                <span class="truncate">${escapeHtml(node.device_id || 'ESP32-Robot')}</span>
+                ${pCode}
+              </div>
+              <div class="text-[10px] text-slate-400">${escapeHtml(node.client_host || 'LAN')} · ${escapeHtml(node.audio_format || 'PCM/MP3')}</div>
+            </div>
           </div>
-          <div class="min-w-0">
-            <div class="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 truncate">${escapeHtml(node.device_id || 'ESP32')}</div>
-            <div class="text-[10px] text-slate-400">${escapeHtml(node.client_host || 'LAN')} · ${escapeHtml(node.audio_format || 'Opus 24k')}</div>
+          <div class="shrink-0 flex items-center gap-1.5">
+            ${stateBadge}
           </div>
         </div>
-        <span class="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">
-          ${escapeHtml(node.state || 'Online')}
-        </span>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (err) {
     console.warn('[AudioNodes] Lỗi lấy danh sách node âm thanh:', err);
     if (statNodesVal) statNodesVal.textContent = '0 THIẾT BỊ';
   }
 }
 
-async function broadcastAudioAnnouncement() {
-  try {
-    showToast('📢 Đang phát thanh kiểm tra tới toàn bộ loa trong mạng...', 'info');
-    const audioUrl = await apiTTS('Xin chào! Đây là thông báo kiểm tra hệ thống âm thanh đa điểm VN-MateAI.');
-    const audio = document.getElementById('audio-player');
-    if (audio) {
-      audio.src = audioUrl;
-      audio.play().catch(e => console.warn('Lỗi phát audio:', e));
+async function submitRobotPairingCode() {
+  const input = document.getElementById('robot-pairing-code-input');
+  const resultBox = document.getElementById('robot-pairing-result');
+  if (!input) return;
+
+  const code = (input.value || '').trim();
+  if (code.length < 4 || code.length > 10) {
+    if (resultBox) {
+      resultBox.className = 'text-[11px] mt-2 font-mono text-rose-400 block';
+      resultBox.textContent = '⚠️ Vui lòng nhập mã ghép đôi 6 chữ số hiển thị trên màn hình OLED của Robot.';
     }
+    input.focus();
+    return;
+  }
+
+  if (resultBox) {
+    resultBox.className = 'text-[11px] mt-2 font-mono text-cyan-400 block';
+    resultBox.textContent = '⏳ Đang xác thực mã và kết nối robot...';
+  }
+
+  try {
+    const res = await apiFetch('/api/v1/pairing/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Không thể ghép đôi. Kiểm tra lại mã trên OLED.');
+    }
+
+    if (resultBox) {
+      resultBox.className = 'text-[11px] mt-2 font-mono text-emerald-400 block';
+      resultBox.innerHTML = `✅ <b>Ghép đôi thành công!</b> Đã kết nối robot <code>[${escapeHtml(data.device_id)}]</code>. Màn hình OLED đã đồng bộ.`;
+    }
+    input.value = '';
+    showToast(`🤖 Robot [${data.device_id}] đã ghép đôi thành công!`, 'success');
+    await loadAudioNodes();
+  } catch (err) {
+    if (resultBox) {
+      resultBox.className = 'text-[11px] mt-2 font-mono text-rose-400 block';
+      resultBox.textContent = `❌ Lỗi: ${err.message}`;
+    }
+  }
+}
+
+async function broadcastAudioAnnouncement() {
+  const announceText = 'Xin chào! Đây là thông báo kiểm tra hệ thống âm thanh VN-MateAI. Loa robot đang hoạt động bình thường.';
+  try {
+    showToast('📢 Đang phát thông báo ra loa robot...', 'info');
+    const res = await apiFetch('/api/v1/xiaozhi/announce', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: announceText }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Lỗi server');
+    showToast(`✅ ${data.message}`, 'success');
+    await loadAudioNodes();
   } catch (e) {
-    showToast('❌ Lỗi phát thanh: ' + e.message, 'error');
+    // Fallback: nếu không có robot online, phát trong browser
+    showToast('⚠️ Không có robot online — phát trong browser thay thế.', 'warning');
+    try {
+      const audioUrl = await apiTTS(announceText);
+      const audio = document.getElementById('audio-player');
+      if (audio) { audio.src = audioUrl; audio.play().catch(() => {}); }
+    } catch (_) {}
   }
 }
 
@@ -3061,7 +3162,7 @@ function toggleBrowserSpeechRecognition() {
         btn.className = 'absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-cyan-500/20 text-slate-500 dark:text-slate-400 hover:text-cyan-500 transition active:scale-95';
       }
       if (icon) icon.setAttribute('stroke', 'currentColor');
-      
+
       const query = input?.value?.trim();
       if (query && query.length >= 2) {
         showToast(`⚡ Đã nhận lệnh: "${query}". Đang thực thi...`, 'success');
@@ -3199,8 +3300,8 @@ function renderPortalMarkdown(rawText) {
       const cells = line.split('|').slice(1, -1);
       const isHeader = !tableHtml.includes('<tr');
       const tag = isHeader ? 'th' : 'td';
-      const rowClass = isHeader 
-        ? 'bg-slate-100 dark:bg-cyan-950/50 text-slate-800 dark:text-cyan-300 font-bold border-b border-slate-200 dark:border-cyan-500/30' 
+      const rowClass = isHeader
+        ? 'bg-slate-100 dark:bg-cyan-950/50 text-slate-800 dark:text-cyan-300 font-bold border-b border-slate-200 dark:border-cyan-500/30'
         : 'border-b border-slate-100 dark:border-cyan-500/10 hover:bg-slate-50 dark:hover:bg-cyan-950/20 text-slate-700 dark:text-slate-200';
       // Escape ô trước khi bọc thẻ: nội dung báo cáo lấy từ hệ thống khách
       // hàng (tên hàng, tên khách, ghi chú) — không phải do người dùng gõ,
@@ -3708,7 +3809,7 @@ function _ccSecretStatus(inputId, hintId, hasKey, sample, justSaved) {
     hint.textContent = '✔ Đã lưu khoá an toàn (hiển thị ••••••••).';
     hint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400';
   } else if (hasKey) {
-    hint.textContent = '✔ Đã có khoá lưu sẵn (••••••••) — để nguyên hoặc gõ mới để thay đổi.';
+    hint.textContent = '✔ Đã có khoá.';
     hint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400';
   } else {
     hint.textContent = 'Chưa có khoá nào được lưu.';
@@ -3951,11 +4052,29 @@ async function saveFullConfig() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
+/**
  * Load all config data into the AI Manager tab fields.
  * Called automatically when switching to the 'ai-manager' tab.
+ *
+ * Phase 70: Hai tối ưu quan trọng:
+ *  1. Cache config 30s — không re-fetch nếu tab vừa mở cách đây < 30s.
+ *  2. Song song hoá: `apiGetConfig` và `loadRouterModels` chạy cùng lúc
+ *     bằng `Promise.all`. Trước đây tuần tự: đợi config xong rồi mới
+ *     fetch models — tổng 2 round-trip nối tiếp (~600ms). Nay đồng thời.
+ *  3. Debounce 50ms: tránh double-call khi người dùng click tab nhanh.
  */
-async function loadAIManagerConfig() {
-  const cfg = await apiGetConfig();
+let _aiManagerLoadTimer = null;
+function loadAIManagerConfig() {
+  clearTimeout(_aiManagerLoadTimer);
+  _aiManagerLoadTimer = setTimeout(_doLoadAIManagerConfig, 50);
+}
+
+async function _doLoadAIManagerConfig() {
+  // Phase 70: Chạy song song — không đợi config xong mới fetch models.
+  const [cfg] = await Promise.all([
+    apiGetConfig(),
+    loadRouterModels(),   // fire-and-forget: vẽ dropdown ngay khi xong
+  ]);
   if (!cfg) return;
   currentConfig = cfg;
 
@@ -4033,11 +4152,7 @@ async function loadAIManagerConfig() {
   // Phase 47: AI Manager Live Telemetry & Prompt Analytics
   updateAIManagerTelemetry();
   updatePromptStats();
-  // Phase 68→81: nạp model từ ROUTER (cùng nguồn với tab Cấu Hình). Trước đây
-  // tự gọi `loadAIProxyModels()` — query thẳng proxy với ô khoá trống, sinh ra
-  // hai bộ model khác nhau (proxy trả 31, router pool trả 30) đổ vào cùng một
-  // ô chọn, tuỳ tab mở trước. Nút "Tải từ 9router" vẫn giữ để thử proxy khác.
-  loadRouterModels();
+  // loadRouterModels() đã được gọi song song ở đầu hàm — không cần gọi lại.
 }
 
 /**
@@ -4483,10 +4598,10 @@ async function previewAITTS() {
     const res = await apiFetch(`${API_BASE}/api/v1/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        text: testText, 
-        voice, 
-        rate 
+      body: JSON.stringify({
+        text: testText,
+        voice,
+        rate
       }),
     });
 
@@ -4734,7 +4849,7 @@ function renderTemplatePreview() {
 
   // Bold **text**
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="font-bold text-white">$1</strong>');
-  
+
   // Italic *text*
   html = html.replace(/\*([^*]+)\*/g, '<em class="italic text-slate-300">$1</em>');
 
@@ -5694,8 +5809,8 @@ function updateSecurityPoliciesCount() {
   const policiesEl = document.getElementById('stat-sec-policies');
   if (policiesEl) {
     const total = (securityPolicies.blacklist?.length || 0) +
-                  (securityPolicies.confirm_actions?.length || 0) +
-                  (securityPolicies.protected_dirs?.length || 0);
+      (securityPolicies.confirm_actions?.length || 0) +
+      (securityPolicies.protected_dirs?.length || 0);
     policiesEl.textContent = total;
   }
 }
@@ -5738,11 +5853,10 @@ function selectSecurityPolicyTab(tab) {
     const btn = document.getElementById(`tab-btn-sec-${t}`);
     if (btn) {
       if (t === tab) {
-        btn.className = `px-2.5 py-1 text-xs font-semibold rounded-lg shadow-sm transition ${
-          t === 'blacklist' ? 'bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400' :
+        btn.className = `px-2.5 py-1 text-xs font-semibold rounded-lg shadow-sm transition ${t === 'blacklist' ? 'bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400' :
           t === 'confirm_actions' ? 'bg-white dark:bg-slate-700 text-amber-600 dark:text-amber-400' :
-          'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400'
-        }`;
+            'bg-white dark:bg-slate-700 text-sky-600 dark:text-sky-400'
+          }`;
       } else {
         btn.className = 'px-2.5 py-1 text-xs font-semibold rounded-lg text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white transition';
       }
@@ -5794,14 +5908,14 @@ function renderSecurityChips() {
   const colorClass = isBlacklist
     ? 'bg-rose-500/15 border-rose-500/30 text-rose-300 hover:border-rose-400'
     : isConfirm
-    ? 'bg-amber-500/15 border-amber-500/30 text-amber-300 hover:border-amber-400'
-    : 'bg-sky-500/15 border-sky-500/30 text-sky-300 hover:border-sky-400';
+      ? 'bg-amber-500/15 border-amber-500/30 text-amber-300 hover:border-amber-400'
+      : 'bg-sky-500/15 border-sky-500/30 text-sky-300 hover:border-sky-400';
 
   const btnColor = isBlacklist
     ? 'text-rose-400 hover:bg-rose-500/30'
     : isConfirm
-    ? 'text-amber-400 hover:bg-amber-500/30'
-    : 'text-sky-400 hover:bg-sky-500/30';
+      ? 'text-amber-400 hover:bg-amber-500/30'
+      : 'text-sky-400 hover:bg-sky-500/30';
 
   list.forEach(item => {
     const chip = document.createElement('div');
@@ -6877,14 +6991,14 @@ function renderTasksTable(tasks) {
       </thead>
       <tbody class="divide-y divide-white/5">
         ${tasks.map(t => {
-          let statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">⏳ Đang Chờ</span>`;
-          if (t.status === 'completed' || t.status === 'done') {
-            statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">✔ Hoàn Thành</span>`;
-          } else if (t.status === 'in_progress') {
-            statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">⚡ Đang Thực Hiện</span>`;
-          }
+    let statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-400/30">⏳ Đang Chờ</span>`;
+    if (t.status === 'completed' || t.status === 'done') {
+      statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">✔ Hoàn Thành</span>`;
+    } else if (t.status === 'in_progress') {
+      statusBadge = `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">⚡ Đang Thực Hiện</span>`;
+    }
 
-          return `
+    return `
             <tr class="hover:bg-white/[0.02] transition-colors">
               <td class="py-2 px-3 font-semibold text-slate-800 dark:text-slate-200">${escapeHtml(t.title)}</td>
               <td class="py-2 px-3 text-slate-300 flex items-center gap-1.5">
@@ -6895,7 +7009,7 @@ function renderTasksTable(tasks) {
               <td class="py-2 px-3 text-slate-400 font-mono text-[11px]">${escapeHtml(t.due_date || 'Không có')}</td>
             </tr>
           `;
-        }).join('')}
+  }).join('')}
       </tbody>
     </table>
   `;
@@ -7396,13 +7510,13 @@ function renderUsersTable(users) {
             </button>
             <!-- Xóa (Icon Thùng rác đỏ) -->
             ${isCurrent
-              ? `<button disabled title="Không thể xóa tài khoản của chính bạn đang đăng nhập" class="w-8 h-8 rounded-lg bg-slate-500/10 border border-slate-500/20 text-slate-500 flex items-center justify-center cursor-not-allowed opacity-40">
+        ? `<button disabled title="Không thể xóa tài khoản của chính bạn đang đăng nhập" class="w-8 h-8 rounded-lg bg-slate-500/10 border border-slate-500/20 text-slate-500 flex items-center justify-center cursor-not-allowed opacity-40">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>`
-              : `<button onclick="openDeleteUserModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.full_name || '')}')" title="Xóa tài khoản" class="w-8 h-8 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 hover:border-rose-400/50 text-rose-400 flex items-center justify-center transition shadow-sm">
+        : `<button onclick="openDeleteUserModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}', '${escapeHtml(u.full_name || '')}')" title="Xóa tài khoản" class="w-8 h-8 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 hover:border-rose-400/50 text-rose-400 flex items-center justify-center transition shadow-sm">
                   <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                 </button>`
-            }
+      }
           </div>
         </td>
       </tr>
@@ -8505,7 +8619,7 @@ const LogViewer = (() => {
     div.title = 'Bấm để sao chép dòng log này';
 
     const search = (document.getElementById('log-search-input')?.value || '').toLowerCase();
-    
+
     // Timestamp
     let ts = '';
     if (entry.timestamp) {
@@ -9005,8 +9119,8 @@ function renderInBrowserHUD(type = 'network_map', data = {}, customTitle = null,
             <div>
               <div class="font-bold text-cyan-300 tracking-wider">MẠNG LAN BẢO MẬT E2E</div>
               <div class="text-[10px] text-slate-400">${master
-                ? `Master: ${_esc(master.ip || 'chưa rõ IP')}${_isLive(master.port) ? ` • Port ${master.port}` : ''}`
-                : `<span class="is-waiting">Thông tin máy chủ: ${WAIT_TXT}</span>`}</div>
+        ? `Master: ${_esc(master.ip || 'chưa rõ IP')}${_isLive(master.port) ? ` • Port ${master.port}` : ''}`
+        : `<span class="is-waiting">Thông tin máy chủ: ${WAIT_TXT}</span>`}</div>
             </div>
           </div>
         </div>
@@ -9684,15 +9798,15 @@ const CommandCenter = (() => {
       el.className = 'text-xl font-bold leading-none '
         + (tone === 'bad' ? 'text-rose-600 dark:text-rose-400'
           : tone === 'warn' ? 'text-amber-600 dark:text-amber-400'
-          : tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400'
-          : 'text-slate-400 dark:text-slate-500');
+            : tone === 'ok' ? 'text-emerald-600 dark:text-emerald-400'
+              : 'text-slate-400 dark:text-slate-500');
     }
     const dot = $('cc-kpi-' + id + '-dot');
     if (dot) dot.className = 'w-1.5 h-1.5 rounded-full ' + (
       tone === 'bad' ? 'bg-rose-500'
         : tone === 'warn' ? 'bg-amber-500'
-        : tone === 'ok' ? 'bg-emerald-500'
-        : 'bg-slate-300 dark:bg-slate-600');
+          : tone === 'ok' ? 'bg-emerald-500'
+            : 'bg-slate-300 dark:bg-slate-600');
   }
 
   // Phân biệt ba trạng thái, đây là cả chìa khoá của toàn bng bảng vận hành:
@@ -9720,7 +9834,7 @@ const CommandCenter = (() => {
     e.className = 'text-sm font-bold mt-0.5 ' + (
       tone === 'bad' ? 'text-rose-600 dark:text-rose-400'
         : tone === 'warn' ? 'text-amber-600 dark:text-amber-400'
-        : 'text-slate-800 dark:text-slate-100');
+          : 'text-slate-800 dark:text-slate-100');
   }
 
   function renderOpsHealth(d) {
@@ -9904,21 +10018,21 @@ const CommandCenter = (() => {
     // chữ "Đang tải…" mãi mãi và trông như đang tải — người dùng chờ hoài
     // không bao giờ biết là lỗi. Hiện lỗi ra thay vì nuốt im.
     try {
-    box.innerHTML = OPS_SUBSYSTEMS.map((s) => {
-      const d = (subs && subs[s.key]) || undefined;
-      const err = _srcErr(d);
+      box.innerHTML = OPS_SUBSYSTEMS.map((s) => {
+        const d = (subs && subs[s.key]) || undefined;
+        const err = _srcErr(d);
 
-      // Không có dữ liệu: nói thẳng là chưa biết, không suy ra "đang tắt".
-      if (!d) {
-        return `<div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
+        // Không có dữ liệu: nói thẳng là chưa biết, không suy ra "đang tắt".
+        if (!d) {
+          return `<div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/40">
           <span class="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0"></span>
           <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300 truncate">${_esc(s.label)}</span>
           <span class="ml-auto text-[10px] text-slate-400 dark:text-slate-500 shrink-0">chưa kiểm tra</span>
         </div>`;
-      }
+        }
 
-      if (err) {
-        return `<div class="px-2.5 py-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-900/40">
+        if (err) {
+          return `<div class="px-2.5 py-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-900/40">
           <div class="flex items-center gap-2">
             <span class="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
             <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">${_esc(s.label)}</span>
@@ -9926,46 +10040,42 @@ const CommandCenter = (() => {
           </div>
           <p class="text-[10px] text-rose-500 dark:text-rose-400 mt-1 break-words">${_esc(err)}</p>
         </div>`;
-      }
+        }
 
-      const on = !!s.on(d);
-      const stateText = on
-        ? (s.onText ? s.onText(d) : 'đang chạy')
-        : (s.offText ? s.offText(d) : 'đang tắt');
+        const on = !!s.on(d);
+        const stateText = on
+          ? (s.onText ? s.onText(d) : 'đang chạy')
+          : (s.offText ? s.offText(d) : 'đang tắt');
 
-      // Không có API bật/tắt → hiện lý do, không hiện nút.
-      const action = s.togglePath
-        ? `<button type="button" data-ops-toggle="${_esc(s.key)}" title="${_esc(s.hint || '')}"
-             class="shrink-0 px-2.5 py-1 text-[10px] font-bold rounded-md transition ${
-               on ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900/60'
-                   : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'}">
+        // Không có API bật/tắt → hiện lý do, không hiện nút.
+        const action = s.togglePath
+          ? `<button type="button" data-ops-toggle="${_esc(s.key)}" title="${_esc(s.hint || '')}"
+             class="shrink-0 px-2.5 py-1 text-[10px] font-bold rounded-md transition ${on ? 'bg-rose-100 dark:bg-rose-900/40 text-rose-700 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900/60'
+            : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'}">
              ${on ? 'Tắt' : 'Bật'}
            </button>`
-        : `<span class="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">không điều khiển được</span>`;
+          : `<span class="shrink-0 text-[10px] text-slate-400 dark:text-slate-500">không điều khiển được</span>`;
 
-      return `<div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 ${
-               on ? 'border border-emerald-200 dark:border-emerald-900/30'
-                  : 'border border-transparent'}">
-        <span class="w-1.5 h-1.5 rounded-full shrink-0 ${
-          on ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}"></span>
+        return `<div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-50 dark:bg-slate-800/40 ${on ? 'border border-emerald-200 dark:border-emerald-900/30'
+          : 'border border-transparent'}">
+        <span class="w-1.5 h-1.5 rounded-full shrink-0 ${on ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}"></span>
         <div class="min-w-0 flex-1">
           <div class="flex items-baseline gap-1.5">
             <span class="text-[11px] font-semibold text-slate-700 dark:text-slate-200 truncate">${_esc(s.label)}</span>
-            <span class="text-[10px] truncate ${
-              on ? 'text-emerald-600 dark:text-emerald-400'
-                 : 'text-slate-400 dark:text-slate-500'}">${_esc(stateText)}</span>
+            <span class="text-[10px] truncate ${on ? 'text-emerald-600 dark:text-emerald-400'
+            : 'text-slate-400 dark:text-slate-500'}">${_esc(stateText)}</span>
           </div>
           <p class="text-[9px] text-slate-400 dark:text-slate-500 truncate" title="${_esc(s.hint || '')}">${_esc(s.hint || '')}</p>
         </div>
         ${action}
       </div>`;
-    }).join('');
+      }).join('');
 
-    // Gắn sự kiện sau khi dựng innerHTML — không dùng onclick nội tuyến để
-    // tránh phải dựng lại chuỗi onclick mỗi lần vẽ lại.
-    box.querySelectorAll('[data-ops-toggle]').forEach((btn) => {
-      btn.addEventListener('click', () => toggleOpsSubsystem(btn.dataset.opsToggle, btn));
-    });
+      // Gắn sự kiện sau khi dựng innerHTML — không dùng onclick nội tuyến để
+      // tránh phải dựng lại chuỗi onclick mỗi lần vẽ lại.
+      box.querySelectorAll('[data-ops-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => toggleOpsSubsystem(btn.dataset.opsToggle, btn));
+      });
     } catch (err) {
       box.innerHTML = `<p class="text-[11px] text-rose-500 text-center py-2">`
         + `Không dựng được danh sách hệ thống: ${_esc(err.message || String(err))}</p>`;
@@ -10057,8 +10167,8 @@ const CommandCenter = (() => {
             <span class="ml-auto text-[9px] font-bold ${ok && !off ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">${_esc(label)}</span>
           </div>
           ${missing.length && !off
-            ? `<p class="text-[10px] text-amber-700 dark:text-amber-400 mt-1 font-mono">còn thiếu: ${_esc(missing.join(', '))}</p>`
-            : `<p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">${_esc((c.actions || []).length)} thao tác dùng được</p>`}
+          ? `<p class="text-[10px] text-amber-700 dark:text-amber-400 mt-1 font-mono">còn thiếu: ${_esc(missing.join(', '))}</p>`
+          : `<p class="text-[10px] text-slate-500 dark:text-slate-400 mt-1">${_esc((c.actions || []).length)} thao tác dùng được</p>`}
         </div>`;
     }).join('');
   }
@@ -10106,13 +10216,13 @@ const CommandCenter = (() => {
         </div>
       </div>
       ${[1, 2, 3, 4, 5].map((lv) => {
-        const list = byLevel.get(lv) || [];
-        const need = lv >= 3;
-        const head = need
-          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
-          : lv === 2 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
-        return `
+      const list = byLevel.get(lv) || [];
+      const need = lv >= 3;
+      const head = need
+        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
+        : lv === 2 ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+          : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400';
+      return `
           <details class="rounded-lg border border-slate-200 dark:border-slate-700/60 overflow-hidden">
             <summary class="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-700/30">
               <span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${head}">L${lv}</span>
@@ -10120,13 +10230,13 @@ const CommandCenter = (() => {
               <span class="ml-auto text-[10px] font-mono text-slate-400 dark:text-slate-500">${list.length}</span>
             </summary>
             ${list.length
-              ? `<div class="px-2.5 pb-2 space-y-0.5">${list.map(([name, t]) => `
+          ? `<div class="px-2.5 pb-2 space-y-0.5">${list.map(([name, t]) => `
                   <p class="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
                     · ${_esc(name)}${t.enabled === false ? ' <span class="text-slate-400">(đã tắt)</span>' : ''}
                   </p>`).join('')}</div>`
-              : `<p class="px-2.5 pb-2 text-[10px] text-slate-400 dark:text-slate-500">Không có tool nào ở mức này.</p>`}
+          : `<p class="px-2.5 pb-2 text-[10px] text-slate-400 dark:text-slate-500">Không có tool nào ở mức này.</p>`}
           </details>`;
-      }).join('')}`;
+    }).join('')}`;
   }
 
   /**
@@ -10181,7 +10291,7 @@ const CommandCenter = (() => {
         <span class="min-w-0 break-all text-slate-500 dark:text-slate-400">${_esc(e.message || '')}</span>
       </div>`).join('')
       + (hidden ? `<p class="text-[9px] text-slate-500 dark:text-slate-500 pt-1 mt-1 border-t border-slate-200 dark:border-slate-700/60 font-sans">`
-          + `Đang ẩn ${hidden} dòng heartbeat/health-check — bật "hiện cả nhiễu" để xem.</p>` : '');
+        + `Đang ẩn ${hidden} dòng heartbeat/health-check — bật "hiện cả nhiễu" để xem.</p>` : '');
   }
 
   function _hhmm(ts) {
@@ -10275,25 +10385,35 @@ const CommandCenter = (() => {
   // "quy" trong cả bốn trường hợp đều đứng riêng. Cách duy nhất đúng là
   // ghép nó với từ đứng sau: "quỹ con", "quỹ tiền", "quỹ vốn"...
   const ROUTES = [
-    { id: 'cashflow', endpoint: 'cashflow',
+    {
+      id: 'cashflow', endpoint: 'cashflow',
       keywords: ['runway', 'quy con', 'quy tien', 'quy von', 'quy ngan',
-                 'quy doanh nghiep', 'quy dau tu', 'dong tien', 'thanh toan',
-                 'tai chinh', 'het tien', 'tien het', 'tien con', 'con bao lau',
-                 'chiu khuc', 'thieu tien'] },
-    { id: 'policy', endpoint: 'policy',
+        'quy doanh nghiep', 'quy dau tu', 'dong tien', 'thanh toan',
+        'tai chinh', 'het tien', 'tien het', 'tien con', 'con bao lau',
+        'chiu khuc', 'thieu tien']
+    },
+    {
+      id: 'policy', endpoint: 'policy',
       keywords: ['quy che', 'quy dinh', 'quy trinh', 'chinh sach', 'thu tuc',
-                 'noi quy', 'nghi phep', 'thai san', 'bao hiem', 'nghi hong',
-                 'ky luat', 'phu cap', 'don xin', 'don nghi', 'don tom tat',
-                 'cham cong', 'hop dong lao dong', 'om'] },
-    { id: 'people', endpoint: 'chart',
+        'noi quy', 'nghi phep', 'thai san', 'bao hiem', 'nghi hong',
+        'ky luat', 'phu cap', 'don xin', 'don nghi', 'don tom tat',
+        'cham cong', 'hop dong lao dong', 'om']
+    },
+    {
+      id: 'people', endpoint: 'chart',
       keywords: ['nhan vien', 'nhan su', 'phong ban', 'bo phan', 'headcount',
-                 'ho so', 'tuyen', 'so luong', 'nhan luc'] },
-    { id: 'task', endpoint: 'chart',
+        'ho so', 'tuyen', 'so luong', 'nhan luc']
+    },
+    {
+      id: 'task', endpoint: 'chart',
       keywords: ['cong viec', 'task', 'tien do', 'nhiem vu', 'deadline', 'hoan thanh',
-                 'ke hoach', 'tien bo'] },
-    { id: 'finance', endpoint: 'chart',
+        'ke hoach', 'tien bo']
+    },
+    {
+      id: 'finance', endpoint: 'chart',
       keywords: ['chi phi', 'doanh thu', 'thu chi', 'loi nhuan', 'ngan sach',
-                 'gia vang', 'hoa don', 'lai suat', 'cong no', 'doanh so'] },
+        'gia vang', 'hoa don', 'lai suat', 'cong no', 'doanh so']
+    },
   ];
 
   function classify(text) {
@@ -10469,7 +10589,7 @@ const CommandCenter = (() => {
   }
 
 
-function onEnter() {
+  function onEnter() {
     loadPending();
     loadSecurity();
     // Phase 71: `loadCashflow` bị gỡ, thay bằng lớp sức khoẻ vận hành. Gộp 6
@@ -10588,11 +10708,13 @@ function _ccSetStatus(el, ok, okText, idleText) {
 // Phase 81: thêm 'devices' — khối máy trạm 194 dòng trước đây nằm tràn dưới
 // sub-tab "Hệ Thống", kéo dài màn hình Tích Hợp bằng nội dung không liên quan.
 // Nay là sub-tab riêng và chỉ nạp dữ liệu khi bấm vào.
-const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys', 'devices'];
+const CC_SUBTABS = ['conn', 'departments', 'elastic-grid', 'config', 'webhook', 'tools', 'sys', 'devices'];
 // Tên hiển thị của sub-tab cốt lõi (dùng cho ô phụ `cc-int-header-sub`).
 // Sub-tab mở rộng lấy tên từ `_ccSubTabConfig[id].title`.
 const CC_SUBTAB_LABELS = {
   conn: 'Kết nối ngoại vi',
+  departments: 'Quản trị phòng ban (No-Code)',
+  'elastic-grid': 'Hồ máy trạm (Elastic Grid)',
   config: 'Cấu hình kết nối',
   webhook: 'Webhook',
   tools: 'Công cụ',
@@ -10668,7 +10790,7 @@ function registerCcDataSource(id, cfg) {
     actions: []
   };
   _ccDataSourceRegistry[id] = { ...defaults, ...cfg, id };
-  
+
   // Tự động đăng ký sub-tab nếu chưa có
   if (cfg.subTabId && !_ccSubTabExtensions.includes(cfg.subTabId)) {
     registerCcSubTabExtension(cfg.subTabId, {
@@ -10709,34 +10831,48 @@ function getCcDataSource(id) {
  * ty, thêm bán lẻ vào danh sách làm nhiễu màn hình mà không ai dùng tới.
  */
 const CC_APP_PRESETS = [
-  { id: 'misa', label: 'MISA', icon: '📒', base_url: 'https://<ten-cong-ty>.misa.com.vn',
+  {
+    id: 'misa', label: 'MISA', icon: '📒', base_url: 'https://<ten-cong-ty>.misa.com.vn',
     default_path: '/api/v1/', auth_type: 'basic',
     paths: { 'sổ cái': '/api/v1/hr/payroll', 'tồn kho': '/api/v1/inventory/stock', 'công nợ': '/api/v1/finance/payable' },
-    note: 'Kế toán MISA AMH — thay <ten-cong-ty> bằng tenant' },
-  { id: 'odoo', label: 'Odoo', icon: '🧩', base_url: 'https://<domain>.odoo.com',
+    note: 'Kế toán MISA AMH — thay <ten-cong-ty> bằng tenant'
+  },
+  {
+    id: 'odoo', label: 'Odoo', icon: '🧩', base_url: 'https://<domain>.odoo.com',
     default_path: '/json/1', auth_type: 'basic',
     paths: { 'bán hàng': '/json/1/sale.order', 'khách hàng': '/json/1/res.partner', 'kho': '/json/1/stock.quant' },
-    note: 'Odoo — user:pass, giao diện JSON-RPC' },
-  { id: 'sap', label: 'SAP', icon: '🏭', base_url: 'https://<host>:44300/sap/opu/odata',
+    note: 'Odoo — user:pass, giao diện JSON-RPC'
+  },
+  {
+    id: 'sap', label: 'SAP', icon: '🏭', base_url: 'https://<host>:44300/sap/opu/odata',
     default_path: '/API_BUSINESS_PARTNER', auth_type: 'basic',
     paths: { 'đối tác': '/API_BUSINESS_PARTNER', 'đơn hàng': '/API_SALES_ORDER' },
-    note: 'SAP OData — Basic auth, chứng thư số' },
-  { id: 'dynamics', label: 'Dynamics 365', icon: '🔷', base_url: 'https://<org>.crm.dynamics.com/api/data/v9.2',
+    note: 'SAP OData — Basic auth, chứng thư số'
+  },
+  {
+    id: 'dynamics', label: 'Dynamics 365', icon: '🔷', base_url: 'https://<org>.crm.dynamics.com/api/data/v9.2',
     default_path: '/accounts', auth_type: 'bearer',
     paths: { 'khách hàng': '/accounts', 'cơ hội': '/opportunities', 'hóa đơn': '/invoices' },
-    note: 'Dynamics 365 / Dataverse — bearer token' },
-  { id: 'zoho', label: 'Zoho', icon: '🟠', base_url: 'https://www.zohoapis.com/crm/v2',
+    note: 'Dynamics 365 / Dataverse — bearer token'
+  },
+  {
+    id: 'zoho', label: 'Zoho', icon: '🟠', base_url: 'https://www.zohoapis.com/crm/v2',
     default_path: '/Accounts', auth_type: 'bearer',
     paths: { 'khách hàng': '/Accounts', 'giao dịch': '/Deals' },
-    note: 'Zoho CRM — bearer token' },
-  { id: 'sheets', label: 'Google Sheets', icon: '📗', base_url: 'https://sheets.googleapis.com/v4/spreadsheets',
+    note: 'Zoho CRM — bearer token'
+  },
+  {
+    id: 'sheets', label: 'Google Sheets', icon: '📗', base_url: 'https://sheets.googleapis.com/v4/spreadsheets',
     default_path: '/<id-file>/values/A1', auth_type: 'bearer',
     paths: { 'dữ liệu': '/<id-file>/values/A1' },
-    note: 'Google Sheets — báo cáo nằm trên sheet' },
-  { id: 'erp-noi-bo', label: 'ERP nội bộ', icon: '🏢', base_url: 'http://erp-noi-bo.congty.vn/api',
+    note: 'Google Sheets — báo cáo nằm trên sheet'
+  },
+  {
+    id: 'erp-noi-bo', label: 'ERP nội bộ', icon: '🏢', base_url: 'http://erp-noi-bo.congty.vn/api',
     default_path: '/reports', auth_type: 'bearer',
     paths: {},
-    note: 'Hệ thống tự viết — chỉ cần URL và khoá' },
+    note: 'Hệ thống tự viết — chỉ cần URL và khoá'
+  },
 ];
 
 /**
@@ -10891,18 +11027,18 @@ function renderConnectionCards() {
             </p>
           </div>` : ''}
         ${(() => {
-          const h = _ccConnHealth.get(name);
-          if (!h) return `
+        const h = _ccConnHealth.get(name);
+        if (!h) return `
         <div class="flex items-center gap-1.5 mb-2.5">
           <span class="w-2 h-2 rounded-full bg-slate-300 dark:bg-slate-600 shrink-0" id="${name}-health-indicator"></span>
           <span class="text-[10px] text-slate-500 dark:text-slate-400 truncate" id="${name}-health-text">Chưa kiểm tra</span>
         </div>`;
-          return `
+        return `
         <div class="flex items-center gap-1.5 mb-2.5">
           <span class="w-2 h-2 rounded-full shrink-0 ${h.ok ? 'bg-emerald-500' : 'bg-rose-500'}" id="${name}-health-indicator"></span>
           <span class="text-[10px] truncate ${h.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}" id="${name}-health-text">${_esc(h.text)}</span>
         </div>`;
-        })()}
+      })()}
         <div class="mt-auto flex items-center gap-1.5">
           <button type="button" onclick="runConnectorHealth('${name}')"
             class="flex-1 px-2 py-1.5 text-[10px] font-medium rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition">Kiểm tra</button>
@@ -11563,7 +11699,7 @@ async function runDataSourceHealth(id) {
     textEl.textContent = 'Đang kiểm tra…';
     textEl.className = 'text-[10px] truncate text-amber-600 dark:text-amber-400';
   }
-  
+
   try {
     // Probe của data source tùy chỉnh là POST (nó gọi ra app ngoài — GET sẽ
     // khiến proxy/cache tự kích hoạt). Nguồn chỉ đọc trạng thái vẫn là GET.
@@ -12016,7 +12152,7 @@ function registerDefaultDataSources() {
       { id: 'instances', label: 'EC2', handler: () => runIntegrationTool('check_aws_instances', {}) }
     ]
   });
-  
+
   // OCI
   registerCcDataSource('oci', {
     title: 'OCI',
@@ -12034,7 +12170,7 @@ function registerDefaultDataSources() {
       { id: 'metrics', label: 'Metrics', handler: () => runIntegrationTool('check_oci_metrics', {}) }
     ]
   });
-  
+
   // Paperless
   registerCcDataSource('paperless', {
     title: 'Paperless-ngx',
@@ -12048,10 +12184,10 @@ function registerDefaultDataSources() {
       config: '/api/v1/enterprise/connectors/config/paperless'
     },
     actions: [
-      { id: 'search', label: 'Tìm tài liệu', handler: () => runIntegrationTool('search_paperless_documents', {query: ''}) }
+      { id: 'search', label: 'Tìm tài liệu', handler: () => runIntegrationTool('search_paperless_documents', { query: '' }) }
     ]
   });
-  
+
   // eInvoice
   registerCcDataSource('einvoice', {
     title: 'eInvoice',
@@ -12069,7 +12205,7 @@ function registerDefaultDataSources() {
       { id: 'search', label: 'Tra cứu HĐĐT', handler: () => runIntegrationTool('search_einvoices', {}) }
     ]
   });
-  
+
   // Plugin Registry (reporting)
   registerCcDataSource('plugin-registry', {
     title: 'Plugin Registry',
@@ -12083,7 +12219,7 @@ function registerDefaultDataSources() {
       data: '/api/v1/enterprise/plugin-registry/stats'
     }
   });
-  
+
   // Background Tasks (analytics)
   registerCcDataSource('background-tasks', {
     title: 'Tác Vụ Nền',
@@ -12097,7 +12233,7 @@ function registerDefaultDataSources() {
       data: '/api/v1/enterprise/background-tasks'
     }
   });
-  
+
   // Webhooks (analytics)
   registerCcDataSource('webhooks', {
     title: 'Webhook Events',
@@ -12111,7 +12247,7 @@ function registerDefaultDataSources() {
       data: '/api/v1/enterprise/webhooks/recent'
     }
   });
-  
+
   // Cashflow Health (reporting)
   registerCcDataSource('cashflow-health', {
     title: 'Sức Khoẻ Quỹ',
@@ -12237,6 +12373,14 @@ function switchCcSubTab(name) {
     // `loadFn` = `loadCcDataSourceTab`, và hàm đó gọi `renderConnectionCards()`.
     // Thêm lệnh ở đây sẽ là code chết — không chạy mà nhìn tưởng có chạy.
     if (name === 'config') loadConnectorConfigAll();
+    if (name === 'departments') loadEnterpriseDepartments();
+    if (name === 'elastic-grid') {
+      loadElasticGridManager();
+      if (_elasticGridTimer) clearInterval(_elasticGridTimer);
+      _elasticGridTimer = setInterval(loadElasticGridManager, 5000);
+    } else {
+      if (_elasticGridTimer) { clearInterval(_elasticGridTimer); _elasticGridTimer = null; }
+    }
     if (name === 'devices') loadDevices();
     if (name === 'sys') { loadPluginRegistryStats(); loadBackgroundTasks(); }
     if (name === 'webhook') loadWebhookAlerts();
@@ -12310,7 +12454,7 @@ function syncIntegrationKpi() {
 function loadSystemIntegration() {
   // Khởi tạo Data Source Registry (hệ thống mới có thể mở rộng).
   initCcDataSourceRegistry();
-  
+
   // Giữ tương thích ngược: vẫn load 4 nhóm dữ liệu Phase 59/60.
   loadPluginRegistryStats();
   loadBackgroundTasks();
@@ -12414,7 +12558,7 @@ async function loadPluginRegistryStats() {
       const st = (cb.state || 'closed').toUpperCase();
       const stCls = st === 'CLOSED' ? 'text-emerald-600 dark:text-emerald-400'
         : st === 'OPEN' ? 'text-rose-600 dark:text-rose-400'
-        : 'text-amber-600 dark:text-amber-400';
+          : 'text-amber-600 dark:text-amber-400';
       html += `<div class="flex items-center justify-between gap-2 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700">`
         + `<span class="text-[10px] font-medium text-slate-700 dark:text-slate-300 truncate">${_esc(n)}</span>`
         + `<span class="flex items-center gap-1.5 shrink-0">`
@@ -12455,11 +12599,11 @@ async function loadBackgroundTasks() {
       return;
     }
     const META = {
-      pending:   ['Chờ chạy',  'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'],
-      running:   ['Đang chạy','bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'],
-      completed: ['Xong',     'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'],
-      failed:    ['Lỗi',      'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400'],
-      cancelled: ['Đã hủy',   'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'],
+      pending: ['Chờ chạy', 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'],
+      running: ['Đang chạy', 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400'],
+      completed: ['Xong', 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400'],
+      failed: ['Lỗi', 'bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400'],
+      cancelled: ['Đã hủy', 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'],
     };
     box.innerHTML = tasks.map((t) => {
       const [label, cls] = META[t.status] || [t.status, 'bg-slate-100 text-slate-600'];
@@ -12490,9 +12634,9 @@ async function loadBackgroundTasks() {
 // ── Webhook ───────────────────────────────────────────────────────────────
 const CC_WEBHOOK_SEVERITY = {
   critical: ['Nghịêm trọng', 'border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/20', 'text-rose-600 dark:text-rose-400'],
-  high:     ['Cao',         'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20', 'text-amber-600 dark:text-amber-400'],
-  medium:   ['Trung bình',  'border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/20', 'text-sky-600 dark:text-sky-400'],
-  low:      ['Thấp',        'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40', 'text-slate-500 dark:text-slate-400'],
+  high: ['Cao', 'border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20', 'text-amber-600 dark:text-amber-400'],
+  medium: ['Trung bình', 'border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-900/20', 'text-sky-600 dark:text-sky-400'],
+  low: ['Thấp', 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40', 'text-slate-500 dark:text-slate-400'],
 };
 
 function _ccWebhookCard(a) {
@@ -12746,17 +12890,17 @@ function _ccRenderCard(c) {
 
   return (
     `<div id="${c.id}-config-card" class="config-section rounded-xl border border-slate-200 dark:border-slate-700 p-3.5 transition${focusCls}">` +
-      `<div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100 dark:border-slate-700/60">` +
-        `<span class="text-xs font-bold text-slate-700 dark:text-slate-300">${_esc(c.display_name || c.id.toUpperCase())}</span>` +
-        (c.description ? `<span class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(c.description)}</span>` : '') +
-        `<span id="${c.id}-config-status" class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">Chưa cấu hình</span>` +
-      `</div>` +
-      (fields
-        ? `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${fields}</div>`
-        : `<div class="text-[10px] text-slate-400 dark:text-slate-500 italic py-2">Connector này không có tham số cấu hình.</div>`) +
-      `<button type="button" onclick="saveConnectorConfig('${c.id}', this)"` +
-        ` class="mt-3 w-full px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition">` +
-        `Lưu cấu hình ${_esc(c.display_name || c.id)}</button>` +
+    `<div class="flex items-center gap-2 mb-3 pb-2 border-b border-slate-100 dark:border-slate-700/60">` +
+    `<span class="text-xs font-bold text-slate-700 dark:text-slate-300">${_esc(c.display_name || c.id.toUpperCase())}</span>` +
+    (c.description ? `<span class="text-[9px] text-slate-400 dark:text-slate-500 truncate">${_esc(c.description)}</span>` : '') +
+    `<span id="${c.id}-config-status" class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400">Chưa cấu hình</span>` +
+    `</div>` +
+    (fields
+      ? `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${fields}</div>`
+      : `<div class="text-[10px] text-slate-400 dark:text-slate-500 italic py-2">Connector này không có tham số cấu hình.</div>`) +
+    `<button type="button" onclick="saveConnectorConfig('${c.id}', this)"` +
+    ` class="mt-3 w-full px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition">` +
+    `Lưu cấu hình ${_esc(c.display_name || c.id)}</button>` +
     `</div>`
   );
 }
@@ -12980,7 +13124,7 @@ if (typeof window !== 'undefined') {
   window.runCommandCenterAudit = runCommandCenterAudit;
   // Phase 72: các nút điều hành trong thẻ "Điều Hành Hệ Thống".
   window.runOpsSentinelScan = runOpsSentinelScan;
-  window.runOpsDomainSync = runOpsDomainSync;  window.toggleLogAutoScroll = toggleLogAutoScroll;
+  window.runOpsDomainSync = runOpsDomainSync; window.toggleLogAutoScroll = toggleLogAutoScroll;
   window.clearEventLog = clearEventLog;
   window.switchCcSubTab = switchCcSubTab;
   window.syncIntegrationKpi = syncIntegrationKpi;
@@ -12995,4 +13139,285 @@ if (typeof window !== 'undefined') {
   window.loadWebhookAlerts = loadWebhookAlerts;
   window.clearToolOutput = clearToolOutput;
   window.runIntegrationTool = runIntegrationTool;
+  window.loadEnterpriseDepartments = loadEnterpriseDepartments;
+  window.openAddDeptModal = openAddDeptModal;
+  window.submitDepartmentForm = submitDepartmentForm;
+  window.syncDeptDataNow = syncDeptDataNow;
+  window.triggerEnterpriseCrossReport = triggerEnterpriseCrossReport;
+  window.playCurrentVoiceSummary = playCurrentVoiceSummary;
+  window.loadElasticGridManager = loadElasticGridManager;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ── ENTERPRISE EVOLUTION: PHÒNG BAN & ELASTIC STANDBY GRID ────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+
+let _currentVoiceSummaryText = '';
+let _elasticGridTimer = null;
+
+async function loadEnterpriseDepartments() {
+  const container = document.getElementById('departments-list-grid');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/v1/admin/departments/overview');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const depts = data.departments || [];
+
+    if (depts.length === 0) {
+      container.innerHTML = `
+        <div class="col-span-full py-10 text-center text-xs text-slate-400 dark:text-slate-500">
+          Chưa có phòng ban nào được khai báo. Bấm <b>+ Thêm Phòng Ban Mới</b> để bắt đầu cấu hình No-Code.
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = depts.map(d => {
+      const clearanceLabels = {
+        1: { text: 'Level 1: Public', bg: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30' },
+        2: { text: 'Level 2: Internal', bg: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
+        3: { text: 'Level 3: Confidential', bg: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+        4: { text: 'Level 4: Strictly Secret', bg: 'bg-red-500/10 text-red-600 border-red-500/30' }
+      };
+      const cl = clearanceLabels[d.data_clearance_level] || clearanceLabels[1];
+      const sourcesCount = d.sources ? d.sources.length : 0;
+      const sourcesNames = (d.sources || []).map(s => s.source_name).join(', ') || 'Chưa gắn nguồn';
+
+      return `
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/80 p-4 shadow-sm hover:border-primary-500/40 transition space-y-3">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-mono font-bold text-sm text-slate-900 dark:text-white uppercase">${escapeHtml(d.dept_code)}</span>
+                <span class="px-2 py-0.5 text-[9px] font-mono font-bold rounded border ${cl.bg}">${cl.text}</span>
+              </div>
+              <h5 class="text-xs font-semibold text-slate-700 dark:text-slate-200 mt-1">${escapeHtml(d.dept_name)}</h5>
+            </div>
+            <span class="w-2 h-2 rounded-full ${d.is_active ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
+          </div>
+
+          <div class="text-[11px] text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Nguồn dữ liệu (${sourcesCount}):</span>
+            <span class="italic">${escapeHtml(sourcesNames)}</span>
+          </div>
+
+          <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-100 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+            <span class="font-semibold text-slate-700 dark:text-slate-200 block mb-0.5">🧠 Tóm tắt ngữ nghĩa (30m Cache):</span>
+            ${escapeHtml(d.cached_summary || 'Chờ quét dữ liệu...')}
+          </div>
+
+          <div class="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/60">
+            <span class="text-[10px] text-slate-400 font-mono">Cập nhật: ${escapeHtml((d.updated_at || '').substring(0, 16))}</span>
+            <button type="button" onclick="syncDeptDataNow('${escapeHtml(d.dept_code)}')"
+              class="px-2.5 py-1 text-[11px] font-medium rounded-md bg-slate-100 dark:bg-slate-700 hover:bg-primary-600 hover:text-white dark:hover:bg-primary-600 text-slate-700 dark:text-slate-200 transition">
+              🔄 Quét Ngay
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('[Departments] Lỗi tải danh sách phòng ban:', err);
+    container.innerHTML = `
+      <div class="col-span-full py-8 text-center text-xs text-red-500">
+        Không thể tải danh sách phòng ban: ${escapeHtml(err.message)}
+      </div>`;
+  }
+}
+
+function openAddDeptModal() {
+  const box = document.getElementById('add-dept-form-box');
+  if (box) {
+    box.classList.remove('hidden');
+    box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+async function submitDepartmentForm() {
+  const code = (document.getElementById('dept-form-code')?.value || '').trim();
+  const name = (document.getElementById('dept-form-name')?.value || '').trim();
+  const clearance = parseInt(document.getElementById('dept-form-clearance')?.value || '1', 10);
+  const srcName = (document.getElementById('dept-form-src-name')?.value || '').trim();
+  const srcType = document.getElementById('dept-form-src-type')?.value || 'REST_API';
+  const srcCron = (document.getElementById('dept-form-src-cron')?.value || '').trim() || null;
+
+  if (!code || !name) {
+    alert('Vui lòng nhập đầy đủ Mã và Tên phòng ban.');
+    return;
+  }
+
+  const payload = {
+    dept_code: code,
+    dept_name: name,
+    data_clearance_level: clearance,
+    config_metadata: {},
+    is_active: true,
+  };
+
+  if (srcName) {
+    payload.data_source = {
+      source_name: srcName,
+      source_type: srcType,
+      sync_cron: srcCron,
+      connection_config: {},
+    };
+  }
+
+  try {
+    const res = await fetch('/api/v1/admin/departments/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    document.getElementById('add-dept-form-box')?.classList.add('hidden');
+    loadEnterpriseDepartments();
+    alert(`Đã lưu phòng ban ${code} thành công.`);
+  } catch (err) {
+    alert(`Lỗi khi lưu phòng ban: ${err.message}`);
+  }
+}
+
+async function syncDeptDataNow(deptCode) {
+  try {
+    const res = await fetch('/api/v1/admin/departments/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dept_code: deptCode, dept_name: deptCode }),
+    });
+    loadEnterpriseDepartments();
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function triggerEnterpriseCrossReport() {
+  const modal = document.getElementById('cross-report-modal');
+  const voiceEl = document.getElementById('cross-report-voice-text');
+  const richEl = document.getElementById('cross-report-rich-text');
+  if (modal) modal.classList.remove('hidden');
+  if (voiceEl) voiceEl.textContent = 'Đang kích hoạt Bộ Não Điều Hành phân tích đối soát đa phòng ban...';
+  if (richEl) richEl.textContent = 'Vui lòng chờ...';
+
+  try {
+    const res = await fetch('/api/v1/admin/cross-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: ['FIN', 'HR', 'CTO'], clearance_level: 4 }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    _currentVoiceSummaryText = data.voice_summary || '';
+    if (voiceEl) voiceEl.textContent = _currentVoiceSummaryText;
+    if (richEl) richEl.textContent = data.rich_details || '';
+
+    // Tự động phát âm thanh tóm tắt nếu có voice controller
+    playCurrentVoiceSummary();
+  } catch (err) {
+    if (voiceEl) voiceEl.textContent = `Lỗi: ${err.message}`;
+  }
+}
+
+function playCurrentVoiceSummary() {
+  if (!_currentVoiceSummaryText) return;
+  try {
+    if (typeof playTtsAudio === 'function') {
+      playTtsAudio(_currentVoiceSummaryText);
+    } else if (typeof window.speechSynthesis !== 'undefined') {
+      const u = new SpeechSynthesisUtterance(_currentVoiceSummaryText);
+      u.lang = 'vi-VN';
+      window.speechSynthesis.speak(u);
+    }
+  } catch (e) {
+    console.warn(e);
+  }
+}
+
+async function loadElasticGridManager() {
+  const totalEl = document.getElementById('grid-kpi-total');
+  const onlineEl = document.getElementById('grid-kpi-online');
+  const standbyEl = document.getElementById('grid-kpi-standby');
+  const cpuEl = document.getElementById('grid-kpi-cpu');
+  const listEl = document.getElementById('grid-nodes-list');
+
+  try {
+    const res = await fetch('/api/v1/worknodes/status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const grid = data.grid || {};
+
+    if (totalEl) totalEl.textContent = grid.total_registered_nodes || 0;
+    if (onlineEl) onlineEl.textContent = grid.online_nodes_count || 0;
+    if (standbyEl) standbyEl.textContent = grid.standby_queue_length || 0;
+    if (cpuEl) cpuEl.textContent = `${grid.average_cpu_load || 0}%`;
+
+    const nodes = grid.nodes || [];
+    if (!listEl) return;
+
+    if (nodes.length === 0) {
+      listEl.innerHTML = `
+        <div class="col-span-full p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-center space-y-2">
+          <div class="text-2xl">🍏</div>
+          <p class="text-xs text-slate-500 dark:text-slate-400">
+            Chưa có máy trạm Mac Mini nào gửi nhịp tim heartbeat.<br/>
+            Khởi động <code class="font-mono text-cyan-600 dark:text-cyan-400">workers/remote_worker_daemon.py</code> trên máy Mac Mini để node tự động hiển thị Online tức thì.
+          </p>
+        </div>`;
+      return;
+    }
+
+    listEl.innerHTML = nodes.map(n => {
+      const isOnline = n.is_online;
+      const statusBg = isOnline
+        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+        : 'bg-slate-500/10 text-slate-500 border-slate-500/30';
+      const pulseDot = isOnline
+        ? '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>'
+        : '<span class="w-2 h-2 rounded-full bg-slate-400"></span>';
+
+      return `
+        <div class="rounded-xl border ${isOnline ? 'border-emerald-500/30' : 'border-slate-200 dark:border-slate-700'} bg-white dark:bg-slate-800/80 p-4 shadow-sm space-y-3">
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm font-bold">🍏</div>
+              <div>
+                <h5 class="text-xs font-bold text-slate-900 dark:text-white font-mono">${escapeHtml(n.node_id)}</h5>
+                <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(n.ip)}</span>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 text-[9px] font-mono font-bold rounded border flex items-center gap-1.5 ${statusBg}">
+              ${pulseDot}
+              <span>${n.status}</span>
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-[11px] py-1">
+            <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60">
+              <span class="text-[10px] text-slate-400 block">Tải CPU:</span>
+              <span class="font-mono font-bold text-slate-800 dark:text-slate-100">${n.cpu_percent}%</span>
+            </div>
+            <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60">
+              <span class="text-[10px] text-slate-400 block">Tải RAM:</span>
+              <span class="font-mono font-bold text-slate-800 dark:text-slate-100">${n.ram_percent}%</span>
+            </div>
+          </div>
+
+          <div class="text-[10px] text-slate-500 dark:text-slate-400">
+            <span class="font-medium text-slate-700 dark:text-slate-300">Năng lực:</span>
+            <span class="font-mono text-cyan-600 dark:text-cyan-400">${(n.capabilities || []).join(', ')}</span>
+          </div>
+
+          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+            <span>Tác vụ đang chạy: <b>${n.active_tasks}</b></span>
+            <span>Ping: ${n.last_heartbeat_ago_sec}s trước</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    console.error('[ElasticGrid] Lỗi tải danh sách trạm:', err);
+  }
+}
+

@@ -177,7 +177,7 @@ def move_robot(direction: str, duration_ms: int = 1000) -> Dict[str, Any]:
         "Kích hoạt cử chỉ hoặc biểu cảm vật lý của Robot (Servo cánh tay, Servo cổ, LED, OLED). "
         "Các cử chỉ hỗ trợ: wave_hand (vẫy tay chào), nod_head (gật đầu đồng ý), look_around (ngó nghiêng quan sát), "
         "excited (phấn khích mừng rỡ), sad (buồn bã hối lỗi). "
-        "BẮT BUỘC dùng wave_hand khi người dùng chào hỏi, hoặc nod_head khi xác nhận mệnh lệnh."
+        "Chỉ sử dụng khi người dùng yêu cầu điều khiển cử chỉ Robot hoặc đang tương tác trực tiếp trên thiết bị Robot vật lý."
     ),
     parameters_schema={
         "type": "object",

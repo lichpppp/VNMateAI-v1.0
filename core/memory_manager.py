@@ -113,6 +113,13 @@ class MemoryManager:
                 del _SESSION_TIMESTAMPS[session_id]
             logger.info("[MemoryManager] Cleared conversation history for session '%s'.", session_id)
 
+        # Xóa sạch toàn bộ dữ liệu tạm trên RAM (Privacy Compliance)
+        try:
+            from core.ephemeral_cache import ephemeral_cache
+            ephemeral_cache.flush_all(session_id)
+        except Exception:
+            pass
+
     def get_session_count(self) -> int:
         """Return total active conversation sessions in memory."""
         with _lock:
@@ -149,3 +156,39 @@ def add_turn(session_id: str, user_content: str, assistant_content: str, max_mes
 
 def clear_history(session_id: str) -> None:
     memory_manager.clear_history(session_id)
+
+
+def detect_and_handle_context_lifecycle(session_id: str, query: str) -> Dict[str, Any]:
+    """
+    Quản lý vòng đời ngữ cảnh hội thoại & Tự hủy dữ liệu theo GDPR/Nghị định 13:
+      1. Nhận diện lệnh kết thúc ('cảm ơn', 'xong việc', 'tạm biệt') -> flush toàn bộ cache RAM.
+      2. Nhận diện chuyển đổi chủ đề (Context Switch) -> tự hủy cache của domain cũ.
+    """
+    from core.ephemeral_cache import ephemeral_cache
+
+    q_lower = query.strip().lower()
+
+    # 1. Phát hiện lệnh kết thúc phiên
+    exit_triggers = ("cảm ơn", "cam on", "xong việc", "xong roi", "tạm biệt", "tam biet", "kết thúc", "goodbye", "bye")
+    if any(trigger in q_lower for trigger in exit_triggers):
+        flushed_count = ephemeral_cache.flush_all(session_id)
+        return {"action": "flushed_all", "session_id": session_id, "deleted_count": flushed_count}
+
+    # 2. Nhận diện domain từ câu hỏi
+    new_domain = None
+    if any(w in q_lower for w in ("nhân sự", "nhan vien", "chấm công", "bảng lương", "kpi", "hr")):
+        new_domain = "DEPT_HR"
+    elif any(w in q_lower for w in ("tài chính", "tai chinh", "hóa đơn", "hoa don", "thu chi", "sổ quỹ", "fin", "invoice")):
+        new_domain = "DEPT_FIN"
+    elif any(w in q_lower for w in ("hạ tầng", "ha tang", "máy chủ", "server", "aws", "oci", "cloud", "cto", "it")):
+        new_domain = "DEPT_IT"
+
+    if new_domain:
+        last_domain = ephemeral_cache.get_active_domain(session_id)
+        if last_domain and last_domain != new_domain:
+            # Context Switch -> Tiêu hủy domain cũ ngay lập tức
+            ephemeral_cache.invalidate_domain(session_id, last_domain)
+            return {"action": "context_switched", "invalidated_domain": last_domain, "current_domain": new_domain}
+
+    return {"action": "continue", "domain": new_domain}
+

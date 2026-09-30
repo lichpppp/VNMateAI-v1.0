@@ -53,34 +53,52 @@ class AutonomousSentinel:
         self._check_interval: float = 30.0  # seconds between routine scans
         self._last_alert_times: Dict[str, float] = {}
         self._cooldown_seconds: float = 120.0  # Alert cooldown per incident category
+        self._active_incidents: Dict[str, Dict[str, Any]] = {}  # category -> incident info
+        self._failure_streak: Dict[str, int] = {}  # category -> consecutive failure count
 
     # -----------------------------------------------------------------------
     # Probing Routines
     # -----------------------------------------------------------------------
 
     async def check_network_health(self) -> Optional[Dict[str, Any]]:
-        """Probe local network, DNS, and 9router LLM proxy."""
+        """Probe local network, DNS, and 9router LLM proxy with IPv4 fallback."""
         base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1")
         clean_url = f"{base_url.rstrip('/')}/models"
 
-        try:
-            async with httpx.AsyncClient(timeout=4.0) as client:
-                resp = await client.get(clean_url)
-                if resp.status_code >= 500:
-                    return {
-                        "category": "network",
-                        "title": f"9router Gateway Error {resp.status_code}",
-                        "message": f"Cổng proxy LLM 9router phản hồi mã lỗi {resp.status_code}. Mạng AI có thể bị gián đoạn.",
-                    }
-        except httpx.ConnectError:
+        # List candidate URLs: try primary, then fallback to IPv4 127.0.0.1 if localhost used
+        # (prevents Windows IPv6 [::1] connection refused blips when 9router binds to IPv4 only)
+        candidates = [clean_url]
+        if "localhost" in clean_url:
+            candidates.append(clean_url.replace("localhost", "127.0.0.1"))
+
+        last_status = None
+        last_error = None
+
+        for probe_url in candidates:
+            try:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    resp = await client.get(probe_url)
+                    if resp.status_code < 500:
+                        # 200, 401, 403 all prove the 9router service is reachable and responsive
+                        return None
+                    last_status = resp.status_code
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as conn_err:
+                last_error = conn_err
+            except Exception as exc:
+                last_error = exc
+
+        # All candidate endpoints failed
+        if last_status and last_status >= 500:
             return {
                 "category": "network",
-                "title": "Mất Kết Nối 9router LLM",
-                "message": f"Không thể kết nối đến cổng 9router tại {base_url}. Vui lòng kiểm tra dịch vụ mạng AI.",
+                "title": f"9router Gateway Error {last_status}",
+                "message": f"Cổng proxy LLM 9router phản hồi mã lỗi {last_status}. Mạng AI có thể bị gián đoạn.",
             }
-        except Exception:
-            pass
-        return None
+        return {
+            "category": "network",
+            "title": "Mất Kết Nối 9router LLM",
+            "message": f"Không thể kết nối đến cổng 9router tại {base_url}. Vui lòng kiểm tra dịch vụ mạng AI.",
+        }
 
     def check_ad_sync_health(self) -> Optional[Dict[str, Any]]:
         """Check for Active Directory sync staleness or sync errors in local DB."""
@@ -111,11 +129,8 @@ class AutonomousSentinel:
                     ).fetchone()
                     last_sync_raw = row[0] if row and row[0] else None
                     if not last_sync_raw:
-                        return {
-                            "category": "ad_sync",
-                            "title": "Chưa Đồng Bộ Active Directory",
-                            "message": "Cơ sở dữ liệu Active Directory chưa có dữ liệu đồng bộ nhân sự hoặc máy tính.",
-                        }
+                        # Chưa từng đồng bộ AD (môi trường mới hoặc chưa cấu hình) - không phải sự cố khẩn cấp
+                        return None
 
                     # Check if last sync is older than 24 hours
                     dt = datetime.fromisoformat(last_sync_raw.replace("Z", "+00:00"))
@@ -274,22 +289,85 @@ class AutonomousSentinel:
 
         return True
 
+    async def dispatch_resolution(self, category: str, incident: Dict[str, Any]) -> None:
+        """
+        Dispatches recovery resolution message when an incident has healed:
+          1. Broadcast Telegram Resolved Notice.
+          2. Log recovery event in SYSTEM_HEALTH_CACHE.
+        """
+        raw_title = incident.get("title", category)
+        res_title = f"Khôi Phục Kết Nối: {raw_title}"
+        res_msg = f"Sự cố [{category}] đã tự động được khôi phục thành công. Dịch vụ AI & Mạng đã trực tuyến và phản hồi bình thường."
+        logger.info("[AutonomousSentinel] SỰ CỐ ĐÃ KHÔI PHỤC [%s]: %s", category, res_title)
+
+        try:
+            from core.telegram_gateway import telegram_gateway
+            if telegram_gateway and telegram_gateway._running:
+                tg_text = (
+                    f"✅ *[SENTINEL INCIDENT RESOLVED]* ✅\n\n"
+                    f"*Tiêu đề:* {res_title}\n"
+                    f"*Chi tiết:* {res_msg}\n"
+                    f"*Thời gian:* {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"
+                )
+                telegram_gateway.send_incident_alert(tg_text)
+        except Exception as tg_err:
+            logger.debug("[AutonomousSentinel] Telegram resolution dispatch error: %s", tg_err)
+
+        try:
+            from core.health_monitor import SYSTEM_HEALTH_CACHE
+            SYSTEM_HEALTH_CACHE.setdefault("recent_events", []).insert(0, {
+                "time": datetime.now().strftime("%H:%M:%S"),
+                "action": f"SENTINEL_{category.upper()}_RESOLVED",
+                "level": "info",
+                "message": f"RESOLVED: {res_title}"[:120],
+            })
+            if len(SYSTEM_HEALTH_CACHE["recent_events"]) > 20:
+                SYSTEM_HEALTH_CACHE["recent_events"] = SYSTEM_HEALTH_CACHE["recent_events"][:20]
+        except Exception:
+            pass
+
     # -----------------------------------------------------------------------
     # Background Worker Loop
     # -----------------------------------------------------------------------
 
     async def _sentinel_loop(self) -> None:
-        """Background async loop executing routine incident scans."""
+        """
+        Background async loop executing routine incident scans.
+        Requires 2 consecutive failed scans before raising an alarm,
+        and automatically sends a recovery notice once the issue is resolved.
+        """
         logger.info("[AutonomousSentinel] Background incident monitor started (interval=%.1fs).", self._check_interval)
         while self._running:
             try:
                 incidents = await self.scan_all()
+                detected_cats = {inc.get("category", "general") for inc in incidents}
+
+                # 1. Process active incidents with consecutive failure confirmation
                 for inc in incidents:
-                    await self.dispatch_incident(
-                        title=inc["title"],
-                        message=inc["message"],
-                        category=inc.get("category", "general"),
-                    )
+                    cat = inc.get("category", "general")
+                    self._failure_streak[cat] = self._failure_streak.get(cat, 0) + 1
+
+                    # Only alert if confirmed failed for at least 2 consecutive cycles (prevents momentary blips)
+                    if self._failure_streak[cat] >= 2:
+                        self._active_incidents[cat] = inc
+                        await self.dispatch_incident(
+                            title=inc["title"],
+                            message=inc["message"],
+                            category=cat,
+                        )
+
+                # 2. Check for resolved incidents
+                for cat in list(self._active_incidents.keys()):
+                    if cat not in detected_cats:
+                        prev_inc = self._active_incidents.pop(cat)
+                        self._failure_streak[cat] = 0
+                        await self.dispatch_resolution(category=cat, incident=prev_inc)
+
+                # 3. Reset streak for categories that passed this cycle
+                for cat in list(self._failure_streak.keys()):
+                    if cat not in detected_cats and cat not in self._active_incidents:
+                        self._failure_streak[cat] = 0
+
             except Exception as exc:
                 logger.error("[AutonomousSentinel] Error in sentinel monitoring loop: %s", exc)
 

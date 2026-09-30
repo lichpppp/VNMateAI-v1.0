@@ -393,7 +393,7 @@ async def _external_api_worker(interval: float = 30.0) -> None:
             models_url = f"{base_url}/models"
             model_name = getattr(cfg_llm, "model_name", "") or ""
 
-            # 1. Ping 9router with short 2s timeout
+            # 1. Ping 9router with resilient timeout & 127.0.0.1 fallback
             llm_result: Dict[str, Any] = {
                 "status": "FAIL",
                 "latency": 0.0,
@@ -401,36 +401,44 @@ async def _external_api_worker(interval: float = 30.0) -> None:
                 "model": model_name,
                 "detail": "Đang kết nối...",
             }
+            urls_to_ping = [models_url]
+            if "localhost" in models_url:
+                urls_to_ping.append(models_url.replace("localhost", "127.0.0.1"))
+
             t0 = time.perf_counter()
-            try:
-                async with httpx.AsyncClient(timeout=2.0) as client:
-                    resp = await client.get(models_url)
+            ping_success = False
+            for target_url in urls_to_ping:
+                try:
+                    async with httpx.AsyncClient(timeout=4.0) as client:
+                        resp = await client.get(target_url)
+                        lat = round((time.perf_counter() - t0) * 1000, 1)
+                        if resp.status_code in (200, 401, 403):
+                            llm_result = {
+                                "status": "OK",
+                                "latency": lat,
+                                "latency_ms": lat,
+                                "model": model_name,
+                                "detail": f"Model: {model_name} ({lat}ms)",
+                            }
+                            ping_success = True
+                            break
+                        else:
+                            llm_result = {
+                                "status": "FAIL",
+                                "latency": lat,
+                                "latency_ms": lat,
+                                "model": model_name,
+                                "detail": f"HTTP {resp.status_code}",
+                            }
+                except Exception as net_exc:
                     lat = round((time.perf_counter() - t0) * 1000, 1)
-                    if resp.status_code in (200, 401, 403):
-                        llm_result = {
-                            "status": "OK",
-                            "latency": lat,
-                            "latency_ms": lat,
-                            "model": model_name,
-                            "detail": f"Model: {model_name} ({lat}ms)",
-                        }
-                    else:
-                        llm_result = {
-                            "status": "FAIL",
-                            "latency": lat,
-                            "latency_ms": lat,
-                            "model": model_name,
-                            "detail": f"HTTP {resp.status_code}",
-                        }
-            except Exception as net_exc:
-                lat = round((time.perf_counter() - t0) * 1000, 1)
-                llm_result = {
-                    "status": "FAIL",
-                    "latency": lat,
-                    "latency_ms": lat,
-                    "model": model_name,
-                    "detail": str(net_exc)[:50],
-                }
+                    llm_result = {
+                        "status": "FAIL",
+                        "latency": lat,
+                        "latency_ms": lat,
+                        "model": model_name,
+                        "detail": str(net_exc)[:50],
+                    }
 
             SYSTEM_HEALTH_CACHE["services"]["llm_9router"] = llm_result
 

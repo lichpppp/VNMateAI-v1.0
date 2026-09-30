@@ -19,11 +19,13 @@ import {
   HelpCircle,
   Server,
   Sun,
-  Network
+  Network,
+  MonitorPlay
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Topology', href: '/admin/topology', icon: Network },
+  { name: 'Computer-Use', href: '/admin/computer-use', icon: MonitorPlay },
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Plugins', href: '/plugins', icon: PlugZap },
   { name: 'Routing', href: '/routing', icon: GitBranch },

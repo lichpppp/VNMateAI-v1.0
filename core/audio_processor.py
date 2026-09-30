@@ -576,6 +576,7 @@ class AudioEngine:
             wav_buf = io.BytesIO(audio_bytes)
 
             if not audio_bytes.startswith(b"RIFF"):
+                converted = None
                 try:
                     from pydub import AudioSegment
                     audio_seg = AudioSegment.from_file(wav_buf)
@@ -583,9 +584,21 @@ class AudioEngine:
                     audio_seg.export(converted, format="wav")
                     converted.seek(0)
                     wav_buf = converted
-                except Exception as conv_err:
-                    logger.debug("pydub conversion skipped/failed: %s", conv_err)
-                    wav_buf.seek(0)
+                except Exception:
+                    # Fallback cho raw PCM 16-bit 16kHz mono từ ESP32/micro
+                    try:
+                        import wave
+                        pcm_wav = io.BytesIO()
+                        with wave.open(pcm_wav, "wb") as wf:
+                            wf.setnchannels(1)
+                            wf.setsampwidth(2)
+                            wf.setframerate(16000)
+                            wf.writeframes(audio_bytes)
+                        pcm_wav.seek(0)
+                        wav_buf = pcm_wav
+                    except Exception as wave_err:
+                        logger.debug("wave packaging fallback failed: %s", wave_err)
+                        wav_buf.seek(0)
 
             try:
                 with sr.AudioFile(wav_buf) as source:

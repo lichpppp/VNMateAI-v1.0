@@ -69,7 +69,7 @@
 #define DEFAULT_DEVICE_TOKEN ""
 #endif
 
-#define DEFAULT_SERVER_HOST "192.168.100.169"  // Địa chỉ IP của máy chủ VN-MateAI Master
+#define DEFAULT_SERVER_HOST "192.168.100.128"  // Địa chỉ IP của máy chủ VN-MateAI Master
 #define DEFAULT_SERVER_PORT 8000                // Cổng HTTP / WS (Zero TLS overhead, không sập heap)
 #define DEFAULT_WS_PATH "/api/v1/xiaozhi/ws"
 #define DEFAULT_DEVICE_ID "vnmate_robot_01"

@@ -255,6 +255,68 @@
     },
     "enabled": true
   },
+  "capture_worker_screen": {
+    "module": "skills.computer_use_skills",
+    "attr": "capture_worker_screen",
+    "meta": {
+      "name": "capture_worker_screen",
+      "description": "Chụp ảnh màn hình cửa sổ ứng dụng hoặc toàn màn hình worker Mac Mini đang điều khiển (Base64).",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "window_title": {
+            "type": "string",
+            "description": "Tiêu đề cửa sổ ứng dụng cần chụp (để trống nếu chụp toàn màn hình)"
+          }
+        }
+      }
+    },
+    "enabled": true
+  },
+  "get_computer_use_status": {
+    "module": "skills.computer_use_skills",
+    "attr": "get_computer_use_status",
+    "meta": {
+      "name": "get_computer_use_status",
+      "description": "Kiểm tra trạng thái cụm Worker (Mac Mini), danh sách phiên Browser Vault và tỷ lệ tự phục hồi UI.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    "enabled": true
+  },
+  "tool_execute_gui_task": {
+    "module": "skills.computer_use_skills",
+    "attr": "tool_execute_gui_task",
+    "meta": {
+      "name": "tool_execute_gui_task",
+      "description": "Thực thi tác vụ điều khiển chuột, bàn phím và giao diện (Computer-Use) tự động hóa trên môi trường Worker cô lập (Mac Mini). Hỗ trợ vượt bảo vệ anti-bot (Apple M-series) và tự phục hồi giao diện 2 tầng (Semantic DOM + Vision OCR). Tự động chuyển cấp độ rủi ro 4 khi phát hiện thao tác chuyển tiền hoặc duyệt lệnh để kích hoạt cổng phê duyệt Telegram HITL.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_goal": {
+            "type": "string",
+            "description": "Mô tả chi tiết mục tiêu tác vụ cần worker tự động hoá trên giao diện (VD: 'Đăng nhập vào VCB Digibank và kiểm tra biến động số dư')"
+          },
+          "system_target": {
+            "type": "string",
+            "description": "Tên hệ thống hoặc phần mềm đích (VD: 'VCB Digibank', 'WebSphere ERP', 'Cổng Thuế Điện Tử eTax')",
+            "default": "Web Portal"
+          },
+          "session_id": {
+            "type": "string",
+            "description": "Mã định danh phiên làm việc độc lập của worker (VD: 'vcb_session_01')",
+            "default": "default_session"
+          }
+        },
+        "required": [
+          "task_goal"
+        ]
+      }
+    },
+    "enabled": true
+  },
   "test_ping_host": {
     "module": "skills.custom_skills",
     "attr": "test_ping_host",
@@ -507,7 +569,7 @@
         ]
       }
     },
-    "enabled": false
+    "enabled": true
   },
   "delete_item": {
     "module": "skills.file_system",
@@ -1979,7 +2041,7 @@
     "attr": "animate_robot",
     "meta": {
       "name": "animate_robot",
-      "description": "Kích hoạt cử chỉ hoặc biểu cảm vật lý của Robot (Servo cánh tay, Servo cổ, LED, OLED). Các cử chỉ hỗ trợ: wave_hand (vẫy tay chào), nod_head (gật đầu đồng ý), look_around (ngó nghiêng quan sát), excited (phấn khích mừng rỡ), sad (buồn bã hối lỗi). BẮT BUỘC dùng wave_hand khi người dùng chào hỏi, hoặc nod_head khi xác nhận mệnh lệnh.",
+      "description": "Kích hoạt cử chỉ hoặc biểu cảm vật lý của Robot (Servo cánh tay, Servo cổ, LED, OLED). Các cử chỉ hỗ trợ: wave_hand (vẫy tay chào), nod_head (gật đầu đồng ý), look_around (ngó nghiêng quan sát), excited (phấn khích mừng rỡ), sad (buồn bã hối lỗi). Chỉ sử dụng khi người dùng yêu cầu điều khiển cử chỉ Robot hoặc đang tương tác trực tiếp trên thiết bị Robot vật lý.",
       "parameters": {
         "type": "object",
         "properties": {

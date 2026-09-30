@@ -645,6 +645,17 @@ class TelegramBotService:
                 group=0,
             )
 
+            # Custom error handler to log conflicts gracefully
+            async def _bot_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+                err = getattr(context, "error", None)
+                err_str = str(err)
+                if "Conflict" in err_str or "terminated by other getUpdates" in err_str:
+                    logger.warning("[TelegramGateway] Polling conflict detected (another session polling). Backing off gracefully...")
+                else:
+                    logger.error("[TelegramGateway] Bot background error: %s", err)
+
+            self._app.add_error_handler(_bot_error_handler)
+
             self._ready = True
             logger.info("[TelegramGateway] Bot polling started successfully.")
 
@@ -737,7 +748,8 @@ class TelegramBotService:
         token = (bot_token or "").strip() or (cfg.bot_token if cfg else "")
         results = dict(self._recent_chats)
 
-        if token:
+        # If bot is already polling, do NOT call getUpdates over HTTP to avoid 409 Conflict
+        if token and not self.is_running:
             try:
                 with httpx.Client(timeout=15.0) as client:
                     resp = client.get(f"https://api.telegram.org/bot{token}/getUpdates?limit=25")

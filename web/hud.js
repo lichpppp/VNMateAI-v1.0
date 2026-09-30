@@ -873,6 +873,16 @@
   let hudSpeechQueue = [];
   let hudSpeechDraining = false;
 
+  // TTS runtime config — updated live via 'audio_config_updated' WS message
+  // khi Admin lưu cấu hình ở Voice Studio (Tab AI Manager).
+  let hudTtsConfig = {
+    voice: 'vi-VN-HoaiMyNeural',
+    rate: '+15%',
+    speechRateNum: 15,
+    volume: 80,        // 0-100 → playback volume 0.0-1.0
+  };
+
+
   function setTypewriterText(newText, durationMs = null) {
     if (!newText || newText === targetTypedText) return;
     targetTypedText = newText;
@@ -1208,13 +1218,24 @@
     lastSpokenText = text;
     lastSpokenTime = now;
 
-    if (audioB64 && hudAudioEnabled) {
-      // Lệnh phát ra từ Web Dashboard cùng máy: Web UI đã phát rồi, HUD chỉ
-      // hiện trạng thái để khỏi phát hai lần.
-      if (sourceDevice === 'web') {
-        setHudState('speaking', text, text.length * 65);
-        return;
+    // Phân chia nguồn phát âm thanh rõ ràng:
+    // 1. Nếu lệnh xuất phát từ Robot (esp32, xiaozhi, robot), Web dashboard hoặc nguồn khác (không phải hud):
+    //    Âm thanh AI PHẢI phát ra từ chính loa của thiết bị đó (Robot phát qua loa robot).
+    //    HUD CHỈ hiển thị trạng thái đồ hoạ / phụ đề thị giác, TUYỆT ĐỐI KHÔNG PHÁT TIẾNG trên HUD.
+    // 2. Chỉ khi ra lệnh từ HUD (sourceDevice === 'hud' hoặc rỗng):
+    //    Âm thanh AI mới phát ra từ loa HUD.
+    if (sourceDevice && sourceDevice !== 'hud') {
+      setHudState('speaking', text, text.length * 65);
+      if (packet.display_text) {
+        showHudDisplayCard(packet.display_text, packet.query || packet.text, {
+          silent: true,
+          spokenUpTo: text ? text.length : 0,
+        });
       }
+      return;
+    }
+
+    if (audioB64 && hudAudioEnabled) {
 
       // Xếp hàng, KHÔNG phát ngay — xem giải thích ở khai báo hàng đợi.
       //
@@ -1289,6 +1310,8 @@
 
       // KHÔNG pause() ở đây. Đó chính là chỗ cắt ngang câu đang nói.
       player.src = 'data:audio/mp3;base64,' + audioB64;
+      // Áp dụng âm lượng từ cấu hình Voice Studio (cập nhật qua audio_config_updated)
+      player.volume = Math.max(0, Math.min(1, hudTtsConfig.volume / 100));
       currentVoiceAudio = player;
       // KHÔNG bật `isAudioPlaying` ở đây. Trình duyệt còn phải tải và giải mã
       // mp3 mới ra tiếng; bật sớm thì sóng âm và nhãn "đang nói" chạy trước
@@ -2328,8 +2351,13 @@ function hudDrainOutboundSpeech() {
 
   renderAuthStatus();
 
-  // Fallback REST telemetry poller
+  // Phase 70: Fallback REST telemetry poller — CHỈ chạy khi WebSocket không kết nối.
+  // Khi WS đang OPEN, telemetry được server push qua `metrics_update` packet realtime.
+  // Poll REST song song là tốn bandwidth + CPU server không cần thiết.
+  // Interval tăng lên 8s (từ 3.5s) để giảm tải khi WS không ổn định.
   async function fetchTelemetryFallback() {
+    // Bỏ qua nếu WS đang kết nối tốt — server đã push metrics realtime.
+    if (hudSocket && hudSocket.readyState === WebSocket.OPEN) return;
     try {
       const token = localStorage.getItem('vnmateai_token') || '';
       const headers = {};
@@ -2344,7 +2372,7 @@ function hudDrainOutboundSpeech() {
     } catch (_) {}
   }
 
-  setInterval(fetchTelemetryFallback, 3500);
+  setInterval(fetchTelemetryFallback, 8000);
 
   // ---------------------------------------------------------------------------
   // 14.1. ZERO-TRUST SECURITY APPROVAL CONTROLLER & ACTIONS
@@ -2585,6 +2613,19 @@ function hudDrainOutboundSpeech() {
               updateAssistantName(packet.assistant_name);
               appendSystemLog(`Đã đổi tên trợ lý AI thành: ${packet.assistant_name}`, 'SYS');
             }
+          } else if (type === 'audio_config_updated') {
+            // Sync Voice Studio settings → HUD TTS runtime config (no restart required)
+            if (packet.tts_voice) hudTtsConfig.voice = packet.tts_voice;
+            if (packet.tts_rate) hudTtsConfig.rate = packet.tts_rate;
+            if (typeof packet.speech_rate_num === 'number') hudTtsConfig.speechRateNum = packet.speech_rate_num;
+            if (typeof packet.volume === 'number') {
+              hudTtsConfig.volume = packet.volume;
+              // Apply to current audio immediately if playing
+              if (currentVoiceAudio) {
+                currentVoiceAudio.volume = Math.max(0, Math.min(1, packet.volume / 100));
+              }
+            }
+            appendSystemLog(`🔊 Cấu hình giọng đọc đã cập nhật: ${hudTtsConfig.voice} | tốc độ ${hudTtsConfig.rate} | âm lượng ${hudTtsConfig.volume}%`, 'SYS');
           } else if (type === 'metrics_update') {
             applyMetrics(packet.data);
           } else if (type === 'voice_active') {
@@ -2606,6 +2647,22 @@ function hudDrainOutboundSpeech() {
             }
             if (packet.text) {
               appendSystemLog(`Voice Event [${status.toUpperCase()}]: ${packet.text.slice(0, 70)}...`, 'VOICE');
+            }
+          } else if (type === 'robot_status') {
+            const rDot = document.getElementById('hud-robot-dot');
+            const rText = document.getElementById('hud-robot-status-text');
+            const rCode = document.getElementById('hud-robot-code-badge');
+            if (packet.status === 'paired' || packet.status === 'online') {
+              if (rDot) rDot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse';
+              if (rText) {
+                rText.textContent = `Online [${packet.device_id || 'Robot'}]`;
+                rText.className = 'text-xs font-bold text-emerald-300';
+              }
+              if (rCode && packet.pairing_code) {
+                rCode.textContent = `MÃ: ${packet.pairing_code}`;
+                rCode.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+              }
+              appendSystemLog(`🤖 Robot [${packet.device_id}] đã ghép đôi (Mã: ${packet.pairing_code || 'OK'}).`, 'SYS');
             }
           } else if (type === 'voice_state') {
             // Phase 65: server báo Ly Ly vừa nói xong — có đang chờ admin đáp

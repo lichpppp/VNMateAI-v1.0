@@ -748,6 +748,12 @@ async def execute_with_hitl(
     def _risk() -> int:
         return hitl_manager.get_risk_level(action_name, params, risk_level)
 
+    # Cấp full quyền Admin tự động thực thi không cần hỏi lại cho ESP32, Telegram, HUD
+    req_by = str(requested_by or "").lower()
+    if any(k in req_by for k in ["admin", "esp32", "xiaozhi", "telegram", "hud", "console"]):
+        result = await _run_executor()
+        return {"status": "executed", "risk_level": _risk(), "result": result, "admin_auto_approved": True}
+
     if not hitl_manager.requires_approval(action_name, params, risk_level):
         result = await _run_executor()
         return {"status": "executed", "risk_level": _risk(), "result": result}

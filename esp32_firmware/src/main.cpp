@@ -1,21 +1,30 @@
 /**
  * esp32_firmware/src/main.cpp
  * ===========================
- * Phase 52: Full Autonomous Robotics (Body-Mind Sync).
- * Sơ đồ chân chuẩn xác theo KST AI ROBOT (KenhSangTao.COM) ESP32-S3 YD Board N16R8.
- * 
- * Luồng hoạt động:
- *   1. Chạm tay vào TTP223 (GPIO 17) -> Robot mở mắt OLED, bật LED1-LED2, gửi wake event.
- *   2. Thu micro INMP441 (GPIO 4, 5, 6) -> Đẩy PCM 16kHz stream lên máy chủ VN-MateAI Master.
- *   3. Lệnh di chuyển từ LLM ("move_robot") -> Bánh xe L298N (GPIO 11, 12, 13, 14) quay.
- *   4. Nếu ToF VL6180X (GPIO 1, 2) phát hiện mép bàn -> Phanh khẩn cấp, gửi cảnh báo.
- *   5. Lệnh cử chỉ ("animate_robot") -> Servo 47 (tay) vẫy, Servo 3 (cổ) gật đầu.
- *   6. Phát loa MAX98357A (GPIO 7, 15, 16) -> Âm thanh thời gian thực + Lip-sync OLED.
+ * Phase 53: Pairing Code + XiaoZhi-Style Conversation Flow.
+ * Sơ đồ chân chuẩn xác theo KST AI ROBOT ESP32-S3 YD Board N16R8.
+ *
+ * Luồng hội thoại chuẩn (giống XiaoZhi gốc):
+ *   IDLE      → Ngủ, OLED đôi mắt nhắm, mic tắt
+ *   LISTENING → Chạm tay / wake → mắt mở to, LED sáng, mic BẬT, stream audio
+ *   THINKING  → Dứt tiếng nói → mic TẮT → OLED hiện dots animation "..."
+ *   SPEAKING  → Server trả TTS → OLED lip-sync, loa phát, mic tắt
+ *   IDLE      → TTS xong → ngủ lại
+ *
+ * Pairing Code (thay thế nhập IP):
+ *   - Robot lưu mã 6 số vào NVS (hoặc sinh ngẫu nhiên khi lần đầu).
+ *   - Kết nối WiFi → WebSocket → gửi mã trong frame "hello".
+ *   - Server phản hồi hello_ack kèm mã đã xác nhận → OLED hiển thị mã to.
+ *   - User nhập mã vào Web UI để ghép cặp — không cần biết IP robot/server.
  */
 
 #include <Arduino.h>
 #include <string.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
+#include <WebServer.h>
+#include <DNSServer.h>
+#include <Preferences.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
@@ -30,17 +39,44 @@
 // ─── Global Instances ────────────────────────────────────────────────────────
 WebSocketsClient webSocket;
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
+Preferences prefs;
 
-// State variables
+// ─── Runtime network config (loaded from NVS or defaults) ────────────────────
+String cfg_ssid;
+String cfg_pass;
+String cfg_server_host;
+uint16_t cfg_server_port = DEFAULT_SERVER_PORT;
+String cfg_device_token;
+String cfg_pairing_code;  // Mã 6 số duy nhất của robot — lưu NVS, hiển thị OLED
+
+// ─── Conversation State Machine ───────────────────────────────────────────────
+// Trạng thái hội thoại chuẩn XiaoZhi: IDLE → LISTENING → THINKING → SPEAKING → IDLE
+enum ConvState {
+    CONV_IDLE,      // Ngủ — mic tắt, OLED đôi mắt nhắm
+    CONV_LISTENING, // Đang nghe — mic BẬT, LED sáng, mắt tập trung
+    CONV_THINKING,  // Đã nói xong, chờ AI phản hồi — mic tắt, OLED dots "..."
+    CONV_SPEAKING   // AI đang phát TTS — mic tắt, OLED lip-sync
+};
+volatile ConvState convState = CONV_IDLE;
+
+// Backward-compat helpers
 volatile bool isConnectedToServer = false;
-volatile bool isListening = true; // Mặc định mở mic lắng nghe khẩu lệnh
-volatile bool isSpeaking = false;
+volatile bool isPaired = false;        // Server đã xác nhận hello_ack với pairing_code
+
+#define isListening  (convState == CONV_LISTENING)
+#define isSpeaking   (convState == CONV_SPEAKING)
+
+// UI display state
 String currentUiState = "idle";
 String currentEmotion = "sleeping";
 String currentScreenText = "";
 
+// Thinking dots animation
+uint8_t thinkingDots = 0;
+unsigned long lastThinkingUpdate = 0;
+
 // Lip-sync & animation state
-uint8_t mouthOpenHeight = 2; // 2px (closed) -> 14px (wide open)
+uint8_t mouthOpenHeight = 2;
 unsigned long lastLipSyncUpdate = 0;
 
 // Touch sensor debounce
@@ -56,6 +92,9 @@ QueueHandle_t micQueue = nullptr;
 TaskHandle_t micTaskHandle = nullptr;
 
 // ─── Function Declarations ───────────────────────────────────────────────────
+void loadConfigFromNVS();
+void generateOrLoadPairingCode();
+bool startProvisioningPortal();
 void setupWiFi();
 void setupWebSocket();
 void setupOLED();
@@ -68,72 +107,117 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
 void handleIncomingJson(const char* jsonStr);
 void onSafetyAlert(const char* alertMsg);
 void drawOledFace(const String& state, const String& emotion, uint8_t mouthHeight);
+void drawOledThinking();
+void drawOledPairingCode(const String& code);
 void updateLipSyncAnimation();
+void updateThinkingAnimation();
 void checkTouchSensor();
+void setConvState(ConvState newState);
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
     delay(500);
     Serial.println(F("\n======================================================="));
-    Serial.println(F("   VN-MATE AI // ROBOTICS COMPANION FIRMWARE v52.0    "));
-    Serial.println(F("      Full Autonomous Robotics (Body-Mind Sync)        "));
+    Serial.println(F("   VN-MATE AI // ROBOTICS COMPANION FIRMWARE v53.0    "));
+    Serial.println(F("   Pairing Code + XiaoZhi Conversation Flow           "));
     Serial.println(F("======================================================="));
 
-    // 1. Khởi tạo OLED Display (I2C trên GPIO 41 SDA, GPIO 42 SCL)
     setupOLED();
-
-    // 2. Khởi tạo Chân Cảm biến chạm & LED
     setupTouchAndLEDs();
-
-    // 3. Khởi tạo Âm thanh I2S (Micro INMP441 + Loa MAX98357A)
+    loadConfigFromNVS();
+    generateOrLoadPairingCode();
     setupI2S();
 
-    // 4. Khởi tạo Motion Core (L298N, Servos, ToF Safety Task)
     MotionCore::getInstance().setAlertCallback(onSafetyAlert);
     MotionCore::getInstance().init();
 
-    // 5. Khởi tạo WiFi & WebSocket
     setupWiFi();
     setupWebSocket();
 
-    // Hoạt cảnh khởi động: Chớp mắt và vẫy tay chào
     drawOledFace("listening", "happy", 6);
     MotionCore::getInstance().waveArm();
-    drawOledFace("idle", "sleeping", 2);
+    setConvState(CONV_IDLE);
 }
 
 // ─── Main Loop ───────────────────────────────────────────────────────────────
 void loop() {
-    // 1. Quản lý trạng thái và nhận gói tin mạng WebSocket
     webSocket.loop();
 
-    // 2. Gửi các gói âm thanh từ micro lên máy chủ một cách an toàn (tránh race condition)
-    if (isConnectedToServer && isListening && !isSpeaking && micQueue != nullptr) {
+    // Gửi audio mic chỉ khi LISTENING
+    if (isConnectedToServer && convState == CONV_LISTENING && micQueue != nullptr) {
         PcmChunk chunk;
         if (xQueueReceive(micQueue, &chunk, 0) == pdTRUE) {
             webSocket.sendBIN(reinterpret_cast<uint8_t*>(chunk.samples), chunk.len);
         }
     }
 
-    // 3. Kiểm tra cảm biến chạm TTP223 (GPIO 17)
     checkTouchSensor();
-
-    // 4. Nhép miệng Lip-sync khi đang nói
-    updateLipSyncAnimation();
+    if (convState == CONV_SPEAKING)  updateLipSyncAnimation();
+    if (convState == CONV_THINKING)  updateThinkingAnimation();
 
     delay(2);
 }
 
-// ─── Hardware Initializations: I2S Audio ─────────────────────────────────────
+// ─── Conversation State Manager ───────────────────────────────────────────────
+
+void setConvState(ConvState newState) {
+    if (convState == newState) return;
+    convState = newState;
+
+    switch (newState) {
+        case CONV_IDLE:
+            digitalWrite(LED1_PIN, LOW);
+            digitalWrite(LED2_PIN, LOW);
+            currentUiState = "idle";
+            currentEmotion = "sleeping";
+            drawOledFace("idle", "sleeping", 2);
+            Serial.println(F("[State] → IDLE"));
+            break;
+
+        case CONV_LISTENING:
+            digitalWrite(LED1_PIN, HIGH);
+            digitalWrite(LED2_PIN, HIGH);
+            currentUiState = "listening";
+            currentEmotion = "focused";
+            mouthOpenHeight = 2;
+            if (micQueue) {
+                PcmChunk dummy;
+                while (xQueueReceive(micQueue, &dummy, 0) == pdTRUE) {}
+            }
+            drawOledFace("listening", "focused", 2);
+            Serial.println(F("[State] → LISTENING"));
+            break;
+
+        case CONV_THINKING:
+            digitalWrite(LED1_PIN, HIGH);
+            digitalWrite(LED2_PIN, LOW);
+            currentUiState = "thinking";
+            currentEmotion = "thinking";
+            thinkingDots = 0;
+            lastThinkingUpdate = millis();
+            drawOledThinking();
+            Serial.println(F("[State] → THINKING (chờ AI...)"));
+            break;
+
+        case CONV_SPEAKING:
+            digitalWrite(LED1_PIN, HIGH);
+            digitalWrite(LED2_PIN, LOW);
+            currentUiState = "speaking";
+            currentEmotion = "happy";
+            mouthOpenHeight = 6;
+            drawOledFace("speaking", "happy", 6);
+            Serial.println(F("[State] → SPEAKING"));
+            break;
+    }
+}
+
+// ─── Hardware: I2S Audio ─────────────────────────────────────────────────────
 
 void setupI2S() {
-    Serial.println(F("[Audio] Cấu hình I2S cho Micro INMP441 và Loa MAX98357A..."));
-
-    // Tạo hàng đợi âm thanh FreeRTOS cho Micro
+    Serial.println(F("[Audio] Cấu hình I2S..."));
     micQueue = xQueueCreate(6, sizeof(PcmChunk));
 
-    // 1. Cấu hình I2S_NUM_0 cho Micro INMP441 (RX Master, 16kHz, 32-bit slot cho INMP441)
     i2s_config_t mic_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = 16000,
@@ -141,27 +225,18 @@ void setupI2S() {
         .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 8,
-        .dma_buf_len = 256,
-        .use_apll = false,
-        .tx_desc_auto_clear = false,
-        .fixed_mclk = 0
+        .dma_buf_count = 8, .dma_buf_len = 256,
+        .use_apll = false, .tx_desc_auto_clear = false, .fixed_mclk = 0
     };
     i2s_pin_config_t mic_pins = {
-        .bck_io_num = I2S_MIC_SCK,    // GPIO 5
-        .ws_io_num = I2S_MIC_WS,      // GPIO 4
-        .data_out_num = I2S_PIN_NO_CHANGE,
-        .data_in_num = I2S_MIC_SD     // GPIO 6
+        .bck_io_num = I2S_MIC_SCK, .ws_io_num = I2S_MIC_WS,
+        .data_out_num = I2S_PIN_NO_CHANGE, .data_in_num = I2S_MIC_SD
     };
-    esp_err_t err_mic = i2s_driver_install(I2S_NUM_0, &mic_config, 0, NULL);
-    if (err_mic == ESP_OK) {
+    if (i2s_driver_install(I2S_NUM_0, &mic_config, 0, NULL) == ESP_OK) {
         i2s_set_pin(I2S_NUM_0, &mic_pins);
-        Serial.println(F("[Audio] Micro INMP441 (I2S_NUM_0) đã sẵn sàng."));
-    } else {
-        Serial.printf("[Audio] Lỗi khởi tạo Micro I2S: %d\n", err_mic);
+        Serial.println(F("[Audio] Micro INMP441 OK."));
     }
 
-    // 2. Cấu hình I2S_NUM_1 cho Loa MAX98357A (TX Master, 16kHz, 16-bit Stereo)
     i2s_config_t spk_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
         .sample_rate = 16000,
@@ -169,65 +244,37 @@ void setupI2S() {
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count = 8,
-        .dma_buf_len = 512,
-        .use_apll = false,
-        .tx_desc_auto_clear = true,
-        .fixed_mclk = 0
+        .dma_buf_count = 8, .dma_buf_len = 512,
+        .use_apll = false, .tx_desc_auto_clear = true, .fixed_mclk = 0
     };
     i2s_pin_config_t spk_pins = {
-        .bck_io_num = I2S_SPK_BCLK,   // GPIO 15
-        .ws_io_num = I2S_SPK_LRC,     // GPIO 16
-        .data_out_num = I2S_SPK_DIN,  // GPIO 7
-        .data_in_num = I2S_PIN_NO_CHANGE
+        .bck_io_num = I2S_SPK_BCLK, .ws_io_num = I2S_SPK_LRC,
+        .data_out_num = I2S_SPK_DIN, .data_in_num = I2S_PIN_NO_CHANGE
     };
-    esp_err_t err_spk = i2s_driver_install(I2S_NUM_1, &spk_config, 0, NULL);
-    if (err_spk == ESP_OK) {
+    if (i2s_driver_install(I2S_NUM_1, &spk_config, 0, NULL) == ESP_OK) {
         i2s_set_pin(I2S_NUM_1, &spk_pins);
-        Serial.println(F("[Audio] Loa MAX98357A (I2S_NUM_1) đã sẵn sàng."));
-    } else {
-        Serial.printf("[Audio] Lỗi khởi tạo Loa I2S: %d\n", err_spk);
+        Serial.println(F("[Audio] Loa MAX98357A OK."));
     }
 
-    // Phát âm thanh chào mừng khởi động kiểm tra loa ngay lập tức!
     playStartupChime();
-
-    // Khởi tạo FreeRTOS Task thu âm micro trên Core 0
-    xTaskCreatePinnedToCore(
-        micRecordTaskLoop,
-        "MicRecordTask",
-        4096,
-        NULL,
-        2,
-        &micTaskHandle,
-        0
-    );
+    xTaskCreatePinnedToCore(micRecordTaskLoop, "MicRecordTask", 4096, NULL, 2, &micTaskHandle, 0);
 }
 
 void playStartupChime() {
-    Serial.println(F("[Audio] Phát âm thanh khởi động (Startup Chime) ra loa MAX98357A..."));
-    // Phát 2 nốt nhạc vui tươi: 523Hz (C5) 120ms -> 659Hz (E5) 180ms
-    int16_t stereo[256];
-    size_t written = 0;
-
-    // Nốt C5 (523Hz)
+    int16_t stereo[256]; size_t written = 0;
     for (int k = 0; k < 8; ++k) {
         for (int i = 0; i < 128; ++i) {
-            float t = (float)(k * 128 + i) / 16000.0;
-            int16_t val = (int16_t)(sin(2.0 * PI * 523.0 * t) * 8000.0);
-            stereo[i * 2]     = val;
-            stereo[i * 2 + 1] = val;
+            float t = (float)(k*128+i)/16000.0f;
+            int16_t v = (int16_t)(sinf(2.0f*PI*523.0f*t)*8000.0f);
+            stereo[i*2]=v; stereo[i*2+1]=v;
         }
         i2s_write(I2S_NUM_1, stereo, sizeof(stereo), &written, portMAX_DELAY);
     }
-
-    // Nốt E5 (659Hz)
     for (int k = 0; k < 12; ++k) {
         for (int i = 0; i < 128; ++i) {
-            float t = (float)(k * 128 + i) / 16000.0;
-            int16_t val = (int16_t)(sin(2.0 * PI * 659.0 * t) * 9000.0);
-            stereo[i * 2]     = val;
-            stereo[i * 2 + 1] = val;
+            float t = (float)(k*128+i)/16000.0f;
+            int16_t v = (int16_t)(sinf(2.0f*PI*659.0f*t)*9000.0f);
+            stereo[i*2]=v; stereo[i*2+1]=v;
         }
         i2s_write(I2S_NUM_1, stereo, sizeof(stereo), &written, portMAX_DELAY);
     }
@@ -235,163 +282,403 @@ void playStartupChime() {
 
 void playPcmToSpeaker(const uint8_t* pcmData, size_t length) {
     if (!pcmData || length == 0) return;
-
-    // Chuyển đổi mẫu mono 16-bit thành stereo nhân đôi kênh để MAX98357A phát chuẩn
-    const int16_t* monoSamples = reinterpret_cast<const int16_t*>(pcmData);
-    size_t sampleCount = length / 2;
-
-    int16_t stereoBuf[128 * 2]; // 128 mẫu stereo
+    const int16_t* mono = reinterpret_cast<const int16_t*>(pcmData);
+    size_t n = length / 2;
+    int16_t buf[256];
     size_t offset = 0;
-    while (offset < sampleCount) {
-        size_t batch = min((size_t)128, sampleCount - offset);
-        for (size_t i = 0; i < batch; ++i) {
-            int16_t s = monoSamples[offset + i];
-            stereoBuf[i * 2]     = s;
-            stereoBuf[i * 2 + 1] = s;
-        }
-        size_t bytesWritten = 0;
-        i2s_write(I2S_NUM_1, stereoBuf, batch * 4, &bytesWritten, portMAX_DELAY);
+    while (offset < n) {
+        size_t batch = min((size_t)128, n - offset);
+        for (size_t i = 0; i < batch; ++i) { buf[i*2]=mono[offset+i]; buf[i*2+1]=mono[offset+i]; }
+        size_t bw = 0;
+        i2s_write(I2S_NUM_1, buf, batch*4, &bw, portMAX_DELAY);
         offset += batch;
     }
 }
 
-// ─── FreeRTOS Task: Thu âm Micro INMP441 & Đẩy vào Hàng Đợi ────────────────
+// ─── FreeRTOS Task: Thu âm Micro ─────────────────────────────────────────────
 
 void micRecordTaskLoop(void* arg) {
-    const size_t SAMPLES = 256;
-    int32_t raw32[SAMPLES];
-    PcmChunk chunk;
-    size_t bytesRead = 0;
-
+    int32_t raw32[256]; PcmChunk chunk; size_t bytesRead = 0;
     for (;;) {
-        // Chỉ thu khi đã kết nối máy chủ, đang bật nghe và Robot không phát tiếng
-        if (isConnectedToServer && isListening && !isSpeaking) {
-            esp_err_t res = i2s_read(I2S_NUM_0, raw32, sizeof(raw32), &bytesRead, pdMS_TO_TICKS(50));
-            if (res == ESP_OK && bytesRead > 0) {
-                size_t numSamples = bytesRead / 4;
-                for (size_t i = 0; i < numSamples; ++i) {
-                    // INMP441 24-bit MSB trong khung 32-bit: dịch phải 14 bit sang 16-bit signed
-                    chunk.samples[i] = (int16_t)(raw32[i] >> 14);
-                }
-                chunk.len = numSamples * 2;
-
-                if (micQueue != nullptr) {
-                    xQueueSend(micQueue, &chunk, 0);
-                }
+        if (isConnectedToServer && convState == CONV_LISTENING) {
+            if (i2s_read(I2S_NUM_0, raw32, sizeof(raw32), &bytesRead, pdMS_TO_TICKS(50)) == ESP_OK && bytesRead > 0) {
+                size_t ns = bytesRead / 4;
+                for (size_t i = 0; i < ns; ++i) chunk.samples[i] = (int16_t)(raw32[i] >> 14);
+                chunk.len = ns * 2;
+                if (micQueue) xQueueSend(micQueue, &chunk, 0);
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
-
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 
-// ─── Khởi tạo phần cứng khác ─────────────────────────────────────────────────
+// ─── Hardware: OLED & GPIO ───────────────────────────────────────────────────
 
 void setupOLED() {
     Wire.begin(OLED_SDA, OLED_SCL, 400000);
     if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-        Serial.println(F("[OLED] Không tìm thấy màn hình SSD1306 tại 0x3C. Kiểm tra dây!"));
+        Serial.println(F("[OLED] Không tìm thấy SSD1306!"));
     } else {
-        Serial.println(F("[OLED] Màn hình SSD1306 128x64 đã khởi tạo thành công."));
-        display.clearDisplay();
-        display.setTextColor(SSD1306_WHITE);
-        display.setTextSize(1);
-        display.setCursor(10, 25);
-        display.println(F("VN-MateAI Robot 52"));
-        display.display();
+        display.clearDisplay(); display.setTextColor(SSD1306_WHITE);
+        display.setTextSize(1); display.setCursor(10, 25);
+        display.println(F("VN-MateAI Robot v53")); display.display();
     }
 }
 
 void setupTouchAndLEDs() {
     pinMode(TOUCH_PIN, INPUT_PULLDOWN);
-    pinMode(LED1_PIN, OUTPUT);
-    pinMode(LED2_PIN, OUTPUT);
-    pinMode(RGB_PIN, OUTPUT);
-
-    digitalWrite(LED1_PIN, LOW);
-    digitalWrite(LED2_PIN, LOW);
+    pinMode(LED1_PIN, OUTPUT); pinMode(LED2_PIN, OUTPUT); pinMode(RGB_PIN, OUTPUT);
+    digitalWrite(LED1_PIN, LOW); digitalWrite(LED2_PIN, LOW);
 }
 
-void setupWiFi() {
-    Serial.printf("[WiFi] Bắt đầu kết nối mạng WiFi...\n");
+// ─── NVS Config ──────────────────────────────────────────────────────────────
+
+void loadConfigFromNVS() {
+    prefs.begin("vnmate", false);
+    cfg_ssid        = prefs.getString("ssid",   DEFAULT_WIFI_SSID);
+    cfg_pass        = prefs.getString("pass",   DEFAULT_WIFI_PASS);
+    cfg_server_host = prefs.getString("host",   DEFAULT_SERVER_HOST);
+    cfg_server_port = prefs.getUShort("port",   DEFAULT_SERVER_PORT);
+    cfg_device_token= prefs.getString("token",  DEFAULT_DEVICE_TOKEN);
+    cfg_pairing_code= prefs.getString("pcode",  "");
+    prefs.end();
+    if (cfg_server_host == "192.168.100.169" || cfg_server_host.length() == 0) {
+        cfg_server_host = DEFAULT_SERVER_HOST;
+    }
+    Serial.printf("[Config] SSID='%s' Host='%s' Port=%d\n",
+        cfg_ssid.c_str(), cfg_server_host.c_str(), cfg_server_port);
+}
+
+// ─── Pairing Code: Sinh hoặc Load từ NVS ─────────────────────────────────────
+
+void generateOrLoadPairingCode() {
+    if (cfg_pairing_code.length() == 6) {
+        Serial.printf("[PairingCode] Load từ NVS: %s\n", cfg_pairing_code.c_str());
+        return;
+    }
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    uint32_t seed = ((uint32_t)mac[3]<<16)|((uint32_t)mac[4]<<8)|mac[5];
+    seed ^= (uint32_t)millis();
+    randomSeed(seed);
+    char code[7];
+    snprintf(code, sizeof(code), "%06lu", (unsigned long)(random(0, 999999)));
+    cfg_pairing_code = String(code);
+    prefs.begin("vnmate", false);
+    prefs.putString("pcode", cfg_pairing_code);
+    prefs.end();
+    Serial.printf("[PairingCode] Sinh mã mới: %s\n", cfg_pairing_code.c_str());
+}
+
+// ─── SoftAP Provisioning Portal ──────────────────────────────────────────────
+// Chỉ cần nhập WiFi — robot tự kết nối server qua DEFAULT_SERVER_HOST.
+// Nhận dạng robot bằng PAIRING CODE 6 số, không cần nhập IP.
+
+bool startProvisioningPortal() {
+    const char* AP_SSID = "VNMate-Setup";
+    const char* AP_PASS = "vnmate123";
+    Serial.println(F("[Provision] Khởi động SoftAP + WiFi Scanner..."));
+
     display.clearDisplay();
-    display.setCursor(10, 25);
-    display.println(F("Scanning WiFi..."));
+    display.setTextSize(1);
+    display.setCursor(0, 0);  display.println(F("-- SETUP MODE --"));
+    display.setCursor(0, 10); display.println(F("WiFi: VNMate-Setup"));
+    display.setCursor(0, 20); display.println(F("Pass: vnmate123"));
+    display.setCursor(0, 30); display.println(F("Open: 192.168.4.1"));
+    display.setCursor(0, 46); display.print(F("Code: "));
+    display.setTextSize(2); display.print(cfg_pairing_code); display.setTextSize(1);
     display.display();
+
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(AP_SSID, AP_PASS);
+    delay(300);
+
+    DNSServer dnsServer;
+    dnsServer.start(53, "*", WiFi.softAPIP());
+
+    WebServer server(80);
+    bool saved = false;
+
+    // Quét WiFi ban đầu để có sẵn danh sách ngay khi tải trang
+    Serial.println(F("[Provision] Quét mạng WiFi xung quanh..."));
+    WiFi.scanNetworks(false, false);
+
+    server.on("/scan", HTTP_GET, [&]() {
+        Serial.println(F("[Provision] Quét lại mạng WiFi..."));
+        int n = WiFi.scanNetworks(false, false);
+        String json = "[";
+        for (int i = 0; i < n; ++i) {
+            String s = WiFi.SSID(i);
+            if (s.length() == 0) continue;
+            if (json.length() > 1) json += ",";
+            int r = WiFi.RSSI(i);
+            bool enc = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+            json += "{\"ssid\":\"" + s + "\",\"rssi\":" + String(r) + ",\"enc\":" + (enc ? "true" : "false") + "}";
+        }
+        json += "]";
+        server.send(200, "application/json; charset=utf-8", json);
+    });
+
+    server.on("/", HTTP_GET, [&]() {
+        String html = F(
+            "<!DOCTYPE html><html lang='vi'><head><meta charset='UTF-8'>"
+            "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+            "<title>VN-MateAI Setup</title>"
+            "<style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;"
+            "background:#090d16;color:#e6edf3;display:flex;justify-content:center;align-items:center;"
+            "min-height:100vh;margin:0;padding:1rem;box-sizing:border-box}"
+            ".card{background:#111622;border:1px solid #1f293d;border-radius:14px;"
+            "padding:1.8rem;width:100%;max-width:380px;box-shadow:0 10px 30px rgba(0,0,0,.5)}"
+            ".title{color:#00f2fe;font-size:1.3rem;font-weight:700;text-align:center;margin:.3rem 0}"
+            ".sub{text-align:center;font-size:.8rem;color:#8b949e;margin-bottom:1rem}"
+            ".code-box{background:#060a12;border:2px solid #00f2fe;border-radius:8px;"
+            "text-align:center;padding:.6rem;margin-bottom:1.2rem;font-size:1.8rem;"
+            "letter-spacing:.25rem;color:#00f2fe;font-weight:700;font-family:monospace}"
+            "label{display:block;margin:.9rem 0 .3rem;font-size:.85rem;color:#94a3b8;font-weight:500}"
+            "select,input{width:100%;box-sizing:border-box;padding:.7rem .8rem;background:#090d16;"
+            "border:1px solid #1f293d;border-radius:8px;color:#e6edf3;font-size:.95rem;"
+            "outline:none;transition:border-color .2s}"
+            "select:focus,input:focus{border-color:#00f2fe}"
+            ".row-btn{display:flex;gap:.5rem;margin-top:.4rem}"
+            ".btn-scan{padding:.6rem .8rem;background:#1e293b;border:1px solid #334155;"
+            "border-radius:8px;color:#38bdf8;font-size:.8rem;cursor:pointer;font-weight:600;white-space:nowrap}"
+            ".btn-scan:hover{background:#334155}"
+            ".btn-submit{margin-top:1.4rem;width:100%;padding:.85rem;background:#0284c7;"
+            "border:none;border-radius:8px;color:#fff;font-size:1rem;cursor:pointer;"
+            "font-weight:700;letter-spacing:.02rem;transition:background .2s}"
+            ".btn-submit:hover{background:#0369a1}"
+            ".checkbox-wrap{display:flex;align-items:center;gap:.5rem;margin-top:.6rem;"
+            "font-size:.8rem;color:#94a3b8;cursor:pointer}"
+            ".checkbox-wrap input{width:auto;cursor:pointer}"
+            ".note{margin-top:1.2rem;font-size:.78rem;color:#64748b;text-align:center;line-height:1.4}"
+            "</style></head><body><div class='card'>"
+            "<div style='text-align:center;font-size:2.2rem'>🤖</div>"
+            "<div class='title'>VN-MateAI Robot Setup</div>"
+            "<div class='sub'>Cấu hình kết nối WiFi cho Robot</div>"
+            "<div class='code-box'>");
+        html += cfg_pairing_code;
+        html += F(
+            "</div>"
+            "<div style='text-align:center;font-size:.78rem;color:#94a3b8;margin-bottom:1rem'>"
+            "Mã ghép đôi Robot — Dùng trên Web Dashboard</div>"
+            "<form action='/save' method='POST' id='setupForm'>"
+            "<label>Chọn mạng WiFi xung quanh</label>"
+            "<div id='selectBox'>"
+            "<select id='wifiList' name='ssid_select' onchange='onSelectWifi(this)'>");
+
+        int n = WiFi.scanComplete();
+        if (n <= 0) n = WiFi.scanNetworks(false, false);
+        if (n > 0) {
+            html += F("<option value=''>-- Bấm để chọn WiFi --</option>");
+            for (int i = 0; i < n; ++i) {
+                String s = WiFi.SSID(i);
+                if (s.length() == 0) continue;
+                int r = WiFi.RSSI(i);
+                bool enc = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+                html += "<option value='" + s + "'>" + s + " (" + String(r) + " dBm" + (enc ? " 🔒" : "") + ")</option>";
+            }
+        } else {
+            html += F("<option value=''>Không tìm thấy WiFi - Bấm Quét lại</option>");
+        }
+
+        html += F(
+            "</select></div>"
+            "<div class='row-btn'>"
+            "<button type='button' class='btn-scan' onclick='scanWifi()' id='scanBtn'>🔄 Quét lại WiFi</button>"
+            "</div>"
+            "<div id='manualBox' style='display:none;margin-top:.6rem'>"
+            "<label>Tên WiFi thủ công / Ẩn (SSID)</label>"
+            "<input type='text' id='manualSsid' placeholder='Nhập tên WiFi thủ công'>"
+            "</div>"
+            "<label class='checkbox-wrap'>"
+            "<input type='checkbox' id='chkManual' onchange='toggleManual(this.checked)'>"
+            "<span>Nhập WiFi ẩn / thủ công</span>"
+            "</label>"
+            "<input type='hidden' name='ssid' id='finalSsid' required>"
+            "<label>Mật khẩu WiFi</label>"
+            "<input name='pass' id='passInput' type='password' placeholder='Mật khẩu WiFi'>"
+            "<label class='checkbox-wrap'>"
+            "<input type='checkbox' onchange='document.getElementById(\"passInput\").type=this.checked?\"text\":\"password\"'>"
+            "<span>Hiện mật khẩu</span>"
+            "</label>"
+            "<label>Device Token (để trống nếu dùng LAN)</label>"
+            "<input name='token' placeholder='optional'>"
+            "<button type='submit' class='btn-submit' onclick='return prepareSubmit()'>💾 Lưu &amp; Kết nối Robot</button>"
+            "</form>"
+            "<p class='note'>Robot tự tìm và kết nối Master Server qua mã 6 số.<br>Không cần gõ địa chỉ IP.</p>"
+            "</div>"
+            "<script>"
+            "function onSelectWifi(sel){"
+            "  var val = sel.value;"
+            "  document.getElementById('finalSsid').value = val;"
+            "}"
+            "function toggleManual(chk){"
+            "  document.getElementById('manualBox').style.display = chk ? 'block' : 'none';"
+            "  document.getElementById('selectBox').style.display = chk ? 'none' : 'block';"
+            "  if(chk){ document.getElementById('manualSsid').focus(); }"
+            "  else { onSelectWifi(document.getElementById('wifiList')); }"
+            "}"
+            "function scanWifi(){"
+            "  var btn = document.getElementById('scanBtn');"
+            "  btn.innerHTML = '⏳ Đang quét...'; btn.disabled = true;"
+            "  fetch('/scan').then(function(r){return r.json();}).then(function(list){"
+            "    var sel = document.getElementById('wifiList');"
+            "    sel.innerHTML = '<option value=\"\">-- Bấm để chọn WiFi --</option>';"
+            "    list.forEach(function(item){"
+            "      var opt = document.createElement('option');"
+            "      opt.value = item.ssid;"
+            "      opt.text = item.ssid + ' (' + item.rssi + ' dBm' + (item.enc ? ' 🔒' : '') + ')';"
+            "      sel.appendChild(opt);"
+            "    });"
+            "    btn.innerHTML = '🔄 Quét lại WiFi'; btn.disabled = false;"
+            "  }).catch(function(){"
+            "    btn.innerHTML = '❌ Lỗi quét - Thử lại'; btn.disabled = false;"
+            "  });"
+            "}"
+            "function prepareSubmit(){"
+            "  var isMan = document.getElementById('chkManual').checked;"
+            "  var ssid = isMan ? document.getElementById('manualSsid').value.trim() : document.getElementById('wifiList').value.trim();"
+            "  if(!ssid){ alert('Vui lòng chọn hoặc nhập tên WiFi!'); return false; }"
+            "  document.getElementById('finalSsid').value = ssid;"
+            "  return true;"
+            "}"
+            "</script>"
+            "</body></html>");
+        server.send(200, "text/html; charset=utf-8", html);
+    });
+
+    server.on("/save", HTTP_POST, [&]() {
+        String newSsid = server.arg("ssid");
+        newSsid.trim();
+        if (newSsid.length() > 0) {
+            prefs.begin("vnmate", false);
+            prefs.putString("ssid",  newSsid);
+            prefs.putString("pass",  server.arg("pass"));
+            prefs.putString("token", server.arg("token"));
+            prefs.end();
+            server.send(200, "text/html; charset=utf-8",
+                "<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
+                "<style>body{background:#090d16;color:#e6edf3;font-family:sans-serif;display:flex;"
+                "align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}</style></head>"
+                "<body><div><div style='font-size:3.5rem'>&#x2705;</div>"
+                "<h2 style='color:#38bdf8;margin:1rem 0 .5rem'>Đã lưu cấu hình WiFi!</h2>"
+                "<p style='color:#94a3b8;line-height:1.6'>Đang kết nối vào <b>" + newSsid + "</b>...<br>"
+                "Robot đang khởi động lại.<br>Nhập mã <b><span style='color:#00f2fe;font-size:1.4rem;letter-spacing:2px'>" + cfg_pairing_code + "</span></b> vào Web Dashboard.</p>"
+                "</div></body></html>");
+            saved = true;
+        } else {
+            server.send(400, "text/plain; charset=utf-8", "Thiếu tên WiFi.");
+        }
+    });
+
+    // Captive portal redirects
+    server.on("/hotspot-detect.html", HTTP_GET, [&]() { server.sendHeader("Location", "http://192.168.4.1/", true); server.send(302, "text/plain", ""); });
+    server.on("/generate_204", HTTP_GET, [&]() { server.sendHeader("Location", "http://192.168.4.1/", true); server.send(302, "text/plain", ""); });
+    server.on("/canonical.html", HTTP_GET, [&]() { server.sendHeader("Location", "http://192.168.4.1/", true); server.send(302, "text/plain", ""); });
+    server.onNotFound([&]() {
+        server.sendHeader("Location", "http://192.168.4.1/", true);
+        server.send(302, "text/plain", "");
+    });
+
+    server.begin();
+    while (!saved) {
+        dnsServer.processNextRequest();
+        server.handleClient();
+        delay(5);
+    }
+    server.stop();
+    dnsServer.stop();
+    WiFi.softAPdisconnect(true);
+    delay(500);
+
+    display.clearDisplay(); display.setCursor(10, 25);
+    display.println(F("Saved! Restarting...")); display.display();
+    delay(1500); ESP.restart();
+    return true;
+}
+
+void discoverServerViaUdp() {
+    WiFiUDP udp;
+    if (udp.begin(8889)) {
+        udp.beginPacket(IPAddress(255,255,255,255), 8888);
+        udp.print("VNMATE_DISCOVER");
+        udp.endPacket();
+        unsigned long start = millis();
+        while (millis() - start < 1500) {
+            int packetSize = udp.parsePacket();
+            if (packetSize) {
+                char buf[64];
+                int len = udp.read(buf, sizeof(buf)-1);
+                if (len > 0) {
+                    buf[len] = 0;
+                    String resp = String(buf);
+                    if (resp.startsWith("VNMATE_BEACON:")) {
+                        int idx1 = resp.indexOf(':', 14);
+                        if (idx1 > 0) {
+                            String newHost = resp.substring(14, idx1);
+                            int newPort = resp.substring(idx1 + 1).toInt();
+                            cfg_server_host = newHost;
+                            if (newPort > 0) cfg_server_port = newPort;
+                            Serial.printf("[UDP Discovery] Tìm thấy Server tại %s:%d!\n", cfg_server_host.c_str(), cfg_server_port);
+                            prefs.begin("vnmate", false);
+                            prefs.putString("host", cfg_server_host);
+                            prefs.putUShort("port", cfg_server_port);
+                            prefs.end();
+                            break;
+                        }
+                    }
+                }
+            }
+            delay(20);
+        }
+        udp.stop();
+    }
+}
+
+// ─── WiFi ────────────────────────────────────────────────────────────────────
+
+void setupWiFi() {
+    if (cfg_ssid.length() == 0) {
+        startProvisioningPortal(); return;
+    }
+    Serial.printf("[WiFi] Kết nối '%s'...\n", cfg_ssid.c_str());
+    display.clearDisplay();
+    display.setCursor(5, 10); display.println(F("Connecting WiFi..."));
+    display.setCursor(5, 22); display.println(cfg_ssid); display.display();
 
     WiFi.mode(WIFI_STA);
-    WiFi.disconnect();
-    delay(200);
-
-    Serial.println(F("[WiFi] Đang quét các mạng 2.4GHz khả dụng..."));
-    int numNetworks = WiFi.scanNetworks();
-    Serial.printf("[WiFi] Quét hoàn tất. Tìm thấy %d mạng xung quanh:\n", numNetworks);
-
-    String targetSsid = DEFAULT_WIFI_SSID;
-    for (int i = 0; i < numNetworks; ++i) {
-        String scannedSsid = WiFi.SSID(i);
-        int32_t rssi = WiFi.RSSI(i);
-        Serial.printf("  [%02d] SSID: '%s' | Tín hiệu: %d dBm | Kênh: %d\n", i + 1, scannedSsid.c_str(), rssi, WiFi.channel(i));
-
-        String s1 = scannedSsid; s1.toLowerCase(); s1.replace(" ", "");
-        String s2 = targetSsid; s2.toLowerCase(); s2.replace(" ", "");
-        if (s1 == s2) {
-            targetSsid = scannedSsid;
-            Serial.printf("[WiFi] -> Tìm thấy mạng phù hợp: '%s'!\n", targetSsid.c_str());
-        }
-    }
-
-    display.clearDisplay();
-    display.setCursor(5, 25);
-    display.printf("Connecting to:\n%s", targetSsid.c_str());
-    display.display();
-
-    Serial.printf("[WiFi] Đang kết nối tới '%s'...\n", targetSsid.c_str());
-    WiFi.begin(targetSsid.c_str(), DEFAULT_WIFI_PASS);
+    WiFi.begin(cfg_ssid.c_str(), cfg_pass.c_str());
 
     uint8_t retries = 0;
-    while (WiFi.status() != WL_CONNECTED && retries < 40) {
-        delay(400);
-        Serial.print(".");
-        retries++;
-    }
+    while (WiFi.status() != WL_CONNECTED && retries < 40) { delay(400); Serial.print("."); retries++; }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.printf("\n[WiFi] Đã kết nối thành công! IP: %s\n", WiFi.localIP().toString().c_str());
-        display.clearDisplay();
-        display.setCursor(5, 20);
-        display.println(F("WiFi Connected!"));
-        display.setCursor(5, 35);
-        display.println(WiFi.localIP().toString());
-        display.display();
-        delay(1500);
+        Serial.printf("\n[WiFi] OK! IP: %s\n", WiFi.localIP().toString().c_str());
+        discoverServerViaUdp();
+        // Hiển thị mã pairing ngay sau khi WiFi kết nối thành công
+        drawOledPairingCode(cfg_pairing_code);
+        delay(2500);
     } else {
-        Serial.printf("\n[WiFi] Kết nối tới '%s' thất bại (Trạng thái mã: %d).\n", targetSsid.c_str(), WiFi.status());
+        Serial.printf("\n[WiFi] Lỗi kết nối '%s'\n", cfg_ssid.c_str());
+        prefs.begin("vnmate", false); prefs.remove("ssid"); prefs.end();
+        startProvisioningPortal();
     }
 }
 
 void setupWebSocket() {
-    Serial.printf("[WebSocket] Cấu hình máy chủ %s:%d%s\n", DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, DEFAULT_WS_PATH);
-
-    // Zero-Trust: server yêu cầu device enrollment token cho /api/v1/xiaozhi/ws.
-    // Token lấy từ secrets.h (DEFAULT_DEVICE_TOKEN), admin dán vào khi flash.
-    // Thiếu token thì master sẽ từ chối kết nối (WebSocket code 1008).
+    Serial.printf("[WebSocket] → %s:%d%s\n", cfg_server_host.c_str(), cfg_server_port, DEFAULT_WS_PATH);
     String wsPath = String(DEFAULT_WS_PATH);
-    if (strlen(DEFAULT_DEVICE_TOKEN) > 0) {
+    if (cfg_device_token.length() > 0) {
         wsPath += (wsPath.indexOf('?') >= 0) ? "&token=" : "?token=";
-        wsPath += DEFAULT_DEVICE_TOKEN;
-    } else {
-        Serial.printf("[WebSocket] ⚠ Chưa cấu hình DEFAULT_DEVICE_TOKEN — server sẽ từ chối kết nối.\n");
+        wsPath += cfg_device_token;
     }
-
-    if (DEFAULT_SERVER_PORT == 443) {
-        webSocket.beginSSL(DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, wsPath);
+    if (cfg_server_port == 443) {
+        webSocket.beginSSL(cfg_server_host.c_str(), cfg_server_port, wsPath.c_str());
     } else {
-        webSocket.begin(DEFAULT_SERVER_HOST, DEFAULT_SERVER_PORT, wsPath);
+        webSocket.begin(cfg_server_host.c_str(), cfg_server_port, wsPath.c_str());
     }
-
     webSocket.onEvent(webSocketEvent);
     webSocket.setReconnectInterval(2500);
 }
@@ -401,27 +688,27 @@ void setupWebSocket() {
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
     switch (type) {
         case WStype_DISCONNECTED:
-            isConnectedToServer = false;
+            isConnectedToServer = false; isPaired = false;
             MotionCore::getInstance().updateConnectionStatus(false);
-            Serial.println(F("[WebSocket] Mất kết nối tới máy chủ!"));
-            digitalWrite(LED1_PIN, LOW);
-            digitalWrite(LED2_PIN, LOW);
+            Serial.println(F("[WS] Mất kết nối!"));
+            digitalWrite(LED1_PIN, LOW); digitalWrite(LED2_PIN, LOW);
+            drawOledPairingCode(cfg_pairing_code);  // Vẫn hiển thị mã
             break;
 
         case WStype_CONNECTED:
             isConnectedToServer = true;
             MotionCore::getInstance().updateConnectionStatus(true);
-            Serial.printf("[WebSocket] Đã kết nối thành công tới máy chủ VN-MateAI: %s\n", payload);
-
+            Serial.printf("[WS] Đã kết nối: %s\n", payload);
             {
+                // Gửi hello kèm pairing_code — server sẽ map mã với device_id
                 StaticJsonDocument<256> doc;
-                doc["type"] = "hello";
-                doc["device_id"] = DEFAULT_DEVICE_ID;
-                doc["version"] = "52.0";
-                doc["features"] = "motor_l298n,tof_safety,servo_kinematics,oled_lipsync,touch_wake,i2s_audio";
-                String handshake;
-                serializeJson(doc, handshake);
-                webSocket.sendTXT(handshake);
+                doc["type"]         = "hello";
+                doc["device_id"]    = DEFAULT_DEVICE_ID;
+                doc["version"]      = "53.0";
+                doc["pairing_code"] = cfg_pairing_code.c_str();
+                doc["features"]     = "motor_l298n,tof_safety,servo_kinematics,oled_lipsync,touch_wake,i2s_audio,pairing_code";
+                String hs; serializeJson(doc, hs);
+                webSocket.sendTXT(hs);
             }
             break;
 
@@ -430,236 +717,239 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
             break;
 
         case WStype_BIN:
-            // Nhận luồng âm thanh PCM từ máy chủ -> Phát ra loa MAX98357A tức thời!
             if (length > 0) {
-                isSpeaking = true;
+                setConvState(CONV_SPEAKING);
                 playPcmToSpeaker(payload, length);
                 mouthOpenHeight = (mouthOpenHeight == 2) ? 12 : ((mouthOpenHeight == 12) ? 6 : 2);
             }
             break;
 
-        default:
-            break;
+        default: break;
     }
 }
 
-// ─── BỘ PARSER JSON WEBSOCKET TỪ VN-MATEAI ──────────────────────────────────
+// ─── JSON Handler ─────────────────────────────────────────────────────────────
 
 void handleIncomingJson(const char* jsonStr) {
     StaticJsonDocument<512> doc;
-    DeserializationError error = deserializeJson(doc, jsonStr);
-    if (error) {
-        Serial.printf("[JSON] Parse lỗi: %s\n", error.c_str());
+    if (deserializeJson(doc, jsonStr) != DeserializationError::Ok) return;
+
+    String type   = doc["type"]   | "";
+    String action = doc["action"] | "";
+    String state  = doc["state"]  | "";
+
+    // ── Hello ACK: Server xác nhận pairing_code ──────────────────────────────
+    if (type == "hello" || type == "hello_ack") {
+        const char* confirmedCode = doc["pairing_code"];
+        if (confirmedCode && strlen(confirmedCode) == 6) {
+            cfg_pairing_code = String(confirmedCode);
+            prefs.begin("vnmate", false);
+            prefs.putString("pcode", cfg_pairing_code);
+            prefs.end();
+        }
+        isPaired = true;
+        Serial.printf("[PairingCode] Ghép cặp OK! Mã: %s\n", cfg_pairing_code.c_str());
+        drawOledPairingCode(cfg_pairing_code);  // Hiển thị mã to để user đọc
+        delay(4000);
+        setConvState(CONV_IDLE);
         return;
     }
 
-    String type = doc["type"] | "";
-    String action = doc["action"] | "";
-    String state = doc["state"] | "";
-    String emotion = doc["emotion"] | "";
-
-    // 1. Xử lý trạng thái giao diện UI (ui_state)
+    // ── UI State frames ───────────────────────────────────────────────────────
     if (type == "ui" || state.length() > 0) {
         if (state.length() > 0) currentUiState = state;
-        if (emotion.length() > 0) currentEmotion = emotion;
         currentScreenText = doc["text"] | "";
 
-        Serial.printf("[Robot UI] State: '%s', Emotion: '%s'\n", currentUiState.c_str(), currentEmotion.c_str());
-
-        // Nếu ui_state == listening -> Bật LED 1 & 2, vẽ mặt tập trung, bật mic
-        if (currentUiState == "listening") {
-            digitalWrite(LED1_PIN, HIGH);
-            digitalWrite(LED2_PIN, HIGH);
-            isListening = true;
-            isSpeaking = false;
-            drawOledFace("listening", "focused", 2);
-        }
-        else if (currentUiState == "speaking") {
-            digitalWrite(LED1_PIN, HIGH);
-            digitalWrite(LED2_PIN, LOW);
-            isSpeaking = true;
-        }
-        else if (currentUiState == "idle") {
-            digitalWrite(LED1_PIN, LOW);
-            digitalWrite(LED2_PIN, LOW);
-            isSpeaking = false;
-            isListening = true; // Sẵn sàng nghe tiếp
-            drawOledFace("idle", currentEmotion.length() > 0 ? currentEmotion : "sleeping", 2);
-        }
-        else if (currentUiState == "alert") {
-            digitalWrite(LED1_PIN, HIGH);
-            digitalWrite(LED2_PIN, HIGH);
-            isSpeaking = false;
+        if (state == "listening")             setConvState(CONV_LISTENING);
+        else if (state == "thinking" ||
+                 state == "processing")       setConvState(CONV_THINKING);
+        else if (state == "speaking")         setConvState(CONV_SPEAKING);
+        else if (state == "idle")             setConvState(CONV_IDLE);
+        else if (state == "alert") {
+            setConvState(CONV_IDLE);
             drawOledFace("alert", "shocked", 14);
         }
     }
 
-    // 2. Xử lý bắt đầu/kết thúc phát âm thanh (TTS Start / Stop)
-    if (type == "tts_start") {
-        isSpeaking = true;
-        currentUiState = "speaking";
-        digitalWrite(LED1_PIN, HIGH);
-    } else if (type == "tts_stop" || type == "tts_end" || type == "end_of_speech") {
-        isSpeaking = false;
+    // ── TTS Start / Stop ──────────────────────────────────────────────────────
+    if (type == "tts_start" ||
+        (type == "tts" && (doc["state"] | String("")) == "start")) {
+        setConvState(CONV_SPEAKING);
+    } else if (type == "tts_end" || type == "tts_stop" || type == "end_of_speech" ||
+               (type == "tts" && (doc["state"] | String("")) == "stop")) {
         mouthOpenHeight = 2;
-        drawOledFace(currentUiState, currentEmotion, 2);
+        setConvState(CONV_IDLE);
     }
 
-    // 3. Xử lý lệnh cử chỉ vật lý (Animate Robot): {"action": "animate", "anim": "..."}
-    if (action == "animate" || type == "cmd" && action == "animate") {
+    // ── ASR / LLM feedback ───────────────────────────────────────────────────
+    if (type == "asr_start" || type == "llm_start") {
+        if (convState != CONV_THINKING) setConvState(CONV_THINKING);
+    }
+    if (type == "asr_result") {
+        const char* txt = doc["text"];
+        if (!txt || strlen(txt) == 0) setConvState(CONV_IDLE);
+        // Nếu có text → giữ THINKING, chờ LLM pipeline
+    }
+
+    // ── Lệnh cử chỉ ──────────────────────────────────────────────────────────
+    if (action == "animate" || (type == "cmd" && action == "animate")) {
         String anim = doc["anim"] | "";
-        Serial.printf("[Robot Action] Nhận lệnh cử chỉ: '%s'\n", anim.c_str());
-
-        if (anim == "wave_hand") {
-            MotionCore::getInstance().waveArm();
-        } else if (anim == "nod_head") {
-            MotionCore::getInstance().nodNeck();
-        } else if (anim == "look_around") {
-            MotionCore::getInstance().lookAround();
-        } else if (anim == "excited") {
-            MotionCore::getInstance().excited();
-        } else if (anim == "sad") {
-            MotionCore::getInstance().sad();
-        }
+        if      (anim == "wave_hand")   MotionCore::getInstance().waveArm();
+        else if (anim == "nod_head")    MotionCore::getInstance().nodNeck();
+        else if (anim == "look_around") MotionCore::getInstance().lookAround();
+        else if (anim == "excited")     MotionCore::getInstance().excited();
+        else if (anim == "sad")         MotionCore::getInstance().sad();
     }
 
-    // 4. Xử lý lệnh di chuyển bánh xe (Move Robot): {"action": "move", "dir": "...", "time": ...}
-    if (action == "move" || type == "cmd" && action == "move") {
+    // ── Lệnh di chuyển bánh xe ────────────────────────────────────────────────
+    if (action == "move" || (type == "cmd" && action == "move")) {
         String dir = doc["dir"] | "stop";
         uint32_t duration = doc["time"] | 1000;
-        Serial.printf("[Robot Action] Nhận lệnh di chuyển: hướng='%s', thời gian=%d ms\n", dir.c_str(), duration);
-
-        bool success = MotionCore::getInstance().moveRobot(dir, duration);
-        if (!success) {
+        if (!MotionCore::getInstance().moveRobot(dir, duration)) {
             StaticJsonDocument<256> resp;
-            resp["type"] = "response";
-            resp["status"] = "rejected";
-            resp["reason"] = "cliff_detected";
-            String outStr;
-            serializeJson(resp, outStr);
-            webSocket.sendTXT(outStr);
+            resp["type"]="response"; resp["status"]="rejected"; resp["reason"]="cliff_detected";
+            String out; serializeJson(resp, out); webSocket.sendTXT(out);
         }
     }
 }
 
-// ─── Callback cảnh báo an toàn từ MotionCore (ToF Edge Detection) ───────────
+// ─── Safety Alert ─────────────────────────────────────────────────────────────
 
 void onSafetyAlert(const char* alertMsg) {
     if (strcmp(alertMsg, "edge_detected") == 0) {
-        Serial.println(F("[SAFETY ALERT] Gửi cảnh báo mép bàn lên máy chủ VN-MateAI!"));
+        Serial.println(F("[SAFETY] Cảnh báo mép bàn!"));
         drawOledFace("alert", "shocked", 14);
-
         if (isConnectedToServer) {
             StaticJsonDocument<256> alertDoc;
-            alertDoc["type"] = "alert";
-            alertDoc["msg"] = "edge_detected";
-            alertDoc["device_id"] = DEFAULT_DEVICE_ID;
-            alertDoc["timestamp"] = millis();
-            String jsonOutput;
-            serializeJson(alertDoc, jsonOutput);
-            webSocket.sendTXT(jsonOutput);
+            alertDoc["type"]="alert"; alertDoc["msg"]="edge_detected";
+            alertDoc["device_id"]=DEFAULT_DEVICE_ID; alertDoc["timestamp"]=(uint32_t)millis();
+            String j; serializeJson(alertDoc, j); webSocket.sendTXT(j);
         }
     }
 }
 
-// ─── Cảm biến chạm điện dung TTP223 (GPIO 17) ───────────────────────────────
+// ─── Touch Sensor (TTP223 GPIO 17) ───────────────────────────────────────────
 
 void checkTouchSensor() {
     int touchVal = digitalRead(TOUCH_PIN);
     unsigned long now = millis();
-
-    // Chống nhiễu (Debounce): Phải giữ mức HIGH liên tục ít nhất 60ms
     if (touchVal == HIGH) {
         delay(60);
         if (digitalRead(TOUCH_PIN) == HIGH && !touchActive && (now - lastTouchTime > 4000)) {
-            touchActive = true;
-            lastTouchTime = now;
-            Serial.println(F("[Touch] Chạm tay vào Robot (GPIO 17)! Đánh thức hệ thống..."));
-
-            // 1. Mở mắt, bật đèn LED ngay lập tức
-            digitalWrite(LED1_PIN, HIGH);
-            digitalWrite(LED2_PIN, HIGH);
-            isListening = true;
-            drawOledFace("listening", "focused", 4);
-
-            // 2. Gửi bản tin đánh thức lên máy chủ qua WebSocket
+            touchActive = true; lastTouchTime = now;
+            Serial.println(F("[Touch] Chạm tay → LISTENING!"));
+            setConvState(CONV_LISTENING);
             if (isConnectedToServer) {
-                StaticJsonDocument<256> touchDoc;
-                touchDoc["type"] = "touch";
-                touchDoc["action"] = "wake";
-                touchDoc["device_id"] = DEFAULT_DEVICE_ID;
-                String out;
-                serializeJson(touchDoc, out);
-                webSocket.sendTXT(out);
+                StaticJsonDocument<256> td;
+                td["type"]="touch"; td["action"]="wake"; td["device_id"]=DEFAULT_DEVICE_ID;
+                String out; serializeJson(td, out); webSocket.sendTXT(out);
             }
         }
-    } else {
-        touchActive = false;
-    }
+    } else { touchActive = false; }
 }
 
-// ─── Hoạt ảnh nhép miệng Lip-sync dựa trên VAD / Audio Stream ──────────────
+// ─── Animations ──────────────────────────────────────────────────────────────
 
 void updateLipSyncAnimation() {
-    if (!isSpeaking) return;
-
-    unsigned long now = millis();
-    if (now - lastLipSyncUpdate >= 120) {
-        lastLipSyncUpdate = now;
+    if (millis() - lastLipSyncUpdate >= 120) {
+        lastLipSyncUpdate = millis();
         mouthOpenHeight = random(4, 15);
         drawOledFace("speaking", "happy", mouthOpenHeight);
     }
 }
 
-// ─── Bộ vẽ biểu cảm Cybernetic trên OLED (128x64) ───────────────────────────
+void updateThinkingAnimation() {
+    if (millis() - lastThinkingUpdate >= 500) {
+        lastThinkingUpdate = millis();
+        thinkingDots = (thinkingDots + 1) % 4;
+        drawOledThinking();
+    }
+}
 
+// ─── OLED Renderers ──────────────────────────────────────────────────────────
+
+// Hiển thị mã pairing to và rõ để user đọc nhập vào Web Dashboard
+void drawOledPairingCode(const String& code) {
+    display.clearDisplay();
+    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setCursor(8, 0);
+    display.println(F("VN-MateAI  Ma cap:"));
+    display.drawFastHLine(0, 9, 128, SSD1306_WHITE);
+
+    // Mã 6 số to, căn giữa 128px
+    display.setTextSize(3);  // ~18px/char wide
+    int16_t codeW = code.length() * 18;
+    int16_t codeX = (128 - codeW) / 2;
+    display.setCursor(max((int16_t)2, codeX), 16);
+    display.print(code);
+
+    display.setTextSize(1);
+    display.drawFastHLine(0, 44, 128, SSD1306_WHITE);
+    display.setCursor(4, 48);
+    display.println(F("Nhap ma vao Web UI"));
+    display.display();
+}
+
+// THINKING — mắt nhìn trái/phải theo thinkingDots + dấu "..."
+void drawOledThinking() {
+    display.clearDisplay();
+
+    // Hướng nhìn xoay theo thinkingDots: trái → giữa → phải → giữa
+    int8_t eyeOffsets[4] = {-5, 0, 5, 0};
+    int8_t off = eyeOffsets[thinkingDots % 4];
+
+    display.fillCircle(40, 22, 13, SSD1306_WHITE);
+    display.fillCircle(40 + off, 22, 5, SSD1306_BLACK);
+
+    display.fillCircle(88, 22, 13, SSD1306_WHITE);
+    display.fillCircle(88 + off, 22, 5, SSD1306_BLACK);
+
+    // Dấu "." theo số dots
+    display.setTextSize(2);
+    display.setCursor(44, 44);
+    for (uint8_t i = 0; i < thinkingDots; i++) display.print(".");
+
+    display.display();
+}
+
+// Mặt biểu cảm chính
 void drawOledFace(const String& state, const String& emotion, uint8_t mouthHeight) {
     display.clearDisplay();
 
-    if (emotion == "sleeping" || state == "idle" && !isSpeaking) {
+    if (emotion == "sleeping" || (state == "idle" && !isSpeaking)) {
         display.drawCircle(40, 26, 12, SSD1306_WHITE);
         display.fillRect(28, 26, 26, 14, SSD1306_BLACK);
-        
         display.drawCircle(88, 26, 12, SSD1306_WHITE);
         display.fillRect(76, 26, 26, 14, SSD1306_BLACK);
-
         display.drawPixel(64, 48, SSD1306_WHITE);
         display.drawFastHLine(61, 49, 7, SSD1306_WHITE);
     }
     else if (state == "listening" || emotion == "focused") {
         display.fillCircle(40, 24, 14, SSD1306_WHITE);
         display.fillCircle(43, 22, 4, SSD1306_BLACK);
-        
         display.fillCircle(88, 24, 14, SSD1306_WHITE);
         display.fillCircle(91, 22, 4, SSD1306_BLACK);
-
         display.drawFastHLine(58, 48, 12, SSD1306_WHITE);
     }
     else if (state == "alert" || emotion == "shocked") {
         display.drawCircle(38, 22, 16, SSD1306_WHITE);
         display.fillCircle(38, 22, 7, SSD1306_WHITE);
-        
         display.drawCircle(90, 22, 16, SSD1306_WHITE);
         display.fillCircle(90, 22, 7, SSD1306_WHITE);
-
         display.fillCircle(64, 48, 8, SSD1306_WHITE);
         display.fillCircle(64, 48, 6, SSD1306_BLACK);
-
-        display.setTextSize(1);
-        display.setCursor(35, 56);
-        display.print(F("MEP BAN!"));
+        display.setTextSize(1); display.setCursor(35, 56); display.print(F("MEP BAN!"));
     }
     else {
         display.fillCircle(40, 24, 13, SSD1306_WHITE);
         display.fillRect(27, 24, 28, 15, SSD1306_BLACK);
         display.drawFastHLine(30, 24, 20, SSD1306_WHITE);
-
         display.fillCircle(88, 24, 13, SSD1306_WHITE);
         display.fillRect(75, 24, 28, 15, SSD1306_BLACK);
         display.drawFastHLine(78, 24, 20, SSD1306_WHITE);
-
         uint8_t h = max((uint8_t)2, min((uint8_t)16, mouthHeight));
-        display.fillRoundRect(56, 46 - (h / 2), 16, h, 3, SSD1306_WHITE);
+        display.fillRoundRect(56, 46-(h/2), 16, h, 3, SSD1306_WHITE);
     }
 
     display.display();

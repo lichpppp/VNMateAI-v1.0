@@ -33,8 +33,10 @@ import asyncio
 import io
 import json
 import logging
+import random
+import string
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
@@ -45,6 +47,115 @@ from core.audio_processor import audio_engine, clean_text_for_tts
 from core.config_loader import settings
 
 logger = logging.getLogger("core.xiaozhi_gateway")
+
+
+def convert_to_pcm16_16k(audio_bytes: bytes) -> bytes:
+    """Convert MP3/WAV audio bytes to 16000Hz 16-bit mono raw PCM for ESP32 I2S MAX98357A speaker."""
+    if not audio_bytes:
+        return b""
+    try:
+        import av, io
+        container = av.open(io.BytesIO(audio_bytes))
+        resampler = av.AudioResampler(format='s16', layout='mono', rate=16000)
+        chunks = []
+        for frame in container.decode(audio=0):
+            for resampled in resampler.resample(frame):
+                chunks.append(resampled.to_ndarray().tobytes())
+        return b"".join(chunks)
+    except Exception as exc:
+        try:
+            from pydub import AudioSegment
+            import io
+            seg = AudioSegment.from_file(io.BytesIO(audio_bytes)).set_frame_rate(16000).set_channels(1).set_sample_width(2)
+            return seg.raw_data
+        except Exception:
+            return audio_bytes
+
+
+# ─── Pairing Code Registry ──────────────────────────────────────────────────
+# Cho phép robot kết nối qua mã 6 số thay vì nhập IP server.
+# Robot sinh mã, gửi trong frame "hello", server map mã → device_id.
+# User nhập mã vào Web UI để xác nhận ghép cặp (hoặc chỉ cần nhập mã để tìm robot).
+
+class PairingCodeRegistry:
+    """Thread-safe registry ánh xạ mã 6 số → device_id của robot đang trực tuyến.
+
+    Flow:
+      1. Robot khởi động → load pairing_code từ NVS (hoặc sinh mới rồi lưu vào NVS).
+      2. Robot gửi frame `hello` kèm `pairing_code` lên server.
+      3. Server gọi `register(code, device_id)` để ghi nhận ánh xạ.
+      4. Web UI gọi `GET /api/v1/robot/pair?code=XXXXXX` → nhận `device_id`.
+      5. Khi robot ngắt kết nối, `unregister(device_id)` xoá ánh xạ.
+    """
+
+    _CODE_TTL_SECONDS = 3600  # Mã hết hiệu lực sau 1 giờ nếu robot mất kết nối
+
+    def __init__(self) -> None:
+        # {code: {"device_id": str, "expires_at": datetime}}
+        self._codes: Dict[str, Dict[str, Any]] = {}
+        # {device_id: code} — reverse mapping để unregister nhanh
+        self._device_to_code: Dict[str, str] = {}
+        self._lock = asyncio.Lock()
+
+    async def register(self, code: str, device_id: str) -> None:
+        """Đăng ký mã pairing cho robot. Mã cũ của cùng device_id sẽ bị xoá."""
+        code = code.strip().upper()
+        async with self._lock:
+            # Xoá mã cũ nếu device_id đã có mã khác
+            old_code = self._device_to_code.get(device_id)
+            if old_code and old_code != code:
+                self._codes.pop(old_code, None)
+            expires_at = datetime.utcnow() + timedelta(seconds=self._CODE_TTL_SECONDS)
+            self._codes[code] = {"device_id": device_id, "expires_at": expires_at}
+            self._device_to_code[device_id] = code
+        logger.info("[PairingCode] Đã đăng ký mã '%s' → device [%s]", code, device_id)
+
+    async def unregister(self, device_id: str) -> None:
+        """Xoá ánh xạ khi robot ngắt kết nối."""
+        async with self._lock:
+            code = self._device_to_code.pop(device_id, None)
+            if code:
+                self._codes.pop(code, None)
+                logger.info("[PairingCode] Đã xoá mã '%s' của device [%s]", code, device_id)
+
+    def lookup(self, code: str) -> Optional[str]:
+        """Tra cứu device_id từ mã 6 số. Trả về None nếu không tồn tại hoặc hết hạn."""
+        code = code.strip().upper()
+        entry = self._codes.get(code)
+        if not entry:
+            return None
+        if datetime.utcnow() > entry["expires_at"]:
+            # Hết hạn — dọn dẹp ngầm
+            self._codes.pop(code, None)
+            self._device_to_code.pop(entry["device_id"], None)
+            return None
+        return entry["device_id"]
+
+    def get_code_for_device(self, device_id: str) -> Optional[str]:
+        """Lấy mã pairing hiện tại của một device."""
+        return self._device_to_code.get(device_id)
+
+    def list_all(self) -> List[Dict[str, Any]]:
+        """Liệt kê tất cả ánh xạ đang hoạt động (dùng cho admin API)."""
+        now = datetime.utcnow()
+        return [
+            {
+                "code": code,
+                "device_id": info["device_id"],
+                "expires_at": info["expires_at"].isoformat(),
+            }
+            for code, info in self._codes.items()
+            if now <= info["expires_at"]
+        ]
+
+    @staticmethod
+    def generate_code() -> str:
+        """Sinh mã 6 ký tự chữ số (dễ nhập bằng giọng nói / bàn phím)."""
+        return "".join(random.choices(string.digits, k=6))
+
+
+# Singleton pairing registry — dùng chung toàn server
+pairing_registry = PairingCodeRegistry()
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -113,6 +224,8 @@ class XiaozhiGateway:
     def __init__(self) -> None:
         self._nodes: Dict[str, XiaozhiNode] = {}
         self._lock = asyncio.Lock()
+        # Tham chiếu tới global pairing registry
+        self.pairing_registry = pairing_registry
 
     # -----------------------------------------------------------------------
     # Node Registry
@@ -158,7 +271,7 @@ class XiaozhiGateway:
         if not emotion:
             if state == "listening":
                 emotion = "focused"
-            elif state == "processing":
+            elif state == "processing" or state == "thinking":
                 emotion = "thinking"
             elif state == "alert":
                 emotion = "alert"
@@ -212,78 +325,61 @@ class XiaozhiGateway:
         node: XiaozhiNode,
         audio_stream: AsyncGenerator[bytes, None],
         text_summary: str = "",
-        sample_rate: int = 24000,
-        bitrate: int = 48000,
+        sample_rate: int = 16000,
+        bitrate: int = 32000,
         chunk_size: int = 2048,
     ) -> int:
         """
-        Stream audio to ESP32 I2S DAC with anti-underrun pacing:
-          1. Jitter buffer pre-fill: The first 3 chunks are sent immediately to
-             prime the ESP32 DMA ring buffer.
-          2. Paced delivery: Subsequent chunks are throttled at ~80% of playback
-             duration to stay comfortably ahead of the DAC without buffer starvation
-             or overflow.
-          3. Immediate cancellation check: Listens to node.cancel_event to break instantly.
+        Stream PCM audio to ESP32 I2S MAX98357A speaker:
+          1. Collects TTS MP3 stream and converts to raw 16-bit 16000Hz PCM.
+          2. Streams in 2048-byte PCM chunks with natural DMA backpressure.
+          3. Listens to node.cancel_event for instant barge-in cut-off.
         """
         ws = node.websocket
         cancel_ev = node.cancel_event
         cancel_ev.clear()
 
-        # Send TTS start header with high-fidelity audio metadata
+        # Send TTS start header to notify robot OLED to show speaking animation
         await ws.send_text(json.dumps({
             "type": "tts_start",
-            "format": "audio/mp3",
-            "sample_rate": sample_rate,
+            "format": "audio/pcm",
+            "sample_rate": 16000,
             "channels": 1,
-            "bitrate": bitrate,
             "text": text_summary,
         }, ensure_ascii=False))
 
-        chunk_count = 0
-        prefill_count = 3  # Initial burst count
-
-        # Approximate bytes per second for pacing
-        bytes_per_sec = bitrate // 8  # e.g., 48000 / 8 = 6000 bytes/sec
-        if bytes_per_sec <= 0:
-            bytes_per_sec = 6000
-
+        # Collect full audio stream bytes for conversion
+        mp3_buffer = bytearray()
         try:
-            full_mp3 = bytearray()
             async for chunk in audio_stream:
                 if cancel_ev.is_set():
                     break
                 if chunk:
-                    full_mp3.extend(chunk)
+                    mp3_buffer.extend(chunk)
+        except Exception as read_err:
+            logger.error("[Xiaozhi I2S] Error collecting TTS stream: %s", read_err)
 
-            if full_mp3 and not cancel_ev.is_set():
-                from pydub import AudioSegment
-                import io
-                seg = AudioSegment.from_file(io.BytesIO(full_mp3), format="mp3")
-                seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                pcm_data = seg.raw_data
+        if cancel_ev.is_set() or not mp3_buffer:
+            return 0
 
-                # Send TTS start header with PCM metadata
-                await ws.send_text(json.dumps({
-                    "type": "tts_start",
-                    "format": "audio/pcm",
-                    "sample_rate": 16000,
-                    "channels": 1,
-                    "text": text_summary,
-                }, ensure_ascii=False))
+        # Convert to 16-bit 16kHz mono raw PCM for MAX98357A
+        pcm_bytes = convert_to_pcm16_16k(bytes(mp3_buffer))
+        chunk_count = 0
 
-                for offset in range(0, len(pcm_data), chunk_size):
-                    if cancel_ev.is_set():
-                        break
-                    sub_chunk = pcm_data[offset : offset + chunk_size]
-                    await ws.send_bytes(sub_chunk)
-                    chunk_count += 1
-                    await asyncio.sleep(0.025)
-
+        try:
+            for offset in range(0, len(pcm_bytes), chunk_size):
+                if cancel_ev.is_set():
+                    break
+                chunk = pcm_bytes[offset : offset + chunk_size]
+                await ws.send_bytes(chunk)
+                chunk_count += 1
+                # 2048 bytes = ~64ms of audio at 16kHz mono (32KB/sec). Pace at 45ms to keep DMA ring buffer primed
+                await asyncio.sleep(0.045)
         except (WebSocketDisconnect, ConnectionResetError):
             logger.info("[Xiaozhi I2S] WebSocket disconnected during playback on [%s]", node.device_id)
             return chunk_count
         except Exception as exc:
-            logger.error("[Xiaozhi I2S] Error streaming audio to [%s]: %s", node.device_id, exc)
+            logger.error("[Xiaozhi I2S] Error streaming PCM to [%s]: %s", node.device_id, exc)
 
         if not cancel_ev.is_set():
             try:
@@ -297,25 +393,20 @@ class XiaozhiGateway:
         return chunk_count
 
     async def _stream_audio_chunks(self, node: XiaozhiNode, audio_bytes: bytes) -> None:
-        """Stream raw audio bytes converted to 16kHz PCM down to node."""
+        """Stream cached audio bytes to ESP32 converted to PCM 16kHz."""
         try:
-            from pydub import AudioSegment
-            import io
-            seg = AudioSegment.from_file(io.BytesIO(audio_bytes), format="mp3")
-            seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-            pcm_data = seg.raw_data
-
+            pcm_bytes = convert_to_pcm16_16k(audio_bytes)
             await node.websocket.send_text(json.dumps({
                 "type": "tts_start",
                 "format": "audio/pcm",
                 "sample_rate": 16000,
             }))
 
-            for offset in range(0, len(pcm_data), 1024):
+            for offset in range(0, len(pcm_bytes), 2048):
                 if node.cancel_event.is_set():
                     break
-                await node.websocket.send_bytes(pcm_data[offset : offset + 1024])
-                await asyncio.sleep(0.025)
+                await node.websocket.send_bytes(pcm_bytes[offset : offset + 2048])
+                await asyncio.sleep(0.045)
 
             await node.websocket.send_text(json.dumps({
                 "type": "tts_end",
@@ -444,6 +535,25 @@ class XiaozhiGateway:
         await self.send_ui_payload(device_id, state="processing", emotion="thinking")
         await node.websocket.send_text(json.dumps({"type": "llm_start"}))
 
+        # Phase 71: Đồng bộ thị giác sang HUD & Web Portal (Visual-only, âm thanh phát độc quyền tại loa Robot)
+        try:
+            from core.server import broadcast_hud, broadcast_portal_ui
+            await broadcast_hud({
+                "type": "voice_active",
+                "status": "listening",
+                "text": text_query,
+                "source_device": device_id,
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+            await broadcast_portal_ui("voice_response", {
+                "query": text_query,
+                "reply": "Đang xử lý...",
+                "source_device": device_id,
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+        except Exception:
+            pass
+
         full_reply_parts = []
         is_first_sentence = True
 
@@ -468,29 +578,100 @@ class XiaozhiGateway:
                         await self.send_ui_payload(
                             device_id, state="speaking", emotion="happy", text=clean_sentence[:60]
                         )
+                        # Phase 72: Gửi gói tin TTS start & LLM emotion chuẩn của firmware xiaozhi-esp32
+                        try:
+                            await node.websocket.send_text(json.dumps({
+                                "session_id": device_id,
+                                "type": "tts",
+                                "state": "start",
+                            }))
+                            await node.websocket.send_text(json.dumps({
+                                "session_id": device_id,
+                                "type": "llm",
+                                "emotion": "happy",
+                                "text": clean_sentence[:30],
+                            }))
+                        except Exception:
+                            pass
                         is_first_sentence = False
 
-                    # Phase 50 Step 4: Convert TTS to 16kHz PCM and stream directly to MAX98357A
-                    mp3_data = await audio_engine.text_to_speech_bytes(clean_sentence)
-                    if mp3_data and not node.cancel_event.is_set():
-                        from pydub import AudioSegment
-                        import io
-                        seg = AudioSegment.from_file(io.BytesIO(mp3_data), format="mp3")
-                        seg = seg.set_frame_rate(16000).set_channels(1).set_sample_width(2)
-                        pcm_data = seg.raw_data
+                    # Gửi sentence_start cho firmware hiển thị phụ đề chạy trên màn hình LCD
+                    try:
+                        await node.websocket.send_text(json.dumps({
+                            "session_id": device_id,
+                            "type": "tts",
+                            "state": "sentence_start",
+                            "text": clean_sentence,
+                        }))
+                    except Exception:
+                        pass
 
-                        for offset in range(0, len(pcm_data), 1024):
+                    # Phase 71: Cập nhật phụ đề thị giác trên HUD (KHÔNG gửi audio_base64 để không phát tiếng trên HUD)
+                    try:
+                        from core.server import broadcast_hud, broadcast_portal_ui
+                        await broadcast_hud({
+                            "type": "voice_active",
+                            "status": "speaking",
+                            "text": clean_sentence,
+                            "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_reply_parts),
+                            "source_device": device_id,
+                            "audio_base64": None,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        })
+                        await broadcast_portal_ui("voice_response", {
+                            "query": text_query,
+                            "reply": clean_sentence,
+                            "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_reply_parts),
+                            "source_device": device_id,
+                            "timestamp": datetime.utcnow().isoformat(),
+                        })
+                    except Exception:
+                        pass
+
+                    # Phase 70: Chuyển đổi TTS audio sang PCM 16kHz mono thuần cho loa MAX98357A
+                    try:
+                        mp3_chunks = []
+                        async for mp3_chunk in audio_engine.text_to_speech_stream(clean_sentence):
                             if node.cancel_event.is_set():
                                 break
-                            await node.websocket.send_bytes(pcm_data[offset : offset + 1024])
-                            await asyncio.sleep(0.025)
+                            if mp3_chunk:
+                                mp3_chunks.append(mp3_chunk)
 
-            # Signal completion
+                        if mp3_chunks and not node.cancel_event.is_set():
+                            sentence_pcm = convert_to_pcm16_16k(b"".join(mp3_chunks))
+                            for offset in range(0, len(sentence_pcm), 2048):
+                                if node.cancel_event.is_set():
+                                    break
+                                await node.websocket.send_bytes(sentence_pcm[offset : offset + 2048])
+                                await asyncio.sleep(0.045)
+                    except Exception as stream_err:
+                        logger.error("[Xiaozhi] Lỗi stream PCM tới [%s]: %s", device_id, stream_err)
+
+            # Signal completion: gửi cả tts stop chuẩn xiaozhi-esp32 lẫn tts_end legacy
             if not node.cancel_event.is_set():
+                try:
+                    await node.websocket.send_text(json.dumps({
+                        "session_id": device_id,
+                        "type": "tts",
+                        "state": "stop",
+                    }))
+                except Exception:
+                    pass
                 await node.websocket.send_text(json.dumps({
                     "type": "tts_end",
                     "text": " ".join(full_reply_parts),
                 }))
+                try:
+                    from core.server import broadcast_hud
+                    await broadcast_hud({
+                        "type": "voice_active",
+                        "status": "idle",
+                        "text": "",
+                        "source_device": device_id,
+                        "timestamp": datetime.utcnow().isoformat(),
+                    })
+                except Exception:
+                    pass
 
         except asyncio.CancelledError:
             logger.info("[Xiaozhi] Pipeline bị huỷ bởi ngắt lời trên [%s]", device_id)
@@ -504,10 +685,45 @@ class XiaozhiGateway:
             }))
             return
 
-        # If not cancelled, return to idle / sleeping state after a brief pause
+        # If not cancelled, check if the last reply was a question.
+        # If yes → keep mic open (listening gate) for 8s to let user respond.
+        # If no  → return to idle after a brief 1s pause.
         if not node.cancel_event.is_set():
-            await asyncio.sleep(1.0)
-            await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+            last_reply = " ".join(full_reply_parts).strip()
+            _QUESTION_ENDINGS = ("?", "không?", "nào?", "chưa?", "nhé?", "nhỉ?", "sao?", "gì?", "đâu?")
+            _QUESTION_WORDS   = ("bạn cần", "anh cần", "bạn muốn", "anh muốn", "bạn có", "anh có",
+                                 "cần gì", "muốn gì", "hỏi gì", "thêm gì", "nữa không")
+            is_question = (
+                any(last_reply.endswith(e) for e in _QUESTION_ENDINGS)
+                or last_reply.endswith("?")
+                or any(kw in last_reply.lower() for kw in _QUESTION_WORDS)
+            )
+
+            if is_question:
+                # Listening gate: giữ mic mở 8 giây chờ user tiếp tục
+                logger.info(
+                    "[Xiaozhi] Robot vừa đặt câu hỏi → mở listening gate 8s trên [%s]", device_id
+                )
+                await self.send_ui_payload(device_id, state="listening", emotion="focused")
+                try:
+                    await node.websocket.send_text(json.dumps({
+                        "type": "listen",
+                        "state": "detect",
+                        "mode": "auto",
+                    }))
+                except Exception:
+                    pass
+                # Chờ tối đa 8 giây; nếu có barge-in/cancel thì thoát sớm
+                for _ in range(80):   # 80 × 0.1s = 8s
+                    if node.cancel_event.is_set():
+                        break
+                    await asyncio.sleep(0.1)
+                # Sau 8 giây không ai nói → mới về idle
+                if not node.cancel_event.is_set():
+                    await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+            else:
+                await asyncio.sleep(1.0)
+                await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
 
     # -----------------------------------------------------------------------
     # Main Connection Handler for WebSocket Endpoint
@@ -570,10 +786,20 @@ class XiaozhiGateway:
                                 "[Phase50 Silero VAD] Dứt lời sau 500ms im lặng trên [%s] (%d bytes) -> Chạy ASR tức thì!",
                                 device_id, len(audio_data),
                             )
-                            await self.send_ui_payload(device_id, state="listening", emotion="focused")
+                            await self.send_ui_payload(device_id, state="processing", emotion="thinking", text="Đang suy nghĩ...")
                             await websocket.send_text(json.dumps({"type": "asr_start"}))
 
-                            transcribed: str = await audio_engine.transcribe_audio(audio_data)
+                            # Phase 50 Step 1.4: Đóng gói raw PCM 16-bit 16kHz thành WAV header chuẩn
+                            import wave
+                            wav_buf = io.BytesIO()
+                            with wave.open(wav_buf, "wb") as wf:
+                                wf.setnchannels(1)
+                                wf.setsampwidth(2)
+                                wf.setframerate(16000)
+                                wf.writeframes(audio_data)
+                            wav_bytes = wav_buf.getvalue()
+
+                            transcribed: str = await audio_engine.transcribe_audio(wav_bytes)
 
                             if transcribed:
                                 await websocket.send_text(json.dumps({
@@ -606,6 +832,96 @@ class XiaozhiGateway:
                     msg_type: str = str(ctrl.get("type", "")).lower()
                     action: str = str(ctrl.get("action", "")).lower()
                     is_wakeup: bool = bool(ctrl.get("is_wakeup", False))
+
+                    # -------------------------------------------------------
+                    # Phase 72: Official XiaoZhi ESP32 Protocol Handshake ("hello")
+                    # -------------------------------------------------------
+                    if msg_type == "hello":
+                        logger.info(
+                            "[Xiaozhi] Nhận frame 'hello' từ [%s] (version=%s, transport=%s)",
+                            device_id, ctrl.get("version", 1), ctrl.get("transport", "websocket")
+                        )
+                        node.firmware_version = str(ctrl.get("version", 1))
+                        node.capabilities = json.dumps(ctrl.get("features", {}))
+
+                        req_params = ctrl.get("audio_params", {})
+                        fmt = req_params.get("format", "opus")
+                        rate = req_params.get("sample_rate", 16000)
+                        channels = req_params.get("channels", 1)
+                        frame_dur = req_params.get("frame_duration", 60)
+                        node.audio_format = fmt
+
+                        # ── Pairing Code Registration ──────────────────────
+                        # Robot gửi pairing_code trong frame hello.
+                        # Nếu robot không có code, server tự sinh và trả về.
+                        robot_code = str(ctrl.get("pairing_code", "")).strip()
+                        if not robot_code or len(robot_code) != 6 or not robot_code.isdigit():
+                            robot_code = PairingCodeRegistry.generate_code()
+                            logger.info(
+                                "[PairingCode] Robot [%s] không gửi mã hợp lệ → server sinh mã mới: %s",
+                                device_id, robot_code,
+                            )
+                        await pairing_registry.register(robot_code, device_id)
+
+                        hello_ack = {
+                            "type": "hello",
+                            "transport": "websocket",
+                            "session_id": device_id,
+                            "pairing_code": robot_code,  # Trả về để robot hiển thị trên OLED
+                            "audio_params": {
+                                "format": fmt,
+                                "sample_rate": rate,
+                                "channels": channels,
+                                "frame_duration": frame_dur,
+                            },
+                        }
+                        await websocket.send_text(json.dumps(hello_ack))
+                        logger.info(
+                            "[Xiaozhi] Đã phản hồi 'hello' ACK tới [%s] (format=%s, rate=%d, code=%s)",
+                            device_id, fmt, rate, robot_code,
+                        )
+                        continue
+
+                    # -------------------------------------------------------
+                    # Phase 72: Official XiaoZhi Listen Event (start / stop / detect)
+                    # -------------------------------------------------------
+                    elif msg_type == "listen":
+                        listen_state = str(ctrl.get("state", "")).lower()
+                        if listen_state in ("start", "detect"):
+                            logger.info("[Xiaozhi] Bắt đầu thu âm (listen %s) trên [%s]", listen_state, device_id)
+                            node.audio_buffer = io.BytesIO()
+                            node.vad_detector.reset()
+                            await self.send_ui_payload(device_id, state="listening", emotion="focused")
+                            continue
+                        elif listen_state == "stop":
+                            logger.info("[Xiaozhi] Kết thúc thu âm (listen stop) trên [%s]", device_id)
+                            audio_data = node.audio_buffer.getvalue()
+                            node.audio_buffer = io.BytesIO()
+                            if audio_data:
+                                await websocket.send_text(json.dumps({"session_id": device_id, "type": "asr_start"}))
+                                transcribed = await audio_engine.transcribe_audio(audio_data)
+                                if transcribed:
+                                    await websocket.send_text(json.dumps({
+                                        "session_id": device_id,
+                                        "type": "stt",
+                                        "text": transcribed,
+                                    }))
+                                    await websocket.send_text(json.dumps({
+                                        "type": "asr_result",
+                                        "text": transcribed,
+                                    }))
+                                    node.active_task = asyncio.create_task(
+                                        self._execute_pipeline(node, transcribed)
+                                    )
+                                else:
+                                    await websocket.send_text(json.dumps({
+                                        "session_id": device_id,
+                                        "type": "stt",
+                                        "text": "",
+                                        "error": "Không nhận diện được giọng nói."
+                                    }))
+                                    await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+                            continue
 
                     # -------------------------------------------------------
                     # Phase 52 Step 3: ToF Edge / Cliff Detection Interlock Alert
@@ -683,7 +999,7 @@ class XiaozhiGateway:
                             continue
 
                         logger.info("[Xiaozhi] end_of_speech từ [%s] (%d bytes)", device_id, len(audio_data))
-                        await self.send_ui_payload(device_id, state="listening", emotion="focused")
+                        await self.send_ui_payload(device_id, state="processing", emotion="thinking", text="Đang suy nghĩ...")
                         await websocket.send_text(json.dumps({"type": "asr_start"}))
 
                         transcribed: str = await audio_engine.transcribe_audio(audio_data)
@@ -749,13 +1065,6 @@ class XiaozhiGateway:
                     elif msg_type == "hello":
                         # Handshake thiết bị gửi ngay sau khi WebSocket mở
                         # (xem esp32_firmware/src/main.cpp, WStype_CONNECTED).
-                        #
-                        # Trước đây KHÔNG có nhánh xử lý 'hello', nên mọi lần thiết bị
-                        # kết nối đều rơi vào nhánh else và nhận về
-                        # {"type":"error","message":"Unknown control type: 'hello'"}.
-                        # Firmware bỏ qua frame lạ nên lỗi này im lặng — nhưng server
-                        # không bao giờ biết firmware version/tính năng, và thiết bị
-                        # không nhận được phản hồi xác nhận handshake.
                         node.firmware_version = str(ctrl.get("version", "unknown"))[:32]
                         node.capabilities = str(ctrl.get("features", ""))[:256]
                         logger.info(
@@ -766,9 +1075,17 @@ class XiaozhiGateway:
                         node.emotion = "happy"
                         active_audio_nodes[device_id]["firmware_version"] = node.firmware_version
                         active_audio_nodes[device_id]["capabilities"] = node.capabilities
+
+                        # Pairing code (legacy hello path)
+                        robot_code = str(ctrl.get("pairing_code", "")).strip()
+                        if not robot_code or len(robot_code) != 6 or not robot_code.isdigit():
+                            robot_code = PairingCodeRegistry.generate_code()
+                        await pairing_registry.register(robot_code, device_id)
+
                         await websocket.send_text(json.dumps({
                             "type": "hello_ack",
                             "device_id": device_id,
+                            "pairing_code": robot_code,
                             "message": "Handshake thành công.",
                             "server_time": datetime.utcnow().isoformat(),
                         }))
@@ -788,6 +1105,8 @@ class XiaozhiGateway:
         finally:
             async with self._lock:
                 self._nodes.pop(device_id, None)
+            # Xoá pairing code khi robot offline
+            await pairing_registry.unregister(device_id)
             from core.server import active_audio_nodes
             active_audio_nodes.pop(device_id, None)
             logger.info("[Xiaozhi] Đã dọn dẹp kết nối [%s]. Còn lại: %d thiết bị.", device_id, len(self._nodes))

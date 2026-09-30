@@ -48,6 +48,26 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 # ---------------------------------------------------------------------------
+# Python Windows asyncio Proactor Fix:
+# Silence WinError 10054 ConnectionResetError in _call_connection_lost
+# when browser tabs or WebSockets disconnect.
+# ---------------------------------------------------------------------------
+if sys.platform == "win32":
+    try:
+        import asyncio.proactor_events
+        _orig_call_connection_lost = asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost
+
+        def _safe_call_connection_lost(self, exc):
+            try:
+                _orig_call_connection_lost(self, exc)
+            except (ConnectionResetError, ConnectionAbortedError, OSError):
+                pass
+
+        asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = _safe_call_connection_lost
+    except Exception:
+        pass
+
+# ---------------------------------------------------------------------------
 # Local imports (after path fix)
 # ---------------------------------------------------------------------------
 from core.config_loader import settings  # noqa: E402  (path must be set first)

@@ -278,8 +278,74 @@ class ERPDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_attendance_checkin ON attendance(check_in_time);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_attendance_status ON attendance(status);")
 
+                # 9. Enterprise Evolution: enterprise_departments (Phòng Ban Đa Nguồn Doanh Nghiệp)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS enterprise_departments (
+                        id TEXT PRIMARY KEY,
+                        dept_code TEXT UNIQUE NOT NULL,
+                        dept_name TEXT NOT NULL,
+                        data_clearance_level INTEGER DEFAULT 1,
+                        config_metadata TEXT DEFAULT '{}',
+                        is_active INTEGER DEFAULT 1,
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    """
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_ent_dept_code ON enterprise_departments(dept_code);")
+
+                # 10. Enterprise Evolution: department_data_sources (Nguồn Dữ Liệu Phòng Ban)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS department_data_sources (
+                        id TEXT PRIMARY KEY,
+                        dept_id TEXT NOT NULL,
+                        source_name TEXT NOT NULL,
+                        source_type TEXT NOT NULL,
+                        connection_config TEXT NOT NULL DEFAULT '{}',
+                        sync_cron TEXT,
+                        is_active INTEGER DEFAULT 1,
+                        created_at TEXT NOT NULL,
+                        FOREIGN KEY (dept_id) REFERENCES enterprise_departments(id) ON DELETE CASCADE
+                    );
+                    """
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_dept_ds_dept_id ON department_data_sources(dept_id);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_dept_ds_type ON department_data_sources(source_type);")
+
+                # 11. Enterprise Evolution: unified_department_metrics (Chỉ Số Thống Nhất Đa Phòng Ban)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS unified_department_metrics (
+                        id TEXT PRIMARY KEY,
+                        dept_code TEXT NOT NULL,
+                        metric_date TEXT NOT NULL,
+                        metrics_data TEXT NOT NULL DEFAULT '{}',
+                        clearance_level INTEGER DEFAULT 1,
+                        created_at TEXT NOT NULL
+                    );
+                    """
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_udm_dept_date ON unified_department_metrics(dept_code, metric_date);")
+
+                # 12. Privacy-Compliant Cache: department_historical_metrics (Chỉ số Lịch sử Phi Định Danh Non-PII)
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS department_historical_metrics (
+                        id TEXT PRIMARY KEY,
+                        dept_code TEXT NOT NULL,
+                        metric_key TEXT NOT NULL,
+                        metric_value REAL NOT NULL,
+                        recorded_at TEXT NOT NULL
+                    );
+                    """
+                )
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_hist_dept_key ON department_historical_metrics(dept_code, metric_key);")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_hist_recorded ON department_historical_metrics(recorded_at);")
+
                 conn.commit()
-                logger.info("Khởi tạo và xác thực mô hình dữ liệu ERP (kèm Finances & Attendance) thành công.")
+                logger.info("Khởi tạo và xác thực mô hình dữ liệu ERP (kèm Historical Metrics) thành công.")
 
     # ── Query Structure Tree ──────────────────────────────────────────────────
 
@@ -1262,7 +1328,314 @@ class ERPDatabase:
         logger.info("Phase 73: đã xóa dữ liệu mẫu — %s", removed)
         return removed
 
+    # ── Enterprise Evolution: Multi-Source Department & Metric Registry ──────
+
+    def register_enterprise_department(
+        self,
+        dept_code: str,
+        dept_name: str,
+        data_clearance_level: int = 1,
+        config_metadata: Optional[Dict[str, Any]] = None,
+        is_active: bool = True,
+    ) -> Dict[str, Any]:
+        """Đăng ký hoặc cập nhật phòng ban doanh nghiệp đa nguồn (No-Code Form)."""
+        import json as _json
+        import uuid as _uuid
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        metadata_json = _json.dumps(config_metadata or {}, ensure_ascii=False)
+        code_norm = dept_code.strip().upper()
+
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM enterprise_departments WHERE dept_code = ?;", (code_norm,))
+                row = cursor.fetchone()
+                if row:
+                    dept_id = row["id"]
+                    cursor.execute(
+                        """
+                        UPDATE enterprise_departments
+                        SET dept_name = ?, data_clearance_level = ?, config_metadata = ?, is_active = ?, updated_at = ?
+                        WHERE id = ?;
+                        """,
+                        (dept_name.strip(), int(data_clearance_level), metadata_json, 1 if is_active else 0, now_str, dept_id),
+                    )
+                else:
+                    dept_id = str(_uuid.uuid4())
+                    cursor.execute(
+                        """
+                        INSERT INTO enterprise_departments (id, dept_code, dept_name, data_clearance_level, config_metadata, is_active, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                        """,
+                        (dept_id, code_norm, dept_name.strip(), int(data_clearance_level), metadata_json, 1 if is_active else 0, now_str, now_str),
+                    )
+                conn.commit()
+                return {
+                    "id": dept_id,
+                    "dept_code": code_norm,
+                    "dept_name": dept_name.strip(),
+                    "data_clearance_level": int(data_clearance_level),
+                    "is_active": bool(is_active),
+                    "updated_at": now_str,
+                }
+
+    def get_enterprise_departments(self, active_only: bool = False) -> List[Dict[str, Any]]:
+        """Lấy danh sách các phòng ban doanh nghiệp kèm metadata cấu hình."""
+        import json as _json
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                query = "SELECT * FROM enterprise_departments"
+                params = ()
+                if active_only:
+                    query += " WHERE is_active = 1"
+                query += " ORDER BY dept_code ASC;"
+                cursor.execute(query, params)
+                results = []
+                for row in cursor.fetchall():
+                    d = dict(row)
+                    d["is_active"] = bool(d.get("is_active", 1))
+                    try:
+                        d["config_metadata"] = _json.loads(d.get("config_metadata") or "{}")
+                    except Exception:
+                        d["config_metadata"] = {}
+                    results.append(d)
+                return results
+
+    def get_enterprise_department_by_code(self, dept_code: str) -> Optional[Dict[str, Any]]:
+        """Lấy chi tiết phòng ban theo mã (VD: 'FIN', 'HR', 'IT')."""
+        import json as _json
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM enterprise_departments WHERE dept_code = ?;", (dept_code.strip().upper(),))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                d = dict(row)
+                d["is_active"] = bool(d.get("is_active", 1))
+                try:
+                    d["config_metadata"] = _json.loads(d.get("config_metadata") or "{}")
+                except Exception:
+                    d["config_metadata"] = {}
+                return d
+
+    def bind_department_data_source(
+        self,
+        dept_code: str,
+        source_name: str,
+        source_type: str,
+        connection_config: Optional[Dict[str, Any]] = None,
+        sync_cron: Optional[str] = None,
+        is_active: bool = True,
+    ) -> Dict[str, Any]:
+        """Gắn kết hoặc cập nhật nguồn dữ liệu kết nối tới phòng ban."""
+        import json as _json
+        import uuid as _uuid
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        config_json = _json.dumps(connection_config or {}, ensure_ascii=False)
+        code_norm = dept_code.strip().upper()
+
+        dept = self.get_enterprise_department_by_code(code_norm)
+        if not dept:
+            # Tự động khởi tạo phòng ban nếu chưa tồn tại
+            dept = self.register_enterprise_department(code_norm, f"Phòng Ban {code_norm}")
+
+        dept_id = dept["id"]
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Kiểm tra source đã tồn tại với dept_id và source_name chưa
+                cursor.execute(
+                    "SELECT id FROM department_data_sources WHERE dept_id = ? AND source_name = ?;",
+                    (dept_id, source_name.strip()),
+                )
+                row = cursor.fetchone()
+                if row:
+                    ds_id = row["id"]
+                    cursor.execute(
+                        """
+                        UPDATE department_data_sources
+                        SET source_type = ?, connection_config = ?, sync_cron = ?, is_active = ?
+                        WHERE id = ?;
+                        """,
+                        (source_type.strip(), config_json, sync_cron, 1 if is_active else 0, ds_id),
+                    )
+                else:
+                    ds_id = str(_uuid.uuid4())
+                    cursor.execute(
+                        """
+                        INSERT INTO department_data_sources (id, dept_id, source_name, source_type, connection_config, sync_cron, is_active, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                        """,
+                        (ds_id, dept_id, source_name.strip(), source_type.strip(), config_json, sync_cron, 1 if is_active else 0, now_str),
+                    )
+                conn.commit()
+                return {
+                    "id": ds_id,
+                    "dept_id": dept_id,
+                    "dept_code": code_norm,
+                    "source_name": source_name.strip(),
+                    "source_type": source_type.strip(),
+                    "sync_cron": sync_cron,
+                    "is_active": bool(is_active),
+                }
+
+    def get_department_data_sources(self, dept_code: Optional[str] = None, active_only: bool = True) -> List[Dict[str, Any]]:
+        """Lấy danh sách các data sources của phòng ban hoặc toàn hệ thống."""
+        import json as _json
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                query = """
+                    SELECT ds.*, ed.dept_code, ed.dept_name, ed.data_clearance_level
+                    FROM department_data_sources ds
+                    JOIN enterprise_departments ed ON ds.dept_id = ed.id
+                """
+                conditions = []
+                params = []
+                if dept_code:
+                    conditions.append("ed.dept_code = ?")
+                    params.append(dept_code.strip().upper())
+                if active_only:
+                    conditions.append("ds.is_active = 1")
+
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+                query += " ORDER BY ed.dept_code ASC, ds.source_name ASC;"
+
+                cursor.execute(query, tuple(params))
+                results = []
+                for row in cursor.fetchall():
+                    item = dict(row)
+                    item["is_active"] = bool(item.get("is_active", 1))
+                    try:
+                        item["connection_config"] = _json.loads(item.get("connection_config") or "{}")
+                    except Exception:
+                        item["connection_config"] = {}
+                    results.append(item)
+                return results
+
+    def record_unified_metric(
+        self,
+        dept_code: str,
+        metrics_data: Dict[str, Any],
+        clearance_level: int = 1,
+        metric_date: Optional[str] = None,
+    ) -> str:
+        """Ghi nhận chỉ số/số liệu chuẩn hóa theo ngày kèm clearance level."""
+        import json as _json
+        import uuid as _uuid
+        rec_id = str(_uuid.uuid4())
+        date_str = metric_date or datetime.now().strftime("%Y-%m-%d")
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        data_json = _json.dumps(metrics_data, ensure_ascii=False)
+
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO unified_department_metrics (id, dept_code, metric_date, metrics_data, clearance_level, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?);
+                    """,
+                    (rec_id, dept_code.strip().upper(), date_str, data_json, int(clearance_level), now_str),
+                )
+                conn.commit()
+                return rec_id
+
+    def get_unified_metrics(
+        self,
+        dept_code: Optional[str] = None,
+        max_clearance_level: int = 4,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Truy vấn các chỉ số phòng ban có đối soát bảo mật clearance level."""
+        import json as _json
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                query = "SELECT * FROM unified_department_metrics WHERE clearance_level <= ?"
+                params: List[Any] = [int(max_clearance_level)]
+                if dept_code:
+                    query += " AND dept_code = ?"
+                    params.append(dept_code.strip().upper())
+                query += " ORDER BY metric_date DESC, created_at DESC LIMIT ?;"
+                params.append(limit)
+
+                cursor.execute(query, tuple(params))
+                results = []
+                for row in cursor.fetchall():
+                    item = dict(row)
+                    try:
+                        item["metrics_data"] = _json.loads(item.get("metrics_data") or "{}")
+                    except Exception:
+                        item["metrics_data"] = {}
+                    results.append(item)
+                return results
+
+    # ── Privacy-Compliant Historical Trends (Non-PII Aggregates) ─────────────
+
+    def record_historical_metric(
+        self,
+        dept_code: str,
+        metric_key: str,
+        metric_value: float,
+        recorded_at: Optional[str] = None,
+    ) -> str:
+        """
+        Lưu trữ chỉ số lịch sử phi định danh (Non-PII).
+        TUYỆT ĐỐI KHÔNG lưu họ tên, email, CCCD, bảng lương hay STK ngân hàng.
+        """
+        import uuid as _uuid
+        rec_id = str(_uuid.uuid4())
+        rec_time = recorded_at or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO department_historical_metrics (id, dept_code, metric_key, metric_value, recorded_at)
+                    VALUES (?, ?, ?, ?, ?);
+                    """,
+                    (rec_id, dept_code.strip().upper(), metric_key.strip(), float(metric_value), rec_time),
+                )
+                conn.commit()
+                return rec_id
+
+    def get_historical_metrics(
+        self,
+        dept_code: Optional[str] = None,
+        metric_key: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Truy vấn chuỗi chỉ số lịch sử phục vụ vẽ biểu đồ xu hướng (Trend Analysis)."""
+        with self._lock:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                query = "SELECT * FROM department_historical_metrics"
+                conditions = []
+                params: List[Any] = []
+
+                if dept_code:
+                    conditions.append("dept_code = ?")
+                    params.append(dept_code.strip().upper())
+                if metric_key:
+                    conditions.append("metric_key = ?")
+                    params.append(metric_key.strip())
+
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+
+                query += " ORDER BY recorded_at DESC LIMIT ?;"
+                params.append(limit)
+
+                cursor.execute(query, tuple(params))
+                return [dict(r) for r in cursor.fetchall()]
+
 
 # Khởi tạo singleton instance. KHÔNG tự chèn dữ liệu mẫu: CSDL bắt đầu trống,
 # giao diện hiển thị "chờ kết nối" cho tới khi có nguồn dữ liệu thật.
 erp_db = ERPDatabase()
+
