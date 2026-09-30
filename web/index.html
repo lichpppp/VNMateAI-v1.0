@@ -1803,43 +1803,6 @@
         </div>
       </div>
 
-      <!-- ── ROW 3: Audio Nodes — chỉ tóm tắt, danh sách đầy đủ ở tab voice ──
-           Phase 78: trước đây khối này VẼ LẠI toàn bộ mạch ESP32, y hệt mục
-           "MẠCH THOẠI ESP32" ở tab Trợ Lý Thoại — cùng một dữ liệu ở hai chỗ,
-           và bản ở đây còn đè lên hàm của bản kia khiến ô đếm ở tab voice kẹt
-           ở số 0 viết cứng. Nay chỉ để lại một dòng tóm tắt + link, danh sách
-           và các nút điều khiển thuộc về tab Trợ Lý Thoại. -->
-      <div class="glass-panel p-5">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-3">
-            <div
-              class="w-10 h-10 rounded-xl bg-primary-50 dark:bg-primary-900/30 border border-primary-200 dark:border-primary-700/50 flex items-center justify-center text-primary-600 dark:text-primary-400">
-              <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            </div>
-            <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Mạch thoại ESP32</h3>
-              <p class="text-xs text-slate-500 dark:text-slate-400">
-                <span id="badge-audio-nodes-count">chưa có dữ liệu</span>
-                · danh sách và điều khiển nằm ở tab
-                <button onclick="switchTab('voice')" class="underline hover:text-cyan-400 transition-colors">Trợ lý Thoại</button>
-              </p>
-            </div>
-          </div>
-          <button onclick="loadAudioNodes()"
-            class="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-700/60 hover:bg-slate-200 dark:hover:bg-slate-600 text-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 transition-colors self-start">
-            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-            </svg>
-            Làm mới
-          </button>
-        </div>
-      </div>
-
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <!-- PHASE 61: BỘ MONITOR MỞ RỘNG (6 panel)                            -->
       <!-- Nguồn dữ liệu: /api/v1/health-dashboard (counters, 2s)  +
@@ -1848,11 +1811,13 @@
            connectors/health, audit-logs, logs/recent              -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
 
-      <!-- ── ROW 4: Hàng Đợi & Tác Vụ Nền  +  Sức Khỏe Công Cụ ──────── -->
+      <!-- ── ROW 3: Hàng Đợi & Tác Vụ Nền + Chờ Bạn Phê Duyệt  |  Sức Khỏe Công Cụ ── -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
 
+        <div class="lg:col-span-4 space-y-5">
+
         <!-- Panel 6: Hàng Đợi & Tác Vụ Nền -->
-        <div class="lg:col-span-4 glass-panel p-5">
+        <div class="glass-panel p-5">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
               <div
@@ -1930,7 +1895,6 @@
           </div>
         </div>
 
-        <!-- Panel 7: Sức Khỏe Công Cụ (Plugin Registry + Circuit Breaker) -->
         <!-- ═══ PHÊ DUYỆT (chủ sở hữu — Phase 78) ══════════ -->
         <div id="dash-pending-card"
           class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
@@ -1947,6 +1911,10 @@
           </div>
         </div>
 
+        </div>
+        <!-- /cột trái: Hàng Đợi & Tác Vụ Nền + Chờ Bạn Phê Duyệt -->
+
+        <!-- Panel 7: Sức Khỏe Công Cụ -->
         <div class="lg:col-span-8 glass-panel p-5">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
@@ -1996,7 +1964,7 @@
         </div>
       </div>
 
-      <!-- ── ROW 5: Bảo Mật & Phê Duyệt  +  Trí Nhớ & Tri Thức ────────── -->
+      <!-- ── ROW 4: Bảo Mật & Phê Duyệt  +  Trí Nhớ & Tri Thức ────────── -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
 
         <!-- Panel 8: Bảo Mật & Phê Duyệt -->
@@ -2108,11 +2076,11 @@
         </div>
       </div>
 
-      <!-- ── ROW 6: Kết Nối Ngoại Vi  +  Nhật Ký Hệ Thống ───────────────── -->
+      <!-- ── ROW 5: Kết Nối Ngoại Vi (dải nhỏ) ───────────────────────────── -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
 
-        <!-- Panel 10: Kết Nối Ngoại Vi (dải nhỏ) -->
-        <div class="lg:col-span-5 glass-panel p-5">
+        <!-- Panel 10: Kết Nối Ngoại Vi (dải nhỏ) — bấm "Mở tab chi tiết" để sang tab Tích Hợp -->
+        <div class="lg:col-span-12 glass-panel p-5">
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
               <div
@@ -2144,32 +2112,6 @@
             <span class="text-[10px] font-mono font-bold text-slate-700 dark:text-slate-300">
               <span id="mon-conn-ready">—</span>/<span id="mon-conn-total">—</span></span>
           </div>
-        </div>
-
-        <!-- Panel 11: Nhật Ký Hệ Thống -->
-        <!-- Phase 79: Panel này từng hiện nhật ký hệ thống ở đây, nạp cùng
-             endpoint /api/v1/logs/recent với "Nhật Ký Vận Hành" ở Trung Tâm
-             Chỉ Huy — cùng dữ liệu ở hai màn hình. Nay cả hai gom vào tab
-             Nhật Ký; ở đây chỉ còn lối dẫn. -->
-        <div class="lg:col-span-7 glass-panel p-5 flex flex-col justify-center">
-          <div class="flex items-center gap-2 mb-3">
-            <div
-              class="w-7 h-7 rounded-lg bg-slate-500/10 border border-slate-500/20 flex items-center justify-center text-slate-400">
-              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                <polyline points="14 2 14 8 20 8" />
-              </svg>
-            </div>
-            <span class="text-sm font-bold text-slate-800 dark:text-white">Nhật Ký Hệ Thống</span>
-          </div>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
-            Toàn bộ nhật ký — thời gian thực, kiểm toán an ninh, công việc KPI và
-            nhật ký vận hành — nằm ở một tab duy nhất.
-          </p>
-          <button type="button" onclick="switchTab('logs')"
-            class="px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
-            Mở tab Nhật Ký
-          </button>
         </div>
       </div>
 
@@ -2377,12 +2319,11 @@
         </div>
       </div>
 
-      <!-- ═══ DUYỆT  |  HẠ TẦNG  |  NHẬT KÝ VẬN HÀNH ═════════════════ -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
-
-        <!-- Hàng đợi phê duyệt -->
-        <!-- Phase 78: hàng đợi phê duyệt đã gom về Bảng Điều Khiển (chủ sở
-             hữu) để chỉ có một danh sách duy nhất, không lệch số liệu. -->
+      <!-- ═══ KẾT NỐI HẠ TẦNG  |  CẢNH BÁO AN NINH ══════════════════════
+           Phase 82: các khối "Biểu Đồ Số Liệu" và "Tra Cứu Quy Chế" riêng đã
+           bỏ theo yêu cầu — AI trả lời bằng chữ trong ô Điều Hành AI. Khối
+           "Nhật Ký Vận Hành" đã thuộc về tab Nhật Ký. -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
         <!-- Kết nối hạ tầng có sẵn -->
         <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
@@ -2403,58 +2344,6 @@
           </div>
         </div>
 
-        <!-- Nhật ký vận hành -->
-        <!-- Phase 79: nhật ký vận hành đã gom vào tab Nhật Ký (chế độ
-             "Nhật ký vận hành"). Bản ở đây và bản ở Bảng Điều Khiển trước đây
-             cùng gọi /api/v1/logs/recent — cùng dữ liệu, hai màn hình. -->
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
-            <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Nhật Ký Vận Hành</h3>
-          </div>
-          <div class="p-3">
-            <p class="text-[11px] text-slate-500 dark:text-slate-400 text-center mb-2">
-              Xem nhật ký vận hành tại
-            </p>
-            <button type="button" onclick="switchTab('logs'); switchLogView('recent')"
-              class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition">
-              Mở tab Nhật Ký
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ BIỂU ĐỒ  |  CẢNH BÁO & QUY CHẾ ══════════════════════════ -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-        <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-          <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
-              <path d="M3 3v18h18" />
-              <path d="M7 14l3-4 3 3 5-7" />
-            </svg>
-            <h3 id="cc-chart-title" class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">Biểu Đồ Số Liệu</h3>
-            <span id="cc-chart-source"
-              class="ml-auto shrink-0 px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 hidden"></span>
-          </div>
-          <div class="p-3">
-            <div class="relative" style="height: 240px;">
-              <canvas id="cc-chart-canvas"></canvas>
-              <div id="cc-chart-empty"
-                class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
-                <svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.5"
-                  class="text-slate-300 dark:text-slate-600 mb-2" viewBox="0 0 24 24">
-                  <path d="M3 3v18h18" />
-                  <path d="M7 14l3-4 3 3 5-7" />
-                </svg>
-                <p class="text-[11px] text-slate-400 dark:text-slate-500">
-                  Hỏi trợ lý ở cột bên cạnh, hoặc ra lệnh bằng giọng nói —
-                  biểu đồ sẽ tự hiện tại đây.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div class="space-y-4">
           <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
             <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
@@ -2465,20 +2354,6 @@
             </div>
             <div id="cc-security-list" class="p-3 space-y-2 max-h-56 overflow-y-auto">
               <p class="text-xs text-slate-400 dark:text-slate-500 text-center py-6">Không có cảnh báo.</p>
-            </div>
-          </div>
-
-          <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
-            <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-              <h3 class="text-xs font-bold text-slate-800 dark:text-slate-100">Tra Cứu Quy Chế</h3>
-              <span class="ml-auto text-[9px] text-slate-400 dark:text-slate-500">chỉ trả lời khi có căn cứ</span>
-            </div>
-            <div class="p-3 space-y-2">
-              <input type="text" id="cc-policy-input" placeholder="VD: nghỉ thai sản được mấy tháng?"
-                class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                onkeydown="if(event.key==='Enter'){runPolicyLookup();}" />
-              <div id="cc-policy-result" class="text-xs"></div>
             </div>
           </div>
         </div>

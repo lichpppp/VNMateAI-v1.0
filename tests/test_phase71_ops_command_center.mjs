@@ -351,14 +351,15 @@ console.log('\n── 9. HTML có đủ id mà JS tìm ──');
   const missing = need.filter((id) => !html.includes(`id="${id}"`));
   check('mọi id Phase 71 đều tồn tại trong HTML', missing.length === 0, `thiếu: ${missing.join(', ')}`);
 
-  // Phase 79: tab Trung Tâm Chỉ Huy đã gộp vào Bảng Điều Khiển, nên lối dẫn
-  // sang nơi nhật ký duy nhất giờ nằm trong `tab-dashboard`.
+  // Phase 79: tab Trung Tâm Chỉ Huy đã gộp vào Bảng Điều Khiển. Phase 82:
+  // người dùng bỏ khối "Nhật Ký Vận Hành" khỏi Bảng Điều Khiển — tên tab Nhật
+  // Ký ở thanh điều hướng bên trái vẫn đủ để người cần tìm thấy.
   const ccTab = (html.match(/<section[^>]*id="tab-dashboard"[\s\S]*?\n    <\/section>/) || [''])[0];
   const logsTab = (html.match(/<section[^>]*id="tab-logs"[\s\S]*?\n    <\/section>/) || [''])[0];
   check('nhật ký vận hành nằm ở tab Nhật Ký, không ở Bảng Điều Khiển',
     logsTab.includes('id="log-recent-list"') && !ccTab.includes('id="log-recent-list"'));
-  check('Bảng Điều Khiển còn lối dẫn sang nơi nhật ký duy nhất',
-    ccTab.includes("switchLogView('recent')"));
+  check('Bảng Điều Khiển không còn lối dẫn nhật ký trùng (Phase 82)',
+    !ccTab.includes("switchLogView('recent')") && !ccTab.includes("switchTab('logs')"));
 
   // Mỗi id phải có dấu chấm chấm trước để JS lấy được — và mỗi id phải xuất
   // hiện đúng 1 lần (lặp id là HTML không hợp lệ, getElementById chỉ lấy cái

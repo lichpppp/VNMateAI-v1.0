@@ -433,7 +433,8 @@ results.push('▸ Panel 11 — đã gom vào tab Nhật Ký');
   const logsTab = (html.match(/<section[^>]*id="tab-logs"[\s\S]*?\n    <\/section>/) || [''])[0];
 
   check('bảng nhật ký đã rời khỏi Bảng Điều Khiển', !dash.includes('id="mon-log-list"'));
-  check('Bảng Điều Khiển còn lối dẫn sang tab Nhật Ký', dash.includes("switchTab('logs')"));
+  check('Bảng Điều Khiển không còn lối dẫn nhật ký trùng (Phase 82)', !dash.includes("switchTab('logs')"));
+  check('Bảng Điều Khiển giữ nhật ký thời gian thực', dash.includes('id="live-event-log"'));
   check('bảng nhật ký nằm trong tab Nhật Ký', logsTab.includes('id="log-recent-list"'));
   check('tab Nhật Ký có chế độ "Nhật ký vận hành"', logsTab.includes('data-log-view="recent"'));
   check('hàm cũ đã bị gỡ khỏi app.js',

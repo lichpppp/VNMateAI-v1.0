@@ -171,10 +171,11 @@ check(
     "cùng endpoint /api/v1/logs/recent — dữ liệu chắc chắn giống nhau",
 )
 check(
-    "hai nơi bị gỡ đều còn lối dẫn sang tab Nhật Ký",
-    "switchTab('logs')" in section_html("dashboard")
-    and "switchLogView('recent')" in section_html("dashboard"),
-    "bỏ hẳn thì mất thông tin; phải để lại đường dẫn",
+    "Bảng Điều Khiển không còn khối lối dẫn nhật ký trùng (Phase 82)",
+    "switchTab('logs')" not in section_html("dashboard")
+    and "switchLogView('recent')" not in section_html("dashboard"),
+    "người dùng chủ động bỏ khối 'Nhật Ký Hệ Thống'/'Nhật Ký Vận Hành' — "
+    "mục điều hướng bên trái và nhật ký thời gian thực trên trang vẫn đủ đường",
 )
 check(
     "bộ lọc ẩn heartbeat được giữ lại",
@@ -259,15 +260,17 @@ check(
     "cùng dữ liệu ở hai tab là chỗ dễ phát sinh lệch số liệu",
 )
 check(
-    "Bảng Điều Khiển còn ô tóm tắt + link sang tab Trợ Lý Thoại",
-    'id="badge-audio-nodes-count"' in section_html("dashboard")
-    and "switchTab('voice')" in section_html("dashboard"),
-    "bỏ hẳn thì mất thông tin; phải để lại đường dẫn",
+    "Bảng Điều Khiển không còn dải tóm tắt ESP32 (Phase 82)",
+    'id="badge-audio-nodes-count"' not in section_html("dashboard")
+    and "switchTab('voice')" not in section_html("dashboard"),
+    "dải tóm tắt đã bỏ theo yêu cầu — tab Trợ Lý Thoại là chủ duy nhất",
 )
 check(
-    "cả hai ô đếm cùng chạy một hàm",
-    JS.count("loadAudioNodes") >= 1 and "badge-audio-nodes-count" in JS,
-    "hai hàm riêng sẽ cho hai con số khác nhau",
+    "ô đếm ESP32 chỉ ở tab Trợ Lý Thoại và chạy một hàm chung",
+    JS.count("loadAudioNodes") >= 1
+    and "voice-stat-nodes-val" in JS
+    and "badge-audio-nodes-count" not in JS,
+    "id đã gỡ khỏi HTML thì phải gỡ luôn khỏi JS để không còn code chết",
 )
 
 # ──────────────────────────────────────────────────────────────────────
@@ -315,9 +318,18 @@ check(
     "nội dung C.E.O nằm trong Bảng Điều Khiển",
     all(
         f'id="{i}"' in section_html("dashboard")
-        for i in ("cc-chart-canvas", "cc-audit-btn", "cc-subsystems", "cc-kpi-infra")
+        for i in ("cc-audit-btn", "cc-subsystems", "cc-kpi-infra")
     ),
     "mất id = gộp kiểu cắt rồi quên dán, màn hình C.E.O trắng",
+)
+check(
+    "khung biểu đồ & tra cứu quy chế riêng đã bỏ khỏi Bảng Điều Khiển",
+    all(
+        f'id="{i}"' not in section_html("dashboard")
+        for i in ("cc-chart-canvas", "cc-chart-title", "cc-chart-source", "cc-chart-empty",
+                  "cc-policy-input", "cc-policy-result")
+    ),
+    "bỏ khung mà để id chết lặng trong DOM là cố tình giữ code không dùng",
 )
 check(
     "không còn thẻ tự trỏ tới chính trang đang đứng",

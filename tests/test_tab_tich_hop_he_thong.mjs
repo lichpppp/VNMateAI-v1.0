@@ -75,9 +75,13 @@ if (dash && si) {
   // Nội dung C.E.O phải nằm trong Bảng Điều Khiển, không mất khi gộp.
   // (Các sub-pane `cc-int-*` thuộc tab tích hợp, không phải phần C.E.O.)
   check('nội dung C.E.O còn nguyên trong Bảng Điều Khiển',
-    ['cc-chart-canvas', 'cc-audit-btn', 'cc-subsystems', 'cc-kpi-infra', 'cc-policy-input']
+    ['cc-audit-btn', 'cc-subsystems', 'cc-kpi-infra']
       .every(id => dashHtml.includes(`id="${id}"`)),
     'mất id = gộp kiểu cắt rồi quên dán, màn hình C.E.O trắng');
+  check('khung biểu đồ & tra cứu quy chế riêng đã bỏ (Phase 82)',
+    ['cc-chart-canvas', 'cc-chart-empty', 'cc-policy-input', 'cc-policy-result']
+      .every(id => !dashHtml.includes(`id="${id}"`)),
+    'khung đã bỏ theo yêu cầu — AI trả lời bằng chữ trong ô kết quả');
   check('tab tích hợp là section riêng biệt, không lồng trong Bảng Điều Khiển',
     si[0] > dash[1] || si[1] < dash[0] || html.slice(Math.min(dash[1], si[1]), Math.max(dash[0], si[0])).indexOf('<section') === -1);
 

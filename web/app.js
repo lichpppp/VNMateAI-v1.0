@@ -2798,15 +2798,8 @@ async function loadAudioNodes() {
     const count = nodes.length;
 
     if (statNodesVal) statNodesVal.textContent = `${count} THIẾT BỊ`;
-    // Ô tóm tắt ở tab Bảng Điều Khiển (Phase 78: sau khi gom ESP32 về một chỗ).
-    // Trước đây ô này có hàm riêng ở tab dashboard; nay dùng chung hàm này để
-    // hai nơi không thể hiện hai con số khác nhau cho cùng một thứ.
-    const summaryBadge = document.getElementById('badge-audio-nodes-count');
-    if (summaryBadge) {
-      summaryBadge.textContent = count > 0
-        ? `${count} mạch đang kết nối`
-        : 'chưa có mạch nào kết nối';
-    }
+    // Phase 82: ô tóm tắt ESP32 ở Bảng Điều Khiển đã bỏ theo yêu cầu — tab
+    // Trợ Lý Thoại là nơi duy nhất còn hiện số mạch.
     if (statNodesBadge) {
       if (count > 0) {
         statNodesBadge.textContent = 'ONLINE';
@@ -10109,7 +10102,6 @@ const CommandCenter = (() => {
       }
       if (route.endpoint === 'policy') {
         await policyLookup(q);
-        if (out) out.innerHTML = '<span class="text-emerald-500">✔ Đã tra cứu quy chế ở cột phải.</span>';
         return;
       }
       const res = await apiFetch(`${API_BASE}/api/v1/enterprise/analytics/chart`, {
@@ -10123,18 +10115,14 @@ const CommandCenter = (() => {
         if (out) out.innerHTML = `<span class="text-rose-500">✖ ${_esc(r.message || d.error || 'Lỗi không rõ')}</span>`;
         return;
       }
-      // WebSocket cũng sẽ gửi cùng biểu đồ; gọi render trực tiếp ở đây để phản
-      // hồi tức thì mà không phụ thuộc kết nối WS còn sống hay không.
-      renderChart(r.chart_config, {
-        title: r.title || 'Biểu Đồ',
-        sqlSource: r.sql_source,
-        llmError: r.llm_error,
-      });
+      // Phase 82: khung "Biểu Đồ Số Liệu" đã bỏ khỏi Bảng Điều Khiển theo yêu
+      // cầu nên không còn chỗ vẽ. Câu trả lời vẫn về nguyên vẹn — trình bày
+      // dạng chữ để không hứa một biểu đồ không ai nhìn thấy.
       const n = Number(r.records_count || 0);
       if (out) {
         out.innerHTML = n
-          ? `<span class="text-emerald-500">✔ Đã vẽ biểu đồ (${n} điểm dữ liệu)</span>`
-          : '<span class="text-amber-500">⚠ Truy vấn trả về 0 dòng — biểu đồ sẽ trống.</span>';
+          ? `<span class="text-emerald-500">✔ Truy vấn hoàn thành — <strong>${n}</strong> điểm dữ liệu.</span>`
+          : '<span class="text-amber-500">⚠ Truy vấn trả về 0 dòng.</span>';
       }
     } catch (err) {
       if (out) out.innerHTML = `<span class="text-rose-500">✖ ${_esc(err.message || err)}</span>`;
@@ -10143,7 +10131,9 @@ const CommandCenter = (() => {
 
   // ── Tra cứu quy chế (GraphRAG) ──────────────────────────────────────────
   async function policyLookup(question) {
-    const out = $('cc-policy-result');
+    // Phase 82: khung "Tra Cứu Quy Chế" riêng đã bỏ — trả lời hiện ngay trong
+    // ô kết quả của Điều Hành AI, không còn ô hiển thị phải duy trì riêng.
+    const out = $('cc-ask-result');
     if (!out) return;
     out.innerHTML = '<span class="text-slate-400">Đang tra cứu…</span>';
     try {
@@ -12660,11 +12650,8 @@ function askCommandCenter(text) {
   return CommandCenter.ask(text);
 }
 
-function runPolicyLookup() {
-  const input = document.getElementById('cc-policy-input');
-  return CommandCenter.policyLookup(input ? input.value : '');
-}
-
+// Phase 82: khung "Tra Cứu Quy Chế" riêng đã bỏ — hàm ngoài cũ không còn chỗ
+// gọi nên đã gỡ luôn. Hỏi quy chế qua Điều Hành AI (ô nhập/kết quả cc-ask).
 // Phase 71: rà soát là việc chỉ đọc nên để admin bấm tay chạy ngay, không
 // cần qua cổng HITL — đúng nguyên tắc "AI tự làm việc rủi ro thấp".
 function runCommandCenterAudit() {
@@ -12698,7 +12685,6 @@ if (typeof window !== 'undefined') {
   window.CommandCenter = CommandCenter;
   window.runCommandCenterAsk = runCommandCenterAsk;
   window.askCommandCenter = askCommandCenter;
-  window.runPolicyLookup = runPolicyLookup;
   // Phase 71: nút "Chạy rà soát tức thì" trong khung "AI Được Phép Làm Gì".
   window.runCommandCenterAudit = runCommandCenterAudit;
   // Phase 72: các nút điều hành trong thẻ "Điều Hành Hệ Thống".
