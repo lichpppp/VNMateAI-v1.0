@@ -75,9 +75,14 @@ RISK_LEVEL_MAP: Dict[str, int] = {
     # dự kiến). Briefing BƯỚC 5 xếp "Xóa user AD" vào nhóm 3-5, nên việc CẤP
     # tài khoản cũng phải ở Level 4 — trước đây để Level 3 nên chạy tự động.
     "zero_touch_onboard_employee": 4,
-    # Điều phối đa tác nhân có thể kích hoạt Agent ghi dữ liệu (HR Agent gọi
-    # assign_task_intelligently) -> can người duyet.
-    "delegate_to_multi_agent": 3,
+    # Điều phối đa tác nhân (Phase 84): hạ từ Level 3 xuống Level 2 ("thao tác
+    # thường", cùng mức với assign_task_intelligently mà nó kích hoạt). Trước
+    # đây MỌI câu hỏi Multi-Agent — kể cả chỉ đọc ("doanh thu tháng trước?"),
+    # tra chính sách, chấm công — đều phải CEO duyệt, nên CEO nhận tin nhắn
+    # mời duyệt liên tục cho việc không quan trọng. Các thao tác thật sự nguy
+    # hiểm (record / delete / run_powershell...) vẫn giữ cổng HITL riêng ở
+    # đúng điểm chạy của chúng.
+    "delegate_to_multi_agent": 2,
 
     # Level 4: High risk system actions
     "record_expense": 4,
@@ -199,26 +204,31 @@ class HumanInTheLoopManager:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         risk_level = self.get_risk_level(action_name, params, risk_level)
 
-        # ── Phase 83: loại trùng yêu cầu ĐANG CHỜ — chống thư rác Telegram ──
+        # ── Phase 83/84: loại trùng yêu cầu ĐANG CHỜ — mỗi việc chỉ 1 tin ────
         #
         # Trước đây cứ gọi lại một tác vụ rủi ro là tạo yêu cầu MỚI + bắn tin
         # "YÊU CẦU PHÊ DUYỆT C.E.O" MỚI, kể cả khi yêu cầu y hệt vẫn đang chờ
         # CEO. AI agent loop thử lại cùng tool, người dùng hỏi lại, hoặc hai
         # luồng gọi song song cùng tác vụ → CEO nhận chồng tin cho MỘT việc.
         #
-        # Nay so dấu vân tay (action + params, cùng chuẩn `_token_for`) với các
-        # yêu cầu đang PENDING trong cửa sổ TTL: trùng thì tái sử dụng chính
-        # yêu cầu đang chờ — cùng id, KHÔNG tạo yêu cầu mới, KHÔNG gửi tin thứ
-        # hai. CEO duyệt/từ chối/hết TTL rồi thì yêu cầu sau lại tạo bình thường.
+        # Nay (theo yêu cầu người dùng: "chỉ bắn 1 lần, muốn bắn lại phải thao
+        # tác lại"):
+        #   - Yêu cầu đồng nhất (action + params cùng chuẩn `_token_for`) ĐANG
+        #     PENDING → tái sử dụng chính yêu cầu đó: cùng id, KHÔNG tạo mới,
+        #     KHÔNG gửi tin thứ hai — cho tới khi duyệt/từ chối.
+        #   - Yêu cầu PENDING quá TTL (15 phút) → tự hủy (status = expired),
+        #     KHÔNG bắn cảnh báo hết hạn. Thao tác sau đó mới tạo yêu cầu MỚI
+        #     + tin MỚI — hệ thống không bao giờ tự nhắc lại.
         fp = _token_for(action_name, params)
         now_ts = time.time()
         with self._lock:
             for _item in self._pending_approvals.values():
-                if (
-                    _item.get("status") == "pending"
-                    and _item.get("_fp") == fp
-                    and now_ts - _item.get("_created_ts", 0) < _APPROVAL_TTL_SECONDS
-                ):
+                if _item.get("status") != "pending":
+                    continue
+                if now_ts - _item.get("_created_ts", 0) >= _APPROVAL_TTL_SECONDS:
+                    _item["status"] = "expired"
+                    continue
+                if _item.get("_fp") == fp:
                     logger.info(
                         "[ZeroTrust HITL] Loại trùng: '%s' đã có yêu cầu %s đang chờ — tái sử dụng, không gửi tin mới.",
                         action_name, _item.get("id"),

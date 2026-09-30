@@ -6242,9 +6242,11 @@ async def api_multi_agent_route(
     """
     Ủy quyền câu hỏi/chỉ thị tới hệ thống Multi-Agent (CFO/HR/CTO Agent).
 
-    Zero-Trust: đi qua cổng HITL (`delegate_to_multi_agent` = Level 3) vì HR
-    Agent trong đồ thị có thể kích hoạt assign_task_intelligently — tức là ghi
-    dữ liệu. Câu hỏi chỉ đọc vẫn chạy được, nhưng phải qua duyệt một lần.
+    Zero-Trust (Phase 84): `delegate_to_multi_agent` ở Level 2 — "thao tác
+    thường", chạy thẳng, KHÔNG bắt CEO duyệt từng câu hỏi Multi-Agent nữa
+    (trước đây kể cả câu chỉ đọc cũng phải duyệt, CEO nhận tin liên tục).
+    Tác vụ thật sự nguy hiểm vẫn đi qua cổng HITL ở đúng tool của chúng
+    (record / delete / run_powershell...).
     """
     from core.zero_trust import execute_with_hitl
 
