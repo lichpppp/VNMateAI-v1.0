@@ -41,6 +41,18 @@ RISK_BLOCKED = "BLOCKED"             # Nguy hại: Chặn lập tức
 # ai được hỏi, tức là HITL rỗng. Nay đồng bộ ngưỡng về 3.
 HITL_APPROVAL_THRESHOLD = 3
 
+#: Phase 86 — có bắn tin Telegram xác nhận KẾT QUẢ duyệt/từ chối không.
+#:
+#: Mỗi yêu cầu phê duyệt giờ chỉ sinh ĐÚNG 1 tin: tin yêu cầu (kèm nút bấm
+#: 1-tap). Tin xác nhận kết quả đã bỏ vì nó không mang thông tin mới so với
+#: việc CEO vừa bấm nút, chỉ làm inbox nặng thêm. Người dùng yêu cầu rõ:
+#: "chỉ giữ 1 tin yêu cầu".
+#:
+#: Thông tin không mất: `log_audit_action()` ghi bất biến mọi lần duyệt/từ
+#: chối kèm lý do, kết quả thực thi và người thao tác; Cổng Web đọc từ đó.
+#: Sửa thành `True` để bật lại (đường dẫn escape HTML còn nguyên).
+HITL_NOTIFY_RESULT = False
+
 # Risk level mappings
 RISK_LEVEL_MAP: Dict[str, int] = {
     # Level 1: Read-only & informational
@@ -451,22 +463,37 @@ class HumanInTheLoopManager:
             headline = "✅ [HITL DUYỆT THÀNH CÔNG]"
             outcome_msg = "✅ Tác vụ đã được thực thi thành công."
 
-        try:
-            from core.telegram_gateway import telegram_gateway
-            # `send_incident_alert()` gửi với `parse_mode="HTML"`, nên mọi
-            # phần động (tên tác vụ, lỗi phát sinh, tên người duyệt) phải
-            # escape HTML. Không escape thì một lỗi chứa `<` hoặc `&` —
-            # rất dễ gặp với message từ driver/DB — khiến Telegram từ chối
-            # CẢ tin nhắn xác nhận, CEO không thấy kết quả duyệt.
-            telegram_gateway.send_incident_alert(
-                f"{headline}\n"
-                f"CEO ({html.escape(str(approved_by))}) đã phê duyệt yêu cầu "
-                f"<b>{html.escape(str(approval_id))}</b> "
-                f"({html.escape(str(item['action_name']))}).\n"
-                f"{html.escape(outcome_msg)}"
-            )
-        except Exception:
-            pass
+        # Phase 86: KHÔNG bắn tin kết quả duyệt/từ chối nữa.
+        #
+        # Trước đây mỗi yêu cầu sinh RA 2 tin Telegram: tin yêu cầu (có nút
+        # bấm) rồi tin xác nhận kết quả. CEO phải duyệt 1 việc mà đọc 2 tin,
+        # và tin thứ hai không mang thông tin mới — nó chỉ lặp lại việc vừa
+        # bấm. Người dùng yêu cầu: "chỉ giữ 1 tin yêu cầu".
+        #
+        # Thông tin KHÔNG mất: `log_audit_action()` ở trên đã ghi bất biến cả
+        # duyệt lẫn từ chối (kèm lý do, kết quả thực thi, người thao tác), và
+        # Cổng Web hiển thị lại từ đó. Nên đây là bỏ kênh bắn thừa, không
+        # phải xoá dữ liệu.
+        #
+        # Để bật lại: sửa thành True. Đường dẫn giữ nguyên phần escape HTML
+        # (test ở test_phase60_sot_bao_mat.py canh giữ tính chất đó).
+        if HITL_NOTIFY_RESULT:
+            try:
+                from core.telegram_gateway import telegram_gateway
+                # `send_incident_alert()` gửi với `parse_mode="HTML"`, nên mọi
+                # phần động (tên tác vụ, lỗi phát sinh, tên người duyệt) phải
+                # escape HTML. Không escape thì một lỗi chứa `<` hoặc `&` —
+                # rất dễ gặp với message từ driver/DB — khiến Telegram từ chối
+                # CẢ tin nhắn xác nhận, CEO không thấy kết quả duyệt.
+                telegram_gateway.send_incident_alert(
+                    f"{headline}\n"
+                    f"CEO ({html.escape(str(approved_by))}) đã phê duyệt yêu cầu "
+                    f"<b>{html.escape(str(approval_id))}</b> "
+                    f"({html.escape(str(item['action_name']))}).\n"
+                    f"{html.escape(outcome_msg)}"
+                )
+            except Exception:
+                pass
 
         return {
             "status": result_status,
@@ -600,15 +627,9 @@ class HumanInTheLoopManager:
         except Exception:
             pass
 
-        # Gửi thông báo Telegram
-        try:
-            from core.telegram_gateway import telegram_gateway
-            telegram_gateway.send_incident_alert(
-                f"🛑 [HITL ĐÃ TỪ CHỐI / HỦY BỎ]\n"
-                f"CEO ({rejected_by}) đã HỦY yêu cầu `{approval_id}` ({item['action_name']}). Thao tác đã bị ngăn chặn an toàn."
-            )
-        except Exception:
-            pass
+        # Phase 86: tin xác nhận kết quả từ chối đã bỏ — xem `HITL_NOTIFY_RESULT`.
+        # Lý do và người từ chối vẫn nằm trong audit log ở trên, và trả về cho
+        # Cổng Web trong `message` bên dưới.
 
         return {
             "status": "success",
