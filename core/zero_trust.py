@@ -199,6 +199,32 @@ class HumanInTheLoopManager:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         risk_level = self.get_risk_level(action_name, params, risk_level)
 
+        # ── Phase 83: loại trùng yêu cầu ĐANG CHỜ — chống thư rác Telegram ──
+        #
+        # Trước đây cứ gọi lại một tác vụ rủi ro là tạo yêu cầu MỚI + bắn tin
+        # "YÊU CẦU PHÊ DUYỆT C.E.O" MỚI, kể cả khi yêu cầu y hệt vẫn đang chờ
+        # CEO. AI agent loop thử lại cùng tool, người dùng hỏi lại, hoặc hai
+        # luồng gọi song song cùng tác vụ → CEO nhận chồng tin cho MỘT việc.
+        #
+        # Nay so dấu vân tay (action + params, cùng chuẩn `_token_for`) với các
+        # yêu cầu đang PENDING trong cửa sổ TTL: trùng thì tái sử dụng chính
+        # yêu cầu đang chờ — cùng id, KHÔNG tạo yêu cầu mới, KHÔNG gửi tin thứ
+        # hai. CEO duyệt/từ chối/hết TTL rồi thì yêu cầu sau lại tạo bình thường.
+        fp = _token_for(action_name, params)
+        now_ts = time.time()
+        with self._lock:
+            for _item in self._pending_approvals.values():
+                if (
+                    _item.get("status") == "pending"
+                    and _item.get("_fp") == fp
+                    and now_ts - _item.get("_created_ts", 0) < _APPROVAL_TTL_SECONDS
+                ):
+                    logger.info(
+                        "[ZeroTrust HITL] Loại trùng: '%s' đã có yêu cầu %s đang chờ — tái sử dụng, không gửi tin mới.",
+                        action_name, _item.get("id"),
+                    )
+                    return {k: v for k, v in _item.items() if not k.startswith("_")}
+
         item = {
             "id": approval_id,
             "action_name": action_name,
@@ -210,6 +236,9 @@ class HumanInTheLoopManager:
             "created_at": now_str,
             "reviewed_by": None,
             "reviewed_at": None,
+            # Trường nội bộ phục vụ loại trùng Phase 83 — không xuất ra API.
+            "_fp": fp,
+            "_created_ts": now_ts,
         }
 
         with self._lock:
@@ -292,7 +321,11 @@ class HumanInTheLoopManager:
     def get_pending_list(self) -> List[Dict[str, Any]]:
         """Lấy danh sách các yêu cầu đang chờ CEO phê duyệt."""
         with self._lock:
-            return [dict(v) for v in self._pending_approvals.values() if v.get("status") == "pending"]
+            return [
+                {k: v for k, v in dict(v).items() if not k.startswith("_")}
+                for v in self._pending_approvals.values()
+                if v.get("status") == "pending"
+            ]
 
     def _claim_approval(
         self, approval_id: str, approved_by: str

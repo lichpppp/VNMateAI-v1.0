@@ -80,12 +80,15 @@ check("hai lần liên tiếp KHÔNG trùng nhau", a != b, f"'{a}' rồi '{b}'")
 c = _pick_filler(CONTEXTUAL_FILLERS["general"]["phrases"])
 check("không trùng với câu ngay trước", c != b, f"'{b}' rồi '{c}'")
 
-# Vẫn phân phối đều trong nhóm nhỏ, không bị kẹt ở 2 câu
+# Vẫn phân phối đều trong nhóm nhỏ, không bị kẹt ở 2 câu.
+# 120 lượt thay vì 40: bốc ngẫu nhiên nên 40 lượt vẫn còn xác suất nhỏ
+# (~0.07%) thiếu đúng 1/6 câu — không phải lỗi, là flaky. 120 lượt đưa xác
+# suất về ~0 mà không làm yếu assertion.
 seen = set()
 vc._last_filler = ""
-for _ in range(40):
+for _ in range(120):
     seen.add(_pick_filler(CONTEXTUAL_FILLERS["general"]["phrases"]))
-check("nhóm general phủ hết các câu sau 40 lần",
+check("nhóm general phủ hết các câu sau 120 lượt bốc",
       len(seen) == len(CONTEXTUAL_FILLERS["general"]["phrases"]),
       f"{len(seen)}/{len(CONTEXTUAL_FILLERS['general']['phrases'])}")
 
