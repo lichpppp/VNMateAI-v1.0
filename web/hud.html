@@ -216,10 +216,113 @@
     .hud-btn:active {
       transform: translateY(1px);
     }
+
+    /* Ultra-sharp popup content formatting */
+    .hud-content-crisp h1, .hud-content-crisp h2, .hud-content-crisp h3 {
+      color: #00ffff;
+      font-family: 'Orbitron', sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      margin-top: 0.5rem;
+      margin-bottom: 0.25rem;
+      text-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+    }
+    .hud-content-crisp table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      font-size: 0.875rem;
+      background: rgba(1, 10, 24, 0.75);
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .hud-content-crisp th {
+      background: rgba(0, 242, 254, 0.15);
+      color: #00ffff;
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 700;
+      border-bottom: 1px solid rgba(0, 242, 254, 0.3);
+    }
+    .hud-content-crisp td {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(0, 242, 254, 0.15);
+      color: #e2e8f0;
+    }
+    .hud-content-crisp tr:hover td {
+      background: rgba(0, 242, 254, 0.08);
+    }
+    .hud-content-crisp code {
+      font-family: 'Share Tech Mono', monospace;
+      background: rgba(0, 242, 254, 0.12);
+      border: 1px solid rgba(0, 242, 254, 0.3);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #38bdf8;
+      font-size: 0.85em;
+    }
+    .hud-content-crisp pre {
+      background: #010814;
+      border: 1px solid rgba(0, 242, 254, 0.35);
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 0.5rem 0;
+    }
+    .hud-content-crisp blockquote {
+      border-left: 3px solid #00f2fe;
+      padding-left: 12px;
+      margin: 0.5rem 0;
+      color: #94a3b8;
+      background: rgba(0, 242, 254, 0.05);
+      padding: 6px 12px;
+      border-radius: 0 4px 4px 0;
+    }
+
+    /* Crisp Sci-Fi Toasts */
+    .hud-toast {
+      pointer-events: auto;
+      background: rgba(2, 12, 28, 0.95);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+      border-radius: 6px;
+      padding: 10px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      color: #e2e8f0;
+      animation: hudToastSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      position: relative;
+      overflow: hidden;
+    }
+    .hud-toast-progress {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      height: 2px;
+      background: #00f2fe;
+      width: 100%;
+      animation: hudToastTimer 10s linear forwards;
+    }
+    @keyframes hudToastSlide {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes hudToastTimer {
+      from { width: 100%; }
+      to { width: 0%; }
+    }
   </style>
 </head>
 
 <body class="relative flex flex-col justify-between p-3 md:p-5 overflow-hidden cyber-grid">
+
+  <!-- Crisp Sci-Fi Toast Notification Container -->
+  <div id="hud-toast-container" class="fixed top-4 right-4 z-50 flex flex-col space-y-2 pointer-events-none max-w-sm w-full"></div>
 
   <!-- SVG Gradient Definitions -->
   <svg class="absolute w-0 h-0 pointer-events-none">
@@ -298,21 +401,6 @@
         <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
         <span id="hud-permission-badge" class="is-waiting">QUYỀN: chờ kết nối</span>
       </div>
-
-      <!-- Quick ROI Dashboard Button -->
-      <a href="/roi" target="_blank" class="hud-btn hidden lg:flex items-center gap-1.5 border-blue-500/60 bg-blue-950/40 text-blue-300 hover:border-blue-400 hover:text-white" title="Mở Dashboard Giám sát Hiệu quả ROI & Tự động hóa ITSM">
-        <span>[📊 ROI & ITSM]</span>
-      </a>
-
-      <!-- Quick Portal Setting Button (Rename AI anytime!) -->
-      <a href="/" target="_blank" class="hud-btn hidden sm:flex items-center gap-1.5 border-purple-500/60 bg-purple-950/40 text-purple-300 hover:border-purple-400 hover:text-white" title="Mở Web Portal để đổi tên trợ lý AI, cấu hình giọng nói và quản lý hệ thống">
-        <span>[⚙️ ĐỔI TÊN // CẤU HÌNH]</span>
-      </a>
-
-      <!-- Quick Command Button -->
-      <button id="hud-cmd-toggle-btn" onclick="toggleHudCmdBar()" class="hud-btn hidden sm:flex items-center gap-1.5 border-cyan-500/50 bg-cyan-950/30 text-cyan-300" title="Nhập lệnh nhanh bằng bàn phím (Phím tắt '/')">
-        <span>[⌨️ LỆNH NHANH]</span>
-      </button>
 
       <!-- Action Buttons -->
       <button id="hud-mic-btn" onclick="toggleHudMic()" class="hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300" title="Click hoặc ấn Phím Cách (Spacebar) để nói">
@@ -492,23 +580,64 @@
     <!-- ── RIGHT FLANK: TACTICAL RADAR & STREAMING LOGS (cols 10-12) ──── -->
     <section class="lg:col-span-3 flex flex-col justify-between h-full space-y-3 pointer-events-auto">
       
-      <!-- Panel 1: RADAR VISUALISER (hiệu ứng trang trí — KHÔNG có nguồn dữ liệu) -->
+      <!-- Panel 1: REAL-TIME TELEMETRY & NETWORK SENTINEL (MINHỌA — KHÔNG PHẢI DỮ LIỆU) -->
       <div class="hud-panel hud-corner-tl p-3.5 space-y-2.5">
         <div class="flex justify-between items-center text-xs pb-1.5 border-b border-cyan-500/30">
           <span class="font-orbitron font-bold text-cyan-300 flex items-center gap-2">
             <span class="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
-            HIỆU ỨNG RADAR
+            HẠ TẦNG & TRUYỀN DẪN REAL-TIME
+          </span>
+          <span class="text-[9px] font-mono text-slate-400">MINHỌA — KHÔNG PHẢI DỮ LIỆU</span>
+          <span id="hud-telemetry-badge" class="px-1.5 py-0.5 rounded text-[9px] font-mono bg-emerald-500/20 border border-emerald-400/40 text-emerald-300">
+            ONLINE
           </span>
         </div>
 
-        <!-- Radar Canvas Mini-Sweep -->
-        <div class="relative w-full h-28 bg-[#01060e] rounded-lg overflow-hidden border border-cyan-500/30 flex items-center justify-center">
-          <canvas id="radar-canvas" class="w-full h-full"></canvas>
-          <div class="absolute top-1 left-2 text-[9px] font-mono text-cyan-400/80 pointer-events-none">
-            RADAR QUÉT 360°
+        <!-- Telemetry Data Grid -->
+        <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+          <div class="p-2 rounded bg-[#010b18] border border-cyan-500/20 flex flex-col justify-between">
+            <div class="text-[10px] text-slate-400 flex items-center justify-between">
+              <span>ĐỘ TRỄ MẠNG</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span id="hud-net-latency" class="text-sm font-bold text-cyan-300">18</span>
+              <span class="text-[9px] text-cyan-500">ms</span>
+            </div>
+            <div class="text-[9px] text-slate-500 mt-0.5">TLSv1.3 WebSocket</div>
           </div>
-          <div class="absolute bottom-1 right-2 text-[9px] font-mono text-slate-500 pointer-events-none">
-            MINHỌA — KHÔNG PHẢI DỮ LIỆU
+
+          <div class="p-2 rounded bg-[#010b18] border border-cyan-500/20 flex flex-col justify-between">
+            <div class="text-[10px] text-slate-400 flex items-center justify-between">
+              <span>TRẠNG THÁI AI</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span id="hud-ai-model-status" class="text-sm font-bold text-emerald-300">SẴN SÀNG</span>
+            </div>
+            <div class="text-[9px] text-slate-500 mt-0.5">Dual-Engine Active</div>
+          </div>
+
+          <div class="p-2 rounded bg-[#010b18] border border-cyan-500/20 flex flex-col justify-between">
+            <div class="text-[10px] text-slate-400 flex items-center justify-between">
+              <span>BẢO MẬT SENTINEL</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span id="hud-sentinel-mode" class="text-sm font-bold text-amber-300">ZERO-TRUST</span>
+            </div>
+            <div class="text-[9px] text-slate-500 mt-0.5">Chính sách 2FA/Auth</div>
+          </div>
+
+          <div class="p-2 rounded bg-[#010b18] border border-cyan-500/20 flex flex-col justify-between">
+            <div class="text-[10px] text-slate-400 flex items-center justify-between">
+              <span>PHIÊN HOẠT ĐỘNG</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+            </div>
+            <div class="mt-1 flex items-baseline gap-1">
+              <span id="hud-uptime-counter" class="text-sm font-bold text-cyan-300">00:00:00</span>
+            </div>
+            <div class="text-[9px] text-slate-500 mt-0.5">Uptime Session</div>
           </div>
         </div>
       </div>
@@ -543,46 +672,60 @@
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <!-- ─── HOLOGRAPHIC DATA DISPLAY MODAL // BÁO CÁO CHI TIẾT (PHASE 47) ── -->
+    <!-- ─── HOLOGRAPHIC DATA DISPLAY MODAL // BÁO CÁO CHI TIẾT (10S COUNTDOWN) ── -->
     <!-- ═══════════════════════════════════════════════════════════════════ -->
-    <div id="hud-display-card" class="hidden absolute inset-x-2 sm:inset-x-8 md:inset-x-14 lg:inset-x-20 top-2 bottom-4 z-40 hud-panel bg-[#020a16]/95 border-2 border-cyan-400/80 shadow-[0_0_50px_rgba(0,242,254,0.4)] backdrop-blur-2xl flex flex-col rounded-xl overflow-hidden transition-all duration-300">
+    <div id="hud-display-card" class="hidden absolute inset-x-2 sm:inset-x-6 md:inset-x-12 lg:inset-x-16 top-3 bottom-5 z-40 hud-panel bg-[#020a16]/98 border-2 border-cyan-400/90 shadow-[0_0_60px_rgba(0,242,254,0.45)] backdrop-blur-2xl flex flex-col rounded-xl overflow-hidden transition-all duration-300">
       
+      <!-- Top Progress Countdown Bar (10s auto-dismiss) -->
+      <div class="w-full h-1.5 bg-cyan-950/80 overflow-hidden relative border-b border-cyan-500/30">
+        <div id="hud-display-progress" class="h-full bg-gradient-to-r from-cyan-400 via-teal-300 to-emerald-400 w-full transition-all duration-100 ease-linear shadow-[0_0_8px_#00f2fe]"></div>
+      </div>
+
       <!-- Card Header -->
-      <div class="p-3 border-b border-cyan-500/40 bg-gradient-to-r from-cyan-950/80 via-[#011428]/90 to-transparent flex items-center justify-between shrink-0">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_10px_#00f2fe] animate-pulse shrink-0"></span>
+      <div class="px-4 py-3 border-b border-cyan-500/40 bg-gradient-to-r from-cyan-950/90 via-[#011428]/95 to-slate-950/90 flex items-center justify-between shrink-0 gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-400/50 flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(0,242,254,0.3)]">
+            <span class="text-base text-cyan-300 font-bold">✨</span>
+          </div>
           <div class="truncate">
-            <div class="text-[11px] font-orbitron font-bold text-cyan-300 tracking-wider flex items-center gap-2">
-              <span>HOLOGRAPHIC DATA DISPLAY // CHI TIẾT TỪ TRỢ LÝ</span>
-              <span class="px-1.5 py-0.2 rounded text-[9px] font-mono bg-cyan-500/20 border border-cyan-400/40 text-cyan-200">REAL-TIME REPORT</span>
+            <div class="text-xs font-orbitron font-bold text-cyan-300 tracking-wider flex items-center gap-2">
+              <span>HOLOGRAPHIC DATA DISPLAY // CHI TIẾT PHẢN HỒI</span>
+              <span class="px-2 py-0.5 rounded text-[9px] font-mono bg-cyan-500/20 border border-cyan-400/50 text-cyan-200">REAL-TIME</span>
+              <span id="hud-countdown-badge" class="px-2.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/20 border border-amber-400/60 text-amber-300 animate-pulse font-bold" title="Tự động đóng sau 10 giây hoặc khi có yêu cầu mới">
+                ⏱ Tự đóng: 10s
+              </span>
             </div>
-            <div id="hud-display-query" class="text-xs font-rajdhani font-semibold text-cyan-100/90 truncate mt-0.5">
+            <div id="hud-display-query" class="text-xs font-rajdhani font-semibold text-cyan-100 truncate mt-0.5">
               Lệnh: Báo cáo tình trạng hệ thống
             </div>
           </div>
         </div>
+
         <div class="flex items-center gap-2 shrink-0">
-          <button onclick="copyHudDisplayContent()" class="hud-btn text-xs py-1 px-2.5 border-cyan-500/60 bg-cyan-950/50 text-cyan-300 hover:border-cyan-300" title="Sao chép nội dung">
+          <button id="hud-display-pin-btn" onclick="togglePinHudDisplay()" class="hud-btn text-xs py-1 px-2.5 border-amber-500/60 bg-amber-950/40 text-amber-300 hover:border-amber-300 transition-colors" title="Dừng hoặc tiếp tục đếm ngược 10 giây">
+            ⏸ TẠM DỪNG
+          </button>
+          <button onclick="copyHudDisplayContent()" class="hud-btn text-xs py-1 px-2.5 border-cyan-500/60 bg-cyan-950/50 text-cyan-300 hover:border-cyan-300 transition-colors" title="Sao chép nội dung">
             📋 SAO CHÉP
           </button>
-          <button onclick="hideHudDisplayCard()" class="hud-btn text-xs py-1 px-3 border-rose-500/80 bg-rose-950/60 text-rose-300 hover:border-rose-400 hover:text-white" title="Đóng bảng chi tiết (ESC)">
+          <button onclick="hideHudDisplayCard()" class="hud-btn text-xs py-1 px-3 border-rose-500/80 bg-rose-950/60 text-rose-300 hover:border-rose-400 hover:text-white transition-colors" title="Đóng bảng chi tiết (ESC)">
             ✕ ĐÓNG
           </button>
         </div>
       </div>
 
-      <!-- Card Body: Markdown & Visual Content -->
-      <div id="hud-display-content" class="flex-1 p-4 md:p-6 overflow-y-auto space-y-3 font-rajdhani text-slate-100 text-sm md:text-base leading-relaxed select-text">
+      <!-- Card Body: Markdown & Visual Content (High Contrast, Crisp) -->
+      <div id="hud-display-content" class="flex-1 p-5 md:p-7 overflow-y-auto space-y-3 font-rajdhani text-slate-100 text-sm md:text-base leading-relaxed select-text hud-content-crisp">
         <!-- Rendered markdown table / details here -->
       </div>
 
       <!-- Card Footer -->
-      <div class="px-4 py-2 border-t border-cyan-500/30 bg-[#01060e]/90 flex items-center justify-between text-[11px] font-rajdhani text-cyan-400/70 shrink-0">
-        <span class="flex items-center gap-1.5">
+      <div class="px-4 py-2 border-t border-cyan-500/30 bg-[#01060e]/95 flex items-center justify-between text-[11px] font-rajdhani text-cyan-400/80 shrink-0">
+        <span class="flex items-center gap-1.5 font-medium">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-          DỮ LIỆU ĐƯỢC PHÂN TÍCH & TRÌNH DIỄN THỜI GIAN THỰC
+          Tự động thu gọn sau 10s hoặc làm mới tức thì khi có yêu cầu mới
         </span>
-        <span class="font-mono text-slate-400">Ấn [ESC] hoặc click ĐÓNG để thu gọn</span>
+        <span class="font-mono text-slate-400">Nhấn [ESC] để thu gọn | Rê chuột để giữ bảng</span>
       </div>
 
     </div>
@@ -622,9 +765,6 @@
         </button>
         <button onclick="quickCmd('Kiểm tra hiệu năng CPU và bộ nhớ RAM')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-blue-500/10 border border-blue-500/30 text-blue-300 hover:bg-blue-500/20 hover:border-blue-400 transition-colors">
           ⚡ Tài nguyên
-        </button>
-        <button onclick="quickCmd('Kiểm tra danh sách mạch âm thanh Xiaozhi')" class="px-2 py-0.5 rounded text-[10px] font-rajdhani font-semibold bg-teal-500/10 border border-teal-500/30 text-teal-300 hover:bg-teal-500/20 hover:border-teal-400 transition-colors">
-          🎙️ Mạch Audio
         </button>
       </div>
     </div>

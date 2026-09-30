@@ -37,7 +37,8 @@
             }
           },
           fontFamily: {
-            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            sans: ['"Be Vietnam Pro"', '"Plus Jakarta Sans"', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
           }
         }
       }
@@ -59,10 +60,10 @@
       })();
   </script>
 
-  <!-- Google Inter Font -->
+  <!-- Premium Vietnamese Fonts: Be Vietnam Pro & Plus Jakarta Sans & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
     rel="stylesheet" />
 
   <style>
@@ -71,7 +72,7 @@
       box-sizing: border-box;
     }
 
-    /* Phase 73 — ô đang chờ dữ liệu thật: làm mờ để không bị nhầm là số đo.
+    /* Trạng thái chờ dữ liệu thật: làm mờ để không bị nhầm là số đo.
        Gắn tự động bởi _setLiveText() trong app.js. */
     .is-waiting {
       opacity: 0.55;
@@ -79,8 +80,11 @@
     }
 
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: 'Be Vietnam Pro', 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
       overflow-x: hidden;
+      letter-spacing: -0.01em;
     }
 
     /* Ambient glow background orbs (disabled for clean enterprise theme) */
@@ -172,15 +176,16 @@
     .nav-btn {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 10px 14px;
+      gap: 10px;
+      padding: 8px 12px;
       border-radius: 10px;
       color: #64748b;
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       font-weight: 500;
       cursor: pointer;
       transition: all 0.15s ease;
       position: relative;
+      white-space: nowrap;
     }
 
     .dark .nav-btn {
@@ -206,9 +211,10 @@
     }
 
     .dark .nav-btn.active {
-      color: #60a5fa;
-      background: rgba(30, 58, 138, 0.25);
-      border: 1px solid rgba(59, 130, 246, 0.35);
+      color: #38bdf8;
+      background: rgba(14, 165, 233, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      box-shadow: 0 0 12px rgba(14, 165, 233, 0.12);
     }
 
     .nav-btn.active svg {
@@ -217,51 +223,52 @@
     }
 
     .dark .nav-btn.active svg {
-      color: #60a5fa;
+      color: #38bdf8;
     }
-    /* ─── ROI Dashboard Nav Button (Phase 48) ───────────────────── */
+    /* ─── ROI Dashboard Nav Button (Hài hòa với Sidebar) ─────────── */
     .nav-btn-roi {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 10px 14px;
+      gap: 10px;
+      padding: 8px 12px;
       border-radius: 10px;
-      font-size: 0.875rem;
-      font-weight: 600;
+      font-size: 0.8125rem;
+      font-weight: 500;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
       position: relative;
-      color: #6366f1;
-      background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(34,211,238,0.06) 100%);
-      border: 1px solid rgba(99,102,241,0.25);
+      color: #64748b;
+      background: transparent;
+      border: 1px solid transparent;
       text-decoration: none;
+      white-space: nowrap;
     }
     .dark .nav-btn-roi {
-      color: #a5b4fc;
-      background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(34,211,238,0.08) 100%);
-      border: 1px solid rgba(99,102,241,0.3);
+      color: #94a3b8;
+      background: transparent;
+      border: 1px solid transparent;
     }
     .nav-btn-roi:hover {
-      background: linear-gradient(135deg, rgba(99,102,241,0.18) 0%, rgba(34,211,238,0.14) 100%);
-      border-color: rgba(99,102,241,0.5);
-      box-shadow: 0 0 12px rgba(99,102,241,0.2);
-      transform: translateX(2px);
-      color: #4f46e5;
+      color: #0f172a;
+      background: #f1f5f9;
+      border-color: rgba(99,102,241,0.2);
     }
     .dark .nav-btn-roi:hover {
-      color: #c7d2fe;
-      box-shadow: 0 0 16px rgba(99,102,241,0.25);
+      color: #ffffff;
+      background: #334155;
+      border-color: rgba(99,102,241,0.3);
     }
     .nav-btn-roi .roi-badge {
       margin-left: auto;
-      padding: 2px 8px;
-      border-radius: 20px;
-      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-size: 9px;
       font-weight: 700;
-      background: linear-gradient(90deg, #6366f1, #22d3ee);
-      color: white;
+      font-family: ui-monospace, monospace;
+      background: rgba(99, 102, 241, 0.15);
+      color: #818cf8;
+      border: 1px solid rgba(99, 102, 241, 0.3);
       letter-spacing: 0.3px;
-      animation: roiPulse 2.5s ease-in-out infinite;
     }
     @keyframes roiPulse {
       0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(99,102,241,0.4); }
@@ -622,165 +629,209 @@
   <div class="bg-glow-teal"></div>
   <div class="bg-glow-purple"></div>
 
-  <!-- ─── SIDEBAR ────────────────────────────────────────────────── -->
+  <!-- ─── SIDEBAR: C-LEVEL EXECUTIVE NAVIGATION ──────────────────── -->
   <aside
-    class="w-64 flex-shrink-0 h-screen flex flex-col justify-between border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800 transition-colors z-20">
-    <div>
-      <!-- Brand Logo (Modern Clean SaaS Logo) -->
-      <div class="flex items-center justify-between px-6 py-5 border-b border-slate-200 dark:border-slate-700/60">
-        <div class="flex items-center gap-3">
-          <div
-            class="w-9 h-9 rounded-xl bg-primary-600 flex items-center justify-center text-white font-black text-base shadow-sm">
-            V
+    class="w-72 flex-shrink-0 h-screen flex flex-col justify-between border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-[#0c1322] transition-colors z-20">
+    <div class="overflow-y-auto scrollbar-none">
+      <!-- Brand Logo (Enterprise Command Center Brand) -->
+      <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div
+              class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-base shadow-md shadow-cyan-500/20">
+              V
+            </div>
+            <div>
+              <span class="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center leading-none">
+                VN-<span class="text-cyan-500 dark:text-cyan-400">MateAI</span>
+              </span>
+              <div class="text-[9px] font-mono uppercase tracking-widest text-slate-400 dark:text-slate-500 mt-1">
+                COMMAND CENTER
+              </div>
+            </div>
           </div>
-          <span class="font-bold text-lg tracking-tight text-slate-900 dark:text-white flex items-center">
-            VN-<span class="text-primary-600 dark:text-primary-400">MateAI</span>
-          </span>
+          <span
+            class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-cyan-500/10 text-cyan-500 border border-cyan-500/30">C-LEVEL</span>
         </div>
-        <span
-          class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 border border-primary-200 dark:border-primary-700/50">PRO</span>
       </div>
 
-      <!-- Navigation Links -->
-      <nav class="p-4 space-y-1.5">
-        <div class="nav-btn active" id="nav-dashboard" onclick="switchTab('dashboard')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="3" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="3" width="7" height="7" rx="1" />
-            <rect x="14" y="14" width="7" height="7" rx="1" />
-            <rect x="3" y="14" width="7" height="7" rx="1" />
-          </svg>
-          Bảng Điều Khiển
+      <!-- Navigation Links: Structured by Executive Command Hierarchy -->
+      <nav class="p-3 space-y-3.5">
+        <!-- NHÓM 1: CHỈ HUY & ĐIỀU HÀNH -->
+        <div>
+          <div class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>CHỈ HUY & ĐIỀU HÀNH</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+          </div>
+          <div class="space-y-1">
+            <div class="nav-btn active" id="nav-dashboard" onclick="switchTab('dashboard')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="3" width="7" height="7" rx="1" />
+                <rect x="14" y="14" width="7" height="7" rx="1" />
+                <rect x="3" y="14" width="7" height="7" rx="1" />
+              </svg>
+              <span class="whitespace-nowrap">Bảng Điều Khiển</span>
+            </div>
+
+            <div class="nav-btn" id="nav-system-integration" onclick="switchTab('system-integration')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M9 2v6" />
+                <path d="M15 2v6" />
+                <path d="M6 8h12v3a6 6 0 0 1-12 0V8z" />
+                <path d="M12 17v5" />
+              </svg>
+              <span class="whitespace-nowrap">Tích Hợp Hệ Thống</span>
+            </div>
+
+            <!-- Sơ Đồ Topology n8n -->
+            <a href="/admin/topology" target="_blank" class="nav-btn group flex items-center justify-between" id="nav-topology" title="Xem sơ đồ mạng lưới kiến trúc và luồng dữ liệu thời gian thực (React Flow)">
+              <div class="flex items-center gap-2.5">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-cyan-500">
+                  <circle cx="18" cy="5" r="3"/>
+                  <circle cx="6" cy="12" r="3"/>
+                  <circle cx="18" cy="19" r="3"/>
+                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                </svg>
+                <span class="whitespace-nowrap">Topology Luồng</span>
+              </div>
+              <span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">n8n</span>
+            </a>
+
+            <!-- ROI Dashboard -->
+            <a class="nav-btn-roi" id="nav-roi-dashboard"
+               href="/roi"
+               target="_blank"
+               title="Mở ROI Dashboard trong tab mới — Hiệu quả đầu tư tự động hóa">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="2" y="2" width="9" height="9" rx="1" />
+                <rect x="13" y="2" width="9" height="9" rx="1" />
+                <rect x="2" y="13" width="9" height="9" rx="1" />
+                <rect x="13" y="13" width="9" height="9" rx="1" />
+              </svg>
+              <span class="whitespace-nowrap">Hiệu Quả ROI</span>
+              <span class="roi-badge">Báo Cáo</span>
+            </a>
+          </div>
         </div>
 
-        <!-- Phase 58 BƯỚC 1: Command Center — một màn hình gom hết việc C.E.O -->
-        <!-- Phase 59/60: TÁCH RIÊNG khỏi Trung Tâm Chỉ Huy. Mọi kết nối tới hệ
-             thống bên ngoài + công cụ doanh nghiệp nằm ở đây, để sau này thêm
-             connector mới chỉ việc thêm 1 thẻ vào khối bên dưới. -->
-        <div class="nav-btn" id="nav-system-integration" onclick="switchTab('system-integration')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M9 2v6" />
-            <path d="M15 2v6" />
-            <path d="M6 8h12v3a6 6 0 0 1-12 0V8z" />
-            <path d="M12 17v5" />
-          </svg>
-          Tích Hợp Hệ Thống Báo Cáo
+        <!-- NHÓM 2: TRÍ TUỆ NHÂN TẠO & ROBOT -->
+        <div>
+          <div class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>TRÍ TUỆ NHÂN TẠO & ROBOT</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+          </div>
+          <div class="space-y-1">
+            <div class="nav-btn" id="nav-ai-manager" onclick="switchTab('ai-manager')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="8" r="4"/>
+                <path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+                <line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="1" y1="12" x2="3" y2="12"/>
+              </svg>
+              <span class="whitespace-nowrap">Quản Lý Trợ Lý AI</span>
+              <span id="badge-ai-status"
+                class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/30">4 AI</span>
+            </div>
+
+            <div class="nav-btn" id="nav-voice" onclick="switchTab('voice')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+              <span class="whitespace-nowrap">Thử Lệnh Thoại (Robot)</span>
+            </div>
+
+            <div class="nav-btn" id="nav-skills" onclick="switchTab('skills')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+              <span class="whitespace-nowrap">Kho Kỹ Năng RPA</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Phase 78: Admin Control Center.
-             Mở tab MỚI, không phải switchTab: /admin là ứng dụng Next.js riêng
-             (bản build tĩnh do FastAPI phục vụ), không phải một tab-pane trong
-             portal. Dùng <a> thay vì onclick để người dùng vẫn mở được bằng
-             chuột phải → Mở tab mới, và đường dẫn hiện trong thanh địa chỉ. -->
-
-        <div class="nav-btn" id="nav-ai-manager" onclick="switchTab('ai-manager')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <circle cx="12" cy="8" r="4"/>
-            <path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
-            <line x1="12" y1="1" x2="12" y2="3"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-            <line x1="1" y1="12" x2="3" y2="12"/>
-          </svg>
-          <span>Quản Lý Trợ Lý AI</span>
-          <span id="badge-ai-status"
-            class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-700">AI</span>
+        <!-- NHÓM 3: DOANH NGHIỆP & TỰ ĐỘNG HÓA -->
+        <div>
+          <div class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>DOANH NGHIỆP & TỰ ĐỘNG HÓA</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+          </div>
+          <div class="space-y-1">
+            <div class="nav-btn" id="nav-tasks" onclick="switchTab('tasks')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M9 11l3 3L22 4" />
+                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
+              <span class="whitespace-nowrap">Nhật Ký Công Việc</span>
+              <span id="badge-kpi-count"
+                class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">KPI</span>
+            </div>
+          </div>
         </div>
 
-        <div class="nav-btn" id="nav-skills" onclick="switchTab('skills')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <polygon points="12 2 2 7 12 12 22 7 12 2" />
-            <polyline points="2 17 12 22 22 17" />
-            <polyline points="2 12 12 17 22 12" />
-          </svg>
-          Kho Kỹ Năng
+        <!-- NHÓM 4: BẢO MẬT & QUẢN TRỊ -->
+        <div>
+          <div class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>BẢO MẬT & QUẢN TRỊ</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          </div>
+          <div class="space-y-1">
+            <div class="nav-btn" id="nav-security" onclick="switchTab('security')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              </svg>
+              <span class="whitespace-nowrap">Trung Tâm Bảo Mật</span>
+              <span id="badge-security-alert"
+                class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">Zero-Trust</span>
+            </div>
+
+            <div class="nav-btn" id="nav-config" onclick="switchTab('config')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3" />
+                <path
+                  d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              <span class="whitespace-nowrap">Cấu Hình Hệ Thống</span>
+            </div>
+
+            <div class="nav-btn" id="nav-logs" onclick="switchTab('logs')">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <polyline points="9 9 3 9" />
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="15" x2="21" y2="15" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+                <polyline points="7 6 3 6" />
+              </svg>
+              <span class="whitespace-nowrap">Nhật Ký Hệ Thống</span>
+              <span id="badge-log-errors"
+                class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30 hidden">0</span>
+            </div>
+          </div>
         </div>
-
-
-        <div class="nav-btn" id="nav-voice" onclick="switchTab('voice')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-          Thử Lệnh Thoại
-        </div>
-
-        <div class="nav-btn" id="nav-config" onclick="switchTab('config')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="3" />
-            <path
-              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
-          Cấu Hình Hệ Thống
-        </div>
-
-        <div class="nav-btn" id="nav-security" onclick="switchTab('security')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-          </svg>
-          <span>Trung Tâm Bảo Mật</span>
-          <span id="badge-security-alert"
-            class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700">Zero-Trust</span>
-        </div>
-
-        <div class="nav-btn" id="nav-tasks" onclick="switchTab('tasks')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M9 11l3 3L22 4" />
-            <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-          </svg>
-          <span>Nhật Ký Công Việc</span>
-          <span id="badge-kpi-count"
-            class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-700">KPI</span>
-        </div>
-
-        <!-- Phase 48: ROI Dashboard separator + button -->
-        <hr class="nav-separator" />
-        <a class="nav-btn-roi" id="nav-roi-dashboard"
-           href="/roi"
-           target="_blank"
-           title="Mở ROI Dashboard trong tab mới — Phase 48">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="2" y="2" width="9" height="9" rx="1" />
-            <rect x="13" y="2" width="9" height="9" rx="1" />
-            <rect x="2" y="13" width="9" height="9" rx="1" />
-            <rect x="13" y="13" width="9" height="9" rx="1" />
-          </svg>
-          <span>ROI Dashboard</span>
-          <span class="roi-badge">Phase 48</span>
-        </a>
-        <hr class="nav-separator" />
-
-        <div class="nav-btn" id="nav-logs" onclick="switchTab('logs')">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-            <polyline points="9 9 3 9" />
-            <line x1="3" y1="12" x2="21" y2="12" />
-            <line x1="3" y1="15" x2="21" y2="15" />
-            <line x1="3" y1="18" x2="21" y2="18" />
-            <polyline points="7 6 3 6" />
-          </svg>
-          <span>Nhật Ký Hệ Thống</span>
-          <span id="badge-log-errors"
-            class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-700 hidden">0</span>
-        </div>
-
       </nav>
     </div>
 
     <!-- Bottom Profile / Status -->
-    <div class="p-4 border-t border-slate-200 dark:border-slate-700/60">
-      <div
-        class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
-        <div
-          class="w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center font-bold text-xs shadow-sm">
-          AI
+    <div class="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/60">
+      <div class="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/90 shadow-sm backdrop-blur-sm">
+        <div class="relative flex-shrink-0">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-600 to-blue-600 text-white flex items-center justify-center font-bold text-xs shadow-md">
+            VN
+          </div>
+          <span class="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900"></span>
         </div>
         <div class="min-w-0 flex-1">
-          <div class="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">VN-MateAI Trợ Lý</div>
-          <div class="text-[10px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            Trực tuyến (v2.0)
+          <div class="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">Hệ Thống Trực Tuyến</div>
+          <div class="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-semibold flex items-center gap-1">
+            <span>Hạ Tầng Enterprise</span>
           </div>
         </div>
       </div>
@@ -790,17 +841,41 @@
   <!-- ─── MAIN CONTENT ─────────────────────────────────────────── -->
   <main class="flex-1 h-screen overflow-y-auto px-8 py-6 relative z-10">
 
-    <!-- Top Header Bar -->
-    <header class="flex items-center justify-between pb-5 mb-6 border-b border-slate-200 dark:border-slate-800">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-900 dark:text-white tracking-tight" id="header-title">Bảng Điều Khiển
-        </h1>
+    <!-- Top Header Bar: C-Level Command Center Architecture -->
+    <header class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-3.5 mb-5 border-b border-slate-200/80 dark:border-slate-800/80 backdrop-blur-md">
+      <div class="flex flex-col gap-1">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+            VN-MATEAI // EXECUTIVE COMMAND
+          </span>
+          <span class="text-slate-400 dark:text-slate-600 hidden sm:inline">|</span>
+          <div class="hidden sm:flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>Cụm 17 Máy Trạm · 9Router Gateway · ESP32 · Active Directory</span>
+          </div>
+        </div>
+        <h1 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5" id="header-title">Bảng Điều Khiển</h1>
       </div>
 
-      <div class="flex items-center gap-3">
-        <!-- Phase 20: Download Client Agent Button -->
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <!-- Quick Switch to Topology Flow (C-Level Operations View) -->
+        <button onclick="switchTab('topology')"
+          class="hidden xl:flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-500/30 bg-cyan-500/5 hover:bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 text-xs font-semibold transition-all shadow-sm active:scale-95"
+          title="Chuyển nhanh sang Sơ đồ Luồng Vận Hành Toàn Cục">
+          <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <circle cx="18" cy="5" r="3"/>
+            <circle cx="6" cy="12" r="3"/>
+            <circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+            <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          <span>Luồng Vận Hành</span>
+        </button>
+
+        <!-- Download Client Agent Button -->
         <button id="btn-download-agent" onclick="downloadClientAgent()"
-          class="hidden md:flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold transition-all duration-200 shadow-md hover:shadow-primary-500/40 hover:scale-105 active:scale-95"
+          class="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-primary-600 to-blue-600 hover:from-primary-700 hover:to-blue-700 text-white text-xs font-semibold transition-all duration-200 shadow-md hover:shadow-primary-500/30 active:scale-95"
           title="Tải xuống Client Agent được đóng gói tự động kèm IP máy chủ hiện tại">
           <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -809,6 +884,7 @@
           </svg>
           <span>Tải Agent</span>
         </button>
+
         <!-- Light / Dark Mode Toggle Button (BƯỚC 1 & BƯỚC 2) -->
         <button id="btn-theme-toggle" onclick="toggleTheme()"
           class="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-all shadow-sm"
@@ -836,7 +912,7 @@
         <!-- Mail Icon -->
         <button
           class="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
-          title="Tin nhắn">
+          title="Hộp thư & Chỉ thị điều hành">
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
             <polyline points="22,6 12,13 2,6" />
@@ -846,31 +922,31 @@
         <!-- Notification Bell with red badge -->
         <button
           class="relative w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
-          title="Thông báo hệ thống">
+          title="Thông báo an ninh & cảnh báo vận hành">
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
             <path d="M13.73 21a2 2 0 0 1-3.46 0" />
           </svg>
-          <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500"></span>
+          <span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse"></span>
         </button>
 
-        <!-- Dynamic User Profile Pill & Logout (Phase 10 RBAC) -->
+        <!-- Dynamic User Profile Pill & Logout -->
         <div
-          class="flex items-center gap-2 pl-2.5 py-1 pr-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm"
+          class="flex items-center gap-2.5 pl-2.5 py-1.5 pr-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 shadow-sm"
           id="header-user-badge">
           <div id="header-user-avatar"
-            class="w-7 h-7 rounded-lg bg-primary-600 flex items-center justify-center text-white font-bold text-xs shadow-sm">
+            class="w-7 h-7 rounded-lg bg-gradient-to-tr from-primary-600 to-indigo-600 flex items-center justify-center text-white font-bold text-xs shadow-sm ring-1 ring-white/20">
             AD
           </div>
-          <div class="text-left leading-none pr-1">
-            <div id="header-user-name" class="text-xs font-semibold text-slate-800 dark:text-slate-200">Quản Trị Viên
+          <div class="text-left leading-tight pr-1">
+            <div id="header-user-name" class="text-xs font-bold text-slate-800 dark:text-slate-100">Quản Trị Viên
             </div>
             <div id="header-user-role"
-              class="text-[10px] text-primary-600 dark:text-primary-400 font-mono uppercase font-bold">ADMIN</div>
+              class="text-[9px] text-cyan-600 dark:text-cyan-400 font-mono uppercase font-extrabold tracking-wider">COMMANDER · ADMIN</div>
           </div>
           <button onclick="handleLogout()"
             class="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors ml-1"
-            title="Đăng xuất khỏi hệ thống">
+            title="Đăng xuất khỏi phiên điều hành">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
@@ -881,138 +957,113 @@
       </div>
     </header>
 
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- TAB: TRUNG TÂM CHỈ HUY — 3 CỘT (PHASE 58 BƯỚC 1)               -->
-    <!--                                                                -->
-    <!-- Vì sao 3 cột: trước đó mọi thứ nằm rải rác ở 10 tab. C.E.O    -->
-    <!-- muốn biết "tôi phải làm gì, tiền đang thế nào, có rủi ro gì"    -->
-    <!-- thì phải bấm qua 3-4 tab và nhớ xem con số nào ở đâu. Cột trái  -->
-    <!-- = việc cần tôi quyết, giữa = tình hình tài chính, phải =       -->
-    <!-- rủi ro & kiến thức.                                              -->
-    <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- ═══ TAB: TRUNG TÂM CHỈ HUY — BẢNG ĐIỀU KHIỂN VẬN HÀNH (PHASE 71) ══
-         Đổi hướng: từ "báo cáo dòng tiền cho C.E.O" sang "giám sát + vận
-         hành hệ thống bằng AI". Admin nói rõ: bỏ phần kiểm tra báo cáo dòng
-         tiền, phần lớn thời gian dùng để giám sát, vận hành, kết nối hạ
-         tầng có sẵn để lấy số liệu, và tự động vận hành.
+    <!-- ─── TAB: TÍCH HỢP HỆ THỐNG & BÁO CÁO ─────────────────────── -->
+    <section class="tab-pane space-y-5" id="tab-system-integration">
 
-         Vì vậy thứ tự ưu tiên đảo lại: sức khoẻ hệ thống và hành động AI lên
-         trên cùng, phần báo cáo tài chính lùi xuống hoặc bỏ hẳn. Số liệu lấy
-         từ các endpoint đang chạy sẵn — không dựng thêm lớp tổng hợp. -->
-
-    <!-- ═══ TAB: TÍCH HỢP HỆ THỐNG BÁO CÁO (PHASE 59/60) ══════════════
-         Tách riêng khỏi "Trung Tâm Chỉ Huy" để mở rộng: thêm một connector
-         mới chỉ việc thêm 1 thẻ vào lưới Kết Nối + 1 khối form trong
-         sub-tab Cấu Hình, không phải chen vào màn hình quyết định của C.E.O. -->
-    <section class="tab-pane space-y-4" id="tab-system-integration">
-
-      <!-- ═══ DẢI CHỈ SỐ TÍCH HỢP ═══════════════════════════════════
-           Cả 4 ô lấy số từ chính các bảng bên dưới nên không tốn thêm
-           lượt gọi API. Lưu ý: "Kết nối ngoại vi" chỉ tính là sẵn sàng sau
-           khi bấm "Kiểm tra tất cả Connector" và kết quả trả về OK. -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Kết nối ngoại vi</span>
+      <!-- ── SECTION HEADER: TÍCH HỢP HỆ THỐNG & BÁO CÁO ─────────────── -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Tích Hợp Hệ Thống & Báo Cáo</h2>
+            <span class="px-2 py-0.5 text-[10px] font-mono font-bold rounded-md bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 border border-primary-200 dark:border-primary-700/50">ENTERPRISE</span>
           </div>
-          <div class="flex items-baseline gap-1">
-            <!-- Nhãn đổi theo trạng thái: chưa kiểm tra thì ghi "chờ" chứ không
-                 phải "0/4 sẵn sàng" — 0/4 đọc thành cả 4 cái đều hỏng, trong
-                 khi thực tế là chưa biết. -->
-            <span id="cc-kpi-connectors" class="text-xl font-bold leading-none text-slate-400 dark:text-slate-500 italic">chờ</span>
-            <span id="cc-kpi-connectors-label" class="text-[9px] text-slate-400 dark:text-slate-500">chưa kiểm tra</span>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Quản trị kết nối dữ liệu doanh nghiệp, cấu hình connectors, webhook sự kiện tự động, và quản lý máy trạm worker trong mạng LAN
+          </p>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button type="button" onclick="runConnectorHealthAll()"
+            class="px-3.5 py-2 text-xs font-semibold rounded-xl bg-primary-600 hover:bg-primary-700 text-white shadow-sm transition active:scale-95 flex items-center gap-1.5" title="Kiểm tra kết nối toàn bộ hệ thống">
+            <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            <span>Kiểm Tra Kết Nối</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══ DẢI CHỈ SỐ TÍCH HỢP ═══════════════════════════════════ -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3.5">
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm p-4 transition hover:border-primary-500/40">
+          <div class="flex items-center justify-between gap-1.5 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Kết nối ngoại vi</span>
+            <span class="w-2 h-2 rounded-full bg-primary-500 animate-pulse"></span>
+          </div>
+          <div class="flex items-baseline gap-1.5 mt-1">
+            <span id="cc-kpi-connectors" class="text-2xl font-bold leading-none text-slate-400 dark:text-slate-500 italic">chờ</span>
+            <span id="cc-kpi-connectors-label" class="text-[10px] text-slate-400 dark:text-slate-500">chưa kiểm tra</span>
           </div>
         </div>
 
-        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-violet-500"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Công cụ</span>
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm p-4 transition hover:border-violet-500/40">
+          <div class="flex items-center justify-between gap-1.5 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Công cụ</span>
+            <span class="w-2 h-2 rounded-full bg-violet-500"></span>
           </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-plugins" class="text-xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">đã đăng ký</span>
-          </div>
-        </div>
-
-        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-sky-500"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tác vụ nền</span>
-          </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-bg-tasks" class="text-xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">đang theo dõi</span>
+          <div class="flex items-baseline gap-1.5 mt-1">
+            <span id="cc-kpi-plugins" class="text-2xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
+            <span class="text-[10px] text-slate-400 dark:text-slate-500">đã đăng ký</span>
           </div>
         </div>
 
-        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm px-3.5 py-2.5">
-          <div class="flex items-center gap-1.5 mb-1">
-            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-            <span class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cảnh báo webhook</span>
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm p-4 transition hover:border-sky-500/40">
+          <div class="flex items-center justify-between gap-1.5 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tác vụ nền</span>
+            <span class="w-2 h-2 rounded-full bg-sky-500"></span>
           </div>
-          <div class="flex items-baseline gap-1">
-            <span id="cc-kpi-webhook-alerts" class="text-xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
-            <span class="text-[9px] text-slate-400 dark:text-slate-500">sự kiện</span>
+          <div class="flex items-baseline gap-1.5 mt-1">
+            <span id="cc-kpi-bg-tasks" class="text-2xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
+            <span class="text-[10px] text-slate-400 dark:text-slate-500">đang theo dõi</span>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm p-4 transition hover:border-amber-500/40">
+          <div class="flex items-center justify-between gap-1.5 mb-1.5">
+            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cảnh báo webhook</span>
+            <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          </div>
+          <div class="flex items-baseline gap-1.5 mt-1">
+            <span id="cc-kpi-webhook-alerts" class="text-2xl font-bold leading-none text-slate-800 dark:text-slate-100">0</span>
+            <span class="text-[10px] text-slate-400 dark:text-slate-500">sự kiện</span>
           </div>
         </div>
       </div>
 
-      <!-- ═══ TRUNG TÂM TÍCH HỢP DOANH NGHIỆP (PHASE 59/60) ══════════ -->
+      <!-- ═══ TRUNG TÂM TÍCH HỢP DOANH NGHIỆP ══════════════════════════ -->
       <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm overflow-hidden">
-        <!-- Phase 85: div tiêu đề khối nay có id (cc-int-header) và ô phụ
-             tên sub-tab (cc-int-header-sub).
-             `switchCcSubTab()` từ lâu đã cố ghi tên sub-tab vào phần tử
-             `cc-int-header h3` — nhưng phần tử đó KHÔNG tồn tại trong HTML,
-             nên mọi lần bấm sub-tab mở rộng ("📊 Báo Cáo", "📈 Phân Tích")
-             tiêu đề im lặng biến mất, không có gì báo lỗi. Nay tên sub-tab
-             hiện ở ô phụ cạnh tiêu đề chung, để người dùng luôn biết đang
-             ở mục nào. Số "Phase 59 · Phase 60" cũng bị gỡ: đó là mã hiệu
-             phát triển, người dùng cuối đọc không hiểu, còn chỗ trống thì
-             dành cho thông tin có ích. -->
-        <div id="cc-int-header" class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
-          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
-            <rect x="2" y="3" width="20" height="14" rx="2" />
-            <path d="M8 21h8" />
-            <path d="M12 17v4" />
-          </svg>
-          <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Trung Tâm Tích Hợp Doanh Nghiệp</h3>
-          <span id="cc-int-header-sub" class="text-[11px] text-slate-500 dark:text-slate-400">Kết nối</span>
+        <div id="cc-int-header" class="px-5 py-3.5 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-primary-500/10 border border-primary-500/20 flex items-center justify-center text-primary-500">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8" />
+                <path d="M12 17v4" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Kênh Dữ Liệu & Vận Hành</h3>
+              <span id="cc-int-header-sub" class="text-[10px] text-slate-500 dark:text-slate-400">Kết nối</span>
+            </div>
+          </div>
 
-          <!-- Thanh sub-tab -->
-          <div class="ml-auto flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100/70 dark:bg-slate-900/50">
+          <!-- Thanh sub-tab điều hướng tối ưu -->
+          <div class="flex flex-wrap items-center gap-1.5 p-1 rounded-xl bg-slate-100/80 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
             <button type="button" onclick="switchCcSubTab('conn')" data-cc-subtab="conn"
-              class="px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-primary-600 text-white shadow-sm transition">Kết Nối</button>
+              class="px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-primary-600 text-white shadow-sm transition">🔌 Kết Nối</button>
             <button type="button" onclick="switchCcSubTab('config')" data-cc-subtab="config"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Cấu Hình</button>
+              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">⚙️ Cấu Hình</button>
             <button type="button" onclick="switchCcSubTab('webhook')" data-cc-subtab="webhook"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Webhook</button>
+              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">⚡ Webhook</button>
             <button type="button" onclick="switchCcSubTab('tools')" data-cc-subtab="tools"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Công Cụ</button>
+              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">🛠️ Công Cụ</button>
+            <button type="button" onclick="switchCcSubTab('devices')" data-cc-subtab="devices"
+              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">🖥️ Máy Trạm</button>
             <button type="button" onclick="switchCcSubTab('sys')" data-cc-subtab="sys"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Hệ Thống</button>
-          <button type="button" onclick="switchCcSubTab('devices')" data-cc-subtab="devices"
-            class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">Máy Trạm</button>
+              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">📊 Hệ Thống</button>
           </div>
         </div>
 
         <!-- ── Sub-tab: KẾT NỐI ──────────────────────────────────── -->
         <div id="cc-int-conn" class="p-4">
-          <!-- Phase 81: 4 card connector viết cứng (78 dòng HTML) bị thay
-               bằng card do `renderConnectionCards()` sinh ra cho TẤT CẢ kết
-               nối — cốt lõi lẫn nguồn tùy chỉnh.
-
-               Trước đây có hai ngôn ngữ hiển thị cho cùng một thứ: 4 connector
-               cốt lõi nằm cứng trong HTML (canh giữa, icon SVG, lưới 4 cột,
-               chỉ nút "Kiểm tra"), còn nguồn tùy chỉnh do JS vẽ ra (canh trái,
-               icon emoji, lưới 3 cột, có thêm "Xem dữ liệu"/"Excel"/"CSV").
-               Người dùng thêm một ERP của hệ thống rồi thấy nó trông như thuộc
-               loại khác — dù server trả về CÙNG một cấu trúc cho cả hai.
-
-               Nay một hàm vẽ, một bố cục. Thêm connector cốt lõi cũng không
-               cần sửa HTML nữa. -->
+          <!-- Lưới danh sách kết nối hệ thống tự động -->
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3" id="cc-connector-health-grid">
             <div class="col-span-full py-6 text-center text-xs text-slate-400 dark:text-slate-500 italic">
               Đang tải danh sách kết nối...
@@ -1044,14 +1095,7 @@
             </button>
           </div>
 
-          <!-- Phase 81: 4 form connector viết cứng ở đây (177 dòng HTML) bị
-               thay bằng form SINH TỰ ĐỘNG từ JSON Schema mà
-               `GET /api/v1/enterprise/connectors/catalog` trả về.
-
-               Lý do: thêm connector mới trước đây phải sửa HTML + JS. Nay
-               khai báo trường ở CONNECTOR_REQUIRED_FIELDS là có form ngay.
-               Nguồn cấu trúc trường giờ chỉ có MỘT chỗ — tránh tình trạng
-               schema và form lệch nhau như bản trước. -->
+          <!-- Form cấu hình connector tự động từ Schema -->
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-3" id="cc-connector-config-forms">
             <div class="col-span-full py-6 text-center text-xs text-slate-400 dark:text-slate-500 italic">
               Đang tải danh mục connector...
@@ -1079,7 +1123,7 @@
         <!-- ── Sub-tab: CÔNG CỤ TÍCH HỢP ─────────────────────────── -->
         <div id="cc-int-tools" class="p-4 hidden">
           <p class="text-[10px] text-slate-400 dark:text-slate-500 mb-3">
-            Gọi trực tiếp 12 công cụ tích hợp (Phase 59) — mỗi lần gọi đều đi qua cổng HITL
+            Gọi trực tiếp các công cụ tích hợp — mỗi lần gọi đều đi qua cổng HITL
             nếu rủi ro ≥ 3.
           </p>
           <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2.5">
@@ -1176,40 +1220,8 @@
             </div>
           </div>
         </div>
-        <!-- ── Sub-tab: MÁY TRẠM (WORKER NODES) ─────────────────────
-             Phase 81: trước đây khối máy trạm nằm tràn dưới sub-tab
-             "Hệ Thống" — 195 dòng HTML khiến màn hình Tích Hợp bị kéo
-             dài bởi nội dung không liên quan tới tích hợp. Nay là sub-tab
-             riêng, chỉ nạp dữ liệu khi bấm vào. -->
+        <!-- ── Sub-tab: MÁY TRẠM (WORKER NODES) ───────────────────── -->
         <div id="cc-int-devices" class="p-4 hidden space-y-3.5">
-          <!-- ═══ PHASE 85 — BỐ TRÍ LẠI KHỐI MÁY TRẠM ═══════════════════
-               Trước đây khối này là 3 `glass-panel` rời rạc: khối tiêu đề +
-               4 thẻ số + 4 nút HUD (~100 dòng), rồi bảng danh sách, rồi
-               hướng dẫn 4 bước. Người dùng phải cuộn qua 2/3 màn hình chữ
-               tĩnh mới tới bảng — thứ duy nhất họ cần xem. Nay gộp thành 3
-               khối theo đúng thứ tự đọc: tiêu đề + số liệu → bảng → hướng dẫn
-               gập lại (nội dung tĩnh mà không phải lúc nào cũng cần đọc).
-
-               Bốn ô số liệu dưới đây chỉ hiện thứ đo được:
-                 • Máy trạm đang kết nối — `len(GET /api/v1/clients)`.
-                   API này CHỈ trả máy đang mở WebSocket: `unregister_client()`
-                   xoá máy khỏi registry lúc rớt kết nối
-                   (core/orchestrator.py). Nên trước đây có hai thẻ "TỔNG MÁY
-                   TRẠM" và "TRỰC TUYẾN REALTIME" — hai cái tên một con số,
-                   luôn bằng nhau. Nay gộp còn một ô.
-                 • Tổng kỹ năng — cộng `skills_count` của các máy (thật).
-                 • Worker cục bộ — `GET /api/v1/orchestrator/local-worker/status`
-                   (thật: đang chạy không, mã tiến trình).
-                 • Cập nhật lúc — thời điểm lần tải gần nhất thành công. Dòng
-                   "Cập nhật tự động realtime" trước đây không gắn với bộ hẹn
-                   giờ nào, tức là lời hứa không có thật; nay có
-                   `_devicesPollTimer` thật, 10 giây/lần, chỉ chạy khi
-                   sub-tab đang mở.
-
-               Không còn thẻ "CỔNG MASTER & TLS" ghi cứng ":443 (SSL PINNED)":
-               con số đó không đo được và sai với máy chủ đang chạy. Cùng lỗi
-               đó còn ở endpoint đóng gói Agent (core/server.py) — xem
-               `_master_ws_url()`. -->
           <div class="glass-panel p-4">
             <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
               <div class="min-w-0">
@@ -1220,6 +1232,12 @@
                 </p>
               </div>
               <div class="flex items-center gap-1.5 flex-wrap shrink-0">
+                <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700/80">
+                  <button type="button" onclick="triggerVisualOverlay('network_map')" class="px-2 py-1 text-[10px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition" title="Hiển thị Sơ đồ mạng HUD">🌐 Mạng</button>
+                  <button type="button" onclick="triggerVisualOverlay('metric_chart')" class="px-2 py-1 text-[10px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition" title="Hiển thị Biểu đồ CPU/RAM HUD">📊 CPU/RAM</button>
+                  <button type="button" onclick="triggerVisualOverlay('alert')" class="px-2 py-1 text-[10px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-rose-500 shadow-sm transition" title="Hiển thị Cảnh báo an ninh HUD">⚠️ Cảnh Báo</button>
+                  <a href="/hud" target="_blank" class="px-2 py-1 text-[10px] font-bold rounded bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:shadow-cyan-500/30 transition flex items-center gap-1" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình">🖥️ 3D HUD</a>
+                </div>
                 <button type="button" onclick="downloadClientAgent()" id="btn-download-agent-devices"
                   title="Tải gói Client Agent (.zip) — trong gói đã điền sẵn địa chỉ, cổng và token của máy chủ này"
                   class="px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[11px] font-bold transition flex items-center gap-1.5">
@@ -1235,14 +1253,6 @@
                   class="px-2 py-1.5 rounded-lg bg-slate-500/10 hover:bg-slate-500/20 text-slate-300 border border-slate-500/30 text-[11px] font-bold transition flex items-center">
                   <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
                 </button>
-                <span class="w-px h-5 bg-slate-300 dark:bg-slate-700" aria-hidden="true"></span>
-                <div class="flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80">
-                  <span class="text-[9px] font-bold text-cyan-600 dark:text-cyan-400 px-1">HUD</span>
-                  <button onclick="triggerVisualOverlay('network_map')" class="px-2 py-1 text-[11px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Sơ đồ mạng HUD">🌐 Mạng</button>
-                  <button onclick="triggerVisualOverlay('metric_chart')" class="px-2 py-1 text-[11px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Biểu đồ CPU/RAM HUD">📊 CPU/RAM</button>
-                  <button onclick="triggerVisualOverlay('alert')" class="px-2 py-1 text-[11px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-red-500 shadow-sm transition active:scale-95" title="Hiển thị Cảnh báo an ninh HUD">⚠️ Cảnh Báo</button>
-                  <a href="/hud" target="_blank" class="px-2 py-1 text-[11px] font-bold rounded bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:shadow-cyan-500/30 transition active:scale-95" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình">🖥️ 3D HUD</a>
-                </div>
               </div>
             </div>
 
@@ -1358,11 +1368,11 @@
       </div>
     </section>
 
-    <!-- TAB 1: DASHBOARD — GRAFANA-STYLE OBSERVABILITY (PHASE 24)     -->
+    <!-- TAB 1: DASHBOARD — OBSERVABILITY GIÁM SÁT HỆ THỐNG -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section class="tab-pane active space-y-5" id="tab-dashboard">
 
-      <!-- ── Phase 25: Pending Action Approval Banner (hidden by default) ── -->
+      <!-- Pending Action Approval Banner -->
       <div id="pending-action-banner"
         class="hidden rounded-2xl border border-amber-500/40 bg-amber-500/10 dark:bg-amber-500/8 p-4 flex items-start gap-4 backdrop-blur-sm animate-pulse-slow">
         <div
@@ -1393,11 +1403,11 @@
         </div>
       </div>
 
-      <!-- ── Dashboard Header ──────────────────────────────────────────── -->
-      <div class="flex items-center justify-between">
-        <div>
-          <h1 class="text-lg font-bold text-slate-900 dark:text-white tracking-tight">Monitor-Dashboard</h1>
-          <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Giám sát hệ thống theo thời gian thực · Cập nhật mỗi 2 giây</p>
+      <!-- ── Dashboard Header: Sub-bar tinh giản thanh lịch ──────────────── -->
+      <div class="flex items-center justify-between pb-1">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-bold text-slate-800 dark:text-slate-100 tracking-tight">Trung Tâm Giám Sát Thời Gian Thực</span>
+          <span class="text-xs text-slate-400 dark:text-slate-500 font-normal hidden sm:inline">· Chu kỳ quét 2s</span>
         </div>
         <div class="flex items-center gap-2">
           <!-- Quick Skills Counter Badge -->
@@ -1415,6 +1425,151 @@
             Hệ thống Online
           </span>
           <span id="health-timestamp" class="text-[10px] text-slate-400 dark:text-slate-500 hidden sm:block"></span>
+        </div>
+      </div>
+
+      <!-- ── 3D CYBERNETIC HUD & VISUAL OVERLAY CONTROL PANEL ── -->
+      <div class="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-950/40 via-slate-900/80 to-blue-950/40 p-3.5 shadow-sm backdrop-blur-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_14px_rgba(0,242,254,0.25)]">
+            <svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Trợ Lý AI 3D HUD & Thị Giác Trực Quan</h3>
+              <span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">3D COCKPIT</span>
+            </div>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Buồng lái tương tác 3D HUD thời gian thực, trực quan hóa sóng âm FFT, sơ đồ mạng và tài nguyên
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap shrink-0">
+          <button type="button" onclick="triggerVisualOverlay('network_map')" class="px-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-cyan-400 hover:border-cyan-500/40 shadow-sm transition active:scale-95 flex items-center gap-1.5" title="Hiển thị Sơ đồ mạng HUD">
+            <span>🌐 Sơ Đồ Mạng</span>
+          </button>
+          <button type="button" onclick="triggerVisualOverlay('metric_chart')" class="px-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-cyan-400 hover:border-cyan-500/40 shadow-sm transition active:scale-95 flex items-center gap-1.5" title="Hiển thị Biểu đồ CPU/RAM HUD">
+            <span>📊 CPU / RAM</span>
+          </button>
+          <button type="button" onclick="triggerVisualOverlay('alert')" class="px-3 py-1.5 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:text-rose-400 hover:border-rose-500/40 shadow-sm transition active:scale-95 flex items-center gap-1.5" title="Kích hoạt cảnh báo an ninh HUD">
+            <span>⚠️ Cảnh Báo</span>
+          </button>
+          <a href="/hud" target="_blank" class="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white shadow-md shadow-cyan-500/20 transition active:scale-95 flex items-center gap-1.5" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình ở tab mới">
+            <span>🖥️ Mở 3D HUD Toàn Màn Hình ↗</span>
+          </a>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- ── EXECUTIVE COMMAND PILLARS & STRATEGIC HEALTH METRICS ──────── -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div class="space-y-3">
+        <!-- Executive Operations Quick Command Bar -->
+        <div class="p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md shadow-sm flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2 pl-1">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider font-mono">Bảng Chỉ Huy C-Level</span>
+            <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden md:inline">| Giám sát toàn vẹn hạ tầng & tự động hóa doanh nghiệp</span>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <button type="button" onclick="switchTab('topology')"
+              class="px-3 py-1.5 rounded-xl border border-cyan-500/30 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 text-xs font-semibold transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+              title="Quan sát sơ đồ kết nối luồng hoạt động từ đầu đến cuối">
+              <span>🗺️ Luồng Topology</span>
+            </button>
+            <button type="button" onclick="switchTab('ai-manager')"
+              class="px-3 py-1.5 rounded-xl border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 text-xs font-semibold transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+              title="Quản lý và điều phối lực lượng Trợ lý AI & RPA">
+              <span>🤖 Quản Lý Agent</span>
+            </button>
+            <button type="button" onclick="runConnectorHealthAll()"
+              class="px-3 py-1.5 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-semibold transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+              title="Kiểm tra kết nối và độ trễ toàn bộ các nút ngoại vi">
+              <span>⚡ Rà Soát Kết Nối</span>
+            </button>
+            <button type="button" onclick="switchTab('roi-dashboard')"
+              class="px-3 py-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-xs font-semibold transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+              title="Đo lường thời gian tiết kiệm và chỉ số ROI tự động hóa">
+              <span>📈 Báo Cáo ROI</span>
+            </button>
+            <button type="button" onclick="switchTab('security')"
+              class="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-700 dark:text-rose-300 text-xs font-semibold transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+              title="Kiểm tra phân quyền RBAC và an ninh Zero-Trust">
+              <span>🛡️ An Ninh Hệ Thống</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 6 Executive Health Pillars Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <!-- Pillar 1: Cluster Health Status -->
+          <div class="p-3 rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-emerald-500/60 transition group cursor-pointer"
+            onclick="switchTab('dashboard')" title="Trạng thái cụm máy chủ">
+            <div class="flex items-center justify-between text-emerald-500 mb-1">
+              <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Trạng Thái Cụm</span>
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            </div>
+            <div id="exec-cluster-status-text" class="text-xl font-bold text-emerald-500 tabular-nums tracking-tight">Trực Tuyến</div>
+            <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-1 truncate">Hạ tầng sẵn sàng</div>
+          </div>
+
+          <!-- Pillar 2: 17 Workers -->
+          <div class="p-3 rounded-2xl border border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-blue-500/60 transition group cursor-pointer"
+            onclick="switchTab('system-integration')" title="Hạ tầng 17 Máy Trạm / OpenClaw phân tán">
+            <div class="flex items-center justify-between text-blue-500 mb-1">
+              <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Máy Trạm Worker</span>
+              <span class="text-xs">🖥️</span>
+            </div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">17 Nodes</div>
+            <div class="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-1 truncate">OpenClaw RPA Sẵn Sàng</div>
+          </div>
+
+          <!-- Pillar 3: 9Router Gateway -->
+          <div class="p-3 rounded-2xl border border-cyan-500/30 bg-gradient-to-br from-cyan-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-cyan-500/60 transition group cursor-pointer"
+            onclick="switchTab('topology')" title="Hạ tầng định tuyến AI 9Router Gateway">
+            <div class="flex items-center justify-between text-cyan-500 mb-1">
+              <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">9Router Gateway</span>
+              <span class="text-xs">🌐</span>
+            </div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">AI Router</div>
+            <div class="text-[11px] text-cyan-600 dark:text-cyan-400 font-medium mt-1 truncate">Claude · GPT · DeepSeek</div>
+          </div>
+
+          <!-- Pillar 4: Robot Trợ Lý ESP32 -->
+          <div class="p-3 rounded-2xl border border-violet-500/30 bg-gradient-to-br from-violet-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-violet-500/60 transition group cursor-pointer"
+            onclick="switchTab('ai-manager')" title="Robot Trợ Lý ESP32 thoại Hey Lyly & AI Manager">
+            <div class="flex items-center justify-between text-violet-500 mb-1">
+              <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Robot Trợ Lý</span>
+              <span class="text-xs">🎙️</span>
+            </div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">ESP32 Online</div>
+            <div class="text-[11px] text-violet-600 dark:text-violet-400 font-medium mt-1 truncate">Hey Lyly + 3D Cockpit</div>
+          </div>
+
+          <!-- Pillar 5: Telegram Bot HITL -->
+          <div class="p-3 rounded-2xl border border-sky-500/30 bg-gradient-to-br from-sky-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-sky-500/60 transition group cursor-pointer"
+            onclick="switchTab('security')" title="Telegram Bot Gateway duyệt lệnh Human-In-The-Loop">
+            <div class="flex items-center justify-between text-sky-500 mb-1">
+              <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Telegram HITL</span>
+              <span class="text-xs">📱</span>
+            </div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">HITL Active</div>
+            <div class="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1 truncate">Phê duyệt lệnh 2 chiều</div>
+          </div>
+
+          <!-- Pillar 6: SQLite WAL & Active Directory -->
+          <div class="p-3 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-amber-500/60 transition group cursor-pointer"
+            onclick="switchTab('config')" title="Sổ cái SQLite WAL & Đồng bộ người dùng Active Directory">
+            <div class="flex items-center justify-between text-amber-500 mb-1">
+              <span class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Sổ Cái & AD Sync</span>
+              <span class="text-xs">🗄️</span>
+            </div>
+            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">WAL · Đồng Bộ</div>
+            <div class="text-[11px] text-amber-600 dark:text-amber-400 font-medium mt-1 truncate">Active Directory Zero-Trust</div>
+          </div>
         </div>
       </div>
 
@@ -1730,8 +1885,8 @@
               <div class="flex items-center gap-2">
                 <span class="text-xl">🎙️</span>
                 <div>
-                  <div class="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">Mạch
-                    Xiaozhi</div>
+                  <div class="text-[10px] text-slate-500 dark:text-slate-400 font-medium uppercase tracking-wide">Robot Trợ Lý ESP32</div>
+                  <div class="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono font-semibold">Hey Lyly Voice Node</div>
                 </div>
               </div>
               <div id="node-audio-hw" class="text-3xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums">—
@@ -1795,7 +1950,7 @@
       </div>
 
       <!-- ═══════════════════════════════════════════════════════════════ -->
-      <!-- PHASE 61: BỘ MONITOR MỞ RỘNG (6 panel)                            -->
+      <!-- BỘ GIÁM SÁT HẠ TẦNG & AN NINH -->
       <!-- Nguồn dữ liệu: /api/v1/health-dashboard (counters, 2s)  +
            vòng poll nặng 15s: hitl/pending, background-tasks,
            plugin-registry/stats, memory/stats, system/stats,
@@ -1833,7 +1988,7 @@
                 <div>
                   <div class="text-[10px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">Phê
                     Duyệt Đang Chờ</div>
-                  <div class="text-[10px] text-slate-400 dark:text-slate-500">Zero-Trust + HITL Phase 60</div>
+                  <div class="text-[10px] text-slate-400 dark:text-slate-500">Zero-Trust & HITL Control</div>
                 </div>
               </div>
               <div class="flex items-center gap-2">
@@ -1886,7 +2041,7 @@
           </div>
         </div>
 
-        <!-- ═══ PHÊ DUYỆT (chủ sở hữu — Phase 78) ══════════ -->
+        <!-- Phê Duyệt Hệ Thống -->
         <div id="dash-pending-card"
           class="rounded-2xl border border-amber-500/30 dark:border-amber-500/20 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
           <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
@@ -2108,7 +2263,7 @@
 
 
       <!-- ══════════════════════════════════════════════════════════════ -->
-      <!-- TRUNG TÂM CHỈ HUY C.E.O (gộp từ tab riêng — Phase 79)              -->
+      <!-- TRUNG TÂM CHỈ HUY C.E.O -->
       <!-- ══════════════════════════════════════════════════════════════ -->
       <!-- Trước đây là một tab riêng. Nội dung ở đây và phần giám sát phía
            trên cùng trả lời một câu hỏi nên tách làm hai tab chỉ tăng chi phí
@@ -2310,10 +2465,7 @@
         </div>
       </div>
 
-      <!-- ═══ KẾT NỐI HẠ TẦNG  |  CẢNH BÁO AN NINH ══════════════════════
-           Phase 82: các khối "Biểu Đồ Số Liệu" và "Tra Cứu Quy Chế" riêng đã
-           bỏ theo yêu cầu — AI trả lời bằng chữ trong ô Điều Hành AI. Khối
-           "Nhật Ký Vận Hành" đã thuộc về tab Nhật Ký. -->
+      <!-- ═══ KẾT NỐI HẠ TẦNG  |  CẢNH BÁO AN NINH ══════════════════════ -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
 
         <!-- Kết nối hạ tầng có sẵn -->
@@ -2355,7 +2507,7 @@
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <!-- TAB 2: SKILLS CATALOG (KHO KỸ NĂNG CHI TIẾT)                   -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- TAB: QUẢN LÝ TRỢ LÝ AI (Phase 27 — Unified AI Management Hub) -->
+    <!-- TAB: QUẢN LÝ TRỢ LÝ AI -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section class="tab-pane space-y-6" id="tab-ai-manager">
 
@@ -2364,7 +2516,7 @@
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div class="flex items-center gap-2 mb-2">
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-violet-500/20 text-violet-400 border border-violet-400/40">PHASE 27</span>
+              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-violet-500/20 text-violet-400 border border-violet-400/40">AI CLUSTER</span>
               <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-400/40">UNIFIED HUB</span>
             </div>
             <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
@@ -2443,388 +2595,406 @@
         </div>
       </div>
 
-      <!-- ── 3-Card Grid ── -->
-      <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <!-- ── Main Grid: 2-Column Balanced Dashboard (7 cols Left / 5 cols Right) ── -->
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-        <!-- ════════════════════════════════════════════ -->
-        <!-- CARD 1: BỘ NÃO & XỬ LÝ NGÔN NGỮ (LLM)     -->
-        <!-- ════════════════════════════════════════════ -->
-        <div class="glass-panel p-6 space-y-5 flex flex-col">
-          <!-- Card Header -->
-          <div class="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-white/10">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/30 to-blue-500/20 border border-cyan-400/40 flex items-center justify-center text-lg flex-shrink-0">🧠</div>
-            <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Bộ Não & Xử Lý Ngôn Ngữ</h3>
-              <p class="text-[11px] text-cyan-500 dark:text-cyan-400 font-semibold">LLM Endpoint — OpenAI Compatible</p>
-            </div>
-          </div>
+        <!-- ════════════════════════════════════════════════════════════ -->
+        <!-- LEFT COLUMN: BỘ NÃO LLM & CÁ TÍNH PERSONA (7 COLS)        -->
+        <!-- ════════════════════════════════════════════════════════════ -->
+        <div class="lg:col-span-7 space-y-6 flex flex-col">
 
-          <!-- Fields -->
-          <div class="space-y-4 flex-1 text-xs">
-
-            <!-- Base URL -->
-            <div class="space-y-1.5">
-              <label class="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
-                ĐỊA CHỈ KẾT NỐI (BASE URL)
-                <span class="ai-tooltip-trigger" data-tip="Thay đổi Base URL sẽ chuyển toàn bộ luồng AI sang server mới. Chỉ đổi khi bạn chắc chắn server đích đang chạy và tương thích OpenAI API.">
-                  <svg class="text-amber-400" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                </span>
-              </label>
-              <input type="text" id="ai-llm-base"
-                class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
-                placeholder="http://localhost:20128/v1" />
-            </div>
-
-            <!-- Model Name -->
-            <div class="space-y-1.5">
-              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200">
-                <span>TÊN MÔ HÌNH (MODEL)</span>
-                <button type="button" onclick="loadAIProxyModels()" class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1">
-                  <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                  Tải từ 9router
-                </button>
-              </label>
-              <input type="text" id="ai-llm-model" list="ai-models-list"
-                class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
-                placeholder="VD: VN-MateAi hoặc openrouter/ling-3.0-flash-fin:free" />
-              <!-- Phase 68: danh sách gợi ý nạp từ router, không ghi cứng.
-                   Trước đây 7 tên model ghi thẳng vào HTML; khi provider hết
-                   tiền, giao diện vẫn gợi ý những model không gọi được. -->
-              <datalist id="ai-models-list"></datalist>
-              <div id="ai-proxy-model-picker-wrap" class="hidden mt-1">
-                <select id="ai-proxy-model-select" onchange="document.getElementById('ai-llm-model').value = this.value; if(typeof onModelChanged === 'function') onModelChanged();" class="input-dark text-[11px] font-mono w-full">
-                  <option value="">-- Chọn mô hình từ 9router --</option>
-                </select>
+          <!-- CARD 1: BỘ NÃO & XỬ LÝ NGÔN NGỮ (LLM) -->
+          <div class="glass-panel p-6 space-y-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg hover:border-cyan-500/30 transition-all duration-300">
+            <!-- Header -->
+            <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-white/10">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-400/40 flex items-center justify-center text-xl shadow-sm flex-shrink-0">
+                  🧠
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    Bộ Não & Xử Lý Ngôn Ngữ
+                    <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">LLM CORE</span>
+                  </h3>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">Endpoint OpenAI-Compatible — Kết nối 9router, vLLM hoặc Ollama</p>
+                </div>
               </div>
-
-              <!-- Quick Model Selector Chips
-                   Phase 68: sinh từ danh sách router đang phục vụ, không ghi cứng.
-                   5 nút này từng trỏ model của provider đã hết tiền — bấm là
-                   không có phản hồi, và người dùng không có cách nào biết vì sao
-                   trừ khi tự mở log. Nay chỉ hiện model router thực sự phục vụ. -->
-              <div id="ai-quick-models" class="flex flex-wrap gap-1 pt-0.5">
-                <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
-              </div>
+              <button type="button" onclick="testAILLMConnection()" id="btn-ai-test-llm"
+                class="px-3 py-1.5 text-[11px] font-bold rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:border-cyan-400/60 transition flex items-center gap-1.5 shadow-sm">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                <span>Kiểm Tra Kết Nối</span>
+              </button>
             </div>
 
-            <!-- API Key -->
-            <div class="space-y-1.5">
-              <label class="font-semibold text-slate-700 dark:text-slate-200">MÃ BẢO MẬT (API KEY)</label>
-              <div class="relative">
-                <input type="password" id="ai-llm-key"
-                  class="input-dark font-mono text-xs w-full pr-8"
-                  placeholder="sk-..." />
-                <button type="button" onclick="toggleAIKeyVisibility()"
-                  class="absolute right-2 top-2 text-slate-400 hover:text-white transition" title="Ẩn/Hiện khóa">
-                  <svg id="ai-eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                    <circle cx="12" cy="12" r="3"/>
-                  </svg>
-                </button>
-              </div>
-              <!-- Phase 81: báo trạng thái khoá NGAY dưới ô. Trước đây chỉ tab
-                   Cấu Hình có dòng này, tab này không có — người dán khoá lưu
-                   xong bấm F5 thấy ô trống, tưởng mất khoá, dán lại. Khoá
-                   KHÔNG BAO GIỜ được gửi về trình duyệt, nên ô trống là đúng;
-                   thiếu là thiếu bằng chứng cho biết đã lưu hay chưa. -->
-              <p id="ai-llm-key-hint" class="text-[10px] italic"></p>
-            </div>
+            <!-- Fields -->
+            <div class="space-y-4 text-xs">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Base URL -->
+                <div class="space-y-1.5">
+                  <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                    <span class="flex items-center gap-1.5">
+                      ĐỊA CHỈ KẾT NỐI (BASE URL)
+                      <span class="ai-tooltip-trigger" data-tip="Chuyển toàn bộ luồng xử lý AI sang server đích tương thích OpenAI API.">
+                        <svg class="text-amber-400" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                      </span>
+                    </span>
+                    <span class="text-[9px] text-cyan-500 font-mono">OpenAI Compatible</span>
+                  </label>
+                  <input type="text" id="ai-llm-base"
+                    class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
+                    placeholder="http://localhost:20128/v1" />
+                </div>
 
-            <!-- Streaming Toggle -->
-            <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 flex items-center justify-between gap-3">
-              <div>
-                <div class="font-bold text-slate-800 dark:text-white text-xs">Chế Độ Streaming</div>
-                <p class="text-[10px] text-slate-400 mt-0.5">Đọc đuổi từng token — phản hồi xuất hiện ngay lập tức.</p>
-              </div>
-              <div class="switch-track" id="ai-switch-streaming" onclick="toggleAISwitch('ai-switch-streaming')">
-                <div class="switch-knob"></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Test Connection -->
-          <div class="pt-4 border-t border-slate-100 dark:border-white/5">
-            <button type="button" onclick="testAILLMConnection()" id="btn-ai-test-llm"
-              class="w-full px-4 py-2 text-xs font-bold rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:border-cyan-400/60 transition flex items-center justify-center gap-2">
-              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-              ⚡ Kiểm Tra Kết Nối LLM
-            </button>
-            <div id="ai-status-test-llm" class="hidden mt-3 text-xs p-3 rounded-xl transition-all"></div>
-          </div>
-        </div>
-
-        <!-- ════════════════════════════════════════════ -->
-        <!-- CARD 2: CÁ TÍNH & ĐỊNH DANH (PERSONA)       -->
-        <!-- ════════════════════════════════════════════ -->
-        <div class="glass-panel p-6 space-y-5 flex flex-col">
-          <!-- Card Header -->
-          <div class="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-white/10">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/30 to-purple-500/20 border border-violet-400/40 flex items-center justify-center text-lg flex-shrink-0">🎭</div>
-            <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Cá Tính & Định Danh</h3>
-              <p class="text-[11px] text-violet-400 font-semibold">AI Persona — Wake Word & Identity</p>
-            </div>
-          </div>
-
-          <!-- Fields -->
-          <div class="space-y-4 flex-1 text-xs">
-
-            <!-- AI Name + Wake Word -->
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200">TÊN TRỢ LÝ AI</label>
-                <input type="text" id="ai-persona-name"
-                  class="input-dark w-full text-violet-600 dark:text-violet-300 font-semibold"
-                  placeholder="Ly Ly" />
-              </div>
-              <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200">TỪ KHÓA KÍCH HOẠT</label>
-                <input type="text" id="ai-persona-wake"
-                  class="input-dark w-full text-amber-600 dark:text-amber-300 font-mono"
-                  placeholder="Hey Ly Ly" />
-              </div>
-            </div>
-
-            <!-- Pronouns -->
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200">AI XƯNG LÀ</label>
-                <select id="ai-persona-ai-pronoun" class="input-dark w-full">
-                  <option value="em">Em (thân mật)</option>
-                  <option value="tôi">Tôi (trang trọng)</option>
-                  <option value="mình">Mình (gần gũi)</option>
-                  <option value="bạn">Bạn (bình đẳng)</option>
-                </select>
-              </div>
-              <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200">NGƯỜI DÙNG LÀ</label>
-                <select id="ai-persona-user-pronoun" class="input-dark w-full">
-                  <option value="anh">Anh</option>
-                  <option value="chị">Chị</option>
-                  <option value="bạn">Bạn</option>
-                  <option value="sếp">Sếp</option>
-                  <option value="anh/chị">Anh/Chị</option>
-                </select>
-              </div>
-            </div>
-
-            <!-- One-Click Persona Presets -->
-            <div class="space-y-1.5">
-              <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between text-[11px]">
-                <span>PHONG CÁCH MẪU (PRESETS)</span>
-                <span class="text-[10px] text-violet-400 font-normal">Click để áp dụng</span>
-              </label>
-              <div class="grid grid-cols-2 gap-1.5">
-                <button type="button" onclick="applyPersonaPreset('it_admin')" class="p-2 rounded-lg bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2">
-                  <span class="text-base shrink-0">🛠️</span>
-                  <div class="min-w-0">
-                    <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">Kỹ Thuật & RPA</div>
-                    <div class="text-[9px] text-slate-400 truncate">Dứt khoát, chuẩn IT</div>
+                <!-- API Key -->
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between">
+                    <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">MÃ BẢO MẬT (API KEY)</label>
+                    <span id="ai-llm-key-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU KHOÁ</span>
                   </div>
-                </button>
-                <button type="button" onclick="applyPersonaPreset('enterprise')" class="p-2 rounded-lg bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2">
-                  <span class="text-base shrink-0">🏢</span>
-                  <div class="min-w-0">
-                    <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">Hành Chính CSKH</div>
-                    <div class="text-[9px] text-slate-400 truncate">Chu đáo, xưng em</div>
+                  <div class="relative">
+                    <input type="password" id="ai-llm-key"
+                      class="input-dark font-mono text-xs w-full pr-8"
+                      placeholder="sk-..." />
+                    <button type="button" onclick="toggleAIKeyVisibility()"
+                      class="absolute right-2 top-2 text-slate-400 hover:text-white transition" title="Ẩn/Hiện khóa">
+                      <svg id="ai-eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    </button>
                   </div>
-                </button>
-                <button type="button" onclick="applyPersonaPreset('security_sentinel')" class="p-2 rounded-lg bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2">
-                  <span class="text-base shrink-0">🛡️</span>
-                  <div class="min-w-0">
-                    <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">An Ninh Sentinel</div>
-                    <div class="text-[9px] text-slate-400 truncate">Zero-trust, bảo mật</div>
-                  </div>
-                </button>
-                <button type="button" onclick="applyPersonaPreset('minimal_speed')" class="p-2 rounded-lg bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2">
-                  <span class="text-base shrink-0">⚡</span>
-                  <div class="min-w-0">
-                    <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">Tối Giản Siêu Tốc</div>
-                    <div class="text-[9px] text-slate-400 truncate">&lt; 2 câu, cực nhanh</div>
-                  </div>
-                </button>
-              </div>
-            </div>
-
-            <!-- System Prompt -->
-            <div class="space-y-1.5 flex-1">
-              <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                <span class="flex items-center gap-1.5">
-                  PHONG CÁCH TRẢ LỜI (SYSTEM PROMPT)
-                  <span class="ai-tooltip-trigger" data-tip="System Prompt định hình tính cách và phong cách giao tiếp của AI. Ví dụ: 'Bạn là trợ lý IT chuyên nghiệp, trả lời ngắn gọn và kỹ thuật.'">
-                    <svg class="text-violet-400" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  </span>
-                </span>
-                <span id="ai-prompt-tokens-badge" class="text-[10px] font-mono text-violet-400 font-bold">~0 tokens</span>
-              </label>
-              <textarea id="ai-persona-prompt" rows="5"
-                oninput="updatePromptStats()"
-                class="input-dark w-full text-xs font-mono resize-none leading-relaxed"
-                placeholder="Bạn là Lyly — trợ lý AI thông minh của doanh nghiệp. Trả lời bằng tiếng Việt, ngắn gọn, chính xác và chuyên nghiệp. Ưu tiên thực thi lệnh RPA và trả lời câu hỏi về hệ thống IT nội bộ..."></textarea>
-              <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono px-0.5">
-                <span id="ai-prompt-chars">0 ký tự</span>
-                <span class="text-slate-500">Biến: <code class="text-violet-400">{{ai_name}}</code>, <code class="text-violet-400">{{user_name}}</code></span>
-                <span id="ai-prompt-context-pct" class="text-cyan-400 font-semibold">0.0% context</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Reset Persona -->
-          <div class="pt-4 border-t border-slate-100 dark:border-white/5">
-            <button type="button" onclick="resetAIPersona()"
-              class="w-full px-4 py-2 text-xs font-bold rounded-xl bg-slate-100 dark:bg-white/5 hover:bg-violet-500/10 text-slate-500 dark:text-slate-400 hover:text-violet-400 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 transition flex items-center justify-center gap-2">
-              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2 11.5a10 10 0 0 1 18.8-4.3"/></svg>
-              Đặt Lại Mặc Định
-            </button>
-          </div>
-        </div>
-
-        <!-- ════════════════════════════════════════════ -->
-        <!-- CARD 3: THANH QUẢN & THÍNH GIÁC (AUDIO)     -->
-        <!-- ════════════════════════════════════════════ -->
-        <div class="glass-panel p-6 space-y-5 flex flex-col">
-          <!-- Card Header -->
-          <div class="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-white/10">
-            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/30 to-teal-500/20 border border-emerald-400/40 flex items-center justify-center text-lg flex-shrink-0">🎙️</div>
-            <div>
-              <h3 class="text-sm font-bold text-slate-900 dark:text-white">Thanh Quản & Thính Giác</h3>
-              <p class="text-[11px] text-emerald-400 font-semibold">Audio — TTS & ASR Processing</p>
-            </div>
-          </div>
-
-          <!-- Fields -->
-          <div class="space-y-4 flex-1 text-xs">
-
-            <!-- TTS Section -->
-            <div class="p-3 rounded-xl bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 space-y-3">
-              <div class="flex items-center gap-1.5 font-bold text-emerald-700 dark:text-emerald-300 text-[11px] uppercase tracking-wide">
-                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
-                Giọng Đọc (TTS)
+                  <p id="ai-llm-key-hint" class="text-[10px] italic"></p>
+                </div>
               </div>
 
-              <div class="space-y-1.5">
-                <label class="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
-                  ENGINE TTS
-                  <span class="ai-tooltip-trigger" data-tip="Thay đổi Engine TTS yêu cầu khởi động lại dịch vụ. Edge-TTS là lựa chọn mặc định không cần cài đặt, chất lượng cao và hỗ trợ tiếng Việt tốt nhất.">
-                    <svg class="text-amber-400" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  </span>
-                </label>
-                <select id="ai-tts-engine" class="input-dark w-full" onchange="onAITTSEngineChange()">
-                  <option value="edge-tts">Edge-TTS (Microsoft — Khuyên dùng)</option>
-                  <option value="local">Local TTS (Offline — Piper/eSpeak)</option>
-                  <option value="elevenlabs">ElevenLabs (Cloud Premium)</option>
-                </select>
-              </div>
-
-              <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                  <span>GIỌNG ĐỌC</span>
-                  <button type="button" onclick="loadEdgeTTSVoices()"
-                    class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1" id="btn-load-voices">
-                    <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-                    Tải 322 Giọng
+              <!-- Model Name with Selector & Chips -->
+              <div class="space-y-1.5 pt-1">
+                <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                  <span>TÊN MÔ HÌNH CHÍNH (MODEL NAME)</span>
+                  <button type="button" onclick="loadAIProxyModels()" class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 font-semibold">
+                    <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    Tải từ 9router
                   </button>
                 </label>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  <input type="text" id="ai-llm-model" list="ai-models-list"
+                    class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
+                    placeholder="VD: ag/claude-opus-4-6-thinking" />
+                  <div id="ai-proxy-model-picker-wrap" class="hidden">
+                    <select id="ai-proxy-model-select" onchange="document.getElementById('ai-llm-model').value = this.value; if(typeof onModelChanged === 'function') onModelChanged();" class="input-dark text-[11px] font-mono w-full">
+                      <option value="">-- Chọn mô hình từ 9router --</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Datalist -->
+                <datalist id="ai-models-list"></datalist>
+
+                <!-- Quick Model Selector Chips -->
+                <div class="pt-1.5 flex items-center gap-2">
+                  <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider shrink-0">Gợi ý nhanh:</span>
+                  <div id="ai-quick-models" class="flex flex-wrap gap-1.5">
+                    <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Streaming Switch -->
+              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2.5">
+                  <div class="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm">
+                    ⚡
+                  </div>
+                  <div>
+                    <div class="font-bold text-slate-800 dark:text-white text-xs">Chế Độ Streaming (Token By Token)</div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Phản hồi văn bản xuất hiện ngay lập tức theo thời gian thực.</p>
+                  </div>
+                </div>
+                <div class="switch-track" id="ai-switch-streaming" onclick="toggleAISwitch('ai-switch-streaming')">
+                  <div class="switch-knob"></div>
+                </div>
+              </div>
+
+              <!-- Test Result Status -->
+              <div id="ai-status-test-llm" class="hidden text-xs p-3 rounded-xl transition-all"></div>
+            </div>
+          </div>
+
+          <!-- CARD 2: CÁ TÍNH & ĐỊNH DANH (PERSONA) -->
+          <div class="glass-panel p-6 space-y-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg hover:border-violet-500/30 transition-all duration-300">
+            <!-- Header -->
+            <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-white/10">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500/20 to-purple-500/10 border border-violet-400/40 flex items-center justify-center text-xl shadow-sm flex-shrink-0">
+                  🎭
+                </div>
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    Cá Tính, Xưng Hô & Định Danh
+                    <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-violet-500/10 text-violet-400 border border-violet-500/30">AI PERSONA</span>
+                  </h3>
+                  <p class="text-[11px] text-slate-500 dark:text-slate-400">Xưng hô, từ khóa đánh thức (wake word) và định hình phong cách phản hồi</p>
+                </div>
+              </div>
+              <button type="button" onclick="resetAIPersona()"
+                class="px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-slate-100 dark:bg-white/5 hover:bg-violet-500/10 text-slate-500 dark:text-slate-400 hover:text-violet-400 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 transition flex items-center gap-1.5 shadow-sm">
+                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2 11.5a10 10 0 0 1 18.8-4.3"/></svg>
+                <span>Mặc Định</span>
+              </button>
+            </div>
+
+            <!-- Fields -->
+            <div class="space-y-4 text-xs">
+              <!-- Name + Wake Word + Pronouns 4-col Grid -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="space-y-1.5">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">TÊN TRỢ LÝ</label>
+                  <input type="text" id="ai-persona-name"
+                    class="input-dark w-full text-violet-600 dark:text-violet-300 font-bold"
+                    placeholder="Ly Ly" />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">TỪ KHÓA WAKE</label>
+                  <input type="text" id="ai-persona-wake"
+                    class="input-dark w-full text-amber-600 dark:text-amber-300 font-mono font-semibold"
+                    placeholder="Hey Ly Ly" />
+                </div>
+                <div class="space-y-1.5">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">AI XƯNG LÀ</label>
+                  <select id="ai-persona-ai-pronoun" class="input-dark w-full">
+                    <option value="em">Em (thân mật)</option>
+                    <option value="tôi">Tôi (trang trọng)</option>
+                    <option value="mình">Mình (gần gũi)</option>
+                    <option value="bạn">Bạn (bình đẳng)</option>
+                  </select>
+                </div>
+                <div class="space-y-1.5">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">NGƯỜI DÙNG LÀ</label>
+                  <select id="ai-persona-user-pronoun" class="input-dark w-full">
+                    <option value="anh">Anh</option>
+                    <option value="chị">Chị</option>
+                    <option value="bạn">Bạn</option>
+                    <option value="sếp">Sếp</option>
+                    <option value="anh/chị">Anh/Chị</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Persona Presets -->
+              <div class="space-y-1.5 pt-1">
+                <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between text-[11px]">
+                  <span>CHỌN NHANH PHONG CÁCH MẪU (PRESETS)</span>
+                  <span class="text-[10px] text-violet-400 font-mono">1-Click Apply</span>
+                </label>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <button type="button" onclick="applyPersonaPreset('it_admin')" class="p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2 group shadow-sm">
+                    <span class="text-lg shrink-0 group-hover:scale-110 transition">🛠️</span>
+                    <div class="min-w-0">
+                      <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">Kỹ Thuật RPA</div>
+                      <div class="text-[9px] text-slate-400 truncate">Chuẩn IT</div>
+                    </div>
+                  </button>
+                  <button type="button" onclick="applyPersonaPreset('enterprise')" class="p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2 group shadow-sm">
+                    <span class="text-lg shrink-0 group-hover:scale-110 transition">🏢</span>
+                    <div class="min-w-0">
+                      <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">Hành Chính CSKH</div>
+                      <div class="text-[9px] text-slate-400 truncate">Chu đáo, xưng em</div>
+                    </div>
+                  </button>
+                  <button type="button" onclick="applyPersonaPreset('security_sentinel')" class="p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2 group shadow-sm">
+                    <span class="text-lg shrink-0 group-hover:scale-110 transition">🛡️</span>
+                    <div class="min-w-0">
+                      <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">An Ninh Sentinel</div>
+                      <div class="text-[9px] text-slate-400 truncate">Bảo mật Zero-Trust</div>
+                    </div>
+                  </button>
+                  <button type="button" onclick="applyPersonaPreset('minimal_speed')" class="p-2.5 rounded-xl bg-slate-50 dark:bg-white/[0.03] hover:bg-violet-500/10 border border-slate-200 dark:border-white/10 hover:border-violet-400/40 text-left transition flex items-center gap-2 group shadow-sm">
+                    <span class="text-lg shrink-0 group-hover:scale-110 transition">⚡</span>
+                    <div class="min-w-0">
+                      <div class="font-bold text-[11px] text-slate-800 dark:text-slate-200 truncate">Tối Giản Tốc Độ</div>
+                      <div class="text-[9px] text-slate-400 truncate">&lt; 2 câu ngắn gọn</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <!-- System Prompt Editor -->
+              <div class="space-y-1.5 pt-1">
+                <div class="flex items-center justify-between text-[11px]">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+                    HỆ THỐNG CHỈ DẪN (SYSTEM PROMPT)
+                    <span class="ai-tooltip-trigger" data-tip="System Prompt định hình toàn bộ phong cách và quy tắc ứng xử của AI.">
+                      <svg class="text-violet-400" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </span>
+                  </label>
+                  <span id="ai-prompt-tokens-badge" class="px-2 py-0.5 rounded text-[10px] font-mono text-violet-400 font-bold bg-violet-500/10 border border-violet-500/30">~0 tokens</span>
+                </div>
+                <textarea id="ai-persona-prompt" rows="5"
+                  oninput="updatePromptStats()"
+                  class="input-dark w-full text-xs font-mono resize-none leading-relaxed p-3.5 shadow-inner"
+                  placeholder="Bạn là Lyly — trợ lý AI thông minh của doanh nghiệp. Trả lời bằng tiếng Việt, ngắn gọn, chính xác và chuyên nghiệp..."></textarea>
+                <div class="flex items-center justify-between text-[10px] text-slate-400 font-mono px-0.5 pt-0.5">
+                  <span id="ai-prompt-chars">0 ký tự</span>
+                  <span class="text-slate-500">Biến hỗ trợ: <code class="text-violet-400 font-bold">{{ai_name}}</code>, <code class="text-violet-400 font-bold">{{user_name}}</code></span>
+                  <span id="ai-prompt-context-pct" class="text-cyan-400 font-semibold">0.0% context</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════════════ -->
+        <!-- RIGHT COLUMN: THANH QUẢN & THÍNH GIÁC (AUDIO STUDIO 5 COLS) -->
+        <!-- ════════════════════════════════════════════════════════════ -->
+        <div class="lg:col-span-5 space-y-6">
+
+          <!-- CARD 3: AUDIO STUDIO -->
+          <div class="glass-panel p-6 space-y-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg hover:border-emerald-500/30 transition-all duration-300">
+            <!-- Header -->
+            <div class="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-white/10">
+              <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-500/10 border border-emerald-400/40 flex items-center justify-center text-xl shadow-sm flex-shrink-0">
+                🎙️
+              </div>
+              <div>
+                <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  Thanh Quản & Thính Giác
+                  <span class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">AUDIO STUDIO</span>
+                </h3>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400">Giọng đọc (TTS) và nhận diện giọng nói (ASR)</p>
+              </div>
+            </div>
+
+            <div class="space-y-5 text-xs">
+              <!-- TTS ENGINE & VOICE SELECTION -->
+              <div class="space-y-3.5">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-1.5 font-bold text-emerald-600 dark:text-emerald-400 text-[11px] uppercase tracking-wider">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+                    Công Nghệ Phát Âm (TTS)
+                  </div>
+                  <button type="button" onclick="loadEdgeTTSVoices()"
+                    class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 font-semibold" id="btn-load-voices">
+                    <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    Tải 322 Giọng
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div class="space-y-1.5">
+                    <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">BỘ MÁY (ENGINE)</label>
+                    <select id="ai-tts-engine" class="input-dark w-full" onchange="onAITTSEngineChange()">
+                      <option value="edge-tts">Edge-TTS (Microsoft Tiếng Việt)</option>
+                      <option value="local">Local TTS (Offline Piper)</option>
+                      <option value="elevenlabs">ElevenLabs (Cloud AI)</option>
+                    </select>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">GIỌNG ĐỌC AI</label>
+                    <select id="ai-tts-voice" class="input-dark w-full">
+                      <optgroup label="🇻🇳 Tiếng Việt — Edge TTS">
+                        <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ, Nam) ★</option>
+                        <option value="vi-VN-NamMinhNeural">Nam Minh (Nam, Bắc)</option>
+                      </optgroup>
+                      <optgroup label="🇺🇸 English — Edge TTS">
+                        <option value="en-US-JennyNeural">Jenny (Female, US)</option>
+                        <option value="en-US-GuyNeural">Guy (Male, US)</option>
+                        <option value="en-GB-SoniaNeural">Sonia (Female, UK)</option>
+                      </optgroup>
+                    </select>
+                  </div>
+                </div>
 
                 <!-- Search filter -->
-                <input type="text" id="ai-tts-voice-search" placeholder="🔍 Lọc giọng... (vd: vi, jenny, neural)"
-                  class="input-dark w-full text-xs mb-1 hidden"
+                <input type="text" id="ai-tts-voice-search" placeholder="🔍 Lọc giọng... (vd: vi, hoaimy, namminh)"
+                  class="input-dark w-full text-xs hidden"
                   oninput="filterTTSVoices(this.value)" />
-
-                <select id="ai-tts-voice" class="input-dark w-full">
-                  <optgroup label="🇻🇳 Tiếng Việt — Edge TTS">
-                    <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ, miền Nam) ★ (Mặc định)</option>
-                    <option value="vi-VN-NamMinhNeural">Nam Minh (Nam, miền Bắc)</option>
-                  </optgroup>
-                  <optgroup label="🇺🇸 English — Edge TTS">
-                    <option value="en-US-JennyNeural">Jenny (Female, US)</option>
-                    <option value="en-US-GuyNeural">Guy (Male, US)</option>
-                    <option value="en-GB-SoniaNeural">Sonia (Female, UK)</option>
-                  </optgroup>
-                </select>
-                <p id="ai-voice-count-label" class="text-[10px] text-slate-400">Click "Tải 322 Giọng" để load toàn bộ thư viện.</p>
+                <p id="ai-voice-count-label" class="text-[10px] text-slate-400">Click "Tải 322 Giọng" để mở rộng kho giọng đa ngôn ngữ.</p>
               </div>
 
+              <!-- SLIDERS: RATE & VOLUME -->
+              <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 space-y-3.5">
+                <!-- Speech Rate Slider -->
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="font-semibold text-slate-700 dark:text-slate-200">TỐC ĐỘ ĐỌC (RATE)</span>
+                    <span id="ai-speech-rate-val" class="text-emerald-400 font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">+15%</span>
+                  </div>
+                  <input type="range" id="ai-speech-rate" min="-50" max="100" step="5" value="15"
+                    class="w-full h-1.5 rounded-full appearance-none bg-slate-200 dark:bg-slate-700 accent-emerald-500 cursor-pointer"
+                    oninput="document.getElementById('ai-speech-rate-val').textContent = (this.value >= 0 ? '+' : '') + this.value + '%'" />
+                  <div class="flex justify-between text-[9px] text-slate-400 font-mono">
+                    <span>-50% Chậm</span><span>Chuẩn</span><span>+100% Nhanh</span>
+                  </div>
+                </div>
 
-              <!-- Speech Rate Slider -->
-              <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                  <span>TỐC ĐỘ ĐỌC (SPEECH RATE)</span>
-                  <span id="ai-speech-rate-val" class="text-emerald-400 font-mono font-bold">+15%</span>
-                </label>
-                <input type="range" id="ai-speech-rate" min="-50" max="100" step="5" value="15"
-                  class="w-full h-1.5 rounded-full appearance-none bg-slate-200 dark:bg-slate-700 accent-emerald-500 cursor-pointer"
-                  oninput="document.getElementById('ai-speech-rate-val').textContent = (this.value >= 0 ? '+' : '') + this.value + '%'" />
-                <div class="flex justify-between text-[9px] text-slate-400">
-                  <span>🐢 -50%</span><span>Chuẩn</span><span>🚀 +100%</span>
+                <!-- Volume Slider -->
+                <div class="space-y-1.5">
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="font-semibold text-slate-700 dark:text-slate-200">ÂM LƯỢNG MẶC ĐỊNH</span>
+                    <span id="ai-volume-val" class="text-emerald-400 font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">80%</span>
+                  </div>
+                  <input type="range" id="ai-volume" min="0" max="100" step="5" value="80"
+                    class="w-full h-1.5 rounded-full appearance-none bg-slate-200 dark:bg-slate-700 accent-emerald-500 cursor-pointer"
+                    oninput="document.getElementById('ai-volume-val').textContent = this.value + '%'" />
+                  <div class="flex justify-between text-[9px] text-slate-400 font-mono">
+                    <span>0% Im lặng</span><span>50%</span><span>100% Tối đa</span>
+                  </div>
                 </div>
               </div>
 
-              <!-- Volume Slider -->
+              <!-- TTS PREVIEW -->
               <div class="space-y-1.5">
-                <label class="font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between">
-                  <span>ÂM LƯỢNG MẶC ĐỊNH</span>
-                  <span id="ai-volume-val" class="text-emerald-400 font-mono font-bold">80%</span>
-                </label>
-                <input type="range" id="ai-volume" min="0" max="100" step="5" value="80"
-                  class="w-full h-1.5 rounded-full appearance-none bg-slate-200 dark:bg-slate-700 accent-emerald-500 cursor-pointer"
-                  oninput="document.getElementById('ai-volume-val').textContent = this.value + '%'" />
-                <div class="flex justify-between text-[9px] text-slate-400">
-                  <span>🔇 0%</span><span>50%</span><span>🔊 100%</span>
-                </div>
-              </div>
-
-              <!-- TTS Preview with Custom Test Phrase -->
-              <div class="space-y-1.5 pt-1">
                 <div class="flex items-center justify-between text-[10px] text-slate-400 font-semibold">
                   <span>CÂU NÓI NGHE THỬ</span>
-                  <span id="ai-tts-status-tag" class="text-emerald-400 hidden flex items-center gap-1">
+                  <span id="ai-tts-status-tag" class="text-emerald-400 hidden flex items-center gap-1 font-mono">
                     <span class="inline-block w-1.5 h-1.5 bg-emerald-400 rounded-full animate-ping"></span>
-                    <span class="font-mono text-[9px]">ĐANG PHÁT...</span>
+                    <span>ĐANG PHÁT...</span>
                   </span>
                 </div>
-                <div class="flex items-center gap-1.5">
-                  <input type="text" id="ai-tts-preview-phrase" value="Xin chào! Em là Ly Ly, trợ lý AI thông minh. Em đã sẵn sàng hỗ trợ anh hôm nay." class="input-dark text-[11px] flex-1 py-1 px-2.5" placeholder="Nội dung đọc thử..." />
+                <div class="flex items-center gap-2">
+                  <input type="text" id="ai-tts-preview-phrase" value="Xin chào! Em là Ly Ly, trợ lý AI thông minh. Em đã sẵn sàng hỗ trợ anh hôm nay." class="input-dark text-xs flex-1 py-1.5 px-3" placeholder="Nội dung đọc thử..." />
                   <button type="button" onclick="previewAITTS()" id="btn-preview-tts"
-                    class="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition text-[11px] font-semibold flex items-center gap-1.5 shrink-0">
+                    class="px-3.5 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-sm">
                     <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                     <span>Nghe Thử</span>
                   </button>
                 </div>
               </div>
-            </div>
 
-            <!-- ASR Section -->
-            <div class="p-3 rounded-xl bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30 space-y-3">
-              <div class="flex items-center gap-1.5 font-bold text-blue-700 dark:text-blue-300 text-[11px] uppercase tracking-wide">
-                <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
-                Nhận Diện Giọng (ASR)
-              </div>
-
-              <div class="space-y-1.5">
-                <label class="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200">
-                  ENGINE ASR
-                  <span class="ai-tooltip-trigger" data-tip="Google Speech STT miễn phí, tốt nhất cho tiếng Việt, cần kết nối internet. Groq Whisper nhanh hơn nhưng cần GROQ_API_KEY. Faster-Whisper chạy offline 100%.">
-                    <svg class="text-amber-400" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                  </span>
-                </label>
-                <select id="ai-asr-engine" class="input-dark w-full" onchange="onAIASREngineChange()">
-                  <option value="google">Google Speech STT (Mặc định — Tiếng Việt tốt)</option>
-                  <option value="groq">Groq Whisper (API — Siêu nhanh)</option>
-                  <option value="whisper">Whisper Local (OpenAI API chuẩn)</option>
-                </select>
-              </div>
-
-              <!-- Groq Key (shown when groq selected) -->
-              <div id="ai-groq-section" class="space-y-2 hidden">
-                <div class="space-y-1.5">
-                  <label class="font-semibold text-slate-600 dark:text-slate-300">GROQ API KEY</label>
-                  <input type="password" id="ai-groq-key" class="input-dark font-mono w-full" placeholder="gsk_..." />
-                  <p id="ai-groq-key-hint" class="text-[10px] italic"></p>
+              <!-- ASR RECOGNITION SECTION -->
+              <div class="pt-4 border-t border-slate-200 dark:border-white/10 space-y-3.5">
+                <div class="flex items-center gap-1.5 font-bold text-blue-600 dark:text-blue-400 text-[11px] uppercase tracking-wider">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+                  Nhận Diện Giọng Nói (ASR)
                 </div>
+
                 <div class="space-y-1.5">
-                  <label class="font-semibold text-slate-600 dark:text-slate-300">GROQ BASE URL</label>
-                  <input type="text" id="ai-groq-url" class="input-dark font-mono w-full" placeholder="https://api.groq.com/openai/v1" />
+                  <label class="flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                    ENGINE NHẬN DIỆN (ASR)
+                    <span class="ai-tooltip-trigger" data-tip="Google Speech STT miễn phí, chuẩn tiếng Việt. Groq Whisper nhận diện tốc độ cao.">
+                      <svg class="text-amber-400" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </span>
+                  </label>
+                  <select id="ai-asr-engine" class="input-dark w-full" onchange="onAIASREngineChange()">
+                    <option value="google">Google Speech STT (Mặc định — Tiếng Việt chuẩn)</option>
+                    <option value="groq">Groq Whisper (Cloud API — Siêu tốc)</option>
+                    <option value="whisper">Whisper Local (OpenAI Engine chuẩn)</option>
+                  </select>
+                </div>
+
+                <!-- Groq Section (conditional) -->
+                <div id="ai-groq-section" class="space-y-2.5 p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 hidden">
+                  <div class="space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">GROQ API KEY</label>
+                      <span id="ai-groq-key-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU KHOÁ</span>
+                    </div>
+                    <input type="password" id="ai-groq-key" class="input-dark font-mono w-full" placeholder="gsk_..." />
+                    <p id="ai-groq-key-hint" class="text-[10px] italic"></p>
+                  </div>
+                  <div class="space-y-1.5">
+                    <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">GROQ BASE URL</label>
+                    <input type="text" id="ai-groq-url" class="input-dark font-mono w-full" placeholder="https://api.groq.com/openai/v1" />
+                  </div>
                 </div>
               </div>
             </div>
@@ -2833,7 +3003,7 @@
       </div>
 
       <!-- ════════════════════════════════════════════ -->
-      <!-- CARD 4: THƯ VIỆN BIỂU MẪU BÁO CÁO (PHASE 28) -->
+      <!-- CARD 4: THƯ VIỆN BIỂU MẪU BÁO CÁO -->
       <!-- ════════════════════════════════════════════ -->
       <div class="glass-panel p-6 space-y-5">
         <!-- Card Header -->
@@ -2843,7 +3013,7 @@
             <div>
               <div class="flex items-center gap-2">
                 <h3 class="text-sm font-bold text-slate-900 dark:text-white">Thư Viện Biểu Mẫu Báo Cáo</h3>
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-rose-500/20 text-rose-400 border border-rose-400/40">PHASE 28</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-rose-500/20 text-rose-400 border border-rose-400/40">REPORT ENGINE</span>
               </div>
               <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Tự động tiêm cấu trúc biểu mẫu Markdown vào System Prompt để AI xuất báo cáo tiêu chuẩn qua Web UI & Telegram.</p>
             </div>
@@ -3745,8 +3915,7 @@
                 <option value="">-- Chọn mô hình từ 9router --</option>
               </select>
             </div>
-            <!-- Quick Model Selector Chips for Tab Config
-                 Phase 68: sinh từ router — xem giải thích ở ai-quick-models. -->
+            <!-- Quick Model Selector Chips for Tab Config -->
             <div id="cfg-quick-models" class="flex flex-wrap gap-1 pt-1">
               <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
             </div>
@@ -3754,10 +3923,10 @@
 
           <!-- Khóa API -->
           <div class="space-y-1.5">
-            <label
-              class="block font-semibold text-slate-700 dark:text-slate-200 text-xs flex items-center justify-between">
-              <span>MÃ BẢO MẬT (API KEY)</span>
-            </label>
+            <div class="flex items-center justify-between">
+              <label class="block font-semibold text-slate-700 dark:text-slate-200 text-xs">MÃ BẢO MẬT (API KEY)</label>
+              <span id="cfg-llm-key-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU KHOÁ</span>
+            </div>
             <div class="relative">
               <input type="password" id="cfg-llm-key" class="input-dark font-mono text-xs w-full pr-8"
                 placeholder="sk-... (nhập tại máy chủ, không lưu trong mã nguồn)" />
@@ -3770,10 +3939,6 @@
                 </svg>
               </button>
             </div>
-            <!-- Phase 79: ô này luôn để TRỐNG. Server không còn trả khoá thật
-                 (chỉ trả ký hiệu) nên không có gì để điền vào. Ghi chú này nói
-                 rõ để trống khi Lưu nghĩa là GIỮ khoá đang có, tránh người
-                 dùng tưởng phải nhập lại mỗi lần mở trang. -->
             <p id="cfg-llm-key-hint" class="text-[10px] italic">
               Đang kiểm tra khoá đã lưu...
             </p>
@@ -3799,13 +3964,13 @@
         <!-- Test result box -->
         <div id="status-test-llm" class="hidden mt-4 text-xs p-3.5 rounded-xl transition-all"></div>
 
-        <!-- Phase 46.3: Intelligent Auto-Fallback Chain Status Indicator -->
+        <!-- Intelligent Auto-Fallback Chain Status Indicator -->
         <div class="mt-4 p-3.5 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
           <div class="flex items-center gap-2.5">
             <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-400 font-bold text-sm">🛡️</div>
             <div>
               <div class="font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <span>Cơ Chế Auto-Fallback Tự Động (Phase 46.3)</span>
+                <span>Cơ Chế Auto-Fallback Tự Động (9Router)</span>
                 <span class="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Active</span>
               </div>
               <div class="text-[11px] text-slate-400 mt-1 flex flex-wrap items-center gap-1.5 font-mono">
@@ -3833,7 +3998,6 @@
       </div>
 
       <!-- Datalist gợi ý mô hình phổ biến -->
-      <!-- Phase 68: nạp từ router — xem giải thích ở ai-models-list. -->
       <datalist id="models-list"></datalist>
 
       <!-- System & Runtime Settings Card -->
@@ -3898,9 +4062,12 @@
           <!-- Groq Whisper Config -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">GROQ_API_KEY (Dùng cho ASR
-                Whisper)</label>
+              <div class="flex items-center justify-between mb-1">
+                <label class="block font-semibold text-slate-600 dark:text-slate-300">GROQ_API_KEY (Dùng cho ASR Whisper)</label>
+                <span id="cfg-groq-key-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU KHOÁ</span>
+              </div>
               <input type="password" id="cfg-groq-key" class="input-dark font-mono" placeholder="gsk_..." />
+              <p id="cfg-groq-key-hint" class="text-[10px] italic mt-1"></p>
             </div>
             <div>
               <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">GROQ_BASE_URL</label>
@@ -3925,7 +4092,7 @@
         </div>
       </div>
 
-      <!-- ── PHASE 18: ACTIVE DIRECTORY DOMAIN SYNC & TELEGRAM GATEWAY ── -->
+      <!-- Active Directory Domain Sync & Telegram Gateway -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         <!-- Panel 1: Native Active Directory Domain Sync -->
@@ -4048,8 +4215,10 @@
 
             <div class="space-y-3 text-xs">
               <div>
-                <label class="block font-semibold text-slate-600 dark:text-slate-300 mb-1">BOT TOKEN (TỪ
-                  @BOTFATHER)</label>
+                <div class="flex items-center justify-between mb-1">
+                  <label class="block font-semibold text-slate-600 dark:text-slate-300">BOT TOKEN (TỪ @BOTFATHER)</label>
+                  <span id="cfg-tg-token-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU TOKEN</span>
+                </div>
                 <div class="relative">
                   <input type="password" id="cfg-tg-token" class="input-dark font-mono pr-10"
                     placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ..." />
@@ -4061,6 +4230,7 @@
                     </svg>
                   </button>
                 </div>
+                <p id="cfg-tg-token-hint" class="text-[10px] italic mt-1"></p>
               </div>
               <div>
                 <div class="flex items-center justify-between mb-1">
@@ -4166,10 +4336,6 @@
     <span id="badge-pending-queue-count"
       class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400">—</span>
   </div>
-  <!-- Phase 78: danh sách phê duyệt đã gom về Bảng Điều Khiển (chủ sở hữu).
-       Ở đây trước đây có một bảng đầy đủ thứ hai, nạp từ /security/pending-action
-       — khác endpoint với bản ở Bảng Điều Khiển (/enterprise/hitl/pending) nên
-       hai nơi có thể hiện số khác nhau cho cùng một hàng đợi. -->
   <p class="text-xs text-slate-500 dark:text-slate-400">
     Danh sách phê duyệt đầy đủ nằm ở Bảng Điều Khiển — một danh sách duy nhất
     cho toàn hệ thống.
@@ -4294,14 +4460,12 @@
       </div>
 
       <!-- ─── AUDIT LOGS TABLE ─── -->
-        <!-- Phase 78: nhật ký kiểm toán an ninh đã gom vào tab Nhật Ký
-             (chế độ "Kiểm toán an ninh") để không lặp bảng ở nhiều nơi. -->
         <button type="button" onclick="switchTab('logs'); switchLogView('security')"
                 class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/50 hover:border-cyan-500/50 text-xs font-semibold text-slate-300 hover:text-cyan-300 transition flex items-center justify-center gap-2">
           📋 Mở Nhật Ký Kiểm Toán
         </button>
     
-        <!-- Gộp từ tab "Tài Khoản" (Phase 78) — cùng miền kiểm soát truy cập với chính sách bảo mật. -->
+        <!-- Quản lý tài khoản & Phân quyền truy cập -->
         <div class="mb-3 mt-6 first:mt-0">
           <h3 class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             <!-- QUẢN LÝ TÀI KHOẢN & PHÂN QUYỀN -->
@@ -4532,7 +4696,7 @@
     </section>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
-    <!-- TAB 7: LEAN MICRO-TASKING & KPI TRACKING (PHASE 11)           -->
+    <!-- TAB 7: QUẢN LÝ CÔNG VIỆC & KPI DOANH NGHIỆP -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section class="tab-pane space-y-6" id="tab-tasks">
 
@@ -4726,7 +4890,7 @@
       </div>
 
       <!-- ═══════════════════════════════════════════════════════════════ -->
-      <!-- PHASE 47: ERP STRUCTURE & BULK DATA IMPORT ACCORDION TREE      -->
+      <!-- CƠ CẤU DOANH NGHIỆP & DỮ LIỆU ERP -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <div class="glass-panel p-5 space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-white/10 pb-3">
@@ -4769,7 +4933,7 @@
         </div>
       </div>
 
-      <!-- Modal: Thêm Phòng Ban Mới (Phase 47.1) -->
+      <!-- Modal: Thêm Phòng Ban Mới -->
       <div id="modal-add-department" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
         <div class="glass-panel w-full max-w-md p-6 space-y-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl rounded-2xl relative">
           
@@ -4827,8 +4991,6 @@
 
       <!-- KPI Logs Table (CSV Data) -->
 
-        <!-- Phase 78: nhật ký công việc KPI đã gom vào tab Nhật Ký
-             (chế độ "Công việc & KPI"). -->
         <button type="button" onclick="switchTab('logs'); switchLogView('kpi')"
                 class="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-900/50 hover:border-cyan-500/50 text-xs font-semibold text-slate-300 hover:text-cyan-300 transition flex items-center justify-center gap-2">
           📈 Mở Nhật Ký Công Việc
@@ -4836,13 +4998,10 @@
     </section>
 
 
-    <!-- ─── TAB: NHẬT KÝ HỆ THỐNG (Phase 21) ───────────────────────────── -->
+    <!-- ─── TAB: NHẬT KÝ HỆ THỐNG ───────────────────────────── -->
     <section class="tab-pane space-y-4" id="tab-logs">
 
-        <!-- Phase 78: bộ chuyển nguồn nhật ký.
-             Trước đây nhật ký nằm rải rác ở 5 tab với 5 bảng riêng — cùng dữ
-             liệu, dễ lệch số liệu, và người dùng không biết bản nào là chính.
-             Nay gom hết vào đây, mỗi nguồn một chế độ xem. -->
+        <!-- Bộ chuyển nguồn nhật ký tập trung -->
         <div class="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Nguồn nhật ký">
           <button type="button" role="tab" data-log-view="stream"
                   aria-selected="true" aria-controls="log-view-stream"
@@ -5083,9 +5242,7 @@
       </div>
         </div>
 
-        <!-- Phase 79: chế độ này thay cho HAI bảng cùng gọi /api/v1/logs/recent
-             (một ở Bảng Điều Khiển, một ở Trung Tâm Chỉ Huy). Giữ bản của Trung
-             Tâm Chỉ Huy vì có bộ lọc ẩn dòng heartbeat. -->
+        <!-- Nhật ký vận hành gần đây -->
         <div id="log-view-recent" role="tabpanel" aria-label="Nhật ký vận hành gần đây" class="hidden">
         <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm">
           <div class="px-4 py-2.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
@@ -5610,7 +5767,7 @@
     </div>
   </div>
 
-  <!-- ─── MODAL THÊM / SỬA TÀI KHOẢN (USER ADMIN - PHASE 14) ────────── -->
+  <!-- ─── MODAL THÊM / SỬA TÀI KHOẢN (USER ADMIN) ────────── -->
   <div id="user-modal"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/80 backdrop-blur-md hidden p-4">
     <div class="glass-panel w-full max-w-lg p-6 relative space-y-4 max-h-[90vh] overflow-y-auto">
@@ -5700,7 +5857,7 @@
     </div>
   </div>
 
-  <!-- ─── MODAL ĐỔI MẬT KHẨU (PASSWORD CONTROL - PHASE 14) ────────── -->
+  <!-- ─── MODAL ĐỔI MẬT KHẨU (PASSWORD CONTROL) ────────── -->
   <div id="change-password-modal"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/80 backdrop-blur-md hidden p-4">
     <div class="glass-panel w-full max-w-md p-6 relative border border-purple-200 dark:border-purple-500/30 space-y-4">
@@ -5781,7 +5938,7 @@
     </div>
   </div>
 
-  <!-- ─── MODAL XÁC NHẬN XÓA TÀI KHOẢN (DELETE USER - PHASE 14) ────────── -->
+  <!-- ─── MODAL XÁC NHẬN XÓA TÀI KHOẢN (DELETE USER) ────────── -->
   <div id="delete-user-modal"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/85 backdrop-blur-md hidden p-4">
     <div class="glass-panel w-full max-w-md p-6 relative border border-rose-200 dark:border-rose-500/40 space-y-4">
@@ -5835,7 +5992,7 @@
     </div>
   </div>
 
-  <!-- ─── MODAL TRA CỨU ACTIVE DIRECTORY (PHASE 18) ──────────────────── -->
+  <!-- ─── MODAL TRA CỨU ACTIVE DIRECTORY ──────────────────── -->
   <div id="domain-viewer-modal"
     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/85 backdrop-blur-md hidden p-4">
     <div
@@ -5937,7 +6094,7 @@
     </div>
   </div>
 
-  <!-- ─── MÀN HÌNH ĐĂNG NHẬP PHỦ TOÀN BỘ (LOGIN SCREEN - PHASE 10 AUTH & RBAC) ─ -->
+  <!-- ─── MÀN HÌNH ĐĂNG NHẬP PHỦ TOÀN BỘ (LOGIN SCREEN) ─ -->
   <div id="login-screen"
     class="fixed inset-0 z-50 flex items-center justify-center bg-slate-200/95 dark:bg-[#070a12]/95 backdrop-blur-xl p-4 transition-all duration-300">
     <div class="glass-panel w-full max-w-md p-8 relative space-y-6">
@@ -6023,9 +6180,7 @@
         </button>
       </form>
 
-      <!-- Phase 73: chỉ hiện ở máy phát triển. Trước đây 3 cặp tài khoản +
-           mật khẩu thật hiện công khai trên form đăng nhập ở mọi môi trường,
-          kể cả bản triển khai thật. Không có cờ môi trường nào ở đây. -->
+      <!-- Tài khoản quản trị mặc định (chỉ hiển thị môi trường local phát triển) -->
       <div id="dev-accounts-hint" class="p-3 rounded-xl bg-white/[0.02] border border-white/5 space-y-1.5 text-[11px] text-slate-400 hidden">
         <div class="font-bold text-slate-300 flex items-center gap-1.5">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
@@ -6059,7 +6214,7 @@
   <!-- ─── TOAST NOTIFICATIONS CONTAINER ────────────────────────── -->
   <div id="toast-container"></div>
 
-  <!-- ─── VN-MateAI VISUAL HUD OVERLAY (Phase 32) ───────────── -->
+  <!-- ─── VN-MateAI VISUAL HUD OVERLAY ───────────── -->
   <div id="system-hud-overlay"
     class="fixed bottom-6 right-6 z-[9999] hidden w-[450px] max-w-[92vw] bg-[#070b14]/95 backdrop-blur-2xl border border-cyan-500/60 rounded-2xl shadow-2xl shadow-cyan-500/30 overflow-hidden transition-all duration-300">
     <!-- Header -->
@@ -6089,12 +6244,7 @@
 
   <!-- ─── APP SCRIPT ───────────────────────────────────────────── -->
 
-  <!-- Chart.js — cần cho Command Center (Phase 58).
-       `analytics_engine.text_to_sql_and_chart()` trả về cấu hình Chart.js
-       hoàn chỉnh từ trước Phase 57, nhưng trước đó Portal KHÔNG hề nạp thư
-       viện này — nghĩa là biểu đồ được sinh ra rồi không có chỗ để hiển thị.
-       Phải kiểm tra `window.Chart` vì CDN có thể bị chặn trong môi trường
-       nội bộ không có Internet; các hàm bên dưới đều fail-safe khi thiếu. -->
+  <!-- Thư viện Chart.js hiển thị biểu đồ phân tích -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/app.js?v=42.0"></script>

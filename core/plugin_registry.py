@@ -395,6 +395,34 @@ class PluginRegistry:
 
             breaker = self._breakers[tool_name]
 
+        # Phase 88: Phát tín hiệu Topology Real-time visual data flow
+        try:
+            from core.server import broadcast_topology_event
+            def _map_tool_to_node(name: str) -> str:
+                n = name.lower()
+                if any(k in n for k in ("9router", "ninerouter", "router", "search", "fetch", "images", "speech", "embeddings")):
+                    return "router_9"
+                if any(k in n for k in ("m365", "email", "mail", "outlook", "office")):
+                    return "plugin_m365"
+                if any(k in n for k in ("aws", "s3", "ec2", "billing")):
+                    return "plugin_aws"
+                if any(k in n for k in ("oci", "oracle")):
+                    return "plugin_oci"
+                if any(k in n for k in ("paperless", "ocr", "doc", "document")):
+                    return "plugin_paperless"
+                if any(k in n for k in ("einvoice", "invoice", "tax", "hoa_don")):
+                    return "plugin_einvoice"
+                if any(k in n for k in ("worker", "worknote", "rpa", "macmini", "client")):
+                    return "worker_cluster"
+                return "router_9"
+
+            target_node = _map_tool_to_node(tool_name)
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(broadcast_topology_event("core", target_node, f"Tool: {tool_name}"))
+        except Exception:
+            pass
+
         # Check Circuit Breaker
         if not breaker.can_execute():
             breaker_status = breaker.get_status()

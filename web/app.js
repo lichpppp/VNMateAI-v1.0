@@ -842,6 +842,9 @@ function switchTab(tabId) {
     // Phase 78: nội dung tab "Tài Khoản" đã gộp vào đây (cùng miền kiểm soát
     // truy cập), nên bảng tài khoản nạp kèm.
     fetchUsers();
+    loadTelegramConfig();
+    loadTelegramStatus();
+    loadADSyncStatus();
   }
   if (tabId === 'voice') {
     loadMicStatus();
@@ -3665,17 +3668,47 @@ function _ccHasStoredKey(block) {
 function _ccSecretStatus(inputId, hintId, hasKey, sample, justSaved) {
   const input = document.getElementById(inputId);
   if (input) {
+    if (hasKey) {
+      input.value = SECRET_MASK;
+      input.setAttribute('data-masked', '1');
+    } else if (!justSaved) {
+      input.value = '';
+      input.removeAttribute('data-masked');
+    }
     input.placeholder = hasKey
-      ? `${sample} — đã có khoá lưu sẵn, để trống nếu không đổi`
+      ? `${sample} — đã có khoá lưu sẵn (••••••••), gõ mới nếu muốn đổi`
       : sample;
+
+    if (!input._hasMaskHandlers) {
+      input._hasMaskHandlers = true;
+      input.addEventListener('focus', function () {
+        if (this.value === SECRET_MASK) {
+          this.select();
+        }
+      });
+      input.addEventListener('blur', function () {
+        if (!this.value.trim() && this.getAttribute('data-masked') === '1') {
+          this.value = SECRET_MASK;
+        }
+      });
+    }
+  }
+  // Badge element: show when key exists or just saved
+  const badge = document.getElementById(inputId + '-badge');
+  if (badge) {
+    if (hasKey || justSaved) {
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
   }
   const hint = hintId ? document.getElementById(hintId) : null;
   if (!hint) return;
   if (justSaved) {
-    hint.textContent = '✔ Đã lưu khoá. F5 xong ô này vẫn trống — đó là bảo mật, khoá vẫn còn.';
+    hint.textContent = '✔ Đã lưu khoá an toàn (hiển thị ••••••••).';
     hint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400';
   } else if (hasKey) {
-    hint.textContent = '✔ Đã có khoá lưu sẵn — để trống rồi bấm Lưu sẽ giữ nguyên khoá cũ.';
+    hint.textContent = '✔ Đã có khoá lưu sẵn (••••••••) — để nguyên hoặc gõ mới để thay đổi.';
     hint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400';
   } else {
     hint.textContent = 'Chưa có khoá nào được lưu.';
@@ -3758,6 +3791,8 @@ async function loadConfig() {
   // `cfg-groq-key` cũng là bí mật: server trả về ký hiệu chỗ trống. Để trống
   // ô như ô khoá LLM — điền ký hiệu vào là đưa bí mật (dù đã che) vào DOM.
   setVal('cfg-groq-key', '');
+  _ccLastKnownHasKey.groq = _ccHasStoredKey({ api_key: cfg.GROQ_API_KEY });
+  _ccSecretStatus('cfg-groq-key', 'cfg-groq-key-hint', _ccLastKnownHasKey.groq, 'gsk_...');
   setVal('cfg-groq-url', cfg.GROQ_BASE_URL || '');
   setVal('cfg-asr', cfg.ASR_BACKEND || 'google');
   setVal('cfg-loglevel', cfg.LOG_LEVEL || 'INFO');
@@ -3805,8 +3840,8 @@ async function saveFullConfig() {
   // Nay nếu người dùng không nhập gì thì giữ nguyên khoá đang lưu.
   const typedKey = getVal('cfg-llm-key') || getVal('cfg-route-primary-key');
   const existingKey = currentConfig?.llm?.api_key || currentConfig?.routing?.primary?.api_key || '';
-  const apiKey = typedKey || existingKey;
-  const apiKeyLeftUntouched = !typedKey;
+  const apiKeyLeftUntouched = !typedKey || typedKey === SECRET_MASK;
+  const apiKey = apiKeyLeftUntouched ? existingKey : typedKey;
 
   const tgAdminsRaw = getVal('cfg-tg-admins');
   const tgAdmins = tgAdminsRaw ? tgAdminsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
@@ -3899,6 +3934,13 @@ async function saveFullConfig() {
     _ccSecretStatus('cfg-llm-key', 'cfg-llm-key-hint', coKey, 'sk-...', !!gaoKey);
     _ccSecretStatus('ai-llm-key', 'ai-llm-key-hint', coKey, 'sk-...', !!gaoKey);
     if (gaoKey) _ccLastKnownHasKey.llm = true;
+
+    const typedGroqKey2 = getVal('cfg-groq-key');
+    const vuaGaoGroq2 = !!_ccSafeField(typedGroqKey2);
+    const coKeyGroq2 = vuaGaoGroq2 || _ccLastKnownHasKey.groq;
+    _ccSecretStatus('cfg-groq-key', 'cfg-groq-key-hint', coKeyGroq2, 'gsk_...', vuaGaoGroq2);
+    _ccSecretStatus('ai-groq-key', 'ai-groq-key-hint', coKeyGroq2, 'gsk_...', vuaGaoGroq2);
+    if (vuaGaoGroq2) _ccLastKnownHasKey.groq = true;
   } else {
     showToast(`❌ Lỗi lưu cấu hình: ${res.message}`, 'error');
   }
@@ -4026,7 +4068,8 @@ async function saveAIConfig() {
 
   const baseUrl = getVal('ai-llm-base') || 'http://localhost:20128/v1';
   const modelName = getVal('ai-llm-model') || '';
-  const apiKey = getVal('ai-llm-key') || '';
+  const typedApiKey = getVal('ai-llm-key');
+  const apiKey = (typedApiKey && typedApiKey !== SECRET_MASK) ? typedApiKey : (currentConfig?.llm?.api_key || '');
   const streaming = isOn('ai-switch-streaming');
 
   const aiName = getVal('ai-persona-name') || 'Ly Ly';
@@ -4041,7 +4084,8 @@ async function saveAIConfig() {
   const speechRate = (speechRateNum >= 0 ? '+' : '') + speechRateNum + '%';
   const volume = parseInt(document.getElementById('ai-volume')?.value || '80');
   const asrEngine = getVal('ai-asr-engine') || 'google';
-  const groqKey = getVal('ai-groq-key');
+  const typedGroqKey = getVal('ai-groq-key');
+  const groqKey = (typedGroqKey && typedGroqKey !== SECRET_MASK) ? typedGroqKey : (currentConfig?.GROQ_API_KEY || '');
   const groqUrl = getVal('ai-groq-url');
 
   if (activeTemplateKey) {
@@ -4103,6 +4147,10 @@ async function saveAIConfig() {
         api_keys: apiKey ? [apiKey] : [],
       },
     },
+    // Preserve telegram block — saveAIConfig không có form nhập Telegram,
+    // spread `...currentConfig` đã chép nhưng nếu currentConfig.telegram bị
+    // thiếu thì server sẽ merge và giữ nguyên bản lưu sẵn.
+    telegram: currentConfig?.telegram || undefined,
   };
 
   const res = await apiSaveConfig(updated);
@@ -4135,6 +4183,7 @@ async function saveAIConfig() {
     const vuaGaoGroq = !!_ccSafeField(groqKey);
     const coKeyGroq = vuaGaoGroq || _ccLastKnownHasKey.groq;
     _ccSecretStatus('ai-groq-key', 'ai-groq-key-hint', coKeyGroq, 'gsk_...', vuaGaoGroq);
+    _ccSecretStatus('cfg-groq-key', 'cfg-groq-key-hint', coKeyGroq, 'gsk_...', vuaGaoGroq);
     if (vuaGao) _ccLastKnownHasKey.llm = true;
     if (vuaGaoGroq) _ccLastKnownHasKey.groq = true;
   } else {
@@ -4185,7 +4234,8 @@ function _sortModels(list) {
 
 async function loadAIProxyModels() {
   const baseUrl = document.getElementById('ai-llm-base')?.value?.trim() || 'http://localhost:20128/v1';
-  const apiKey = document.getElementById('ai-llm-key')?.value?.trim() || '';
+  const rawKey = document.getElementById('ai-llm-key')?.value?.trim() || '';
+  const apiKey = (rawKey && rawKey !== SECRET_MASK) ? rawKey : '';
   const wrap = document.getElementById('ai-proxy-model-picker-wrap');
   const select = document.getElementById('ai-proxy-model-select');
   if (!wrap || !select) return;
@@ -4929,7 +4979,8 @@ async function loadProxyModels() {
   const datalist = document.getElementById('models-list');
 
   const baseUrl = (baseInput ? baseInput.value.trim() : '') || 'http://localhost:20128/v1';
-  const apiKey = keyInput ? keyInput.value.trim() : '';
+  const rawKey = keyInput ? keyInput.value.trim() : '';
+  const apiKey = (rawKey && rawKey !== SECRET_MASK) ? rawKey : '';
 
   if (btn) {
     btn.disabled = true;
@@ -7835,18 +7886,58 @@ async function loadTelegramConfig() {
       const enabled = data.enabled !== undefined ? !!data.enabled : !!cfg.enabled;
       if (toggle) toggle.checked = enabled;
 
-      // Phase 79: KHÔNG điền `cfg.bot_token` vào ô.
-      //
-      // Endpoint /api/v1/telegram/config đã trả ký hiệu chỗ trống, nên điền
-      // vào cũng chỉ ra ký hiệu — vô nghĩa. Nhưng nếu sau này ai đó bỏ che ở
-      // endpoint cho tiện thì dòng này lại đặt bí mật thật vào DOM. Bỏ hẳn:
-      // ô token do `loadConfig()` để trống, người dùng gõ khi muốn đổi.
+      // Ô token luôn để trống (bảo mật), nhưng hiện badge + hint nếu đã có token
       const inputToken = document.getElementById('cfg-tg-token');
       if (inputToken) inputToken.value = '';
+
+      // Determine if a token is saved (server returns masked '••••••••' when it has a value)
+      const hasToken = !!(data.bot_token && data.bot_token.trim() !== '' && data.bot_token !== '');
+      const tgTokenBadge = document.getElementById('cfg-tg-token-badge');
+      const tgTokenHint = document.getElementById('cfg-tg-token-hint');
+      if (inputToken) {
+        if (hasToken) {
+          inputToken.value = SECRET_MASK;
+          inputToken.setAttribute('data-masked', '1');
+        } else {
+          inputToken.value = '';
+          inputToken.removeAttribute('data-masked');
+        }
+        inputToken.placeholder = hasToken
+          ? '•••••••• — đã có token lưu sẵn, để nguyên hoặc gõ mới để đổi'
+          : '123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ...';
+
+        if (!inputToken._hasMaskHandlers) {
+          inputToken._hasMaskHandlers = true;
+          inputToken.addEventListener('focus', function () {
+            if (this.value === SECRET_MASK) this.select();
+          });
+          inputToken.addEventListener('blur', function () {
+            if (!this.value.trim() && this.getAttribute('data-masked') === '1') {
+              this.value = SECRET_MASK;
+            }
+          });
+        }
+      }
+      if (tgTokenBadge) {
+        if (hasToken) tgTokenBadge.classList.remove('hidden');
+        else tgTokenBadge.classList.add('hidden');
+      }
+      if (tgTokenHint) {
+        if (hasToken) {
+          tgTokenHint.textContent = '✔ Đã có Bot Token lưu sẵn (••••••••) — để nguyên hoặc gõ token mới.';
+          tgTokenHint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400 mt-1';
+        } else {
+          tgTokenHint.textContent = 'Chưa có Bot Token nào được lưu.';
+          tgTokenHint.className = 'text-[10px] text-amber-600 dark:text-amber-400 italic mt-1';
+        }
+      }
+
       const inputAdmins = document.getElementById('cfg-tg-admins');
       const inputGroup = document.getElementById('cfg-tg-group');
       if (inputAdmins && !inputAdmins.value && cfg.admin_chat_ids) inputAdmins.value = Array.isArray(cfg.admin_chat_ids) ? cfg.admin_chat_ids.join(', ') : cfg.admin_chat_ids;
+      if (inputAdmins && !inputAdmins.value && data.admin_chat_ids) inputAdmins.value = Array.isArray(data.admin_chat_ids) ? data.admin_chat_ids.join(', ') : data.admin_chat_ids;
       if (inputGroup && !inputGroup.value && cfg.incident_group_id) inputGroup.value = cfg.incident_group_id;
+      if (inputGroup && !inputGroup.value && data.incident_group_id) inputGroup.value = data.incident_group_id;
     }
   } catch (err) {
     console.debug('[Telegram] Error loading config:', err);
@@ -7985,6 +8076,24 @@ async function saveTelegramConfig() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
     showToast(data.message || '✅ Đã lưu cấu hình Telegram thành công!', 'success');
+    // Update badge immediately if user just typed a token
+    if (token) {
+      const tgTokenBadge = document.getElementById('cfg-tg-token-badge');
+      const tgTokenHint = document.getElementById('cfg-tg-token-hint');
+      const inputToken = document.getElementById('cfg-tg-token');
+      if (tgTokenBadge) tgTokenBadge.classList.remove('hidden');
+      if (inputToken) {
+        inputToken.value = '';
+        inputToken.placeholder = '••••••••••• — đã có token lưu sẵn, để trống nếu không đổi';
+      }
+      if (tgTokenHint) {
+        tgTokenHint.textContent = '✔ Đã lưu Bot Token. F5 xong ô này vẫn trống — đó là bảo mật, token vẫn còn.';
+        tgTokenHint.className = 'text-[10px] text-emerald-600 dark:text-emerald-400 mt-1';
+      }
+    } else {
+      // Reload to confirm existing token state
+      await loadTelegramConfig();
+    }
     await loadTelegramStatus();
   } catch (err) {
     showToast(`❌ Lỗi lưu cấu hình Telegram: ${err.message}`, 'error');

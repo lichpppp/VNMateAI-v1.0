@@ -732,6 +732,8 @@ class TelegramBotService:
     def get_recent_chats(self, bot_token: Optional[str] = None) -> List[Dict[str, Any]]:
         """Retrieve recent chats either from runtime memory or directly from Telegram getUpdates API."""
         cfg = self._get_config()
+        if bot_token and bot_token.strip() == "••••••••":
+            bot_token = None
         token = (bot_token or "").strip() or (cfg.bot_token if cfg else "")
         results = dict(self._recent_chats)
 
@@ -781,6 +783,8 @@ class TelegramBotService:
         Synchronous, returning detailed status and error messages.
         """
         cfg = self._get_config()
+        if bot_token and bot_token.strip() == "••••••••":
+            bot_token = None
         token = (bot_token or "").strip() or (cfg.bot_token if cfg else "")
         if not token:
             return {

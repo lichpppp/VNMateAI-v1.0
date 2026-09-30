@@ -843,7 +843,7 @@
     }
 
     renderCore(timestamp);
-    renderRadar(timestamp);
+    // renderRadar(timestamp); // Removed decorative radar as requested
     renderWaveform(timestamp);
 
     requestAnimationFrame(tick);
@@ -987,50 +987,134 @@
     return text;
   }
 
+  const HUD_CARD_DURATION_MS = 10000;
+  let hudCountdownInterval = null;
+  let hudCardRemainingSec = 10;
+  let hudCardIsPinned = false;
+  let hudCardStartTime = 0;
+  let hudCardListenersAttached = false;
+
+  function attachHudCardHoverListeners() {
+    if (hudCardListenersAttached) return;
+    const cardEl = document.getElementById('hud-display-card');
+    if (!cardEl) return;
+    hudCardListenersAttached = true;
+
+    // Hover to temporarily pause countdown, mouseleave to resume
+    cardEl.addEventListener('mouseenter', () => {
+      if (!hudCardIsPinned) {
+        const badgeEl = document.getElementById('hud-countdown-badge');
+        if (badgeEl) {
+          badgeEl.textContent = '⏸ Đang giữ (Hover)';
+          badgeEl.className = 'px-2.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/30 border border-cyan-300 text-cyan-200 font-bold';
+        }
+      }
+    });
+
+    cardEl.addEventListener('mouseleave', () => {
+      if (!hudCardIsPinned) {
+        updateHudCountdownUI(hudCardRemainingSec / 10);
+      }
+    });
+  }
+
   function showHudDisplayCard(displayText, queryText = '', opts = {}) {
     if (!displayText || typeof displayText !== 'string' || !displayText.trim()) return;
     const cardEl = document.getElementById('hud-display-card');
     const contentEl = document.getElementById('hud-display-content');
     const queryEl = document.getElementById('hud-display-query');
+    const pinBtn = document.getElementById('hud-display-pin-btn');
     if (!cardEl || !contentEl) return;
+
+    attachHudCardHoverListeners();
 
     if (queryEl && queryText) {
       queryEl.textContent = `Lệnh: ${queryText}`;
     }
 
-    // Phase 81: bám theo tiếng nói.
-    //
-    // Trước đây card hiện TOÀN BỘ câu trả lời ngay khi gói tin đầu tiên tới,
-    // còn âm thanh còn đang phát câu đầu tiên — người dùng nhìn thấy cả câu
-    // trả lời trước khi nghe được nửa đầu, nên hai thứ lệch pha.
-    //
-    // Nay toàn bộ vẫn hiện (đọc trước vẫn được, không mất thông tin), nhưng
-    // phần CHƯA đọc tới thì mờ đi và phần đang đọc thì sáng lên. Vị trí đọc
-    // do máy chủ đẩy xuống cùng lúc gửi audio nên luôn khớp với tiếng.
     if (typeof opts.spokenUpTo === 'number' && opts.spokenUpTo > 0) {
       const done = displayText.slice(0, opts.spokenUpTo);
       const rest = displayText.slice(opts.spokenUpTo);
       contentEl.innerHTML =
-        `<span class="text-emerald-300 dark:text-emerald-400">${renderHudMarkdown(done)}</span>`
+        `<span class="text-emerald-300 font-semibold">${renderHudMarkdown(done)}</span>`
         + (rest ? `<span class="opacity-40">${renderHudMarkdown(rest)}</span>` : '');
     } else {
       contentEl.innerHTML = renderHudMarkdown(displayText);
     }
+
     if (opts.silent) {
       let warn = cardEl.querySelector('.hud-silent-warn');
       if (!warn) {
         warn = document.createElement('p');
-        warn.className = 'hud-silent-warn mt-2 text-[10px] text-amber-400/90';
+        warn.className = 'hud-silent-warn mt-2 text-[10px] text-amber-400/90 font-mono';
         cardEl.appendChild(warn);
       }
       warn.textContent = '⚠ Câu này không có tiếng — máy chủ không sinh được audio (TTS lỗi hoặc quá thời gian chờ).';
     }
+
     cardEl.classList.remove('hidden');
 
-    if (hudDisplayDismissTimer) clearTimeout(hudDisplayDismissTimer);
-    hudDisplayDismissTimer = setTimeout(() => {
-      hideHudDisplayCard();
-    }, 60_000);
+    // Reset pin status and restart 10s countdown whenever a new request/response appears
+    hudCardIsPinned = false;
+    if (pinBtn) pinBtn.textContent = '⏸ TẠM DỪNG';
+    startHudCardCountdown();
+  }
+
+  function startHudCardCountdown() {
+    clearHudCardTimers();
+    hudCardRemainingSec = 10;
+    hudCardStartTime = Date.now();
+    updateHudCountdownUI(1);
+
+    hudCountdownInterval = setInterval(() => {
+      const cardEl = document.getElementById('hud-display-card');
+      if (cardEl && cardEl.matches(':hover') && !hudCardIsPinned) {
+        return; // Paused while hovering
+      }
+      if (hudCardIsPinned) {
+        return; // Paused while pinned
+      }
+
+      const elapsed = Date.now() - hudCardStartTime;
+      const leftMs = Math.max(0, HUD_CARD_DURATION_MS - elapsed);
+      hudCardRemainingSec = Math.ceil(leftMs / 1000);
+      const ratio = leftMs / HUD_CARD_DURATION_MS;
+
+      updateHudCountdownUI(ratio);
+
+      if (leftMs <= 0) {
+        clearHudCardTimers();
+        hideHudDisplayCard();
+      }
+    }, 100);
+  }
+
+  function updateHudCountdownUI(ratio = 1) {
+    const badgeEl = document.getElementById('hud-countdown-badge');
+    const progressEl = document.getElementById('hud-display-progress');
+    if (badgeEl) {
+      if (hudCardIsPinned) {
+        badgeEl.textContent = '📌 ĐÃ GHIM';
+        badgeEl.className = 'px-2.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/30 border border-amber-400 text-amber-200 font-bold';
+      } else {
+        badgeEl.textContent = `⏱ Tự đóng: ${hudCardRemainingSec}s`;
+        badgeEl.className = 'px-2.5 py-0.5 rounded text-[10px] font-mono bg-cyan-500/20 border border-cyan-400/60 text-cyan-300 font-bold';
+      }
+    }
+    if (progressEl) {
+      progressEl.style.width = hudCardIsPinned ? '100%' : `${Math.max(0, Math.min(100, ratio * 100))}%`;
+    }
+  }
+
+  function clearHudCardTimers() {
+    if (hudDisplayDismissTimer) {
+      clearTimeout(hudDisplayDismissTimer);
+      hudDisplayDismissTimer = null;
+    }
+    if (hudCountdownInterval) {
+      clearInterval(hudCountdownInterval);
+      hudCountdownInterval = null;
+    }
   }
 
   function hideHudDisplayCard() {
@@ -1038,24 +1122,63 @@
     if (cardEl) {
       cardEl.classList.add('hidden');
     }
-    if (hudDisplayDismissTimer) {
-      clearTimeout(hudDisplayDismissTimer);
-      hudDisplayDismissTimer = null;
+    clearHudCardTimers();
+  }
+
+  function togglePinHudDisplay() {
+    hudCardIsPinned = !hudCardIsPinned;
+    const pinBtn = document.getElementById('hud-display-pin-btn');
+    if (pinBtn) {
+      pinBtn.textContent = hudCardIsPinned ? '▶ TIẾP TỤC' : '⏸ TẠM DỪNG';
     }
+    if (!hudCardIsPinned) {
+      hudCardStartTime = Date.now() - ((10 - hudCardRemainingSec) * 1000);
+    }
+    updateHudCountdownUI(hudCardRemainingSec / 10);
   }
 
   function copyHudDisplayContent() {
     const contentEl = document.getElementById('hud-display-content');
     if (contentEl) {
       navigator.clipboard.writeText(contentEl.innerText || contentEl.textContent || '')
-        .then(() => appendSystemLog('Đã sao chép nội dung chi tiết vào Clipboard.', 'SYS'))
-        .catch(() => {});
+        .then(() => {
+          appendSystemLog('Đã sao chép nội dung chi tiết vào Clipboard.', 'SYS');
+          hudShowToast('📋 Đã sao chép báo cáo vào Clipboard thành công!', 'success', 10000);
+        })
+        .catch(() => {
+          hudShowToast('❌ Không thể truy cập clipboard.', 'error', 5000);
+        });
     }
+  }
+
+  function hudShowToast(message, type = 'info', duration = 10000) {
+    const container = document.getElementById('hud-toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    const borderCol = type === 'error' ? 'border-rose-500/80 text-rose-300 bg-rose-950/90' :
+                      type === 'warning' ? 'border-amber-500/80 text-amber-300 bg-amber-950/90' :
+                      type === 'success' ? 'border-emerald-500/80 text-emerald-300 bg-emerald-950/90' :
+                      'border-cyan-400/80 text-cyan-200 bg-[#020a16]/95';
+    const icon = type === 'error' ? '❌' : type === 'warning' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️';
+
+    toast.className = `hud-toast border ${borderCol}`;
+    toast.innerHTML = `
+      <span class="text-sm shrink-0">${icon}</span>
+      <span class="flex-1 text-xs font-mono break-words leading-tight">${message}</span>
+      <button onclick="this.parentElement.remove()" class="text-slate-400 hover:text-white text-xs px-1" title="Đóng">✕</button>
+      <div class="hud-toast-progress" style="animation-duration: ${duration}ms"></div>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => {
+      if (toast.parentElement) toast.remove();
+    }, duration);
   }
 
   window.showHudDisplayCard = showHudDisplayCard;
   window.hideHudDisplayCard = hideHudDisplayCard;
   window.copyHudDisplayContent = copyHudDisplayContent;
+  window.togglePinHudDisplay = togglePinHudDisplay;
+  window.hudShowToast = hudShowToast;
 
   /**
    * Phase 65: nhận trạng thái hội thoại từ server và bật/tắt vòng lặp.
@@ -2428,13 +2551,19 @@ function hudDrainOutboundSpeech() {
 
         hudSocket._pingInterval = setInterval(() => {
           if (hudSocket.readyState === WebSocket.OPEN) {
+            hudSocket._lastPingTime = performance.now();
             hudSocket.send(JSON.stringify({ action: 'ping' }));
           }
-        }, 15000);
+        }, 10000);
       };
 
       hudSocket.onmessage = (event) => {
         try {
+          if (hudSocket._lastPingTime) {
+            const lat = Math.round(performance.now() - hudSocket._lastPingTime);
+            const latEl = document.getElementById('hud-net-latency');
+            if (latEl && lat >= 0) latEl.textContent = String(Math.min(999, lat));
+          }
           const packet = JSON.parse(event.data);
           const type = packet.type;
 
@@ -2646,10 +2775,18 @@ function hudDrainOutboundSpeech() {
       }
     });
 
-    // Phase 76: trước đây dòng này ghi cứng "initialized at 60 FPS". 60 là con
-    // số bịa — khung hình thực tế được đo ở vòng lặp render và đã có thể là
-    // 30, 45 hay 120 tuỳ máy. Chỉ ghi rằng giao diện đã khởi tạo; con số đo
-    // được nằm ở ô FPS và tự cập nhật.
+    // Live Uptime Session Counter
+    const hudSessionStart = Date.now();
+    setInterval(() => {
+      const el = document.getElementById('hud-uptime-counter');
+      if (!el) return;
+      const diff = Math.floor((Date.now() - hudSessionStart) / 1000);
+      const h = String(Math.floor(diff / 3600)).padStart(2, '0');
+      const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+      const s = String(diff % 60).padStart(2, '0');
+      el.textContent = `${h}:${m}:${s}`;
+    }, 1000);
+
     appendSystemLog(`${currentAiName} Mark-85 3D Cybernetic HUD khởi tạo xong.`, 'SYS');
   }
 

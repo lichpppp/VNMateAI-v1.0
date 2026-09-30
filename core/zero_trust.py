@@ -87,7 +87,7 @@ RISK_LEVEL_MAP: Dict[str, int] = {
     # dự kiến). Briefing BƯỚC 5 xếp "Xóa user AD" vào nhóm 3-5, nên việc CẤP
     # tài khoản cũng phải ở Level 4 — trước đây để Level 3 nên chạy tự động.
     "zero_touch_onboard_employee": 4,
-    # Điều phối đa tác nhân (Phase 84): hạ từ Level 3 xuống Level 2 ("thao tác
+    # Điều phối đa tác nhân: hạ từ Level 3 xuống Level 2 ("thao tác
     # thường", cùng mức với assign_task_intelligently mà nó kích hoạt). Trước
     # đây MỌI câu hỏi Multi-Agent — kể cả chỉ đọc ("doanh thu tháng trước?"),
     # tra chính sách, chấm công — đều phải CEO duyệt, nên CEO nhận tin nhắn

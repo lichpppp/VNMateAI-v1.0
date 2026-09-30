@@ -98,9 +98,9 @@ check(
     "form sinh ra chỗ khác thì người dùng không thấy",
 )
 check(
-    "không còn app Admin trong thư mục gốc",
-    not (ROOT / "admin").exists(),
-    "thư mục admin/ còn tồn tại thì vẫn là nguồn trùng lặp",
+    "không còn form connector trùng lặp trong app Admin",
+    not (ROOT / "admin" / "app" / "admin" / "plugins").exists(),
+    "trang plugins cũ trong admin còn tồn tại thì vẫn là nguồn trùng lặp",
 )
 check(
     "không còn nút mở Admin trong menu portal",
