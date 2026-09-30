@@ -572,6 +572,45 @@ check("chỉ nói 'vừa lưu' khi thật sự gõ khoá",
       "có ép kết quả luôn đúng")
 
 # ──────────────────────────────────────────────────────────────────────
+section("Không khoá thật nằm trong template hoặc mã nguồn")
+
+# `config.example.json` là file mang dáng cấu hình DUY NHẤT theo dõi bởi git —
+# `config.json` và `users.json` đều bị .gitignore. Khoá thật điền vào example
+# là tự đẩy bí mật lên GitHub. Phải kiểm tra bằng mẫu "giống khoá" chứ không
+# liệt kê tên trường: khoá nhân bản ra nhiều kiểu (`API_KEY`, `bot_token`,
+# `secret_access_key`) và dạng mới xuất hiện bất kỳ lúc nào.
+EX = (ROOT / "config.example.json").read_text(encoding="utf-8")
+
+def _key_like_hits(text: str) -> list[str]:
+    pats = [
+        ("sk-", re.compile(r"sk-[A-Za-z0-9_\-]{15,}")),          # OpenAI / 9router
+        ("gsk_", re.compile(r"gsk_[A-Za-z0-9_\-]{15,}")),        # Groq
+        ("AKIA", re.compile(r"\bAKIA[0-9A-Z]{16}\b")),           # AWS access key
+        ("tg-token", re.compile(r"\d{8,}:[A-Za-z0-9_\-]{30,}")),  # Telegram bot
+    ]
+    return [name for name, pat in pats if pat.search(text)]
+
+hits_ex = _key_like_hits(EX)
+check("config.example.json không chứa chuỗi giống khoá thật", not hits_ex, str(hits_ex))
+for marker in ("YOUR_9ROUTER_KEY_HERE", "YOUR_GROQ_API_KEY_HERE", "YOUR_TELEGRAM_BOT_TOKEN_HERE"):
+    check(f"template giữ placeholder {marker}", marker in EX)
+
+# Mã nguồn cũng vậy: ghi khoá thẳng vào core/ hay web/ là khoá "cố định trong
+# core" — đổi khoá phải sửa code. `sk-dummy` là mặc định rõ ràng, được phép.
+hardcoded: list[tuple[str, list[str]]] = []
+for _rel in ("core/llm_engine.py", "core/config_loader.py", "core/server.py",
+             "core/audio_processor.py", "core/meta_architect.py",
+             "core/health_monitor.py", "core/skills/integration_tools.py",
+             "core/skills/ai_delegation.py", "web/app.js", "web/index.html"):
+    _raw = (ROOT / _rel).read_text(encoding="utf-8")
+    _hits = _key_like_hits(_raw.replace("sk-dummy", ""))
+    if _hits:
+        hardcoded.append((_rel, _hits))
+check("không file mã nguồn nào ghi cứng chuỗi khoá",
+      not hardcoded,
+      "; ".join(f"{f} → {h}" for f, h in hardcoded))
+
+# ──────────────────────────────────────────────────────────────────────
 print("\n" + "─" * 60)
 print(f"Tổng: {PASSED + FAILED} | Pass: {PASSED} | Fail: {FAILED}")
 if FAILURES:

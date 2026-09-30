@@ -96,6 +96,9 @@ TARGETS = [
     "core/llm_engine.py", "core/config_loader.py", "core/server.py",
     "core/health_monitor.py", "core/meta_architect.py",
     "web/app.js", "web/index.html",
+    # Phase 82: template theo dõi bởi git — nếu nó chứa tên model chết thì
+    # người dùng copy template làm config.json mới là khởi đầu với model hỏng.
+    "config.example.json",
 ]
 for rel in TARGETS:
     p = ROOT / rel
@@ -332,6 +335,35 @@ check("hàm onModelChanged được định nghĩa (trước chỉ tham chiếu)
 check("onModelChanged cập nhật fallback chain",
       "renderFallbackChain();" in appjs3.split("function onModelChanged", 1)[-1].split(
           "\n\n", 1)[0])
+
+# ══ 10. Template config.example.json không gợi ý model chết/cứng ═════════════
+# Người dùng yêu cầu: "API key, Model không được cố định trong core — đổi key
+# chỉ cần điền key mới". Template theo dõi bởi git là thứ người mới copy ra làm
+# config.json; danh sách model ghi cứng trong đó sẽ chết theo thời gian như các
+# danh sách đã từng chết. Template phải để trống danh sách dự phòng (nạp từ
+# router lúc người dùng bấm Lưu — Phase 68) và model chính là placeholder.
+section("Template config.example.json không gợi ý model chết/cứng")
+EXAMPLE = (ROOT / "config.example.json").read_text(encoding="utf-8")
+ex_cfg = json.loads(EXAMPLE)
+ex_llm = ex_cfg.get("llm") or {}
+check("config.example.json có cấu trúc llm", isinstance(ex_llm, dict), str(type(ex_llm)))
+ex_all_models = (ex_llm.get("router_models") or []) + (ex_llm.get("specialist_models") or [])
+check("không model chết trong router_models/specialist_models của template",
+      not any(str(m).startswith(DEAD_PREFIXES) for m in ex_all_models),
+      str([m for m in ex_all_models if str(m).startswith(DEAD_PREFIXES)]))
+check("router_models của template trống (để router cấp lúc lưu)",
+      len(ex_llm.get("router_models") or []) == 0, str(ex_llm.get("router_models")))
+check("specialist_models của template trống (để router cấp lúc lưu)",
+      len(ex_llm.get("specialist_models") or []) == 0, str(ex_llm.get("specialist_models")))
+mn = str(ex_llm.get("model_name") or ex_cfg.get("MODEL_NAME") or "")
+check("model_name của template là placeholder, không phải tên hãng",
+      mn.startswith("YOUR_") or mn == "", mn)
+# Mọi chỗ nhắc provider_model trong template phải placeholder — cấu hình tương
+# thích ngược nhân bản cùng giá trị ra nhiều đường dẫn, sót một chỗ là lệch.
+for _path, _val in (("routing.primary", (ex_cfg.get("routing") or {}).get("primary", {}).get("provider_model", "")),
+                    ("router.primary", (ex_cfg.get("router") or {}).get("primary", {}).get("provider_model", ""))):
+    check(f"provider_model của {_path} là placeholder",
+          not _val or str(_val).startswith("YOUR_"), str(_val))
 
 print("\n" + "─" * 66)
 if FAILURES:

@@ -1,21 +1,10 @@
 {
   "llm": {
     "base_url": "http://localhost:20128/v1",
-    "model_name": "ag/claude-sonnet-4-6",
+    "model_name": "YOUR_MODEL_NAME_HERE",
     "api_key": "YOUR_9ROUTER_KEY_HERE",
-    "router_models": [
-      "ag/claude-sonnet-4-6",
-      "ag/gemini-3.8-flash",
-      "mimo/mimo-v2.6-pro",
-      "ag/gemini-3.7-flash-medium",
-      "ag/gemini-3.6-flash-medium",
-      "ag/gemini-3-flash"
-    ],
-    "specialist_models": [
-      "ag/claude-sonnet-4-6",
-      "ag/gemini-pro-agent",
-      "ag/gemini-3.1-pro-low"
-    ]
+    "router_models": [],
+    "specialist_models": []
   },
   "auto_execute": true,
   "ASR_BACKEND": "local_whisper",
@@ -78,12 +67,12 @@
   "ad_sync": {
     "enabled": false
   },
-  "MODEL_NAME": "ag/claude-sonnet-4-6",
+  "MODEL_NAME": "YOUR_MODEL_NAME_HERE",
   "API_KEY": "YOUR_9ROUTER_KEY_HERE",
   "BASE_URL": "http://localhost:20128/v1",
   "routing": {
     "primary": {
-      "provider_model": "ag/claude-sonnet-4-6",
+      "provider_model": "YOUR_MODEL_NAME_HERE",
       "api_key": "YOUR_9ROUTER_KEY_HERE",
       "api_base": "http://localhost:20128/v1",
       "api_keys": [
@@ -105,7 +94,7 @@
   },
   "router": {
     "primary": {
-      "provider_model": "ag/gemini-3.8-flash",
+      "provider_model": "YOUR_MODEL_NAME_HERE",
       "api_key": "YOUR_9ROUTER_KEY_HERE",
       "api_base": "http://localhost:20128/v1",
       "api_keys": [
