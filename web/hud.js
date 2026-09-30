@@ -171,6 +171,19 @@
   const logPlaceholderEl = document.getElementById('hud-log-placeholder');
   const voiceStreamEl = document.getElementById('hud-voice-stream');
 
+  // Phase 87: khung "QUÁ TRÌNH SUY NGHĨ" — hiện phần model tự suy luận trước
+  // khi trả lời. Gập lại mặc định, bấm vào dòng tiêu đề để mở xem.
+  const thinkingEl = document.getElementById('hud-thinking');
+  const thinkingHeadEl = document.getElementById('hud-thinking-head');
+  const thinkingDotEl = document.getElementById('hud-thinking-dot');
+  const thinkingPeekEl = document.getElementById('hud-thinking-peek');
+  const thinkingCaretEl = document.getElementById('hud-thinking-caret');
+  const thinkingBodyEl = document.getElementById('hud-thinking-body');
+  const thinkingTextEl = document.getElementById('hud-thinking-text');
+  // Đếm giây không nhận được gói "done": nếu máy chủ đứt giữa chừng, vòng
+  // xoay phải tự tắt thay vì quay mãi.
+  let thinkingStuckTimer = null;
+
   // ---------------------------------------------------------------------------
   // 3. ZERO-ALLOCATION PRE-ALLOCATED POOLS FOR 3D QUANTUM SPHERE & PARTICLES
   // ---------------------------------------------------------------------------
@@ -2258,6 +2271,83 @@ function hudDrainOutboundSpeech() {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // 12b. PHASE 87 — QUÁ TRÌNH SUY NGHĨ CỦA MODEL
+  // ---------------------------------------------------------------------------
+  // Model suy luận ở field `reasoning`, tách hẳn khỏi `content` — nên câu
+  // trả lời bạn nghe không bị lẫn suy nghĩ. Khung này chỉ hiện phần suy nghĩ
+  // đã gọn, gập lại mặc định, bấm vào dòng tiêu đề để mở xem.
+  //
+  // Dùng `textContent` chứ KHÔNG dùng `innerHTML`: suy nghĩ là văn bản do model
+  // sinh ra, không phải HTML. Dùng innerHTML ở đây là mỗi lượt hỏi một lỗ hổng
+  // chèn mã — model có thể in ra `<script>` hoặc `<img onerror=...>`.
+  const THINKING_STUCK_MS = 25000;
+
+  function setHudThinking(state, text = '') {
+    if (!thinkingEl) return;
+
+    if (state === 'empty') {
+      // Không có suy nghĩ để hiện (lỗi, hoặc model không suy luận): tắt khung
+      // và dừng bộ đếm. Để khung hiện mãi là báo "đang suy nghĩ" mà không bao
+      // giờ có kết quả.
+      thinkingEl.classList.add('hidden');
+      thinkingBodyEl?.classList.add('hidden');
+      thinkingPeekEl?.classList.add('hidden');
+      thinkingCaretEl?.classList.add('hidden');
+      if (thinkingStuckTimer) {
+        clearTimeout(thinkingStuckTimer);
+        thinkingStuckTimer = null;
+      }
+      return;
+    }
+
+    thinkingEl.classList.remove('hidden');
+
+    if (state === 'thinking') {
+      // Model đang suy nghĩ, chưa có nội dung: hiện vòng xoay, ẩn phần xem.
+      thinkingDotEl?.classList.remove('hidden');
+      thinkingPeekEl?.classList.add('hidden');
+      thinkingCaretEl?.classList.add('hidden');
+      thinkingBodyEl?.classList.add('hidden');
+      thinkingTextEl && (thinkingTextEl.textContent = '');
+      if (thinkingStuckTimer) clearTimeout(thinkingStuckTimer);
+      // Chốt chặn: nếu máy chủ đứt giữa chừng, tự tắt sau 25s.
+      thinkingStuckTimer = setTimeout(() => {
+        thinkingStuckTimer = null;
+        setHudThinking('empty');
+      }, THINKING_STUCK_MS);
+      return;
+    }
+
+    // state === 'done': suy nghĩ đã xong, có nội dung.
+    if (thinkingStuckTimer) {
+      clearTimeout(thinkingStuckTimer);
+      thinkingStuckTimer = null;
+    }
+    thinkingDotEl?.classList.add('hidden');
+    thinkingPeekEl?.classList.remove('hidden');
+    thinkingCaretEl?.classList.remove('hidden');
+    thinkingTextEl && (thinkingTextEl.textContent = text);
+    // Dòng tóm tắt ở tiêu đề: 120 ký tự đầu, để biết nội dung mà không phải
+    // mở khung. Cắt ở ranh giới từ để không dính nửa từ.
+    const peek = (text || '').slice(0, 120);
+    thinkingPeekEl && (thinkingPeekEl.textContent = peek.length < (text || '').length ? `${peek.trimEnd()}…` : peek);
+    // Mặc định gập lại: suy nghĩ dài, mở hết sẽ đẩy hết bố cục HUD.
+    thinkingBodyEl?.classList.add('hidden');
+    thinkingCaretEl && (thinkingCaretEl.textContent = '▼');
+  }
+
+  function toggleHudThinking() {
+    if (!thinkingBodyEl || !thinkingCaretEl) return;
+    const open = thinkingBodyEl.classList.toggle('hidden');
+    thinkingCaretEl.textContent = open ? '▼' : '▲';
+  }
+
+  // Gán ra window để gọi được từ bên ngoài IIFE (ví dụ từ console hoặc
+  // browser.evaluate khi kiểm thử). showHudDisplayCard cũng làm vậy ở dòng 1056.
+  window.toggleHudThinking = toggleHudThinking;
+  window.setHudThinking = setHudThinking;
+
   async function hudConfirmSecurity(approved) {
     playCyberChime('click');
     const secAlert = document.getElementById('hud-security-alert');
@@ -2394,6 +2484,12 @@ function hudDrainOutboundSpeech() {
             handleVoiceState(packet);
           } else if (type === 'display_result') {
             showHudDisplayCard(packet.display_text, packet.query || packet.text || '');
+          } else if (type === 'thinking') {
+            // Phase 87: máy chủ báo về quá trình suy nghĩ của model.
+            //   status "thinking" -> đang suy nghĩ, chưa có nội dung
+            //   status "done"     -> suy nghĩ xong, packet.text là nội dung đã gọn
+            //   status "empty"    -> không có suy nghĩ để hiện
+            setHudThinking(packet.status || 'empty', packet.text || '');
           } else if (type === 'security_approval_required') {
             handleSecurityApprovalRequired(packet);
           } else if (type === 'security_approval_resolved') {

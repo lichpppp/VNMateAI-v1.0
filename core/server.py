@@ -111,6 +111,28 @@ async def broadcast_hud(payload: Dict[str, Any]) -> None:
         active_hud_websockets.discard(ws)
 
 
+async def _broadcast_thinking(state: str, text: str = "", query: str = "") -> None:
+    """Phase 87 — báo HUD về QUÁ TRÌNH SUY NGHĨ của model.
+
+    Model suy luận ở field `reasoning`, tách hẳn khỏi `content` — nên câu trả
+    lời bạn nghe không bị lẫn suy nghĩ, nhưng trước đây phần suy nghĩ bị vứt
+    đi hoàn toàn. Giờ nó được gom gọn (`_compact_reasoning`) rồi đẩy sang HUD
+    để hiện trong khung gập lại được.
+
+    `state`:
+      - "thinking" → model đang suy nghĩ, chưa có nội dung (hiện vòng xoay)
+      - "done"     → suy nghĩ đã xong, `text` là nội dung đã gọn
+      - "empty"    → không có suy nghĩ để hiện (lỗi, hoặc model không suy luận)
+    """
+    await broadcast_hud({
+        "type": "thinking",
+        "status": state,
+        "text": text or "",
+        "query": query or "",
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+
+
 def _get_assistant_name() -> str:
     """Retrieve current AI assistant name from settings or config with fallback."""
     try:
@@ -232,6 +254,9 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
         "text": cmd_query,
         "timestamp": datetime.utcnow().isoformat(),
     })
+    # Phase 87: báo HUD bắt đầu suy nghĩ NGAY, chờ câu trả lời thật. Không
+    # báo thì HUD phải chờ 2-7 giây trắng trơn trước khi có gì hiện ra.
+    await _broadcast_thinking("thinking", query=cmd_query)
     # ── Phase 67: lời đệm KHÔNG phát vô điều kiện ──────────────────────
     #
     # Trước đây filler được broadcast ngay, TRƯỚC khi gọi LLM. Nghĩa là dù
@@ -307,6 +332,14 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
                 logger.info(
                     "[HUD] Câu đầu về sau %.2fs — bỏ lời đệm, nói thẳng",
                     time.monotonic() - _t_start,
+                )
+                # Phase 87: câu đầu tiên tới nghĩa là model đã suy nghĩ xong.
+                # Đẩy phần suy nghĩ sang HUD trước khi phát câu nói, để khung
+                # "QUÁ TRÌNH SUY NGHĨ" hiện kèm câu trả lời thay vì hiện sau.
+                await _broadcast_thinking(
+                    "done",
+                    getattr(llm_engine, "last_voice_reasoning", ""),
+                    cmd_query,
                 )
             full_sentences.append(clean_s)
 
@@ -438,6 +471,14 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
                 history=None,
             )
             display_reply = result.get("reply", "")
+            # Phase 87: nhánh này đi qua vòng agentic, nên suy nghĩ nằm trong
+            # kết quả trả về (không phải thuộc tính chung). Không có thì báo
+            # "empty" để HUD tắt vòng xoay thay vì để nó quay mãi.
+            await _broadcast_thinking(
+                "done" if result.get("reasoning") else "empty",
+                result.get("reasoning", ""),
+                cmd_query,
+            )
             from core.voice_session import looks_like_question
 
             if display_reply:
@@ -485,6 +526,9 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             })
         except Exception as e:
             logger.error("HUD voice ask_async fallback error: %s", e)
+            # Phase 87: cả hai nhánh đều hỏng -> tắt vòng xoay suy nghĩ. Để nó
+            # quay mãi là HUD báo "đang suy nghĩ" mà không bao giờ có kết quả.
+            await _broadcast_thinking("empty", query=cmd_query)
 
     async def _reset_hud_idle(delay: float = 6.0):
         await asyncio.sleep(delay)
@@ -1019,6 +1063,10 @@ class VoiceCommandResponse(BaseModel):
     audio_base64: Optional[str] = Field(
         default=None,
         description="Base64-encoded MP3 audio (chỉ khi include_audio=true).",
+    )
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="Phase 87: quá trình suy nghĩ của model (đã gọn), tách khỏi câu trả lời.",
     )
 
 
@@ -1898,6 +1946,9 @@ async def voice_command(
         "text": "Đang phân tích câu lệnh & truy xuất kỹ năng...",
         "timestamp": datetime.utcnow().isoformat(),
     })
+    # Phase 87: báo HUD bắt đầu suy nghĩ. Đường REST này đi qua vòng agentic
+    # (ask_async) nên không có suy nghĩ từng bước — chỉ có bản tổng sau cùng.
+    await _broadcast_thinking("thinking", query=payload.query)
 
     try:
         # Phase 25 & 34: Use ask_async directly with session_id for Sliding Window Conversational Memory
@@ -1908,6 +1959,13 @@ async def voice_command(
             session_id=payload.session_id or source_device,
         )
         display_reply: str = result.get("reply", "")
+        # Phase 87: suy nghĩ của lượt này đi kèm trong kết quả. Đọc từ đây
+        # chứ không phải thuộc tính chung — lượt song song sẽ ghi đè lẫn nhau.
+        await _broadcast_thinking(
+            "done" if result.get("reasoning") else "empty",
+            result.get("reasoning", ""),
+            payload.query,
+        )
         speech_reply: str = result.get("speech_reply") or llm_engine._sanitise_for_tts(display_reply)
         if not speech_reply:
             if result.get("success"):
@@ -1921,6 +1979,8 @@ async def voice_command(
         requires_confirmation = result.get("requires_confirmation", False)
     except Exception:  # pylint: disable=broad-except
         logger.error("voice_command error:\n%s", traceback.format_exc())
+        # Phase 87: lỗi -> tắt vòng xoay suy nghĩ trên HUD, không để nó quay mãi.
+        await _broadcast_thinking("empty", query=payload.query)
         raise HTTPException(status_code=500, detail="Lỗi xử lý nội bộ.")
 
     ai_name = _get_assistant_name()
@@ -1997,6 +2057,9 @@ async def voice_command(
         requires_confirmation=requires_confirmation,
         session_id=payload.session_id,
         audio_base64=audio_b64,
+        # Phase 87: suy nghĩ của lượt này, để client đọc được của đúng lượt
+        # thay vì đọc thuộc tính chung (lượt song song ghi đè lẫn nhau).
+        reasoning=result.get("reasoning") or None,
     )
 
 

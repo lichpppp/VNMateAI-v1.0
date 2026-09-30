@@ -596,6 +596,10 @@ class LLMEngine:
         self._client: Optional[AsyncOpenAI] = None  # Lazy init after event loop starts
         self._last_cfg_snapshot: str = self._cfg_snapshot()
         self.last_voice_display_text: str = ""
+        # Phase 87: phần model TỰ SUY NGHĨ trước khi trả lời. Model suy luận ở
+        # field `reasoning`, tách hẳn khỏi `content`, nên câu trả lời bạn nghe
+        # không bị lẫn suy nghĩ — nhưng trước đây nó bị ném đi hoàn toàn.
+        self.last_voice_reasoning: str = ""
 
     def _cfg_snapshot(self) -> str:
         """Return a string that changes whenever llm config changes."""
@@ -1085,6 +1089,17 @@ class LLMEngine:
             assistant_msg = choice.message
             finish_reason = getattr(choice, "finish_reason", "stop") or "stop"
 
+            # Phase 87: lưu phần suy nghĩ của model. Router đặt ở field
+            # `reasoning` (đôi khi `reasoning_content`), tách khỏi `content`.
+            # Ghi đè mỗi vòng để khi thoát vòng lặp, giá trị còn lại là suy nghĩ
+            # của chính lượt gọi sinh ra câu trả lời cuối — không phải suy nghĩ
+            # của vòng trước đã đi gọi tool.
+            self.last_voice_reasoning = self._compact_reasoning(
+                getattr(assistant_msg, "reasoning", "")
+                or getattr(assistant_msg, "reasoning_content", "")
+                or ""
+            )
+
             # Format assistant turn for history
             assistant_dict: Dict[str, Any] = {
                 "role": "assistant",
@@ -1325,6 +1340,10 @@ class LLMEngine:
                     "error": None,
                     "route_info": {"model": used_model},
                     "requires_confirmation": has_need_confirm,
+                    # Phase 87: kèm luôn suy nghĩ, để phía gọi đọc được của
+                    # đúng lượt này thay vì đọc thuộc tính chung (lượt song
+                    # song sẽ ghi đè lẫn nhau).
+                    "reasoning": self.last_voice_reasoning,
                 }
 
         # Exceeded MAX_TOOL_ROUNDS
@@ -1563,8 +1582,26 @@ class LLMEngine:
             return
 
         text_buffer = ""
+        # Phase 87: gom phần suy nghĩ của model. Router trả nó ở
+        # `delta.reasoning` (đôi khi tên `reasoning_content`), tách hẳn khỏi
+        # `delta.content` — nên câu trả lời bạn nghe không bị lẫn suy nghĩ, nhưng
+        # trước đây nó bị vứt đi hoàn toàn.
+        reasoning_buffer = ""
         has_tool_calls = False
         has_yielded_any_sentence = False
+
+        # Lượt mới -> xoá suy nghĩ của lượt cũ. Không xoá thì lượt không có
+        # suy nghĩ sẽ hiện lại suy nghĩ của lượt trước — tức bịa.
+        self.last_voice_reasoning = ""
+
+        def _publish_reasoning() -> None:
+            """Công bố suy nghĩ tích luỹ cho HUD, gọi ngay TRƯỚC mỗi lần yield.
+
+            Model suy luận xong rồi mới bắt đầu viết câu trả lời, nên gọi trước
+            lần yield đầu là đủ để HUD kịp hiện. Vẫn gọi trước mọi lần yield vì
+            có model xen kẽ suy nghĩ với câu trả lời trong cùng một stream.
+            """
+            self.last_voice_reasoning = self._compact_reasoning(reasoning_buffer)
 
         try:
             async for chunk in stream:
@@ -1572,6 +1609,14 @@ class LLMEngine:
                     continue
 
                 delta = chunk.choices[0].delta
+
+                # Phase 87: nuốt phần suy nghĩ vào bộ đệm riêng. Cố tình KHÔNG
+                # gộp vào `text_buffer`: đó là câu sẽ đọc to và hiện trên HUD.
+                reasoning_buffer += (
+                    getattr(delta, "reasoning", "")
+                    or getattr(delta, "reasoning_content", "")
+                    or ""
+                )
 
                 # Phát hiện tool call — huỷ stream, chuyển sang vòng lặp agentic.
                 #
@@ -1614,6 +1659,7 @@ class LLMEngine:
                     clean = self._sanitise_for_tts(sentence)
                     if clean:
                         has_yielded_any_sentence = True
+                        _publish_reasoning()
                         yield clean
 
         except Exception as exc:
@@ -1624,6 +1670,9 @@ class LLMEngine:
             if not has_yielded_any_sentence and not text_buffer.strip():
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
                 self.last_voice_display_text = fallback_msg
+                # Stream đứt giữa chừng: phần suy nghĩ đã nhận được vẫn còn
+                # giá trị hiển thị (nó có thật, không phải bịa) — giữ lại.
+                _publish_reasoning()
                 yield fallback_msg
                 return
 
@@ -1632,6 +1681,7 @@ class LLMEngine:
             clean = self._sanitise_for_tts(text_buffer)
             if clean:
                 has_yielded_any_sentence = True
+                _publish_reasoning()
                 yield clean
 
         # Save streamed conversation to MemoryManager
@@ -1647,6 +1697,11 @@ class LLMEngine:
         # If tool calls detected, fall back to full agentic loop
         if has_tool_calls:
             logger.info("[LLMEngine] Executing full agentic loop for tool call...")
+            # Xoá suy nghĩ của pha stream: nó là suy nghĩ cho bước "gọi tool",
+            # không phải cho câu trả lời cuối. `ask_async()` sẽ tự ghi suy nghĩ
+            # đúng của lượt sinh câu trả lời vào đây. Giữ lại bản cũ là hiện
+            # nhầm suy nghĩ của một bước khác.
+            self.last_voice_reasoning = ""
             try:
                 result = await self.ask_async(
                     query=query,
@@ -1762,6 +1817,41 @@ class LLMEngine:
             except Exception:
                 enriched.append(t)
         return enriched
+
+    #: Phase 87 — độ dài tối đa của "quá trình suy nghĩ" hiển thị trên HUD.
+    #:
+    #: Đo thật trên máy này (2026-09-30): câu hỏi "12 quả táo cho đi 3 rồi mua
+    #: thêm 5" sinh khoảng 250-700 ký tự suy nghĩ. Câu hỏi thật của CEO
+    #: (báo cáo tài chính, tra cứu ERP) dài hơn nhiều. Không cắt thì khung này
+    #: đẩy hết bố cục HUD, mà đọc cũng không hết.
+    REASONING_DISPLAY_MAX = 600
+
+    @classmethod
+    def _compact_reasoning(cls, text: str, max_len: Optional[int] = None) -> str:
+        """Gọn phần suy nghĩ của model cho HUD — GIỮ NGUYÊN tiếng gốc.
+
+        Người dùng chọn rõ: "giữ nguyên tiếng Anh, chỉ làm gọn". Vì vậy ở đây
+        KHÔNG dịch, KHÔNG tóm tắt, KHÔNG bỏ từ nào — chỉ gộp khoảng trắng và
+        cắt độ dài. Bỏ từ trong suy luận là dựng lại ý model, tức là bịa.
+
+        Cắt ở ranh giới câu/từ để không dính nửa từ ("...incomp|eted").
+        """
+        import re as _re
+
+        if not text:
+            return ""
+        # Suy nghĩ ra nhiều dòng vì model ngắt dòng khi lập luận; gộp lại thành
+        # một dòng cho gọn. Giữa các từ vẫn để 1 khoảng trắng.
+        flat = _re.sub(r"\s+", " ", str(text)).strip()
+        limit = cls.REASONING_DISPLAY_MAX if max_len is None else max_len
+        if limit <= 0 or len(flat) <= limit:
+            return flat
+        cut = flat[:limit]
+        # Lùi về ranh giới từ gần nhất trong 40 ký tự cuối, tránh cắt giữa từ.
+        space = cut.rfind(" ", max(0, limit - 40))
+        if space > limit // 2:
+            cut = cut[:space]
+        return cut.rstrip(" ,;:.-") + "…"
 
     @staticmethod
     def _sanitise_for_tts(text: str) -> str:
