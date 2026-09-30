@@ -962,14 +962,24 @@
 
       <!-- ═══ TRUNG TÂM TÍCH HỢP DOANH NGHIỆP (PHASE 59/60) ══════════ -->
       <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 backdrop-blur-sm shadow-sm overflow-hidden">
-        <div class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
+        <!-- Phase 85: div tiêu đề khối nay có id (cc-int-header) và ô phụ
+             tên sub-tab (cc-int-header-sub).
+             `switchCcSubTab()` từ lâu đã cố ghi tên sub-tab vào phần tử
+             `cc-int-header h3` — nhưng phần tử đó KHÔNG tồn tại trong HTML,
+             nên mọi lần bấm sub-tab mở rộng ("📊 Báo Cáo", "📈 Phân Tích")
+             tiêu đề im lặng biến mất, không có gì báo lỗi. Nay tên sub-tab
+             hiện ở ô phụ cạnh tiêu đề chung, để người dùng luôn biết đang
+             ở mục nào. Số "Phase 59 · Phase 60" cũng bị gỡ: đó là mã hiệu
+             phát triển, người dùng cuối đọc không hiểu, còn chỗ trống thì
+             dành cho thông tin có ích. -->
+        <div id="cc-int-header" class="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex flex-wrap items-center gap-2">
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" class="text-primary-500">
             <rect x="2" y="3" width="20" height="14" rx="2" />
             <path d="M8 21h8" />
             <path d="M12 17v4" />
           </svg>
           <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Trung Tâm Tích Hợp Doanh Nghiệp</h3>
-          <span class="text-[9px] text-slate-400 dark:text-slate-500">Phase 59 · Phase 60</span>
+          <span id="cc-int-header-sub" class="text-[11px] text-slate-500 dark:text-slate-400">Kết nối</span>
 
           <!-- Thanh sub-tab -->
           <div class="ml-auto flex flex-wrap items-center gap-1 p-1 rounded-xl bg-slate-100/70 dark:bg-slate-900/50">
@@ -1171,197 +1181,178 @@
              "Hệ Thống" — 195 dòng HTML khiến màn hình Tích Hợp bị kéo
              dài bởi nội dung không liên quan tới tích hợp. Nay là sub-tab
              riêng, chỉ nạp dữ liệu khi bấm vào. -->
-        <div id="cc-int-devices" class="p-4 hidden">
-        <!-- Phase 81: tiêu đề "THIẾT BỊ MÁY TRẠM (WORKER NODES)" bị gỡ —
-             nút sub-tab đã ghi rõ "Máy Trạm", tiêu đề lặp chỉ chiếm chỗ. -->
-      <!-- Header & Stats Overview -->
-      <div class="glass-panel p-6">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
-          <div>
-            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
-                ENTERPRISE ORCHESTRATOR
-              </span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                LAN WEBSOCKET 2-WAY
-              </span>
-              <span class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-                ZERO-TRUST SSL PINNED
-              </span>
-            </div>
-            <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Quản Lý Thiết Bị Máy Trạm (Worker Nodes)</h2>
-            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Điều phối và đồng bộ tự động hóa từ xa tới các máy trạm trong mạng nội bộ thông qua Secure Client Agent.</p>
-          </div>
+        <div id="cc-int-devices" class="p-4 hidden space-y-3.5">
+          <!-- ═══ PHASE 85 — BỐ TRÍ LẠI KHỐI MÁY TRẠM ═══════════════════
+               Trước đây khối này là 3 `glass-panel` rời rạc: khối tiêu đề +
+               4 thẻ số + 4 nút HUD (~100 dòng), rồi bảng danh sách, rồi
+               hướng dẫn 4 bước. Người dùng phải cuộn qua 2/3 màn hình chữ
+               tĩnh mới tới bảng — thứ duy nhất họ cần xem. Nay gộp thành 3
+               khối theo đúng thứ tự đọc: tiêu đề + số liệu → bảng → hướng dẫn
+               gập lại (nội dung tĩnh mà không phải lúc nào cũng cần đọc).
 
-          <!-- Phase 32: Quick HUD Trigger & Tools -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <div class="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl border border-slate-200 dark:border-slate-700/80">
-              <span class="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 px-2 flex items-center gap-1">
-                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                HUD LY LY:
-              </span>
-              <button onclick="triggerVisualOverlay('network_map')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Sơ đồ mạng HUD">🌐 Mạng</button>
-              <button onclick="triggerVisualOverlay('metric_chart')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Biểu đồ CPU/RAM HUD">📊 CPU/RAM</button>
-              <button onclick="triggerVisualOverlay('alert')" class="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-red-500 shadow-sm transition active:scale-95" title="Hiển thị Cảnh báo an ninh HUD">⚠️ Cảnh Báo</button>
-              <a href="/hud" target="_blank" class="px-2.5 py-1.5 text-xs font-bold rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:shadow-cyan-500/30 transition active:scale-95 flex items-center gap-1" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình">🖥️ 3D HUD</a>
-            </div>
-          </div>
-        </div>
+               Bốn ô số liệu dưới đây chỉ hiện thứ đo được:
+                 • Máy trạm đang kết nối — `len(GET /api/v1/clients)`.
+                   API này CHỈ trả máy đang mở WebSocket: `unregister_client()`
+                   xoá máy khỏi registry lúc rớt kết nối
+                   (core/orchestrator.py). Nên trước đây có hai thẻ "TỔNG MÁY
+                   TRẠM" và "TRỰC TUYẾN REALTIME" — hai cái tên một con số,
+                   luôn bằng nhau. Nay gộp còn một ô.
+                 • Tổng kỹ năng — cộng `skills_count` của các máy (thật).
+                 • Worker cục bộ — `GET /api/v1/orchestrator/local-worker/status`
+                   (thật: đang chạy không, mã tiến trình).
+                 • Cập nhật lúc — thời điểm lần tải gần nhất thành công. Dòng
+                   "Cập nhật tự động realtime" trước đây không gắn với bộ hẹn
+                   giờ nào, tức là lời hứa không có thật; nay có
+                   `_devicesPollTimer` thật, 10 giây/lần, chỉ chạy khi
+                   sub-tab đang mở.
 
-        <!-- 4 Live Telemetry & Control Cards -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">
-          <!-- Card 1: Total Workers -->
-          <div class="glass-panel p-3.5 flex items-center justify-between border-cyan-500/20 hover:border-cyan-500/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold text-sm shrink-0">
-                🖥️
-              </div>
+               Không còn thẻ "CỔNG MASTER & TLS" ghi cứng ":443 (SSL PINNED)":
+               con số đó không đo được và sai với máy chủ đang chạy. Cùng lỗi
+               đó còn ở endpoint đóng gói Agent (core/server.py) — xem
+               `_master_ws_url()`. -->
+          <div class="glass-panel p-4">
+            <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
               <div class="min-w-0">
-                <div class="text-[10px] text-slate-400 uppercase font-semibold">TỔNG MÁY TRẠM</div>
-                <div id="stat-total-clients" class="text-sm font-mono font-bold text-cyan-400">0 NODES</div>
+                <h3 class="text-sm font-bold text-slate-800 dark:text-white">Máy Trạm Worker (LAN)</h3>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                  Mỗi máy trạm chạy Client Agent và nối về máy chủ này bằng WebSocket.
+                  Bảng chỉ liệt kê máy <span class="font-semibold">đang kết nối</span> — máy rớt kết nối sẽ tự biến mất khỏi danh sách.
+                </p>
               </div>
-            </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 shrink-0">LAN WORKERS</span>
-          </div>
-
-          <!-- Card 2: Online Workers -->
-          <div class="glass-panel p-3.5 flex items-center justify-between border-emerald-500/20 hover:border-emerald-500/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-sm shrink-0">
-                🟢
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] text-slate-400 uppercase font-semibold">TRỰC TUYẾN REALTIME</div>
-                <div id="stat-online-clients" class="text-sm font-mono font-bold text-emerald-400">0 ONLINE</div>
-              </div>
-            </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0">WSS ACTIVE</span>
-          </div>
-
-          <!-- Card 3: Master Port & Security -->
-          <div class="glass-panel p-3.5 flex items-center justify-between border-purple-500/20 hover:border-purple-500/40 transition">
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div class="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400 font-bold text-sm shrink-0">
-                🔒
-              </div>
-              <div class="min-w-0">
-                <div class="text-[10px] text-slate-400 uppercase font-semibold">CỔNG MASTER & TLS</div>
-                <div class="text-xs font-mono font-bold text-purple-300 flex items-center gap-1">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>:443 (SSL PINNED)</span>
+              <div class="flex items-center gap-1.5 flex-wrap shrink-0">
+                <button type="button" onclick="downloadClientAgent()" id="btn-download-agent-devices"
+                  title="Tải gói Client Agent (.zip) — trong gói đã điền sẵn địa chỉ, cổng và token của máy chủ này"
+                  class="px-2.5 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[11px] font-bold transition flex items-center gap-1.5">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <span>Tải Agent</span>
+                </button>
+                <button type="button" onclick="toggleLocalWorkerNode()" id="btn-local-worker-toggle" title="Bật/tắt một Worker Node chạy ngầm trên chính máy chủ (để thử nghiệm)"
+                  class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[11px] font-bold transition flex items-center gap-1.5">
+                  <span id="btn-local-worker-text">⚡ Bật Local</span>
+                </button>
+                <button type="button" onclick="loadDevices()" id="btn-reload-devices"
+                  title="Nạp lại danh sách ngay bây giờ (ngoài ra còn tự làm mới mỗi 10 giây khi sub-tab này đang mở)"
+                  class="px-2 py-1.5 rounded-lg bg-slate-500/10 hover:bg-slate-500/20 text-slate-300 border border-slate-500/30 text-[11px] font-bold transition flex items-center">
+                  <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                </button>
+                <span class="w-px h-5 bg-slate-300 dark:bg-slate-700" aria-hidden="true"></span>
+                <div class="flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80">
+                  <span class="text-[9px] font-bold text-cyan-600 dark:text-cyan-400 px-1">HUD</span>
+                  <button onclick="triggerVisualOverlay('network_map')" class="px-2 py-1 text-[11px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Sơ đồ mạng HUD">🌐 Mạng</button>
+                  <button onclick="triggerVisualOverlay('metric_chart')" class="px-2 py-1 text-[11px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-cyan-500 shadow-sm transition active:scale-95" title="Hiển thị Biểu đồ CPU/RAM HUD">📊 CPU/RAM</button>
+                  <button onclick="triggerVisualOverlay('alert')" class="px-2 py-1 text-[11px] font-semibold rounded bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-200 hover:text-red-500 shadow-sm transition active:scale-95" title="Hiển thị Cảnh báo an ninh HUD">⚠️ Cảnh Báo</button>
+                  <a href="/hud" target="_blank" class="px-2 py-1 text-[11px] font-bold rounded bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-sm hover:shadow-cyan-500/30 transition active:scale-95" title="Mở Trợ lý AI Ly Ly 3D HUD toàn màn hình">🖥️ 3D HUD</a>
                 </div>
               </div>
             </div>
-            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/30 shrink-0">ANTI-MITM</span>
+
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mt-3.5 pt-3.5 border-t border-slate-200 dark:border-slate-800">
+              <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-3 py-2">
+                <div class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Máy trạm đang kết nối</div>
+                <div id="stat-total-clients" class="text-base font-mono font-bold text-cyan-400 is-waiting">—</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-3 py-2">
+                <div class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Tổng kỹ năng</div>
+                <div id="stat-total-skills" class="text-base font-mono font-bold text-violet-400 is-waiting">—</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-3 py-2">
+                <div class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Worker cục bộ</div>
+                <div id="stat-local-worker" class="text-base font-mono font-bold text-emerald-400 is-waiting">—</div>
+              </div>
+              <div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 px-3 py-2">
+                <div class="text-[9px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Cập nhật lúc</div>
+                <div id="stat-last-sync" class="text-base font-mono font-bold text-slate-600 dark:text-slate-300 is-waiting">—</div>
+              </div>
+            </div>
           </div>
 
-          <!-- Card 4: Quick Actions & Local Worker Toggle -->
-          <div class="glass-panel p-3 flex items-center justify-between gap-2 border-slate-500/20">
-            <button type="button" onclick="downloadClientAgent()" id="btn-download-agent-devices" title="Tải xuống gói Client Agent (.zip) kèm cấu hình IP máy chủ tự động"
-              class="flex-1 py-1.5 px-2 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              <span>⬇️ Tải Agent</span>
-            </button>
-            <button type="button" onclick="toggleLocalWorkerNode()" id="btn-local-worker-toggle" title="Bật hoặc tắt Worker Node chạy ngầm trên máy chủ để thử nghiệm"
-              class="flex-1 py-1.5 px-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold transition flex items-center justify-center gap-1">
-              <span id="btn-local-worker-text">⚡ Bật Local</span>
-            </button>
-            <button type="button" onclick="loadDevices()" title="Nạp lại danh sách máy trạm từ orchestrator"
-              class="py-1.5 px-2 rounded-lg bg-slate-500/10 hover:bg-slate-500/20 text-slate-300 border border-slate-500/30 text-[10px] font-bold transition flex items-center justify-center">
-              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
+          <!-- ═══ Zone C: bảng danh sách — phần chính của sub-tab ═══════ -->
+          <div class="glass-panel p-4 space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div class="flex items-center gap-2 min-w-0">
+                <h3 class="text-sm font-bold text-slate-800 dark:text-white">Danh sách máy trạm</h3>
+                <span id="devices-row-count" class="px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 is-waiting">—</span>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400">tự làm mới mỗi 10s</span>
+              </div>
+              <div class="relative">
+                <input type="text" id="filter-devices-input" onkeyup="filterDevices()" placeholder="Lọc theo tên, IP hoặc hệ điều hành..."
+                  class="input-dark text-xs pr-8 py-1.5 w-64" />
+                <svg class="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" width="14" height="14"
+                  fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+              </div>
+            </div>
 
-      <!-- Devices Table Panel -->
-      <div class="glass-panel p-5 space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <h3 class="text-sm font-bold text-slate-800 dark:text-white">Danh Sách Máy Trạm Worker (LAN)</h3>
-            <span class="text-[11px] text-slate-500 dark:text-slate-400">Cập nhật tự động realtime</span>
-          </div>
-          <div class="relative">
-            <input type="text" id="filter-devices-input" onkeyup="filterDevices()" placeholder="Lọc theo tên, IP hoặc hệ điều hành..."
-              class="input-dark text-xs pr-8 py-1.5 w-64" />
-            <svg class="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" width="14" height="14"
-              fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </div>
-        </div>
+            <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50">
+              <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
+                <thead>
+                  <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95">
+                    <th class="py-2.5 px-3">TÊN THIẾT BỊ / HOSTNAME</th>
+                    <th class="py-2.5 px-3">ĐỊA CHỈ IP LAN</th>
+                    <th class="py-2.5 px-3">HỆ ĐIỀU HÀNH</th>
+                    <th class="py-2.5 px-3">SỐ KỸ NĂNG</th>
+                    <th class="py-2.5 px-3">KẾT NỐI LÚC</th>
+                    <th class="py-2.5 px-3 text-right">THAO TÁC</th>
+                  </tr>
+                </thead>
+                <tbody id="devices-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
+                  <!-- Dynamically rendered by app.js loadDevices() -->
+                </tbody>
+              </table>
+            </div>
 
-        <div class="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50 dark:bg-slate-900/50">
-          <table class="w-full text-left text-xs text-slate-600 dark:text-slate-300 border-collapse">
-            <thead>
-              <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 font-semibold bg-white dark:bg-slate-900/95 sticky top-0">
-                <th class="py-3 px-4">TÊN THIẾT BỊ / HOSTNAME</th>
-                <th class="py-3 px-4">ĐỊA CHỈ IP LAN</th>
-                <th class="py-3 px-4">HỆ ĐIỀU HÀNH</th>
-                <th class="py-3 px-4">SỐ KỸ NĂNG</th>
-                <th class="py-3 px-4">TRẠNG THÁI</th>
-                <th class="py-3 px-4">THỜI GIAN KẾT NỐI</th>
-                <th class="py-3 px-4 text-right">THAO TÁC</th>
-              </tr>
-            </thead>
-            <tbody id="devices-table-body" class="divide-y divide-slate-100 dark:divide-slate-800 font-mono text-[11px]">
-              <!-- Dynamically rendered by app.js loadDevices() -->
-            </tbody>
-          </table>
-        </div>
+            <div id="devices-load-error" class="hidden rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-[11px] text-amber-700 dark:text-amber-300">
+              ⚠️ Không lấy được danh sách máy trạm từ máy chủ. Số liệu bên trên giữ nguyên lần tải gần nhất — đây là lỗi kết nối, không phải "không có máy trạm nào". Bấm nút ↻ để thử lại.
+            </div>
 
-        <!-- Empty state placeholder -->
-        <div id="devices-empty-state" class="p-8 text-center hidden">
-          <div class="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-400/20 text-cyan-400 mx-auto flex items-center justify-center mb-3 text-2xl shadow-[0_0_15px_rgba(34,211,238,0.2)]">
-            🖥️
+            <div id="devices-empty-state" class="p-6 text-center hidden">
+              <div class="w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-400/20 text-cyan-400 mx-auto flex items-center justify-center mb-3 text-2xl shadow-[0_0_15px_rgba(34,211,238,0.2)]">
+                🖥️
+              </div>
+              <h4 class="text-sm font-bold text-slate-800 dark:text-white">Chưa có máy trạm nào kết nối</h4>
+              <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
+                Khởi chạy Client Agent trên các máy con trong cùng mạng LAN để kết nối về máy chủ này, hoặc bật ngay Worker Cục Bộ để thử nghiệm tức thời.
+              </p>
+              <div class="mt-4 flex items-center justify-center gap-2.5 flex-wrap">
+                <button onclick="toggleLocalWorkerNode()"
+                  class="btn-neon-cyan py-2 px-4 text-xs font-bold flex items-center gap-2 shadow-lg">
+                  <span>⚡ Khởi Chạy Local Worker Agent (Thử Nghiệm Ngay)</span>
+                </button>
+                <button onclick="downloadClientAgent()"
+                  class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 text-xs font-semibold transition-all">
+                  <span>⬇️ Tải Gói Cài Đặt Agent (.zip)</span>
+                </button>
+              </div>
+            </div>
           </div>
-          <h4 class="text-sm font-bold text-slate-800 dark:text-white">Chưa có máy trạm nào kết nối</h4>
-          <p class="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-            Khởi chạy Client Agent trên các máy con trong cùng mạng LAN để kết nối về máy chủ Master này, hoặc bật ngay Worker Cục Bộ để thử nghiệm tức thời.
-          </p>
-          <div class="mt-4 flex items-center justify-center gap-2.5 flex-wrap">
-            <button onclick="toggleLocalWorkerNode()"
-              class="btn-neon-cyan py-2 px-4 text-xs font-bold flex items-center gap-2 shadow-lg">
-              <span>⚡ Khởi Chạy Local Worker Agent (Thử Nghiệm Ngay)</span>
-            </button>
-            <button onclick="downloadClientAgent()"
-              class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-white/10 text-xs font-semibold transition-all">
-              <span>⬇️ Tải Gói Cài Đặt Agent (.zip)</span>
-            </button>
-          </div>
-          <div class="mt-3 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-mono text-[11px] text-cyan-400">
-            <code>python agent.py --server wss://&lt;IP_MAY_CHU&gt;:443/ws/client</code>
-          </div>
-        </div>
-      </div>
 
-      <!-- Instruction Guide Card -->
-      <div class="glass-panel p-5 border border-slate-200 dark:border-slate-800">
-        <div class="flex items-start gap-3">
-          <div
-            class="w-8 h-8 rounded-lg bg-cyan-500/10 dark:bg-cyan-500/20 border border-cyan-400/30 flex items-center justify-center text-cyan-600 dark:text-cyan-400 flex-shrink-0 mt-0.5">
-            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="10" />
-              <line x1="12" y1="16" x2="12" y2="12" />
-              <line x1="12" y1="8" x2="12.01" y2="8" />
-            </svg>
+          <!-- ═══ Zone D: hướng dẫn gập lại ════════════════════════════ -->
+          <div class="glass-panel px-4 py-3">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-cyan-600 dark:text-cyan-400 text-sm leading-none">ℹ️</span>
+              <p class="text-[11px] text-slate-600 dark:text-slate-300 flex-1 min-w-[240px]">
+                Thêm máy trạm mới: bấm <span class="font-semibold">Tải Agent</span>, giải nén sang máy con rồi chạy
+                <code class="font-mono text-cyan-600 dark:text-cyan-400">python agent.py</code> — địa chỉ máy chủ và token đăng ký đã nằm sẵn trong gói.
+              </p>
+              <button type="button" onclick="toggleDevicesGuide()" id="btn-devices-guide"
+                class="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-[11px] font-semibold transition">
+                <span id="btn-devices-guide-text">Xem hướng dẫn</span>
+              </button>
+            </div>
+            <div id="devices-guide-body" class="hidden mt-2.5 pt-2.5 border-t border-slate-200 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1.5 leading-relaxed">
+              <p>1. Máy con cần cài Python 3.10 trở lên và 2 thư viện: <code class="text-cyan-600 dark:text-cyan-400 font-semibold">pip install websockets psutil</code>.</p>
+              <p>2. Chạy agent ở máy con — không cần truyền tham số nào, địa chỉ máy chủ lấy từ <code class="text-cyan-600 dark:text-cyan-400">config.json</code> trong gói:</p>
+              <p class="font-mono bg-slate-100 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1.5 break-all">
+                <span id="devices-guide-url">python agent.py</span>
+              </p>
+              <p>3. Xem tên máy con tự sinh ở bảng bên trên. Muốn đặt tên riêng: <code class="text-cyan-600 dark:text-cyan-400 font-mono">python agent.py --id "TEN_MAY"</code>.</p>
+              <p class="text-slate-500 dark:text-slate-400">
+                Kết nối dùng <code class="font-mono">ws://</code> nếu máy chủ chạy HTTP, <code class="font-mono">wss://</code> nếu chạy HTTPS (khi đó agent kiểm tra chứng chỉ <code class="font-mono">server_cert.pem</code> đi kèm trong gói). Mỗi lần bấm "Tải Agent" là một gói mới với token đăng ký mới.
+              </p>
+            </div>
           </div>
-          <div class="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
-            <h4 class="font-bold text-slate-900 dark:text-white text-sm">Hướng Dẫn Triển Khai Máy Con (Worker Node)
-              Trong Doanh Nghiệp</h4>
-            <p class="text-slate-500 dark:text-slate-400 leading-relaxed">
-              1. Sao chép thư mục <code class="text-primary-600 dark:text-cyan-300 font-semibold">client_agent/</code>
-              sang máy con cần điều khiển tự động.<br />
-              2. Cài đặt các thư viện cần thiết: <code
-                class="text-primary-600 dark:text-cyan-300 font-semibold">pip install websockets psutil</code>.<br />
-              3. Chạy lệnh: <code
-                class="text-primary-600 dark:text-cyan-300 font-mono font-semibold">python agent.py --server wss://&lt;IP_MAY_CHU&gt;:443/ws/client --id "TEN_MAY"</code>.<br />
-              4. Máy trạm sẽ tự động xác thực chứng chỉ SSL và kết nối bảo mật tới Master.
-            </p>
-          </div>
-        </div>
-      </div>
         </div>
 
       </div>

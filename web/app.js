@@ -783,6 +783,11 @@ function switchTab(tabId) {
       CommandCenter.onLeave();
     }
   }
+  // Phase 85: dừng bộ hẹn giờ 10s của danh sách máy trạm khi rời tab Tích Hợp.
+  // Bật lại khi quay lại tab và bấm sub-tab Máy Trạm (`switchCcSubTab`).
+  if (typeof _devicesPollStop === 'function' && tabId !== 'system-integration') {
+    _devicesPollStop();
+  }
 
   document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
   const activePane = document.getElementById(`tab-${tabId}`);
@@ -2351,21 +2356,117 @@ async function submitAddSkill() {
 // ── QUẢN LÝ THIẾT BỊ MÁY TRẠM (ENTERPRISE ORCHESTRATOR) ────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
+/**
+ * Phase 85: lấy danh sách máy trạm, phân biệt rõ "API lỗi" với "không có máy
+ * nào".
+ *
+ * `apiGetClients()` trả `[]` khi HTTP lỗi — giống hệt lúc không có máy nào
+ * kết nối. Giao diện bảy ra "0 máy trạm", tức khẳng định chắc chắn là không
+ * có máy nào, trong khi thực tế có thể chỉ là máy chủ không trả lời. Nay
+ * `null` = lỗi, mảng = kết quả thật.
+ */
+async function apiFetchClients() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/clients`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data) ? data : null;
+  } catch (err) {
+    console.error('[API] Lỗi lấy danh sách máy trạm:', err);
+    return null;
+  }
+}
+
+/** Định dạng giờ kết nối: "10:12:19" (ngày đầy đủ nằm ở thuộc tính title). */
+function _fmtConnectedAt(iso) {
+  if (!_isLive(iso)) return '—';
+  const m = String(iso).match(/(\d{2}:\d{2}:\d{2})/);
+  return m ? m[1] : String(iso);
+}
+
 async function loadDevices() {
-  const clients = await apiGetClients();
-  devicesData = clients || [];
+  const clients = await apiFetchClients();
 
-  const totalEl = document.getElementById('stat-total-clients');
-  const onlineEl = document.getElementById('stat-online-clients');
-  const badgeEl = document.getElementById('badge-online-clients');
+  if (clients === null) {
+    // Không ghi đè danh sách đang có và không đụng các ô số — nói rõ là
+    // chưa lấy được, đừng để màn hình trông như mọi thứ bình thường.
+    _setLiveText('#stat-total-clients', null, { waiting: 'lỗi kết nối' });
+    _setLiveText('#stat-total-skills', null, { waiting: 'lỗi kết nối' });
+    _setLiveText('#devices-row-count', null, { waiting: 'lỗi' });
+    const errBox = document.getElementById('devices-load-error');
+    if (errBox) errBox.classList.remove('hidden');
+    return;
+  }
+  const errBox = document.getElementById('devices-load-error');
+  if (errBox) errBox.classList.add('hidden');
 
+  devicesData = clients;
   const count = devicesData.length;
-  if (totalEl) totalEl.textContent = `${count} NODES`;
-  if (onlineEl) onlineEl.textContent = `${count} ONLINE`;
-  if (badgeEl) badgeEl.textContent = count;
+
+  // Trước đây có hai ô: "TỔNG MÁY TRẠM" và "TRỰC TUYẾN REALTIME", cả hai đều
+  // gán `count`. Ô thứ hai bị gỡ: API chỉ trả máy đang mở WebSocket (máy
+  // rớt kết nối bị xoá khỏi registry), nên hai ô luôn bằng nhau — hiện một
+  // số dưới hai cái tên khác nhau là thông tin bịa.
+  _setLiveText('#stat-total-clients', `${count} máy`);
+
+  // Số kỹ năng thật: cộng `skills_count` của từng máy. 0 máy → 0 kỹ năng là
+  // con số đúng, không phải "chờ".
+  const totalSkills = devicesData.reduce(
+    (sum, d) => sum + (Number(d.skills_count) || (d.skills ? d.skills.length : 0) || 0),
+    0
+  );
+  _setLiveText('#stat-total-skills', `${totalSkills} kỹ năng`);
+
+  const now = new Date();
+  _setLiveText('#stat-last-sync', now.toLocaleTimeString('vi-VN', { hour12: false }));
 
   renderDevicesTable(devicesData);
   await checkLocalWorkerStatus();
+}
+
+/**
+ * Phase 85: bộ hẹn giờ làm mới danh sách máy trạm.
+ *
+ * Trước đây bảng ghi "Cập nhật tự động realtime" nhưng không có bộ hẹn giờ
+ * nào — lời hứa không có thật. Nay có thật: mỗi 10 giây, và chỉ chạy khi
+ * sub-tab Máy Trạm đang mở (gọi `_devicesPollStop()` khi rời đi), để không
+ * gọi API liên tục lúc người dùng đang ở mục khác.
+ */
+const _DEVICES_POLL_MS = 10000;
+let _devicesPollTimer = null;
+
+function _devicesPollStart() {
+  _devicesPollStop();
+  _devicesPollTimer = setInterval(() => {
+    // Bỏ qua nếu người dùng đang gõ trong ô lọc — tự nạp lại sẽ mất kết quả lọc.
+    if (document.activeElement === document.getElementById('filter-devices-input')) return;
+    loadDevices();
+  }, _DEVICES_POLL_MS);
+}
+
+function _devicesPollStop() {
+  if (_devicesPollTimer) {
+    clearInterval(_devicesPollTimer);
+    _devicesPollTimer = null;
+  }
+}
+
+/** Mở/đóng khối hướng dẫn ở chân sub-tab (nội dung tĩnh, không luôn cần đọc). */
+function toggleDevicesGuide() {
+  const body = document.getElementById('devices-guide-body');
+  const label = document.getElementById('btn-devices-guide-text');
+  if (!body) return;
+  const willShow = body.classList.contains('hidden');
+  body.classList.toggle('hidden', !willShow);
+  if (label) label.textContent = willShow ? 'Ẩn hướng dẫn' : 'Xem hướng dẫn';
+  // Địa chỉ thật của máy chủ lấy từ trang đang mở, không ghi cứng cổng 443.
+  if (willShow) {
+    const url = document.getElementById('devices-guide-url');
+    if (url) {
+      const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+      url.textContent = `python agent.py --server ${scheme}://${location.host}/ws/client`;
+    }
+  }
 }
 
 async function checkLocalWorkerStatus() {
@@ -2373,6 +2474,11 @@ async function checkLocalWorkerStatus() {
   const btn = document.getElementById('btn-local-worker-toggle');
   const text = document.getElementById('btn-local-worker-text');
   if (!btn || !text) return;
+
+  // Ô số liệu "Worker cục bộ" — lấy từ cùng API, không phải suy đoán.
+  _setLiveText('#stat-local-worker',
+    status && status.active ? 'đang chạy' : 'đang tắt',
+    { waiting: 'lỗi đọc trạng thái' });
 
   if (status && status.active) {
     btn.className = 'flex-1 py-1.5 px-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 border border-rose-500/40 text-[10px] font-bold transition flex items-center justify-center gap-1 shadow-[0_0_10px_rgba(244,63,94,0.2)]';
@@ -2416,6 +2522,9 @@ function renderDevicesTable(list) {
   if (!tbody) return;
 
   tbody.innerHTML = '';
+  // Số dòng đang hiện — phải khớp với bộ lọc đang bật, không phải tổng số máy.
+  _setLiveText('#devices-row-count', list && list.length ? `${list.length} máy` : null,
+    { waiting: 'chưa có' });
   if (!list || list.length === 0) {
     if (emptyState) emptyState.classList.remove('hidden');
     return;
@@ -2443,41 +2552,59 @@ function renderDevicesTable(list) {
 
     const skillsCount = c.skills_count || (c.skills ? c.skills.length : 0);
 
+    // Phase 85: escape dữ liệu của máy trạm trước khi chèn.
+    //
+    // Mọi trường ở đây do Client Agent tự khai báo (`register` gửi hostname,
+    // client_id, platform...). Trước đây chúng được nội thẳng vào HTML, và
+    // `client_id` còn được nhúng vào chuỗi JS trong thuộc tính onclick —
+    // một máy trạm đăng ký được (tức đã có enrollment token) gửi
+    // client_id chứa `'` hoặc `<script>` là chạy được mã tuỳ ý trong trình
+    // duyệt của C.E.O. Nay: `escapeHtml()` cho phần hiển thị, còn tham số
+    // truyền vào hàm thì đóng thành chuỗi JSON rồi mới escape — escape kiểu
+    // HTML một mình không đủ, vì `&#039;` sẽ bị trình duyệt giải mã trở lại
+    // thành `'` đúng trong chỗ cần tránh.
+    const clientId = escapeHtml(c.client_id);
+    const clientIdArg = escapeHtml(JSON.stringify(String(c.client_id ?? '')));
+
+    // Mốc thời gian: `connected_at` là thời điểm, `uptime` là khoảng thời
+    // gian đã kết nối. Trước đây cột tiêu đề ghi "THỜI GIAN KẾT NỐI" nhưng
+    // in `uptime` ("5m 20s") — tức thời lượng bị đội nhãn thời điểm. Nay in
+    // cả hai, mỗi thứ một nhãn đúng.
+    const connectedFull = _isLive(c.connected_at) ? String(c.connected_at) : 'chưa rõ';
+    const uptimeText = _isLive(c.uptime) ? `đã kết nối ${c.uptime}` : 'vừa kết nối';
+
     tr.innerHTML = `
-      <td class="py-3.5 px-4 font-semibold text-slate-800 dark:text-white">
+      <td class="py-2.5 px-3 font-semibold text-slate-800 dark:text-white">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
             ${osIcon}
           </div>
           <div class="min-w-0">
-            <div class="font-bold text-slate-800 dark:text-white truncate font-mono text-xs">${c.client_id}</div>
-            <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate max-w-[180px]">${c.hostname || c.client_id}</div>
+            <div class="font-bold text-slate-800 dark:text-white truncate font-mono text-xs">${clientId}</div>
+            <div class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate max-w-[180px]">${escapeHtml(c.hostname || c.client_id)}</div>
           </div>
         </div>
       </td>
-      <td class="py-3.5 px-4">
-        <span class="px-2 py-0.5 rounded font-mono font-bold text-xs bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">${c.ip || '127.0.0.1'}</span>
+      <td class="py-2.5 px-3">
+        <span class="px-2 py-0.5 rounded font-mono font-bold text-xs bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">${escapeHtml(c.ip || '—')}</span>
       </td>
-      <td class="py-3.5 px-4">${osBadge}</td>
-      <td class="py-3.5 px-4">
+      <td class="py-2.5 px-3">${osBadge}</td>
+      <td class="py-2.5 px-3">
         <span class="px-2 py-0.5 rounded bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-[11px] font-mono font-bold text-cyan-400">
           ${skillsCount} kỹ năng
         </span>
       </td>
-      <td class="py-3.5 px-4">
-        <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          Trực tuyến
-        </span>
+      <td class="py-2.5 px-3">
+        <div class="font-mono text-[11px] text-slate-600 dark:text-slate-300" title="Kết nối lúc ${escapeHtml(connectedFull)}">${_esc(_fmtConnectedAt(c.connected_at))}</div>
+        <div class="text-[10px] text-slate-400">${escapeHtml(uptimeText)}</div>
       </td>
-      <td class="py-3.5 px-4 text-slate-400 font-mono text-[11px]">${c.uptime || 'Vừa kết nối'}</td>
-      <td class="py-3.5 px-4 text-right">
+      <td class="py-2.5 px-3 text-right">
         <div class="flex items-center justify-end gap-1.5">
-          <button onclick="openLiveMonitor('${c.client_id}')" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/30 font-semibold text-[11px] transition-all inline-flex items-center gap-1.5 shadow-[0_0_10px_rgba(16,185,129,0.15)]" title="Giám sát màn hình & an ninh trực tiếp">
+          <button onclick="openLiveMonitor(${clientIdArg})" class="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-400/30 font-semibold text-[11px] transition-all inline-flex items-center gap-1.5 shadow-[0_0_10px_rgba(16,185,129,0.15)]" title="Giám sát màn hình & an ninh trực tiếp">
             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             <span>Giám Sát</span>
           </button>
-          <button onclick="openDispatchModal('${c.client_id}')" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-400/30 font-semibold text-[11px] transition-all inline-flex items-center gap-1.5" title="Gửi lệnh thực thi từ xa">
+          <button onclick="openDispatchModal(${clientIdArg})" class="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-400/30 font-semibold text-[11px] transition-all inline-flex items-center gap-1.5" title="Gửi lệnh thực thi từ xa">
             <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
             <span>Gửi Lệnh</span>
           </button>
@@ -10353,6 +10480,16 @@ function _ccSetStatus(el, ok, okText, idleText) {
 // sub-tab "Hệ Thống", kéo dài màn hình Tích Hợp bằng nội dung không liên quan.
 // Nay là sub-tab riêng và chỉ nạp dữ liệu khi bấm vào.
 const CC_SUBTABS = ['conn', 'config', 'webhook', 'tools', 'sys', 'devices'];
+// Tên hiển thị của sub-tab cốt lõi (dùng cho ô phụ `cc-int-header-sub`).
+// Sub-tab mở rộng lấy tên từ `_ccSubTabConfig[id].title`.
+const CC_SUBTAB_LABELS = {
+  conn: 'Kết nối ngoại vi',
+  config: 'Cấu hình kết nối',
+  webhook: 'Webhook',
+  tools: 'Công cụ',
+  sys: 'Hệ thống',
+  devices: 'Máy trạm',
+};
 // Daftar sub-tab có thể mở rộng bởi enterprise plugins.
 let _ccSubTabExtensions = [];
 let _ccSubTabConfig = {};
@@ -10846,7 +10983,34 @@ function renderEmptyDataSourceTab(subTabId) {
     </div>`;
 }
 
+/**
+ * Phase 85: các sub-tab có HTML viết tay trong `index.html`.
+ *
+ * `loadCcDataSourceTab()` là hàm vẽ các NGUỒN DỮ LIỆU. Trước đây nó nhận bất
+ * kỳ tên sub-tab nào, và gọi nó với tên đang mở là xoá sạch pane đó:
+ *
+ *   `initCcDataSourceRegistry()` → `syncRemoteDataSources().then(...)` đọc
+ *   sub-tab đang active rồi gọi lại `loadCcDataSourceTab(active)`. `sync` là
+ *   lời gọi mạng nên nó xong SAU khi người dùng đã bấm sang Máy Trạm; nhóm
+ *   'devices' không có nguồn dữ liệu nào → `renderEmptyDataSourceTab('devices')`
+ *   → toàn bộ bảng máy trạm bị thay bằng "chưa có nguồn dữ liệu".
+ *
+ *   Cùng lỗi ở `saveCcDataSource()`: lưu xong nguồn dữ liệu thì mở lại sub-tab
+ *   đang xem — nếu đang xem Máy Trạm thì xoá luôn.
+ *
+ * Vì là lời gọi bất đồng bộ nên lúc nào cũng có lúc bị, lúc không: đúng kiểu
+ * "chạy được nhưng không ổn định" khó nhất. Chặn ở đúng một chỗ
+ * (`loadCcDataSourceTab`) thay vì vá từng nơi gọi — sau này thêm nơi gọi thứ ba
+ * thì vẫn an toàn.
+ */
+const CC_HANDWRITTEN_SUBTABS = ['config', 'webhook', 'tools', 'sys', 'devices'];
+
 async function loadCcDataSourceTab(subTabId) {
+  // Chặn trước mọi thứ: không vẽ nguồn dữ liệu lên pane viết tay (xem
+  // CC_HANDWRITTEN_SUBTABS để biết vì sao). Phải trả về `undefined` chứ không
+  // phải lỗi, vì hai nơi gọi đều gọi không await.
+  if (CC_HANDWRITTEN_SUBTABS.includes(subTabId)) return;
+
   // Phase 81: tab 'conn' KHÔNG còn 4 card viết cứng trong HTML nữa — cả 4
   // connector cốt lõi lẫn nguồn tùy chỉnh đều do `renderConnectionCards()`
   // vẽ vào cùng một lưới, nên kết nối người dùng tự thêm trông giống hệt
@@ -11923,11 +12087,29 @@ function switchCcSubTab(name) {
     if (pane) pane.classList.toggle('hidden', k !== name);
   });
 
-  // Đổ title vào header nếu có cấu hình trong registry _ccSubTabConfig.
-  const cfg = _ccSubTabConfig[name];
-  if (cfg && cfg.title) {
-    const header = document.querySelector('#cc-int-header h3');
-    if (header) header.textContent = cfg.title;
+  // Phase 85: hiện tên sub-tab đang mở cạnh tiêu đề chung.
+  //
+  // Trước đây khối này cố ghi `cfg.title` vào `#cc-int-header h3` — nhưng
+  // không có phần tử nào mang id `cc-int-header` trong HTML, nên lệnh ghi rơi
+  // vào hư không và tên các sub-tab mở rộng ("Báo Cáo", "Phân Tích") không bao
+  // giờ hiện. Nay HTML đã có `cc-int-header` + `cc-int-header-sub`; tên nằm ở
+  // ô phụ, còn tiêu đề chung giữ nguyên (đổi nó đi thì mất tên Trung Tâm).
+  // Ghi cả sub-tab cốt lõi lẫn mở rộng, để lúc nào cũng biết đang ở mục nào.
+  const _ccSubLabel = _ccGet('cc-int-header-sub');
+  if (_ccSubLabel) {
+    const _cfg = _ccSubTabConfig[name];
+    _ccSubLabel.textContent = (_cfg && _cfg.title) || (CC_SUBTAB_LABELS[name] || name);
+  }
+
+  // Bộ hẹn giờ làm mới danh sách máy trạm chỉ chạy khi sub-tab đang mở.
+  // Gọi qua `typeof` vì đây là hàm dùng chung cho MỌI sub-tab — không nên
+  // phụ thuộc cứng vào phần máy trạm. Nếu không có kiểm tra này, một khối
+  // máy trạm bị tách/gỡ là hàm chuyển sub-tab ném ReferenceError, kéo theo
+  // mọi sub-tab khác chết theo mà báo lỗi rất khó hiểu.
+  if (name === 'devices') {
+    if (typeof _devicesPollStart === 'function') _devicesPollStart();
+  } else if (typeof _devicesPollStop === 'function') {
+    _devicesPollStop();
   }
 
   // Tải dữ liệu cho tab đang mở.

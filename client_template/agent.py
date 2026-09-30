@@ -545,9 +545,19 @@ def main() -> None:
     _injected_ws = _INJECTED_CONFIG.get("ws_url", "")
     _injected_id = _INJECTED_CONFIG.get("client_id", "")
 
+    # Phase 85: fallback cũ ghi cứng "wss://127.0.0.1:443/ws/client".
+    #
+    # Hai lỗi trong một chuỗi: máy chủ mặc định chạy HTTP cổng 8000 (không có
+    # gì lắng nghe 443), và `wss://` cần TLS nên không bắt tay được với máy
+    # chủ HTTP. Người dùng chạy agent không có config.json vẫn thấy agent cố
+    # nối tới một địa chỉ không tồn tại rồi lặp lại mãi.
+    #
+    # Nay mặc định là `ws://127.0.0.1:8000` — khớp với cách máy chủ được
+    # khởi chạy. Muốn nối máy chủ khác thì truyền `--server` hoặc đặt
+    # VNMATE_MASTER_URL (gói tải từ nút "Tải Agent" đã điền sẵn cả hai).
     _default_server = (
         _injected_ws
-        or os.getenv("VNMATE_MASTER_URL", "wss://127.0.0.1:443/ws/client")
+        or os.getenv("VNMATE_MASTER_URL", "ws://127.0.0.1:8000/ws/client")
     )
 
     # Zero-Trust: Master Server yêu cầu enrollment token cho /ws/client.

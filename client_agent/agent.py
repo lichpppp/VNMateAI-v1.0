@@ -522,20 +522,35 @@ class ClientAgent:
 
 
 def main() -> None:
-    default_ws = os.getenv("VNMATE_MASTER_URL", "wss://127.0.0.1:443/ws/client")
+    # Phase 85: fallback cũ là "wss://127.0.0.1:443/ws/client" — cổng 443 không
+    # có gì lắng nghe (máy chủ chạy cổng 8000) và `wss://` cần TLS nên không
+    # bắt tay được với máy chủ HTTP. Mặc định nay khớp cách khởi chạy thật.
+    default_ws = os.getenv("VNMATE_MASTER_URL", "ws://127.0.0.1:8000/ws/client")
 
     # Zero-Trust: Master Server yêu cầu enrollment token cho /ws/client.
     # Nạp từ config.json cạnh agent nếu có, hoặc từ biến môi trường.
+    _cfg: dict = {}
+    _cfg_path = Path(__file__).resolve().parent / "config.json"
+    if _cfg_path.exists():
+        try:
+            _loaded = json.loads(_cfg_path.read_text(encoding="utf-8"))
+            if isinstance(_loaded, dict):
+                _cfg = _loaded
+        except Exception:
+            pass
+
+    # Phase 85: `ws_url` trong config.json thắng biến môi trường khi có.
+    # Lý do: config.json do chính máy chủ sinh ra khi bấm "Tải Agent", ghi
+    # đúng địa chỉ + cổng đang chạy; biến môi trường có thể là giá trị cũ
+    # để sót lại. Trước đây file này bỏ qua `ws_url` nên chạy tay bằng
+    # `python client_agent/agent.py` là luôn trỏ về địa chỉ sai.
+    _cfg_ws = str(_cfg.get("ws_url", "") or "").strip()
+    if _cfg_ws:
+        default_ws = _cfg_ws
+
     _enrollment_token = os.getenv("VNMATE_ENROLLMENT_TOKEN", "")
     if not _enrollment_token:
-        _cfg_path = Path(__file__).resolve().parent / "config.json"
-        if _cfg_path.exists():
-            try:
-                _cfg = json.loads(_cfg_path.read_text(encoding="utf-8"))
-                if isinstance(_cfg, dict):
-                    _enrollment_token = _cfg.get("enrollment_token", "") or ""
-            except Exception:
-                pass
+        _enrollment_token = str(_cfg.get("enrollment_token", "") or "")
     def _with_token(ws_url: str) -> str:
         """Gắn enrollment token vào URL, tránh gắn hai lần."""
         if not _enrollment_token or "token=" in ws_url:

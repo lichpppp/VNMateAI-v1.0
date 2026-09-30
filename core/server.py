@@ -3546,6 +3546,42 @@ _local_worker_process: Optional[subprocess.Popen] = None
 _LOCAL_WORKER_READY_TIMEOUT = 8.0
 
 
+def _resolve_master_endpoint(request: Request) -> tuple[str, str, int]:
+    """Trả về `(scheme, host, port)` mà một Client Agent phải nối tới.
+
+    Đọc từ chính yêu cầu đang đến (`request.url`), không đọc `config.json`.
+    Lý do: `config.json` để lại `PORT: 443` từ lâu trong khi máy chủ thật
+    được khởi chạy bằng `uvicorn ... --port 8000` — cấu hình lệch với thực tế
+    là nguồn của URL không bắt tay được. Yêu cầu thì không thể lệch: nó phản
+    ánh đúng cổng và scheme mà trình duyệt vừa dùng để mở trang này.
+
+    `loopback_only=True` ép về 127.0.0.1 — dùng cho worker chạy ngay trên
+    máy chủ. Worker tải về chạy ở máy khác nên KHÔNG ép (xem
+    `_local_worker_ws_url` và `download_agent`).
+    """
+    url = request.url
+    scheme = "wss" if url.scheme in ("https", "wss") else "ws"
+    host = url.hostname or "127.0.0.1"
+    # `0.0.0.0` / `::` là địa chỉ "mọi giao diện", không phải địa chỉ nào để
+    # kết nối tới. Ở đây coi như loopback; nếu sau reverse proxy bị rơi vào
+    # giá trị này thì thà chỉ loopback còn hơn sinh ra URL không dùng được.
+    if host in ("0.0.0.0", "::", "[::]", ""):
+        host = "127.0.0.1"
+    port = url.port or (443 if scheme == "wss" else 80)
+    return scheme, host, port
+
+
+def _master_ws_url(request: Request) -> str:
+    """URL WebSocket cho Client Agent ở MÁY KHÁC (gói tải về).
+
+    Khác `_local_worker_ws_url` ở chỗ không ép loopback: máy con ở trong LAN
+    phải nối tới địa chỉ mà máy chủ thực sự nghe, nên dùng IP mà người dùng
+    đang truy cập.
+    """
+    scheme, host, port = _resolve_master_endpoint(request)
+    return f"{scheme}://{host}:{port}/ws/client"
+
+
 def _local_worker_ws_url(request: Request) -> str:
     """Dựng URL WebSocket mà worker cục bộ phải nối tới.
 
@@ -3562,19 +3598,11 @@ def _local_worker_ws_url(request: Request) -> str:
 
     Nay dựng URL từ chính yêu cầu đang đến: admin bấm nút trên cổng nào thì
     worker nối về đúng cổng đó, đúng scheme đó — không đoán, không phụ thuộc
-    cấu hình lệch với thực tế.
+    cấu hình lệch với thực tế. Worker này chạy cùng máy chủ nên quay về
+    loopback.
     """
-    url = request.url
-    scheme = "wss" if url.scheme in ("https", "wss") else "ws"
-    host = url.hostname or "127.0.0.1"
-    # Worker chạy cùng máy chủ nên luôn quay về loopback. `0.0.0.0` là địa
-    # chỉ "mọi giao diện", không phải địa chỉ nào để kết nối tới.
-    if host in ("0.0.0.0", "::", "[::]", ""):
-        host = "127.0.0.1"
-    port = url.port
-    if port is None:
-        port = 443 if scheme == "wss" else 80
-    return f"{scheme}://{host}:{port}/ws/client"
+    scheme, host, port = _resolve_master_endpoint(request)
+    return f"{scheme}://127.0.0.1:{port}/ws/client"
 
 
 @app.get(
@@ -5534,34 +5562,36 @@ async def download_agent(
             detail="Chỉ Admin hoặc Manager có quyền tải Client Agent.",
         )
 
-    # Determine master server IP
-    # Prefer Host header, fallback to auto-detect LAN IP
-    forwarded_host = request.headers.get("X-Forwarded-Host") or request.headers.get("Host", "")
-    if forwarded_host and ":" in forwarded_host:
-        forwarded_host = forwarded_host.split(":")[0]
+    # Phase 85: dựng địa chỉ máy chủ từ chính yêu cầu đang đến.
+    #
+    # Trước đây endpoint này đọc `PORT` trong `config.json` (đang là 443) rồi
+    # ghi `wss://<ip>:443/ws/client` vào config.json của gói tải về. Gói đó KHÔNG
+    # BAO GIỜ kết nối được: máy chủ thật chạy cổng 8000, và chạy HTTP thuần nên
+    # `wss://` không bắt tay được. Người dùng tải Agent, chạy `python
+    # agent.py`, agent báo lỗi kết nối liên tục — mà trên máy chủ mọi thứ vẫn
+    # bình thường. Lỗi giống hệt mà `_local_worker_ws_url()` đã sửa từ trước,
+    # nhưng bản đóng gói bị bỏ sót.
+    #
+    # Nay cả hai cùng đọc `request.url` (xem `_resolve_master_endpoint`), nên
+    # IP/cổng/scheme luôn khớp với nơi người dùng đang xem trang này.
+    scheme, host, port = _resolve_master_endpoint(request)
 
-    server_ip = (
-        forwarded_host
-        if forwarded_host and forwarded_host not in ("localhost", "127.0.0.1", "0.0.0.0", "")
-        else _get_server_local_ip()
-    )
-    server_port = 443
+    # Nếu người dùng mở trang bằng localhost/loopback, máy con trong LAN không
+    # nối được vào 127.0.0.1 — lúc đó mới thay bằng IP LAN của máy chủ.
+    server_ip = host
+    if host in ("127.0.0.1", "localhost", "::1"):
+        server_ip = _get_server_local_ip()
 
-    # Try to get configured port from config.json
-    try:
-        cfg_raw = _json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-        server_port = int(cfg_raw.get("PORT", 443))
-    except Exception:
-        pass
+    default_port = 443 if scheme == "wss" else 80
+    port_suffix = "" if port == default_port else f":{port}"
+    ws_url = f"{scheme}://{server_ip}:{port}/ws/client"
 
-    # Build the dynamic injected config for this download session (Phase 29: HTTPS/WSS)
-    port_suffix = f":{server_port}" if server_port != 443 else ""
     dynamic_config = {
-        "server_url": f"https://{server_ip}{port_suffix}",
-        "ws_url": f"wss://{server_ip}:{server_port}/ws/client",
+        "server_url": f"{'https' if scheme == 'wss' else 'http'}://{server_ip}{port_suffix}",
+        "ws_url": ws_url,
         "client_id": "auto_generate_on_first_run",
         "master_ip": server_ip,
-        "master_port": server_port,
+        "master_port": port,
         "downloaded_at": datetime.utcnow().isoformat() + "Z",
         "downloaded_by": current_user.get("username", "unknown"),
         # Zero-Trust: enrollment secret để agent đăng ký qua /ws/client.
@@ -5619,10 +5649,9 @@ async def download_agent(
     zip_content = zip_buffer.read()
 
     logger.info(
-        "Phase 29: Secure Agent package downloaded by '%s' — injected config: server=%s:%s, package_size=%d bytes",
+        "Phase 85: gói Agent tải về bởi '%s' — cấu hình: %s, dung lượng %d bytes",
         current_user.get("username"),
-        server_ip,
-        server_port,
+        ws_url,
         len(zip_content),
     )
 
@@ -5633,7 +5662,7 @@ async def download_agent(
             "Content-Disposition": 'attachment; filename="VN-Mate_Agent.zip"',
             "Content-Length": str(len(zip_content)),
             "X-Agent-Server-IP": server_ip,
-            "X-Agent-Server-Port": str(server_port),
+            "X-Agent-Server-Port": str(port),
         },
     )
 
