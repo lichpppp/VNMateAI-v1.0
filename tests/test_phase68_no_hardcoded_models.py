@@ -289,6 +289,50 @@ if fn:
     check("timeout ngắn (không treo giao diện)", "timeout=5" in src or "timeout=6" in src,
           "timeout phải ngắn để không treo trang cấu hình")
 
+# ══ 9. Danh sách model SẮP XẾP và nằm trong ô sổ ra, không in tràn màn hình ══
+# Người dùng phản ánh: "Tên Mô Hình kéo từ 9router cần sắp xếp ẩn vào thanh
+# sổ ra, hiện tại nó đang in hết ra màn hình, chiếm không gian". Trước đây
+# `loadRouterModels()` in TOÀN BỘ model thành chip nút ở cả hai tab; nay gom
+# vào một <select> đã sắp xếp theo tên.
+section("Danh sách model được sắp xếp và gom vào ô sổ ra")
+appjs3 = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+idx3 = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+check("có hàm sắp xếp dùng chung", "function _sortModels" in appjs3)
+sort_src = appjs3.split("function _sortModels", 1)[-1].split("\nfunction ", 1)[0]
+check("sắp xếp theo tên (localeCompare)", "localeCompare" in sort_src)
+check("bỏ giá trị rỗng trước khi sort", ".filter" in sort_src)
+check("loadRouterModels dùng hàm sắp xếp", "_sortModels(" in appjs3.split(
+    "async function loadRouterModels", 1)[-1].split(
+    "async function loadConfig", 1)[0])
+# Hai ô chọn cùng nguồn router — trước đây tab Trợ lý AI tự gọi loadAIProxyModels
+# (query proxy thẳng bằng ô khoá trống, trả 31 model) trong khi tab Cấu Hình
+# dùng router pool (30 model): cùng một ô chọn mà tuỳ tab mở trước mà khác nhau.
+check("tab AI không còn tự gọi query proxy riêng",
+      "loadRouterModels();" in appjs3.split("function loadAIManagerConfig", 1)[
+          -1].split("async function saveAIConfig", 1)[0] or
+      "loadRouterModels();" in appjs3.split("updatePromptStats();", 1)[-1].split(
+          "\n}", 1)[0],
+      "phải nạp từ router pool, không query proxy với ô khoá trống")
+check("loadRouterModels đổ model vào cả hai select",
+      "'ai-proxy-model-select'" in appjs3 and "'proxy-model-select'" in appjs3)
+loadrm_src = appjs3.split("async function loadRouterModels", 1)[-1].split(
+    "async function loadConfig", 1)[0]
+check("cả hai select có model thì hiện, không có thì ẩn",
+      "classList.toggle('hidden'" in loadrm_src)
+check("không còn in chip từng model trong loadRouterModels",
+      "selectQuickModel(" not in loadrm_src and "selectConfigQuickModel(" not in loadrm_src,
+      "vẫn vẽ chip? 'selectQuickModel(' còn trong phần thân loadRouterModels")
+check("có nơi báo gọn số model thay vì dãy nút",
+      "chọn trong ô sổ ra bên trên" in appjs3)
+# Hàm onModelChanged từng được ô select tham chiếu nhưng CHƯA từng được định
+# nghĩa — chọn model không gây ra gì ngoài việc điền ô nhập.
+check("hàm onModelChanged được định nghĩa (trước chỉ tham chiếu)",
+      "function onModelChanged" in appjs3,
+      "‘onModelChanged’ bị select tham chiếu mà không bao giờ tồn tại")
+check("onModelChanged cập nhật fallback chain",
+      "renderFallbackChain();" in appjs3.split("function onModelChanged", 1)[-1].split(
+          "\n\n", 1)[0])
+
 print("\n" + "─" * 66)
 if FAILURES:
     print("Các assertion FAIL:")

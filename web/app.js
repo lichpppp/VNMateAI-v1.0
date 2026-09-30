@@ -149,7 +149,7 @@ async function loadRouterModels() {
     // apiFetch trả về Response — phải .json() mới đọc được body.
     const res = await apiFetch('/api/v1/config/models');
     const d = res instanceof Response ? await res.json() : res;
-    routerModelList = Array.isArray(d?.models) ? d.models : [];
+    routerModelList = _sortModels(d?.models);
   } catch (e) {
     routerModelList = [];
   }
@@ -160,33 +160,33 @@ async function loadRouterModels() {
     const dl = document.getElementById(id);
     if (dl) dl.innerHTML = opts;
   }
-  // Nút bấm nhanh: chỉ hiện model router thực sự phục vụ.
-  const chip = (m, i, fn) => {
-    const tone = ['cyan','emerald','purple','blue','amber'][i % 5];
-    return `<button type="button" onclick="${fn}('${m}')" `
-      + `class="px-2 py-0.5 rounded text-[10px] font-mono bg-${tone}-500/10 `
-      + `hover:bg-${tone}-500/20 text-${tone}-400 border border-${tone}-500/30 `
-      + `transition" title="${m}">${m.split('/').pop()}</button>`;
-  };
-  const quick = document.getElementById('ai-quick-models');
-  const quick2 = document.getElementById('cfg-quick-models');
-  if (quick2) {
-    quick2.innerHTML = routerModelList.length
-      ? routerModelList.map((m, i) => chip(m, i, 'selectConfigQuickModel')).join('')
-      : '<span class="text-[10px] text-amber-400 font-mono">Router chưa phục vụ model nào — kiểm tra khoá API.</span>';
+  // Ô chọn model: một select cho mỗi tab, chứa toàn bộ model đã sắp xếp.
+  // Trước đây in 30 chip đầy màn hình ở cả hai tab (giai đoạn "bấm nhanh"),
+  // làm trang loè loẹt và tràn chiều ngang. Giờ gom vào một ô sổ ra gọn.
+  const emptyNote = '<span class="text-[10px] text-amber-400 font-mono">Router chưa phục vụ model nào — kiểm tra khoá API.</span>';
+  const selectors = [
+    ['ai-proxy-model-select', 'ai-proxy-model-picker-wrap'],
+    ['proxy-model-select', 'proxy-model-picker-wrap'],
+  ];
+  for (const [selId, wrapId] of selectors) {
+    const sel = document.getElementById(selId);
+    if (!sel) continue;
+    sel.innerHTML = routerModelList.length
+      ? '<option value="">-- Chọn mô hình từ router (đã sắp xếp) --</option>' + opts
+      : '<option value="">-- Chưa có model nào từ router --</option>';
+    const wrap = document.getElementById(wrapId);
+    if (wrap) wrap.classList.toggle('hidden', routerModelList.length === 0);
   }
-  if (quick) {
-    quick.innerHTML = routerModelList.length
-      ? routerModelList.map((m, i) => chip(m, i, 'selectQuickModel')).join('')
-      : '<span class="text-[10px] text-amber-400 font-mono">Router chưa phục vụ model nào — kiểm tra khoá API.</span>';
+  // Hai container chip cũ giờ chỉ là dòng trạng thái gọn, không còn dãy nút.
+  for (const id of ['ai-quick-models', 'cfg-quick-models']) {
+    const box = document.getElementById(id);
+    if (box) {
+      box.innerHTML = routerModelList.length
+        ? `<span class="text-[10px] text-slate-500 font-mono">Đã có ${routerModelList.length} model — chọn trong ô sổ ra bên trên.</span>`
+        : emptyNote;
+    }
   }
   renderFallbackChain();
-  const sel = document.getElementById('ai-proxy-model-select');
-  if (sel && routerModelList.length) {
-    sel.innerHTML = '<option value="">-- Chọn mô hình đang phục vụ --</option>' + opts;
-    const wrap = document.getElementById('ai-proxy-model-picker-wrap');
-    if (wrap) wrap.classList.remove('hidden');
-  }
   return routerModelList;
 }
 
@@ -3871,7 +3871,11 @@ async function loadAIManagerConfig() {
   // Phase 47: AI Manager Live Telemetry & Prompt Analytics
   updateAIManagerTelemetry();
   updatePromptStats();
-  loadAIProxyModels();
+  // Phase 68→81: nạp model từ ROUTER (cùng nguồn với tab Cấu Hình). Trước đây
+  // tự gọi `loadAIProxyModels()` — query thẳng proxy với ô khoá trống, sinh ra
+  // hai bộ model khác nhau (proxy trả 31, router pool trả 30) đổ vào cùng một
+  // ô chọn, tuỳ tab mở trước. Nút "Tải từ 9router" vẫn giữ để thử proxy khác.
+  loadRouterModels();
 }
 
 /**
@@ -4051,6 +4055,14 @@ function onAITTSEngineChange() {
   // Future: switch voice list based on engine
 }
 
+/** Sắp xếp danh sách model theo tên. Giá trị lấy từ đâu ra cũng dùng chung
+ *  một thứ tự, để hai tab không lệch nhau. */
+function _sortModels(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter(m => typeof m === 'string' && m.trim())
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
 async function loadAIProxyModels() {
   const baseUrl = document.getElementById('ai-llm-base')?.value?.trim() || 'http://localhost:20128/v1';
   const apiKey = document.getElementById('ai-llm-key')?.value?.trim() || '';
@@ -4067,7 +4079,7 @@ async function loadAIProxyModels() {
     const data = await res.json();
     if (data.success && Array.isArray(data.models) && data.models.length > 0) {
       select.innerHTML = '<option value="">-- Chọn mô hình từ 9router --</option>' +
-        data.models.map(m => `<option value="${m}">${m}</option>`).join('');
+        _sortModels(data.models).map(m => `<option value="${m}">${m}</option>`).join('');
       wrap.classList.remove('hidden');
       showToast(`✅ Đã tải ${data.models.length} model từ 9router!`, 'success');
     } else {
@@ -4814,10 +4826,10 @@ async function loadProxyModels() {
     if (data.success && Array.isArray(data.models) && data.models.length > 0) {
       if (select) {
         select.innerHTML = '<option value="">-- Chọn mô hình từ 9router --</option>' +
-          data.models.map(m => `<option value="${m}">${m}</option>`).join('');
+          _sortModels(data.models).map(m => `<option value="${m}">${m}</option>`).join('');
       }
       if (datalist) {
-        datalist.innerHTML = data.models.map(m => `<option value="${m}">${m} (9router)</option>`).join('');
+        datalist.innerHTML = _sortModels(data.models).map(m => `<option value="${m}">${m} (9router)</option>`).join('');
       }
       if (selectWrap) selectWrap.classList.remove('hidden');
       showToast(`✅ Đã tải ${data.models.length} model từ 9router!`, 'success');
@@ -4972,6 +4984,20 @@ function selectConfigQuickModel(modelId) {
  */
 function onConfigModelChanged() {
   renderFallbackChain();
+}
+
+/**
+ * Khi người dùng chọn model trong ô sổ ra ở tab Trợ lý AI:
+ * đồng bộ sang tab Cấu Hình và cập nhật telemetry. Trước đây ô select tham
+ * chiếu `onModelChanged` nhưng hàm này CHƯA TỪNG được định nghĩa — chọn model
+ * xong không có gì xảy ra ngoài việc điền ô nhập.
+ */
+function onModelChanged() {
+  const val = document.getElementById('ai-llm-model')?.value?.trim() || '';
+  const cfgInput = document.getElementById('cfg-llm-model');
+  if (cfgInput && val) cfgInput.value = val;
+  renderFallbackChain();
+  updateAIManagerTelemetry();
 }
 
 
