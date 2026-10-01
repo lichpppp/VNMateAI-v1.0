@@ -262,6 +262,128 @@
   let freqData = null;
   let isAudioPlaying = false;
   let isTabActive = true;
+  let hudAudioEnabled = true;
+
+  // ---------------------------------------------------------------------------
+  // Phase 93: HUD Streaming Audio Queue — Web Audio API (no base64, no jitter)
+  //
+  // Nhận raw MP3 binary chunks từ broadcast_hud_binary(), giải mã và phát
+  // nối tiếp chính xác đến từng mili-giây — không giật cục, không cắt đoạn.
+  // Kết nối trực tiếp vào AnalyserNode để Arc Reactor / FFT Equalizer dao động theo giọng nói.
+  // ---------------------------------------------------------------------------
+
+  class HudAudioQueue {
+    constructor() {
+      this.ctx = null;
+      this.nextStartTime = 0;
+      this.activeSources = [];
+      this.isPlaying = false;
+      this._checkEndTimer = null;
+    }
+
+    _init() {
+      if (typeof initWebAudio === 'function') {
+        initWebAudio();
+      }
+      if (!audioCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return false;
+        try {
+          audioCtx = new AC();
+        } catch (e) {
+          console.warn('[HudAQ] AudioContext failed:', e);
+          return false;
+        }
+      }
+      this.ctx = audioCtx;
+      if (this.ctx && this.ctx.state === 'suspended') {
+        this.ctx.resume().catch(() => {});
+      }
+      return !!this.ctx;
+    }
+
+    async enqueueChunk(arrayBuffer) {
+      if (!hudAudioEnabled) return;
+      if (!this._init()) return;
+
+      // Triệt tiêu ngay bất kỳ player HTMLAudioElement hoặc hàng đợi base64 cũ đang phát dở
+      if (currentVoiceAudio) {
+        try { currentVoiceAudio.pause(); currentVoiceAudio.currentTime = 0; } catch (e) {}
+        currentVoiceAudio = null;
+      }
+      if (hudSpeechQueue && hudSpeechQueue.length) {
+        hudSpeechQueue = [];
+        hudSpeechDraining = false;
+      }
+
+      try {
+        const audioBuf = await this.ctx.decodeAudioData(arrayBuffer.slice(0));
+        const source = this.ctx.createBufferSource();
+        source.buffer = audioBuf;
+
+        // Kết nối vào analyserNode để hiệu ứng FFT / Arc Reactor nhấp nháy theo giọng nói
+        if (analyserNode) {
+          source.connect(analyserNode);
+        } else {
+          source.connect(this.ctx.destination);
+        }
+
+        const now = this.ctx.currentTime;
+        const startAt = Math.max(now, this.nextStartTime);
+        source.start(startAt);
+        this.nextStartTime = startAt + audioBuf.duration;
+
+        if (!this.isPlaying) {
+          this.isPlaying = true;
+          isAudioPlaying = true;
+          setHudState('speaking', lastSpokenText || '', audioBuf.duration * 1000);
+        }
+
+        this.activeSources.push(source);
+        source.onended = () => {
+          const idx = this.activeSources.indexOf(source);
+          if (idx !== -1) this.activeSources.splice(idx, 1);
+          if (this.activeSources.length === 0 && this.ctx.currentTime >= this.nextStartTime - 0.05) {
+            this._onAllDone();
+          }
+        };
+
+        // Safety timer
+        if (this._checkEndTimer) clearTimeout(this._checkEndTimer);
+        const remainMs = Math.max(100, (this.nextStartTime - this.ctx.currentTime) * 1000 + 200);
+        this._checkEndTimer = setTimeout(() => {
+          if (this.activeSources.length === 0) this._onAllDone();
+        }, remainMs);
+
+      } catch (err) {
+        console.warn('[HudAQ] decodeAudioData skip:', err);
+      }
+    }
+
+    _onAllDone() {
+      this.isPlaying = false;
+      isAudioPlaying = false;
+      playCyberChime('ready');
+      setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+    }
+
+    stop() {
+      for (const src of this.activeSources) {
+        try { src.stop(); src.disconnect(); } catch (e) {}
+      }
+      this.activeSources = [];
+      this.nextStartTime = 0;
+      this.isPlaying = false;
+      if (this._checkEndTimer) { clearTimeout(this._checkEndTimer); this._checkEndTimer = null; }
+    }
+
+    reset() {
+      this.stop();
+    }
+  }
+
+  const _hudAudioQueue = new HudAudioQueue();
+
 
   function initWebAudio() {
     if (audioCtx) return;
@@ -856,7 +978,6 @@
   let targetTypedText = 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...';
   let typeIndex = 0;
   let typingTimer = null;
-  let hudAudioEnabled = true;
   let currentVoiceAudio = null;
 
   /* HÀNG ĐỢI PHÁT GIỌNG NÓI — Phase 69
@@ -1305,6 +1426,11 @@
         audioCtx.resume().catch(() => {});
       }
 
+      // Ngắt Web Audio stream nếu đang phát để tránh 2 giọng chồng chéo
+      if (_hudAudioQueue && _hudAudioQueue.isPlaying) {
+        _hudAudioQueue.stop();
+      }
+
       const el = document.getElementById('hud-audio-stream');
       const player = el || new Audio();
 
@@ -1368,6 +1494,8 @@
    * MIC — không phụ thuộc lệnh đến từ đâu.
    */
   function hudStopSpeaking() {
+    // Phase 93: Dừng HudAudioQueue (streaming binary Web Audio API)
+    _hudAudioQueue.stop();
     // Bỏ handler trước rồi mới dừng: `onended` giữ lại sẽ gọi `next()` khi
     // audio bị cắt, đẩy câu cũ vào lượt mới đang phát.
     if (currentVoiceAudio) {
@@ -2561,6 +2689,7 @@ function hudDrainOutboundSpeech() {
 
     try {
       hudSocket = new WebSocket(wsUrl);
+      hudSocket.binaryType = 'arraybuffer';
 
       hudSocket.onopen = () => {
         if (connDotEl) {
@@ -2585,7 +2714,25 @@ function hudDrainOutboundSpeech() {
         }, 10000);
       };
 
-      hudSocket.onmessage = (event) => {
+      hudSocket.onmessage = async (event) => {
+        // Phase 93: Nhận Binary Frame (raw MP3 chunks) từ broadcast_hud_binary()
+        // Không qua base64 — đưa thẳng vào Web Audio API
+        if (event.data instanceof ArrayBuffer) {
+          if (hudAudioEnabled && event.data.byteLength > 100) {
+            await _hudAudioQueue.enqueueChunk(event.data);
+          }
+          return;
+        }
+        // Nhận Blob (một số trình duyệt gửi Blob thay vì ArrayBuffer)
+        if (event.data instanceof Blob) {
+          if (hudAudioEnabled) {
+            const ab = await event.data.arrayBuffer();
+            if (ab.byteLength > 100) {
+              await _hudAudioQueue.enqueueChunk(ab);
+            }
+          }
+          return;
+        }
         try {
           if (hudSocket._lastPingTime) {
             const lat = Math.round(performance.now() - hudSocket._lastPingTime);

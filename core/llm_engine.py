@@ -47,30 +47,10 @@ _HTTP_CLIENT_LOCK = asyncio.Lock()
 
 
 async def _get_shared_http_client() -> httpx.AsyncClient:
-    """Return the module-level singleton httpx.AsyncClient (lazy init, thread-safe)."""
+    """Return the module-level singleton httpx.AsyncClient from Phase 10 ConnectionPoolManager."""
     global _SHARED_HTTP_CLIENT
-    if _SHARED_HTTP_CLIENT is None or _SHARED_HTTP_CLIENT.is_closed:
-        async with _HTTP_CLIENT_LOCK:
-            if _SHARED_HTTP_CLIENT is None or _SHARED_HTTP_CLIENT.is_closed:
-                limits = httpx.Limits(
-                    max_keepalive_connections=50,
-                    max_connections=100,
-                    keepalive_expiry=120.0,
-                )
-                try:
-                    _SHARED_HTTP_CLIENT = httpx.AsyncClient(
-                        limits=limits,
-                        timeout=httpx.Timeout(connect=5.0, read=180.0, write=30.0, pool=10.0),
-                        http2=True,  # Enable HTTP/2 multiplexing for even lower latency
-                    )
-                    logger.info("[Phase45] Global singleton httpx.AsyncClient created (HTTP/2 + Keep-Alive pool).")
-                except Exception as _h2_err:
-                    _SHARED_HTTP_CLIENT = httpx.AsyncClient(
-                        limits=limits,
-                        timeout=httpx.Timeout(connect=5.0, read=180.0, write=30.0, pool=10.0),
-                        http2=False,
-                    )
-                    logger.info("[Phase45] Global singleton httpx.AsyncClient created (HTTP/1.1 fallback): %s", _h2_err)
+    from core.connection_pool import get_llm_http_client
+    _SHARED_HTTP_CLIENT = await get_llm_http_client()
     return _SHARED_HTTP_CLIENT
 
 # Maximum consecutive tool call rounds before stopping to prevent infinite loops
@@ -376,12 +356,14 @@ def _make_client() -> AsyncOpenAI:
     activate once _get_shared_http_client() is called on first async use.
     """
     cfg = settings.llm
+    from core.connection_pool import connection_pool_manager
+    pool = connection_pool_manager.get_sync_llm_client() or _SHARED_HTTP_CLIENT
     return AsyncOpenAI(
         base_url=cfg.base_url,
         api_key=cfg.api_key,
         timeout=60.0,
         max_retries=0,  # Zero-wait: immediately raise API errors to trigger instant auto-fallback loop
-        http_client=_SHARED_HTTP_CLIENT,  # Inject shared pool (None on first call, set later)
+        http_client=pool,
     )
 
 
@@ -624,6 +606,7 @@ class LLMEngine:
 
     def __init__(self) -> None:
         self._client: Optional[AsyncOpenAI] = None  # Lazy init after event loop starts
+        self._direct_client: Optional[AsyncOpenAI] = None  # Phase 91: Direct-mode client
         self._last_cfg_snapshot: str = self._cfg_snapshot()
         self.last_voice_display_text: str = ""
         # Phase 87: phần model TỰ SUY NGHĨ trước khi trả lời. Model suy luận ở
@@ -634,26 +617,124 @@ class LLMEngine:
     def _cfg_snapshot(self) -> str:
         """Return a string that changes whenever llm config changes."""
         cfg = settings.llm
-        return f"{cfg.base_url}|{cfg.model_name}|{cfg.api_key}"
+        return (
+            f"{cfg.base_url}|{cfg.model_name}|{cfg.api_key}"
+            f"|{cfg.routing_mode}|{cfg.direct_url}|{cfg.direct_model}|{cfg.direct_api_key}"
+            f"|{getattr(cfg, 'tri_brain_enabled', True)}"
+            f"|{getattr(cfg, 'controller_model', '')}"
+            f"|{getattr(cfg, 'voice_model', '')}"
+            f"|{getattr(cfg, 'ops_model', '')}"
+        )
+
+    def get_brain_model(self, role: str = "controller") -> str:
+        """
+        Phase 94: Lấy tên mô hình theo kiến trúc 3 Bộ Não Chuyên Biệt:
+          - 'controller': Bộ Não Kiểm Soát / Phân Luồng (Supervisor)
+          - 'voice':      Bộ Não Giao Tiếp & Thoại Siêu Tốc (Conversational, no tools)
+          - 'ops':        Bộ Não Vận Hành Kỹ Năng Hệ Thống (Operations & Tools)
+        """
+        cfg = settings.llm
+        if not getattr(cfg, "tri_brain_enabled", True):
+            return cfg.model_name or "ag/gemini-3.6-flash-high"
+
+        if role == "voice":
+            return getattr(cfg, "voice_model", "") or getattr(cfg, "model_name", "") or "ag/gemini-3.6-flash-high"
+        elif role == "ops":
+            return getattr(cfg, "ops_model", "") or getattr(cfg, "specialist_model", "") or getattr(cfg, "model_name", "") or "VN-MateAi"
+        else:  # controller
+            return getattr(cfg, "controller_model", "") or getattr(cfg, "model_name", "") or "ag/gemini-3.6-flash-high"
+
+    @staticmethod
+    def classify_intent(query: str) -> dict:
+        """
+        Phase 94: Bộ Não Kiểm Soát (Supervisor) phân loại ý định (< 1ms).
+        - 'conversation': giao tiếp, hỏi đáp thông thường -> chuyển Bộ Não 2 (Voice Brain, 0 tools, <300ms).
+        - 'operation': tác vụ kỹ thuật, can thiệp hệ thống -> phát Acoustic Ack ngay qua Loa, rồi chuyển Bộ Não 3 (Ops Brain).
+        """
+        import unicodedata
+        raw = (query or "").strip().lower()
+        norm = unicodedata.normalize("NFKD", raw.replace("đ", "d").replace("Đ", "D"))
+        clean = "".join(c for c in norm if not unicodedata.combining(c))
+
+        OP_KEYWORDS = [
+            "kiem tra", "check", "quet", "scan", "cpu", "ram", "o dia", "disk", "bo nho",
+            "tien trinh", "process", "kill", "xoa", "tao", "ghi", "doc file", "folder",
+            "thu muc", "duong dan", "path", "network", "mang", "ping", "port", "ip",
+            "wifi", "router", "gateway", "an ninh", "security", "threat", "audit", "lo hong",
+            "database", "csdl", "sql", "query", "erp", "nhan su", "kpi", "bao cao",
+            "report", "may tram", "client", "lan", "may tinh", "remote", "dieu khien",
+            "restart", "khoi dong", "tat may", "shutdown", "chay script", "run", "lenh",
+            "robot", "vay tay", "tien len", "lui lai", "quay", "dong co"
+        ]
+
+        CASUAL_STARTS = [
+            "xin chao", "chao", "hello", "hi", "cam on", "thanks", "tam biet", "bye", "ok",
+            "duoc roi", "ban la ai", "em la ai", "ten gi", "khoe khong", "the nao", "thoi tiet"
+        ]
+
+        if any(clean.startswith(cs) for cs in CASUAL_STARTS) and len(clean.split()) <= 5:
+            return {
+                "type": "conversation",
+                "target_brain": "voice",
+                "ack_needed": False,
+            }
+
+        is_op = any(kw in clean for kw in OP_KEYWORDS)
+        if is_op:
+            return {
+                "type": "operation",
+                "target_brain": "ops",
+                "ack_needed": True,
+            }
+
+        return {
+            "type": "conversation",
+            "target_brain": "voice",
+            "ack_needed": False,
+        }
 
     async def _ensure_shared_client(self) -> None:
         """
         Phase 45: Initialise the shared httpx pool once the event loop is running,
         then rebuild the AsyncOpenAI client to inject it.
+        Phase 91: Also build the direct-mode client if routing_mode != 'router'.
         """
         await _get_shared_http_client()  # Ensure pool is created
         snap = self._cfg_snapshot()
         if self._client is None or snap != self._last_cfg_snapshot:
             cfg = settings.llm
+            # --- Router client (unchanged) ---
             self._client = AsyncOpenAI(
                 base_url=cfg.base_url,
                 api_key=cfg.api_key,
                 timeout=45.0,
-                max_retries=0,  # Zero-wait: immediately raise API errors to trigger instant auto-fallback loop
+                max_retries=0,
                 http_client=_SHARED_HTTP_CLIENT,
             )
+            # --- Direct client (Phase 91) ---
+            if cfg.direct_url:
+                direct_url = cfg.direct_url.rstrip("/")
+                if not direct_url.endswith("/v1"):
+                    direct_url = direct_url + "/v1"
+                self._direct_client = AsyncOpenAI(
+                    base_url=direct_url,
+                    api_key=cfg.direct_api_key or "lm-studio",
+                    timeout=45.0,
+                    max_retries=0,
+                    http_client=_SHARED_HTTP_CLIENT,
+                )
+                logger.info(
+                    "[Phase91] Direct-mode client built: %s (model=%s)",
+                    direct_url,
+                    cfg.direct_model or cfg.model_name,
+                )
+            else:
+                self._direct_client = None
             self._last_cfg_snapshot = snap
-            logger.info("[Phase45] AsyncOpenAI client (re)built with shared httpx pool.")
+            logger.info(
+                "[Phase45] AsyncOpenAI clients (re)built | routing_mode=%s",
+                cfg.routing_mode,
+            )
 
     def _get_client(self) -> AsyncOpenAI:
         """Return client synchronously (legacy). Builds fresh if needed."""
@@ -668,6 +749,69 @@ class LLMEngine:
         return self._client
 
     # ------------------------------------------------------------------
+    # Phase 2: LLM Streaming & Provider Abstraction
+    # ------------------------------------------------------------------
+
+    def get_provider(self, brain_role: str = "voice") -> Any:
+        """
+        Phase 2: Lấy LLM Provider chuẩn hóa theo vai trò Tri-Brain và routing_mode.
+        """
+        from core.llm_provider import DirectLLMProvider, NineRouterLLMProvider, TriBrainLLMProvider
+        cfg = settings.llm
+        direct_prov = None
+        if self._direct_client and cfg.direct_url:
+            direct_m = (cfg.direct_model or self.get_brain_model(brain_role) or "").strip()
+            direct_prov = DirectLLMProvider(self._direct_client, direct_m, cfg.direct_url)
+
+        primary_m = (self.get_brain_model(brain_role) or cfg.model_name or "").strip()
+        router_models = getattr(cfg, "router_models", []) or []
+        if isinstance(router_models, str):
+            router_models = [router_models.strip()]
+
+        router_prov = NineRouterLLMProvider(self._client, primary_m, router_models)
+        return TriBrainLLMProvider(direct_provider=direct_prov, router_provider=router_prov)
+
+    async def stream(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        brain_role: str = "voice",
+        **kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """
+        Phase 2: Chuẩn hóa LLM streaming interface theo async generator:
+            async for chunk in llm.stream(messages, ...):
+                ...
+        """
+        await self._ensure_shared_client()
+        provider = self.get_provider(brain_role=brain_role)
+        mode = (settings.llm.routing_mode or "router").lower()
+        async for chunk in provider.stream(
+            messages=messages,
+            tools=tools,
+            brain_role=brain_role,
+            routing_mode=mode,
+            **kwargs,
+        ):
+            yield chunk
+
+    async def stream_tokens(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        brain_role: str = "voice",
+        **kwargs: Any,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Phase 2: Stream token văn bản thô cho Voice/UI Event Bus:
+            async for token in llm.stream_tokens(messages, ...):
+                ...
+        """
+        async for chunk in self.stream(messages=messages, tools=tools, brain_role=brain_role, **kwargs):
+            if chunk.content:
+                yield chunk.content
+
+    # ------------------------------------------------------------------
     # Core LLM call
     # ------------------------------------------------------------------
 
@@ -675,36 +819,101 @@ class LLMEngine:
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        brain_role: str = "controller",
     ) -> Any:
         """
-        Phase 46.3: Zero-Tolerance Error Handling & Intelligent Auto-Fallback (Non-streaming).
-        Loops through settings.llm.router_models.
-        If a model fails with RateLimitError (429), APIError (500/503), or APIConnectionError,
-        logs warning and seamlessly tries the next fallback model.
+        Phase 91 & Phase 94: Tri-Brain Routing Dispatcher.
+        routing_mode:
+          'router' → gọi qua 9router proxy.
+          'direct' → gọi thẳng model, bỏ qua proxy (giảm ~150-300ms latency).
+          'auto'   → thử direct trước, nếu lỗi fallback sang router.
         """
         await self._ensure_shared_client()
+        mode = (settings.llm.routing_mode or "router").lower()
+
+        if mode == "direct":
+            return await self._call_llm_direct(messages, tools, brain_role=brain_role)
+        elif mode == "auto":
+            try:
+                return await self._call_llm_direct(messages, tools, brain_role=brain_role)
+            except Exception as direct_err:
+                logger.warning(
+                    "[Phase91] Direct mode failed (%s) — fallback sang router.", direct_err
+                )
+                return await self._call_llm_router(messages, tools, brain_role=brain_role)
+        else:  # "router" (default)
+            return await self._call_llm_router(messages, tools, brain_role=brain_role)
+
+    async def _call_llm_direct(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        brain_role: str = "controller",
+    ) -> Any:
+        """
+        Phase 91 — Direct Mode: Gọi thẳng vào endpoint model (LM Studio / Ollama / vLLM)
+        mà không đi qua 9router proxy. Tiết kiệm 1 hop mạng → giảm latency ~150-300ms.
+        """
+        cfg = settings.llm
+        if not self._direct_client:
+            raise RuntimeError(
+                "Direct mode được bật nhưng 'direct_url' chưa được cấu hình. "
+                "Vào tab Quản Lý Trợ Lý AI → Bộ Não & Xử Lý Ngôn Ngữ để thiết lập."
+            )
+        model_name = (cfg.direct_model or self.get_brain_model(brain_role) or cfg.model_name or "").strip()
+        if not model_name:
+            raise ValueError("direct_model và model_name đều trống. Hãy cấu hình tên model.")
+
+        kwargs: Dict[str, Any] = {
+            "model": model_name,
+            "messages": messages,
+            "max_tokens": 2048,
+            "temperature": 0.2,
+            "stream": False,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
+        logger.info("[Phase91/Direct] Gọi thẳng model=%s (role=%s) @ %s", model_name, brain_role, cfg.direct_url)
+        t0 = time.monotonic()
+        try:
+            response = await asyncio.wait_for(
+                self._direct_client.chat.completions.create(**kwargs),
+                timeout=8.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("[Phase91/Direct] Model %s không phản hồi sau 8s.", model_name)
+            raise TimeoutError(f"Direct model {model_name} timed out after 8s")
+        logger.info(
+            "[Phase91/Direct] Phản hồi nhận trong %.2fs (không qua 9router).",
+            time.monotonic() - t0,
+        )
+        self._last_successful_model = model_name
+        return response
+
+    async def _call_llm_router(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        brain_role: str = "controller",
+    ) -> Any:
+        """
+        Phase 46.3 & Phase 94: Intelligent Auto-Fallback với Fast-Failover (timeout 8s).
+        Ưu tiên model theo vai trò trong kiến trúc 3 Bộ Não.
+        """
         client = self._client  # type: ignore[assignment]
 
-        # Phase 68: không ghi cứng tên model provider — xem giải thích ở
-        # core/config_loader.py. Danh sách dự phòng do router cấp lúc lưu
-        # cấu hình; rỗng thì thử đúng một model đang bật.
-        DEFAULT_ROUTER: List[str] = []
-        active_m = (settings.llm.model_name or "").strip()
+        primary_m = (self.get_brain_model(brain_role) or settings.llm.model_name or "").strip()
         configured_list = getattr(settings.llm, "router_models", []) or []
         if isinstance(configured_list, str):
             configured_list = [configured_list.strip()]
 
-        # Bỏ tên rỗng: gọi model "" chỉ tốn một vòng gọi ra ngoài rồi báo lỗi
-        # chung chung, khiến thông báo lỗi khó hiểu hơn nhiều so với nói thẳng
-        # là chưa cấu hình model.
-        models: List[str] = [active_m] if active_m else []
+        models: List[str] = [primary_m] if primary_m else []
         for m in configured_list:
             clean = str(m).strip()
             if clean and clean not in models:
                 models.append(clean)
-        for dm in DEFAULT_ROUTER:
-            if dm not in models:
-                models.append(dm)
 
         if not models:
             raise ValueError(
@@ -719,10 +928,8 @@ class LLMEngine:
                     "model": model_name,
                     "messages": messages,
                     "max_tokens": 2048,
-                    "temperature": 0.2,  # Low temperature for deterministic RPA/command outputs
+                    "temperature": 0.2,
                     "stream": False,
-                    # Thinking disabled: budget_tokens=0 prevents internal monologue from leaking
-                    # into reply text and causing confused/repeated responses (Bug #1 fix)
                     "extra_body": {
                         "thinking": {
                             "budget_tokens": 0
@@ -733,20 +940,26 @@ class LLMEngine:
                     kwargs["tools"] = tools
                     kwargs["tool_choice"] = "auto"
 
-                logger.info("[LLMEngine] Đang gọi 9router → model=%s", model_name)
+                logger.info("[LLMEngine/TriBrain] Đang gọi 9router [role=%s] → model=%s", brain_role, model_name)
                 t0 = time.monotonic()
-                response = await client.chat.completions.create(**kwargs)
+                # Fast-failover: timeout 8s để không treo hệ thống
+                response = await asyncio.wait_for(
+                    client.chat.completions.create(**kwargs),
+                    timeout=8.0,
+                )
                 logger.info("[LLMEngine] Phản hồi nhận được từ 9router (%s) trong %.2fs.", model_name, time.monotonic() - t0)
                 self._last_successful_model = model_name
                 return response
 
+            except asyncio.TimeoutError:
+                logger.warning("[LLM TIMEOUT] Model %s không phản hồi sau 8s → Fast Failover sang model kế tiếp!", model_name)
+                last_error = TimeoutError(f"Model {model_name} timed out after 8s")
+                continue
             except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
-                # Lỗi từ nhà cung cấp (Hết Quota 429, Sập server 503...)
                 logger.warning(f"[LLM FALLBACK] Model {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
                 last_error = e
                 continue
             except Exception as e:
-                # Các lỗi bất ngờ khác
                 logger.error(f"[LLM ERROR] Lỗi không xác định với model {model_name}: {e}")
                 last_error = e
                 continue
@@ -1094,13 +1307,17 @@ class LLMEngine:
         synthesised_this_turn: bool = False
         used_model: str = settings.llm.model_name
 
+        intent = self.classify_intent(query)
+        brain_role = "ops" if (intent.get("type") == "operation" or tools) else "controller"
+
         for round_idx in range(MAX_TOOL_ROUNDS):
-            logger.debug("LLM round %d — messages=%d, tools=%d", round_idx, len(messages), len(tools))
+            logger.debug("LLM round %d — messages=%d, tools=%d, brain_role=%s", round_idx, len(messages), len(tools), brain_role)
 
             try:
                 response = await self._call_llm(
                     messages=messages,
                     tools=tools if tools else None,
+                    brain_role=brain_role,
                 )
                 used_model = getattr(self, "_last_successful_model", None) or settings.llm.model_name
             except Exception as exc:
@@ -1511,7 +1728,10 @@ class LLMEngine:
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
         if history:
-            messages.extend(history[-20:])
+            # Phase 9: Cắt tỉa ngữ cảnh lịch sử cho giọng nói
+            from core.history_pruner import prune_history_for_voice
+            pruned_hist = prune_history_for_voice(history, max_turns=4, max_total_chars=1200)
+            messages.extend(pruned_hist)
         messages.append({"role": "user", "content": sanitized_query})
 
         # Phase 45: Use shared connection pool for streaming (eliminates TLS handshake)
@@ -1519,31 +1739,31 @@ class LLMEngine:
         client = self._client  # type: ignore[assignment]
         model = settings.llm.model_name
 
-        from core.plugin_manager import plugin_manager
-        raw_tools = plugin_manager.get_all_tools()
-        raw_tools = [t for t in raw_tools if t.get("function", {}).get("name") != "display_visual_data"]
-        for extra_t in FILE_SYSTEM_TOOLS + DELEGATION_TOOLS + VISUAL_OVERLAY_TOOLS + ERP_ORGANIZATION_TOOLS:
-            raw_tools.append(extra_t)
-        tools = self._enrich_tools_with_target_client(raw_tools)
+        # Phase 94: Phân loại ý định qua Bộ Não Kiểm Soát (Supervisor)
+        intent = self.classify_intent(query)
+        logger.info("[TriBrain] Intent phân loại: %s (chuyển sang %s brain)", intent["type"], intent["target_brain"])
 
-        # Phase 46.3: Auto-fallback loop for streaming connection
-        # Phase 68: không ghi cứng tên model provider — xem giải thích ở
-        # core/config_loader.py. Danh sách dự phòng do router cấp lúc lưu
-        # cấu hình; rỗng thì thử đúng một model đang bật.
-        DEFAULT_ROUTER: List[str] = []
-        active_m = (settings.llm.model_name or "").strip()
+        if intent["type"] == "conversation":
+            # BỘ NÃO 2: Giao tiếp & Thoại — KHÔNG nạp tools, giảm tải 100% schemas!
+            tools = None
+            primary_m = (self.get_brain_model("voice") or settings.llm.model_name or "").strip()
+        else:
+            # BỘ NÃO 3: Vận hành hệ thống — Phase 8: Dynamic Skill Loading (Chỉ nạp top 5 công cụ liên quan nhất)
+            primary_m = (self.get_brain_model("ops") or settings.llm.model_name or "").strip()
+            from core.dynamic_skill_router import dynamic_skill_router
+            raw_tools = dynamic_skill_router.get_tools_for_query(query, max_tools=5)
+            tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
+
+        # Phase 46.3 & 94: Auto-fallback loop cho streaming
         configured_list = getattr(settings.llm, "router_models", []) or []
         if isinstance(configured_list, str):
             configured_list = [configured_list.strip()]
 
-        models: List[str] = [active_m] if active_m else []
+        models: List[str] = [primary_m] if primary_m else []
         for m in configured_list:
             clean = str(m).strip()
             if clean and clean not in models:
                 models.append(clean)
-        for dm in DEFAULT_ROUTER:
-            if dm not in models:
-                models.append(dm)
 
         if not models:
             raise ValueError(
@@ -1556,28 +1776,58 @@ class LLMEngine:
         t_start = time.monotonic()
         first_token_logged = False
 
-        for model_name in models:
-            try:
-                logger.info("[LLMEngine] stream_voice_response → model=%s (stream=True)", model_name)
-                stream = await client.chat.completions.create(
-                    model=model_name,
-                    messages=messages,
-                    tools=tools if tools else None,
-                    max_tokens=1024,
-                    temperature=0.7,
-                    stream=True,
-                    extra_body={"thinking": {"budget_tokens": 0}},  # Disable thinking for speed
-                )
-                used_model = model_name
-                break
-            except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
-                # Lỗi từ nhà cung cấp (Hết Quota 429, Sập server 503...)
-                logger.warning(f"[LLM FALLBACK] Streaming model {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
-                continue
-            except Exception as e:
-                # Các lỗi bất ngờ khác
-                logger.error(f"[LLM ERROR] Streaming lỗi không xác định với model {model_name}: {e}")
-                continue
+        # Phase 91: Hỗ trợ Direct-Mode streaming nếu được cấu hình
+        mode = (settings.llm.routing_mode or "router").lower()
+        if mode in ("direct", "auto") and self._direct_client:
+            direct_m = (settings.llm.direct_model or primary_m).strip()
+            if direct_m:
+                try:
+                    logger.info("[LLMEngine/Direct] stream_voice_response direct → model=%s @ %s", direct_m, settings.llm.direct_url)
+                    stream = await asyncio.wait_for(
+                        self._direct_client.chat.completions.create(
+                            model=direct_m,
+                            messages=messages,
+                            tools=tools if tools else None,
+                            max_tokens=1024,
+                            temperature=0.7,
+                            stream=True,
+                        ),
+                        timeout=5.0,
+                    )
+                    used_model = direct_m
+                except Exception as direct_err:
+                    logger.warning("[LLMEngine/Direct] Direct streaming lỗi: %s → Thử tiếp router fallback...", direct_err)
+
+        if stream is None:
+            for model_name in models:
+                try:
+                    logger.info("[LLMEngine/TriBrain] stream_voice_response [%s] → model=%s (stream=True)", intent["target_brain"], model_name)
+                    # Fast-failover: timeout 5s để chuyển sang model dự phòng ngay nếu nghẽn
+                    stream = await asyncio.wait_for(
+                        client.chat.completions.create(
+                            model=model_name,
+                            messages=messages,
+                            tools=tools if tools else None,
+                            max_tokens=1024,
+                            temperature=0.7,
+                            stream=True,
+                            extra_body={"thinking": {"budget_tokens": 0}},  # Disable thinking for speed
+                        ),
+                        timeout=5.0,
+                    )
+                    used_model = model_name
+                    break
+                except asyncio.TimeoutError:
+                    logger.warning("[LLM TIMEOUT] Streaming model %s không phản hồi sau 5s → Fast Failover sang model kế tiếp!", model_name)
+                    continue
+                except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
+                    # Lỗi từ nhà cung cấp (Hết Quota 429, Sập server 503...)
+                    logger.warning(f"[LLM FALLBACK] Streaming model {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
+                    continue
+                except Exception as e:
+                    # Các lỗi bất ngờ khác
+                    logger.error(f"[LLM ERROR] Streaming lỗi không xác định với model {model_name}: {e}")
+                    continue
 
         # Chốt chặn cuối cùng nếu tất cả model đều thất bại khi mở stream
         if stream is None:
@@ -1634,7 +1884,7 @@ class LLMEngine:
                         for tc in delta.tool_calls
                     ]
                     logger.info(
-                        "[LLMEngine] Phát hiện tool call %s sau %.2fs → phát ack ngay + agentic.",
+                        "[LLMEngine] Phát hiện tool call %s sau %.2fs → phát ack ngay, chuyển sang vòng lặp agentic.",
                         detected_tools, _wasted,
                     )
                     # Phát câu xác nhận ngay lập tức (chỉ khi chưa nói gì)
@@ -1723,7 +1973,7 @@ class LLMEngine:
                     if not any(speech_reply.lower().startswith(p) for p in _ack_prefixes):
                         yield speech_reply
                 elif result.get("success"):
-                    yield "Em đã thực hiện xong yêu cầu của bạn."
+                    yield "Em đã thực hiện xong yêu cầu của anh."
                 else:
                     yield "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
             except Exception as exc:
@@ -1904,7 +2154,7 @@ class LLMEngine:
             if len(intro_str) > 10:
                 if not any(intro_str.endswith(p) for p in (".", "!", "?")):
                     intro_str += "."
-                return f"{intro_str} Chi tiết cụ thể đã được hiển thị trên màn hình của bạn."
+                return f"{intro_str} Chi tiết cụ thể đã được hiển thị trên màn hình của anh."
 
         # Fallback sanitisation
         cleaned = cls._sanitise_for_tts(text)

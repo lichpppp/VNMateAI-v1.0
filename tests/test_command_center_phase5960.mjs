@@ -102,8 +102,8 @@ function showToast() {}
   const { switchCcSubTab, CC_SUBTABS } = await import(pathToFileURL(f).href);
 
   results.push('\n▸ switchCcSubTab');
-  // Phase 81: thêm sub-tab 'devices' -> 5 thành 6.
-  check('có đủ 6 sub-tab', CC_SUBTABS.length === 6, CC_SUBTABS.join(','));
+  // Phase 81/Enterprise: CC_SUBTABS có tối thiểu 6 sub-tab (nay có 8 sub-tab).
+  check('có đủ các sub-tab', CC_SUBTABS.length >= 6, CC_SUBTABS.join(','));
   check('có sub-tab Máy Trạm', CC_SUBTABS.includes('devices'));
   switchCcSubTab('config');
   check('bấm "config" -> nút config được làm nổi bật',

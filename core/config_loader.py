@@ -42,6 +42,11 @@ _DEFAULT_CONFIG: dict = {
         "specialist_model": "",
         "model_name": "",
         "api_key": "sk-dummy",
+        # Dual-mode routing (Phase 91)
+        "routing_mode": "router",   # "router" | "direct" | "auto"
+        "direct_url": "",           # URL trỏ thẳng vào model (LM Studio / Ollama)
+        "direct_model": "",         # Tên model khi dùng direct mode
+        "direct_api_key": "sk-dummy",
     },
     "auto_execute": False,
     "ASR_BACKEND": "google",
@@ -116,6 +121,47 @@ class LLMConfig(BaseModel):
     api_key: str = Field(
         default="sk-dummy",
         description="API key / secret for the proxy endpoint.",
+    )
+
+    # --------------- Phase 91: Dual-Mode Routing ---------------
+    routing_mode: str = Field(
+        default="router",
+        description=(
+            "LLM routing mode:\n"
+            "  'router'  — qua 9router proxy (mặc định, hỗ trợ nhiều model).\n"
+            "  'direct'  — gọi thẳng model (bỏ proxy, giảm latency ~150-300ms).\n"
+            "  'auto'    — thử direct trước, fallback sang router nếu lỗi."
+        ),
+    )
+    direct_url: str = Field(
+        default="",
+        description="Base URL khi dùng direct mode (e.g. http://localhost:1234/v1 cho LM Studio).",
+    )
+    direct_model: str = Field(
+        default="",
+        description="Tên model khi dùng direct mode (để trống = dùng model_name).",
+    )
+    direct_api_key: str = Field(
+        default="sk-dummy",
+        description="API key cho endpoint direct (thường là 'lm-studio' hoặc 'ollama').",
+    )
+
+    # --------------- Phase 94: Tri-Brain Specialized Architecture ---------------
+    tri_brain_enabled: bool = Field(
+        default=True,
+        description="Kích hoạt kiến trúc 3 Bộ Não Chuyên Biệt (Controller, Voice, Operations).",
+    )
+    controller_model: str = Field(
+        default="",
+        description="Bộ Não 1: Model kiểm soát & điều phối ý định (Supervisor / Controller).",
+    )
+    voice_model: str = Field(
+        default="",
+        description="Bộ Não 2: Model giao tiếp & thoại siêu tốc không gánh tool (Voice & Linguistic).",
+    )
+    ops_model: str = Field(
+        default="",
+        description="Bộ Não 3: Model thực thi kỹ năng & vận hành hệ thống (Operations & Tool Specialist).",
     )
 
     @model_validator(mode="before")

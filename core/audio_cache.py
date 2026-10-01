@@ -27,6 +27,8 @@ CACHE_DIR = PROJECT_ROOT / "storage" / "audio_cache"
 INDEX_FILE = CACHE_DIR / "cache_index.json"
 
 _cache_lock = threading.Lock()
+_RAM_AUDIO_CACHE: Dict[str, bytes] = {}
+_MAX_RAM_CACHE: int = 256
 
 
 def _ensure_cache_dir() -> Path:
@@ -78,8 +80,18 @@ def check_cached_audio(text: str) -> Optional[str]:
 
 def get_cached_audio_bytes(text: str) -> Optional[bytes]:
     """
-    Lấy trực tiếp nội dung bytes âm thanh từ file cache nếu tồn tại.
+    Lấy trực tiếp nội dung bytes âm thanh từ RAM cache (0ms) hoặc Disk cache nếu tồn tại.
     """
+    h = get_audio_hash(text)
+    if not h:
+        return None
+
+    # 1. Tra cứu RAM cache siêu tốc (0ms, Zero Disk I/O)
+    with _cache_lock:
+        if h in _RAM_AUDIO_CACHE:
+            return _RAM_AUDIO_CACHE[h]
+
+    # 2. Tra cứu Disk cache
     path_str = check_cached_audio(text)
     if not path_str:
         return None
@@ -87,6 +99,9 @@ def get_cached_audio_bytes(text: str) -> Optional[bytes]:
         with open(path_str, "rb") as f:
             data = f.read()
             if len(data) > 100:
+                with _cache_lock:
+                    if len(_RAM_AUDIO_CACHE) < _MAX_RAM_CACHE:
+                        _RAM_AUDIO_CACHE[h] = data
                 return data
     except Exception as exc:
         logger.warning("[AudioCache] Lỗi đọc file cache %s: %s", path_str, exc)
@@ -95,7 +110,7 @@ def get_cached_audio_bytes(text: str) -> Optional[bytes]:
 
 def save_to_cache(text: str, audio_bytes: bytes, voice: str = "vi-VN-HoaiMyNeural") -> Optional[str]:
     """
-    Lưu luồng bytes âm thanh sinh ra từ TTS thành file [hash].mp3.
+    Lưu luồng bytes âm thanh sinh ra từ TTS vào RAM cache và file [hash].mp3.
     Cập nhật cache_index.json để dễ theo dõi.
     """
     if not audio_bytes or len(audio_bytes) < 100:
@@ -104,6 +119,10 @@ def save_to_cache(text: str, audio_bytes: bytes, voice: str = "vi-VN-HoaiMyNeura
     h = get_audio_hash(text)
     if not h:
         return None
+
+    with _cache_lock:
+        if len(_RAM_AUDIO_CACHE) < _MAX_RAM_CACHE:
+            _RAM_AUDIO_CACHE[h] = audio_bytes
 
     _ensure_cache_dir()
     file_path = CACHE_DIR / f"{h}.mp3"

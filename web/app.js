@@ -167,15 +167,26 @@ async function loadRouterModels() {
   const selectors = [
     ['ai-proxy-model-select', 'ai-proxy-model-picker-wrap'],
     ['proxy-model-select', 'proxy-model-picker-wrap'],
+    ['ai-tribrain-controller-select', null],
+    ['ai-tribrain-voice-select', null],
+    ['ai-tribrain-ops-select', null],
   ];
   for (const [selId, wrapId] of selectors) {
     const sel = document.getElementById(selId);
     if (!sel) continue;
+    const isTri = selId.startsWith('ai-tribrain');
     sel.innerHTML = routerModelList.length
-      ? '<option value="">-- Chọn mô hình từ router (đã sắp xếp) --</option>' + opts
+      ? `<option value="">-- ${isTri ? 'Chọn mô hình nhanh' : 'Chọn mô hình từ router (đã sắp xếp)'} --</option>` + opts
       : '<option value="">-- Chưa có model nào từ router --</option>';
-    const wrap = document.getElementById(wrapId);
-    if (wrap) wrap.classList.toggle('hidden', routerModelList.length === 0);
+    if (wrapId) {
+      const wrap = document.getElementById(wrapId);
+      if (wrap) wrap.classList.toggle('hidden', routerModelList.length === 0);
+    }
+    if (isTri) {
+      const role = selId.replace('ai-tribrain-', '').replace('-select', '');
+      const curVal = document.getElementById(`ai-tribrain-${role}-model`)?.value;
+      if (curVal) sel.value = curVal;
+    }
   }
   // Hai container chip cũ giờ chỉ là dòng trạng thái gọn, không còn dãy nút.
   for (const id of ['ai-quick-models', 'cfg-quick-models']) {
@@ -207,6 +218,16 @@ function renderFallbackChain() {
 function fallbackModels(primary) {
   const rest = routerModelList.filter(m => m !== primary);
   return primary ? [primary, ...rest] : rest;
+}
+
+/** Phase 94: Xử lý khi người dùng chọn model từ dropdown cho 1 trong 3 Bộ Não. */
+function onTriBrainSelectChange(role, val) {
+  if (!val) return;
+  const targetInput = document.getElementById(`ai-tribrain-${role}-model`);
+  if (targetInput) {
+    targetInput.value = val;
+    targetInput.dispatchEvent(new Event('input'));
+  }
 }
 let skillsData = {};
 let devicesData = [];
@@ -697,7 +718,7 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // sau đó 'command-center' cũng gộp vào 'dashboard'.
 // Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices /
 // #command-center sẽ tự rơi về dashboard thay vì mở một tab không có.
-const VALID_TABS = ['dashboard', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs', 'topology'];
+const VALID_TABS = ['dashboard', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
 
 function getSavedTab() {
   const hash = (window.location.hash || '').replace('#', '').trim();
@@ -3360,6 +3381,253 @@ function renderPortalMarkdown(rawText) {
   return text;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ── STREAMING AUDIO QUEUE (Web Audio API Gapless Streaming Engine) ─────────
+// ═══════════════════════════════════════════════════════════════════════════
+/**
+ * StreamingAudioQueue — Web Audio API Gapless Streaming Engine.
+ *
+ * Loại bỏ hoàn toàn MediaSource Extensions (MSE) vốn gây lỗi decode ID3 header,
+ * giật tiếng (stuttering/jitter) và rớt audio khi ghép nối các MP3 chunk liên tiếp.
+ *
+ * Tính năng vượt trội:
+ * 1. Decode từng chunk MP3 độc lập thành PCM AudioBuffer chuẩn xác qua AudioContext.
+ * 2. Lập lịch phát nối tiếp liền mạch (Gapless Scheduling, 0ms gap giữa các câu).
+ * 3. Barge-In / Instant Stop < 0.1ms (ngắt toàn bộ source nodes tức thì khi người dùng chặn lời).
+ * 4. Tự động phục hồi / resume AudioContext nếu trình duyệt chặn autoplay.
+ * 5. Lưu trữ receivedChunks để phát lại (Replay) và tải xuống (Download MP3) trọn vẹn.
+ */
+class StreamingAudioQueue {
+  constructor() {
+    this._ctx = null;
+    this._nextStartTime = 0;
+    this._activeSources = [];
+    this._pendingChunks = [];
+    this._isDecoding = false;
+    this._streamEnded = false;
+    this._endTimer = null;
+
+    this.isPlaying = false;
+    this.hasFirstAudio = false;
+    this.onFirstAudio = null;
+    this.onPlaybackEnd = null;
+    this.receivedChunks = [];
+  }
+
+  /** Dừng mọi HTMLAudioElement khác đang phát để tránh xung đột 2 giọng cùng lúc */
+  _stopOtherPlayers() {
+    ['audio-player', 'studio-audio-player'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el.paused) {
+        try {
+          el.pause();
+          el.currentTime = 0;
+        } catch (e) {}
+      }
+    });
+  }
+
+  _getOrCreateAudioContext() {
+    if (!this._ctx) {
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtxClass) {
+        this._ctx = new AudioCtxClass();
+      }
+    }
+    if (this._ctx && this._ctx.state === 'suspended') {
+      this._ctx.resume().catch(() => {});
+    }
+    return this._ctx;
+  }
+
+  async enqueueChunk(arrayBuffer) {
+    if (!arrayBuffer || arrayBuffer.byteLength < 32) return;
+
+    // Dừng các player khác khi nhận chunk âm thanh đầu tiên
+    if (!this.hasFirstAudio && this.receivedChunks.length === 0) {
+      this._stopOtherPlayers();
+    }
+
+    this.receivedChunks.push(arrayBuffer);
+    this._pendingChunks.push(arrayBuffer);
+    this._processPendingQueue();
+  }
+
+  async _processPendingQueue() {
+    if (this._isDecoding || this._pendingChunks.length === 0) return;
+    this._isDecoding = true;
+
+    while (this._pendingChunks.length > 0) {
+      const chunk = this._pendingChunks.shift();
+      try {
+        const ctx = this._getOrCreateAudioContext();
+        if (!ctx) {
+          console.warn('[AudioQueue] Web Audio API không được trình duyệt hỗ trợ');
+          break;
+        }
+        if (ctx.state === 'suspended') {
+          await ctx.resume().catch(() => {});
+        }
+
+        // decodeAudioData giải nén MP3 thành PCM AudioBuffer nguyên bản
+        const audioBuf = await ctx.decodeAudioData(chunk.slice(0));
+        if (!audioBuf || audioBuf.duration <= 0) continue;
+
+        // Gapless scheduling: lập lịch nối tiếp tuyệt đối (0ms gap)
+        const now = ctx.currentTime;
+        const startAt = Math.max(now, this._nextStartTime);
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuf;
+        source.connect(ctx.destination);
+        source.start(startAt);
+
+        this._nextStartTime = startAt + audioBuf.duration;
+        this._activeSources.push(source);
+
+        source.onended = () => {
+          const idx = this._activeSources.indexOf(source);
+          if (idx !== -1) this._activeSources.splice(idx, 1);
+          this._checkStreamFinished();
+        };
+
+        if (!this.hasFirstAudio) {
+          this.hasFirstAudio = true;
+          this.isPlaying = true;
+          if (typeof this.onFirstAudio === 'function') {
+            try { this.onFirstAudio(); } catch (e) {}
+          }
+        }
+
+        this._scheduleEndTimer();
+      } catch (err) {
+        console.warn('[AudioQueue] Lỗi decode MP3 chunk:', err);
+      }
+    }
+
+    this._isDecoding = false;
+  }
+
+  _scheduleEndTimer() {
+    if (this._endTimer) clearTimeout(this._endTimer);
+    if (!this._ctx) return;
+    const remainingSec = Math.max(0, this._nextStartTime - this._ctx.currentTime);
+    this._endTimer = setTimeout(() => {
+      this._checkStreamFinished();
+    }, Math.ceil((remainingSec + 0.1) * 1000));
+  }
+
+  _checkStreamFinished() {
+    if (!this._streamEnded) return;
+    if (this._pendingChunks.length > 0 || this._isDecoding) return;
+    if (this._ctx && this._ctx.currentTime < this._nextStartTime - 0.05) return;
+
+    if (this.isPlaying) {
+      this.isPlaying = false;
+      if (typeof this.onPlaybackEnd === 'function') {
+        try { this.onPlaybackEnd(); } catch (e) {}
+      }
+    }
+  }
+
+  /** Báo hiệu stream đã nạp xong toàn bộ các câu */
+  markStreamEnded() {
+    this._streamEnded = true;
+    this._scheduleEndTimer();
+  }
+
+  /** Dừng phát ngay lập tức (Barge-In) */
+  stop() {
+    for (const src of this._activeSources) {
+      try {
+        src.stop();
+        src.disconnect();
+      } catch (e) {}
+    }
+    this._activeSources = [];
+    this._pendingChunks = [];
+    this._isDecoding = false;
+    this._nextStartTime = 0;
+    this.isPlaying = false;
+    if (this._endTimer) {
+      clearTimeout(this._endTimer);
+      this._endTimer = null;
+    }
+    if (typeof this.onPlaybackEnd === 'function') {
+      try { this.onPlaybackEnd(); } catch (e) {}
+    }
+  }
+
+  getCombinedBlob() {
+    if (!this.receivedChunks || this.receivedChunks.length === 0) return null;
+    return new Blob(this.receivedChunks, { type: 'audio/mp3' });
+  }
+
+  reset() {
+    this.stop();
+    this.hasFirstAudio = false;
+    this.receivedChunks = [];
+    this._streamEnded = false;
+  }
+}
+
+let _currentAudioStreamQueue = null;
+let _currentVoiceWS = null;
+
+function _resetVoiceButton(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.innerHTML = `
+    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <line x1="22" y1="2" x2="11" y2="13"/>
+      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+    </svg>
+    <span>Gửi Lệnh Thoại</span>
+  `;
+}
+
+async function _fallbackRestVoiceCommand(query, btn, card, textEl) {
+  try {
+    const res = await apiVoiceCommand(query, true);
+    _resetVoiceButton(btn);
+    if (card && textEl) {
+      card.classList.remove('hidden');
+      textEl.innerHTML = renderPortalMarkdown(res.reply || '_(không có nội dung phản hồi)_');
+      scheduleAiDownloadCheck();
+    }
+    if (res.audio_base64) {
+      lastAudioBase64 = res.audio_base64;
+      playVoiceAudio();
+    }
+    showToast('✅ Đã nhận phản hồi (Chế độ tương thích REST)', 'success');
+  } catch (err) {
+    _resetVoiceButton(btn);
+    showToast(`❌ Lỗi thực thi: ${err.message}`, 'error');
+  }
+}
+
+/**
+ * Phase 12: Ngắt lời trợ lý ngay lập tức (Barge-In / User Interruption).
+ * Ngắt âm thanh đang phát trên Web Audio / MSE và gửi tín hiệu hủy lên server qua WebSocket.
+ */
+function stopActiveVoiceStream() {
+  console.log('[BargeIn] User triggered stop / barge-in.');
+  if (_currentAudioStreamQueue) {
+    _currentAudioStreamQueue.stop();
+  }
+  if (_currentVoiceWS && _currentVoiceWS.readyState === WebSocket.OPEN) {
+    try {
+      _currentVoiceWS.send(JSON.stringify({ type: 'barge_in', reason: 'user_stop_click' }));
+    } catch (e) {}
+  }
+  const stopBtn = document.getElementById('btn-stop-voice-stream');
+  if (stopBtn) stopBtn.classList.add('hidden');
+  const streamBadge = document.getElementById('voice-stream-badge');
+  if (streamBadge) streamBadge.classList.add('hidden');
+  const btn = document.getElementById('btn-send-voice');
+  if (btn) _resetVoiceButton(btn);
+  showToast('Đã dừng phát âm thanh trợ lý.', 'info');
+}
+
 async function sendVoiceCommand() {
   const input = document.getElementById('voice-input');
   const query = input?.value?.trim();
@@ -3368,50 +3636,183 @@ async function sendVoiceCommand() {
     return;
   }
 
+  // Abort any existing voice stream (Barge-In on new query)
+  if (_currentVoiceWS && _currentVoiceWS.readyState === WebSocket.OPEN) {
+    try {
+      _currentVoiceWS.send(JSON.stringify({ type: 'barge_in', reason: 'new_query' }));
+      _currentVoiceWS.close();
+    } catch (e) {}
+  }
+  if (_currentAudioStreamQueue) {
+    _currentAudioStreamQueue.stop();
+  }
+
   const btn = document.getElementById('btn-send-voice');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = `<svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang xử lý lệnh...`;
+    btn.innerHTML = `<svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang kết nối...`;
   }
 
+  const card = document.getElementById('voice-response-card');
+  const textEl = document.getElementById('voice-response-text');
+  const streamBadge = document.getElementById('voice-stream-badge');
+  const ttfaBadge = document.getElementById('voice-ttfa-badge');
+  const stopBtn = document.getElementById('btn-stop-voice-stream');
+
+  if (card && textEl) {
+    card.classList.remove('hidden');
+    textEl.innerHTML = `<div class="flex items-center gap-2 text-cyan-500 animate-pulse text-xs"><svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span>Đang kết nối Neural Stream (TTFA &lt; 800ms)...</span></div>`;
+  }
+  if (streamBadge) streamBadge.classList.remove('hidden');
+  if (stopBtn) stopBtn.classList.remove('hidden');
+  if (ttfaBadge) {
+    ttfaBadge.classList.add('hidden');
+    ttfaBadge.textContent = '';
+  }
+
+  // Setup streaming audio queue & unlock AudioContext on user gesture
+  _currentAudioStreamQueue = new StreamingAudioQueue();
+  _currentAudioStreamQueue._getOrCreateAudioContext();
+  _currentAudioStreamQueue.onFirstAudio = () => {
+    startWaveformVisualizer('voice-wave-bar');
+  };
+  _currentAudioStreamQueue.onPlaybackEnd = () => {
+    stopWaveformVisualizer('voice-wave-bar');
+  };
+
+  const token = (typeof getAuthToken === 'function') ? getAuthToken() : '';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${proto}//${location.host}/ws/v1/voice-stream${token ? '?token=' + encodeURIComponent(token) : ''}`;
+
+  let wsFailed = false;
+  let accumulatedText = "";
+  const requestStartTime = performance.now();
+  let firstAudioReceived = false;
+
   try {
-    const res = await apiVoiceCommand(query, true);
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <line x1="22" y1="2" x2="11" y2="13"/>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-        </svg>
-        <span>Gửi Lệnh Thoại</span>
-      `;
-    }
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+    _currentVoiceWS = ws;
 
-    const card = document.getElementById('voice-response-card');
-    const textEl = document.getElementById('voice-response-text');
-    if (card && textEl) {
-      card.classList.remove('hidden');
-      textEl.innerHTML = renderPortalMarkdown(res.reply || '_(không có nội dung phản hồi)_');
-      scheduleAiDownloadCheck();
-    }
+    const connectionTimeout = setTimeout(() => {
+      if (ws.readyState !== WebSocket.OPEN) {
+        console.warn('[VoiceStream] WebSocket connection timeout, fallback to REST.');
+        try { ws.close(); } catch (e) {}
+        wsFailed = true;
+        _fallbackRestVoiceCommand(query, btn, card, textEl);
+      }
+    }, 4000);
 
-    if (res.audio_base64) {
-      lastAudioBase64 = res.audio_base64;
-      playVoiceAudio();
-    }
-    showToast('✅ Đã nhận phản hồi từ trợ lý VN-MateAI', 'success');
+    ws.onopen = () => {
+      clearTimeout(connectionTimeout);
+      if (btn) {
+        btn.innerHTML = `<svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang stream giọng nói...`;
+      }
+      const historyToSend = (typeof _webChatHistory !== 'undefined' && Array.isArray(_webChatHistory))
+        ? _webChatHistory.slice(-_MAX_HISTORY_TURNS * 2)
+        : [];
+      ws.send(JSON.stringify({
+        query: query,
+        session_id: 'web',
+        history: historyToSend,
+      }));
+    };
+
+    ws.onmessage = async (event) => {
+      if (typeof event.data === 'string') {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'text_delta' || msg.type === 'text_chunk') {
+            accumulatedText += msg.content;
+            if (textEl) {
+              textEl.innerHTML = renderPortalMarkdown(accumulatedText);
+              textEl.scrollTop = textEl.scrollHeight;
+            }
+          } else if (msg.type === 'tool_call') {
+            const toolBadge = `\n\n> ⚙️ **Đang thực thi kỹ năng**: \`${msg.name}\`...\n\n`;
+            accumulatedText += toolBadge;
+            if (textEl) {
+              textEl.innerHTML = renderPortalMarkdown(accumulatedText);
+            }
+          } else if (msg.type === 'audio_stream_complete' || msg.type === 'stream_end' || msg.type === 'cancelled') {
+            if (btn) {
+              _resetVoiceButton(btn);
+            }
+            const stopBtn = document.getElementById('btn-stop-voice-stream');
+            if (stopBtn) stopBtn.classList.add('hidden');
+            const streamBadge = document.getElementById('voice-stream-badge');
+            if (streamBadge) streamBadge.classList.add('hidden');
+
+            if (msg.type === 'cancelled') {
+              if (_currentAudioStreamQueue) _currentAudioStreamQueue.stop();
+              showToast('Lượt thoại đã được ngắt (Barge-In).', 'info');
+              return;
+            }
+            if (_currentAudioStreamQueue) {
+              _currentAudioStreamQueue.markStreamEnded();
+            }
+            if (typeof _webChatHistory !== 'undefined' && Array.isArray(_webChatHistory)) {
+              _webChatHistory.push({ role: 'user', content: query });
+              _webChatHistory.push({ role: 'assistant', content: accumulatedText });
+              if (_webChatHistory.length > _MAX_HISTORY_TURNS * 2) {
+                _webChatHistory = _webChatHistory.slice(-_MAX_HISTORY_TURNS * 2);
+              }
+            }
+            // Save combined audio blob for replay & download
+            const blob = _currentAudioStreamQueue.getCombinedBlob();
+            if (blob) {
+              const reader = new FileReader();
+              reader.onloadend = () => {
+                const base64data = reader.result.split(',')[1];
+                lastAudioBase64 = base64data;
+              };
+              reader.readAsDataURL(blob);
+            }
+            scheduleAiDownloadCheck();
+            const totalMs = Math.round(performance.now() - requestStartTime);
+            const ttfaMs = msg.ttfa_ms || (firstAudioReceived ? Math.round(firstAudioReceived - requestStartTime) : null);
+            if (ttfaBadge && ttfaMs) {
+              ttfaBadge.textContent = `⚡ TTFA: ${ttfaMs}ms (Tổng: ${totalMs}ms)`;
+              ttfaBadge.classList.remove('hidden');
+            }
+            showToast(`✅ Phản hồi hoàn tất (TTFA: ${ttfaMs ? ttfaMs + 'ms' : 'nhanh'})`, 'success');
+          } else if (msg.type === 'error') {
+            showToast(`⚠️ Lỗi: ${msg.message}`, 'error');
+            if (btn) _resetVoiceButton(btn);
+          }
+        } catch (e) {
+          console.warn('[VoiceStream] Parse error:', e);
+        }
+      } else if (event.data instanceof ArrayBuffer) {
+        if (!firstAudioReceived) {
+          firstAudioReceived = performance.now();
+          const ttfa = Math.round(firstAudioReceived - requestStartTime);
+          console.log(`[VoiceStream] First Audio Received (TTFA): ${ttfa}ms`);
+          if (ttfaBadge) {
+            ttfaBadge.textContent = `⚡ TTFA: ${ttfa}ms`;
+            ttfaBadge.classList.remove('hidden');
+          }
+        }
+        await _currentAudioStreamQueue.enqueueChunk(event.data);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.warn('[VoiceStream] WS Error:', err);
+      clearTimeout(connectionTimeout);
+      if (!wsFailed && accumulatedText.length === 0) {
+        wsFailed = true;
+        _fallbackRestVoiceCommand(query, btn, card, textEl);
+      }
+    };
+
+    ws.onclose = () => {
+      if (btn) _resetVoiceButton(btn);
+    };
+
   } catch (err) {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <line x1="22" y1="2" x2="11" y2="13"/>
-          <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-        </svg>
-        <span>Gửi Lệnh Thoại</span>
-      `;
-    }
-    showToast(`❌ Lỗi thực thi: ${err.message}`, 'error');
+    console.warn('[VoiceStream] Exception launching WS:', err);
+    _fallbackRestVoiceCommand(query, btn, card, textEl);
   }
 }
 
@@ -3419,6 +3820,9 @@ function playVoiceAudio() {
   if (!lastAudioBase64) {
     showToast('Chưa có âm thanh phản hồi để phát lại.', 'info');
     return;
+  }
+  if (_currentAudioStreamQueue) {
+    _currentAudioStreamQueue.stop();
   }
   const audio = document.getElementById('audio-player');
   if (!audio) return;
@@ -3430,6 +3834,9 @@ function playVoiceAudio() {
 }
 
 function stopVoiceAudio() {
+  if (_currentAudioStreamQueue) {
+    _currentAudioStreamQueue.stop();
+  }
   const audio = document.getElementById('audio-player');
   if (audio) {
     audio.pause();
@@ -3589,6 +3996,11 @@ async function previewStudioVoice() {
   if (btn) {
     btn.disabled = true;
     btn.innerHTML = `<svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang tổng hợp...`;
+  }
+
+  // Dừng voice stream queue nếu đang chạy để tránh 2 giọng phát cùng lúc
+  if (_currentAudioStreamQueue) {
+    _currentAudioStreamQueue.stop();
   }
 
   try {
@@ -3878,6 +4290,51 @@ async function loadConfig() {
   const primaryKeyEl = document.getElementById('cfg-route-primary-key');
   if (primaryKeyEl) primaryKeyEl.value = '';
 
+  // ── Phase 91: Nạp trạng thái Dual-Mode cho Tab Config
+  const routingMode = llm.routing_mode || 'router';
+  const directUrl = llm.direct_url || 'https://api.deepseek.com';
+  const directModel = llm.direct_model || 'deepseek-chat';
+  const directKey = llm.direct_api_key || '';
+
+  setVal('cfg-direct-url', directUrl);
+  setVal('cfg-direct-model', directModel);
+  if (directKey && directKey !== 'sk-dummy') {
+    setVal('cfg-direct-key', directKey);
+  }
+  switchCfgRoutingMode(routingMode);
+
+  // Nhận diện và highlight provider trên tab Config
+  const uCfg = (directUrl || '').toLowerCase();
+  let matchedProvCfg = 'deepseek';
+  if (uCfg.includes('groq')) matchedProvCfg = 'groq';
+  else if (uCfg.includes('openai')) matchedProvCfg = 'openai';
+  else if (uCfg.includes('openrouter')) matchedProvCfg = 'openrouter';
+  else if (uCfg.includes('11434') || uCfg.includes('ollama')) matchedProvCfg = 'ollama';
+  else if (uCfg.includes('1234') || uCfg.includes('lmstudio')) matchedProvCfg = 'lmstudio';
+  else if (uCfg.includes('deepseek')) matchedProvCfg = 'deepseek';
+
+  const provCfg = DIRECT_PROVIDERS[matchedProvCfg];
+  if (provCfg) {
+    const badge = document.getElementById('cfg-direct-provider-badge');
+    if (badge) badge.textContent = provCfg.name;
+    const guideLink = document.getElementById('cfg-direct-token-guide-link');
+    if (guideLink) {
+      guideLink.href = provCfg.guideLink;
+      guideLink.innerHTML = `<span>${provCfg.guideText}</span> <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+    }
+    const hint = document.getElementById('cfg-direct-key-hint');
+    if (hint) hint.textContent = provCfg.hint;
+    Object.keys(DIRECT_PROVIDERS).forEach(k => {
+      const btn = document.getElementById(`btn-cfg-prov-${k}`);
+      if (!btn) return;
+      if (k === matchedProvCfg) {
+        btn.className = 'provider-chip py-2 px-2.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center gap-1 border-orange-400/80 bg-orange-500/15 text-orange-400 font-bold shadow-sm';
+      } else {
+        btn.className = 'provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold';
+      }
+    });
+  }
+
   // Auto Execute Switch
   const isAuto = cfg.auto_execute !== undefined ? !!cfg.auto_execute : !!cfg.AUTO_EXECUTE_UNVERIFIED_CODE;
   autoExecState = isAuto;
@@ -3972,6 +4429,13 @@ async function saveFullConfig() {
         : fallbackModels(modelName),
       specialist_models: (currentConfig?.llm?.specialist_models?.length)
         ? currentConfig.llm.specialist_models : fallbackModels(modelName).slice(0, 4),
+      // Phase 91: Lưu cấu hình routing từ tab Cấu Hình Hệ Thống
+      routing_mode: getVal('cfg-routing-mode') || currentConfig?.llm?.routing_mode || 'router',
+      direct_url: getVal('cfg-direct-url') || currentConfig?.llm?.direct_url || 'https://api.deepseek.com',
+      direct_model: getVal('cfg-direct-model') || currentConfig?.llm?.direct_model || 'deepseek-chat',
+      direct_api_key: (getVal('cfg-direct-key') && getVal('cfg-direct-key') !== SECRET_MASK)
+        ? getVal('cfg-direct-key')
+        : (currentConfig?.llm?.direct_api_key || 'sk-dummy'),
     },
     routing: {
       ...(currentConfig?.routing || {}),
@@ -4067,6 +4531,7 @@ let _aiManagerLoadTimer = null;
 function loadAIManagerConfig() {
   clearTimeout(_aiManagerLoadTimer);
   _aiManagerLoadTimer = setTimeout(_doLoadAIManagerConfig, 50);
+  loadRouterModels();
 }
 
 async function _doLoadAIManagerConfig() {
@@ -4105,6 +4570,68 @@ async function _doLoadAIManagerConfig() {
     else streamingSwitch.classList.remove('on');
   }
 
+  // ── Phase 91: Dual-Mode Routing (Độc quyền 1 trong 2)
+  const routingMode = (llm.routing_mode === 'direct') ? 'direct' : 'router';
+  const directUrl   = llm.direct_url   || 'https://api.deepseek.com';
+  const directModel = llm.direct_model  || 'deepseek-chat';
+  const directKey   = llm.direct_api_key || '';
+  setVal('ai-direct-url',     directUrl);
+  setVal('ai-direct-model',   directModel);
+  setVal('ai-direct-api-key', directKey);
+  switchLLMEngineMode(routingMode);
+
+  // ── Phase 94: Tri-Brain Specialized Architecture restore
+  const triBrainEnabled = llm.tri_brain_enabled !== false;
+  const triSwitch = document.getElementById('ai-switch-tribrain');
+  if (triSwitch) {
+    if (triBrainEnabled) triSwitch.classList.add('is-active', 'on');
+    else triSwitch.classList.remove('is-active', 'on');
+  }
+  const cModel = llm.controller_model || modelName || 'ag/gemini-3.6-flash-high';
+  const vModel = llm.voice_model || modelName || 'ag/gemini-3.6-flash-high';
+  const oModel = llm.ops_model || llm.specialist_model || 'VN-MateAi';
+
+  setVal('ai-tribrain-controller-model', cModel);
+  setVal('ai-tribrain-voice-model',      vModel);
+  setVal('ai-tribrain-ops-model',        oModel);
+
+  // Đồng bộ giá trị vào dropdown sổ ra
+  setVal('ai-tribrain-controller-select', cModel);
+  setVal('ai-tribrain-voice-select',      vModel);
+  setVal('ai-tribrain-ops-select',        oModel);
+
+  // Tự động nhận diện provider đã cấu hình
+  const u = (directUrl || '').toLowerCase();
+  let matchedProv = 'deepseek';
+  if (u.includes('groq')) matchedProv = 'groq';
+  else if (u.includes('openai')) matchedProv = 'openai';
+  else if (u.includes('openrouter')) matchedProv = 'openrouter';
+  else if (u.includes('11434') || u.includes('ollama')) matchedProv = 'ollama';
+  else if (u.includes('1234') || u.includes('lmstudio')) matchedProv = 'lmstudio';
+  else if (u.includes('deepseek')) matchedProv = 'deepseek';
+
+  const prov = DIRECT_PROVIDERS[matchedProv];
+  if (prov) {
+    const badge = document.getElementById('direct-provider-badge');
+    if (badge) badge.textContent = prov.name;
+    const guideLink = document.getElementById('direct-token-guide-link');
+    if (guideLink) {
+      guideLink.href = prov.guideLink;
+      guideLink.innerHTML = `<span>${prov.guideText}</span> <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+    }
+    const hint = document.getElementById('direct-key-hint');
+    if (hint) hint.textContent = prov.hint;
+    Object.keys(DIRECT_PROVIDERS).forEach(k => {
+      const btn = document.getElementById(`btn-prov-${k}`);
+      if (!btn) return;
+      if (k === matchedProv) {
+        btn.className = 'provider-chip py-2 px-2.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center gap-1 border-orange-400/80 bg-orange-500/15 text-orange-400 font-bold shadow-sm';
+      } else {
+        btn.className = 'provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold';
+      }
+    });
+  }
+
   // ── Card 2: Persona
   const persona = cfg.persona || {};
   setVal('ai-persona-name', persona.ai_name || cfg.AI_NAME || 'Ly Ly');
@@ -4133,6 +4660,11 @@ async function _doLoadAIManagerConfig() {
   setVal('ai-groq-key', cfg.GROQ_API_KEY || '');
   setVal('ai-groq-url', cfg.GROQ_BASE_URL || 'https://api.groq.com/openai/v1');
 
+  // ElevenLabs WebSocket Streaming config restore
+  if (audio.elevenlabs_api_key) setVal('ai-elevenlabs-key', audio.elevenlabs_api_key);
+  if (audio.elevenlabs_voice_id) setVal('ai-elevenlabs-voice-id', audio.elevenlabs_voice_id);
+  if (audio.elevenlabs_model) setVal('ai-elevenlabs-model', audio.elevenlabs_model);
+
   // Trạng thái hai ô mật khẩu. Dùng hàm chung với tab Cấu Hình để hai nơi
   // không lệch nhau — trước đây chỉ ô tab Cấu Hình có gợi ý.
   _ccLastKnownHasKey.llm = _ccHasStoredKey(cfg.llm);
@@ -4140,8 +4672,9 @@ async function _doLoadAIManagerConfig() {
   _ccSecretStatus('ai-llm-key', 'ai-llm-key-hint', _ccLastKnownHasKey.llm, 'sk-...');
   _ccSecretStatus('ai-groq-key', 'ai-groq-key-hint', _ccLastKnownHasKey.groq, 'gsk_...');
 
-  // Show/hide Groq section
+  // Show/hide Groq section + ElevenLabs section
   onAIASREngineChange();
+  onAITTSEngineChange();
 
   // Populate report templates (Phase 28)
   populateReportTemplates(cfg.report_templates);
@@ -4202,6 +4735,11 @@ async function saveAIConfig() {
   const typedGroqKey = getVal('ai-groq-key');
   const groqKey = (typedGroqKey && typedGroqKey !== SECRET_MASK) ? typedGroqKey : (currentConfig?.GROQ_API_KEY || '');
   const groqUrl = getVal('ai-groq-url');
+  // ElevenLabs WebSocket Streaming settings
+  const typedElKey = getVal('ai-elevenlabs-key');
+  const elKey = (typedElKey && typedElKey !== SECRET_MASK) ? typedElKey : (currentConfig?.audio?.elevenlabs_api_key || '');
+  const elVoiceId = getVal('ai-elevenlabs-voice-id') || currentConfig?.audio?.elevenlabs_voice_id || '';
+  const elModel = getVal('ai-elevenlabs-model') || 'eleven_turbo_v2_5';
 
   if (activeTemplateKey) {
     const curEditor = document.getElementById('tpl-editor-body')?.value;
@@ -4209,6 +4747,9 @@ async function saveAIConfig() {
       currentReportTemplates[activeTemplateKey] = curEditor;
     }
   }
+
+  const typedDirectKey = getVal('ai-direct-api-key');
+  const directApiKey = (typedDirectKey && typedDirectKey !== SECRET_MASK) ? typedDirectKey : (currentConfig?.llm?.direct_api_key || 'sk-dummy');
 
   const updated = {
     ...currentConfig,
@@ -4223,6 +4764,16 @@ async function saveAIConfig() {
         : fallbackModels(modelName),
       specialist_models: (currentConfig?.llm?.specialist_models?.length)
         ? currentConfig.llm.specialist_models : fallbackModels(modelName).slice(0, 4),
+      // Phase 91: Dual-mode routing (Độc quyền 1 trong 2)
+      routing_mode:   getVal('ai-routing-mode') || 'router',
+      direct_url:     getVal('ai-direct-url') || '',
+      direct_model:   getVal('ai-direct-model') || '',
+      direct_api_key: directApiKey,
+      // Phase 94: Tri-Brain Specialized Architecture
+      tri_brain_enabled: document.getElementById('ai-switch-tribrain')?.classList.contains('is-active') || document.getElementById('ai-switch-tribrain')?.classList.contains('on') || true,
+      controller_model:  getVal('ai-tribrain-controller-model') || modelName,
+      voice_model:       getVal('ai-tribrain-voice-model') || modelName,
+      ops_model:         getVal('ai-tribrain-ops-model') || 'VN-MateAi',
     },
     persona: {
       ai_name: aiName,
@@ -4237,6 +4788,10 @@ async function saveAIConfig() {
       speech_rate: speechRateNum,
       volume: volume,
       asr_engine: asrEngine,
+      // ElevenLabs WebSocket Streaming (Mission Briefing Bước 2)
+      elevenlabs_api_key: elKey,
+      elevenlabs_voice_id: elVoiceId,
+      elevenlabs_model: elModel,
     },
     report_templates: { ...currentReportTemplates },
     // Backward compatibility keys
@@ -4284,6 +4839,31 @@ async function saveAIConfig() {
     const chainEl = document.getElementById('cfg-chain-primary');
     if (chainEl) chainEl.textContent = modelName;
 
+    // Phase 91: Đồng bộ huy hiệu & banner ở tab Cấu Hình Hệ Thống ngay lập tức
+    const modeBadge = document.getElementById('cfg-routing-mode-badge');
+    const directBanner = document.getElementById('cfg-direct-active-banner');
+    const directInfoUrl = document.getElementById('cfg-direct-info-url');
+    const directInfoModel = document.getElementById('cfg-direct-info-model');
+    const routerNote = document.getElementById('cfg-router-mode-note');
+    const rMode = updated.llm.routing_mode;
+    if (rMode === 'direct') {
+      if (modeBadge) {
+        modeBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase font-mono bg-orange-500/20 text-orange-400 border border-orange-400/40';
+        modeBadge.textContent = '⚡ CHẾ ĐỘ: DIRECT LLM';
+      }
+      if (directBanner) directBanner.classList.remove('hidden');
+      if (directInfoUrl) directInfoUrl.textContent = updated.llm.direct_url || 'Chưa thiết lập URL';
+      if (directInfoModel) directInfoModel.textContent = updated.llm.direct_model || 'Mặc định';
+      if (routerNote) routerNote.classList.remove('hidden');
+    } else {
+      if (modeBadge) {
+        modeBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase font-mono bg-cyan-500/20 text-cyan-400 border border-cyan-400/40';
+        modeBadge.textContent = '🔀 CHẾ ĐỘ: 9ROUTER GATEWAY';
+      }
+      if (directBanner) directBanner.classList.add('hidden');
+      if (routerNote) routerNote.classList.add('hidden');
+    }
+
     // Phase 81: báo ngay "đã lưu" ở từng ô mật khẩu. Không có dòng này thì
     // sau khi bấm Lưu, ô vẫn trống và không có gì cho biết khoá đã vào
     // config.json — người dùng tưởng lưu hỏng rồi dán lại.
@@ -4307,6 +4887,326 @@ async function saveAIConfig() {
 }
 
 // ── AI Manager Helpers ──────────────────────────────────────────────────────
+
+// ─── Phase 91: Bộ Chuyển Đổi Nguồn LLM (Chỉ 1 trong 2 hoạt động) ───────────
+
+/**
+ * Chuyển đổi độc quyền 1 trong 2 chế độ:
+ *  - 'router': Kết nối qua 9Router Gateway
+ *  - 'direct': Kết nối trực tiếp Engine (Ollama/LM Studio/vLLM)
+ */
+function switchLLMEngineMode(mode) {
+  if (mode !== 'direct') mode = 'router';
+
+  // 1. Lưu giá trị vào hidden input
+  const hiddenEl = document.getElementById('ai-routing-mode');
+  if (hiddenEl) hiddenEl.value = mode;
+
+  // 2. Elements
+  const tabRouter = document.getElementById('ai-mode-tab-router');
+  const tabDirect = document.getElementById('ai-mode-tab-direct');
+  const badgeRouter = document.getElementById('badge-tab-router');
+  const badgeDirect = document.getElementById('badge-tab-direct');
+  const panelRouter = document.getElementById('panel-llm-router');
+  const panelDirect = document.getElementById('panel-llm-direct');
+  const statusText = document.getElementById('ai-mode-status-text');
+
+  if (mode === 'direct') {
+    // Direct LLM: BẬT
+    if (tabDirect) {
+      tabDirect.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-orange-400 ring-2 ring-orange-400/30 bg-orange-500/10 shadow-sm opacity-100';
+    }
+    if (badgeDirect) {
+      badgeDirect.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-orange-500/20 text-orange-300 border border-orange-400/40';
+      badgeDirect.textContent = '● ĐANG BẬT';
+    }
+    // 9Router: TẮT
+    if (tabRouter) {
+      tabRouter.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100 bg-slate-50 dark:bg-white/[0.02]';
+    }
+    if (badgeRouter) {
+      badgeRouter.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/60 dark:bg-white/5 text-slate-400 border border-transparent';
+      badgeRouter.textContent = 'TẮT';
+    }
+
+    if (panelDirect) panelDirect.classList.remove('hidden');
+    if (panelRouter) panelRouter.classList.add('hidden');
+
+    if (statusText) {
+      statusText.className = 'text-[10px] text-orange-400 font-mono font-semibold flex items-center gap-1';
+      statusText.innerHTML = '<span class="inline-block w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse"></span> Đang dùng: Direct LLM (Bypass Proxy)';
+    }
+  } else {
+    // 9Router: BẬT
+    if (tabRouter) {
+      tabRouter.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-cyan-400 ring-2 ring-cyan-400/30 bg-cyan-500/10 shadow-sm opacity-100';
+    }
+    if (badgeRouter) {
+      badgeRouter.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40';
+      badgeRouter.textContent = '● ĐANG BẬT';
+    }
+    // Direct LLM: TẮT
+    if (tabDirect) {
+      tabDirect.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100 bg-slate-50 dark:bg-white/[0.02]';
+    }
+    if (badgeDirect) {
+      badgeDirect.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/60 dark:bg-white/5 text-slate-400 border border-transparent';
+      badgeDirect.textContent = 'TẮT';
+    }
+
+    if (panelRouter) panelRouter.classList.remove('hidden');
+    if (panelDirect) panelDirect.classList.add('hidden');
+
+    if (statusText) {
+      statusText.className = 'text-[10px] text-cyan-400 font-mono font-semibold flex items-center gap-1';
+      statusText.innerHTML = '<span class="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span> Đang dùng: 9Router Gateway';
+    }
+  }
+}
+
+// Alias tương thích ngược
+const selectRoutingMode = switchLLMEngineMode;
+
+const DIRECT_PROVIDERS = {
+  deepseek: {
+    name: 'DeepSeek',
+    url: 'https://api.deepseek.com',
+    model: 'deepseek-chat',
+    placeholder: 'sk-... (Token từ platform.deepseek.com)',
+    guideLink: 'https://platform.deepseek.com/api_keys',
+    guideText: 'Lấy Token tại DeepSeek',
+    hint: 'Chỉ cần dán Token DeepSeek. Hệ thống sẽ kết nối thẳng https://api.deepseek.com',
+  },
+  groq: {
+    name: 'Groq Cloud',
+    url: 'https://api.groq.com/openai/v1',
+    model: 'llama-3.3-70b-versatile',
+    placeholder: 'gsk_... (Token từ console.groq.com)',
+    guideLink: 'https://console.groq.com/keys',
+    guideText: 'Lấy Token tại Groq Console',
+    hint: 'Groq Cloud phản hồi cực nhanh ~500 tokens/giây, chỉ cần dán Token từ Groq Console.',
+  },
+  openai: {
+    name: 'OpenAI',
+    url: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+    placeholder: 'sk-proj-... (Token từ platform.openai.com)',
+    guideLink: 'https://platform.openai.com/api-keys',
+    guideText: 'Lấy Token tại OpenAI',
+    hint: 'Dán Token OpenAI. Khuyên dùng gpt-4o-mini để phản hồi nhanh và tiết kiệm chi phí.',
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    url: 'https://openrouter.ai/api/v1',
+    model: 'deepseek/deepseek-chat',
+    placeholder: 'sk-or-v1-... (Token từ openrouter.ai)',
+    guideLink: 'https://openrouter.ai/keys',
+    guideText: 'Lấy Token tại OpenRouter',
+    hint: 'OpenRouter tổng hợp mọi mô hình. Dán Token lấy từ openrouter.ai/keys.',
+  },
+  ollama: {
+    name: 'Ollama (Máy)',
+    url: 'http://localhost:11434/v1',
+    model: 'llama3.2',
+    placeholder: 'ollama (không cần token, để trống)',
+    guideLink: 'https://ollama.com',
+    guideText: 'Trang chủ Ollama',
+    hint: 'Chạy trực tiếp mô hình trên máy qua Ollama local server, không tốn chi phí token.',
+    defaultKey: 'ollama',
+  },
+  lmstudio: {
+    name: 'LM Studio',
+    url: 'http://localhost:1234/v1',
+    model: 'local-model',
+    placeholder: 'lm-studio (không cần token, để trống)',
+    guideLink: 'https://lmstudio.ai',
+    guideText: 'Trang chủ LM Studio',
+    hint: 'Chạy trực tiếp mô hình trên máy qua LM Studio local server, không tốn chi phí token.',
+    defaultKey: 'lm-studio',
+  },
+};
+
+/** Chọn nhà cung cấp AI khi dùng chế độ Kết Nối Trực Tiếp */
+function selectDirectProvider(provId) {
+  const p = DIRECT_PROVIDERS[provId];
+  if (!p) return;
+
+  const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+
+  // 1. Cập nhật URL & Model tự động
+  setV('ai-direct-url', p.url);
+  setV('ai-direct-model', p.model);
+
+  // 2. Cập nhật Placeholder & Gợi ý Token
+  const keyInput = document.getElementById('ai-direct-api-key');
+  if (keyInput) {
+    keyInput.placeholder = p.placeholder;
+    if (p.defaultKey && !keyInput.value.trim()) {
+      keyInput.value = p.defaultKey;
+    }
+  }
+
+  // 3. Link lấy Token & Badge
+  const guideLink = document.getElementById('direct-token-guide-link');
+  if (guideLink) {
+    guideLink.href = p.guideLink;
+    guideLink.innerHTML = `<span>${p.guideText}</span> <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+  }
+  const badge = document.getElementById('direct-provider-badge');
+  if (badge) badge.textContent = p.name;
+
+  const hint = document.getElementById('direct-key-hint');
+  if (hint) hint.textContent = p.hint;
+
+  // 4. Highlight nút provider được chọn
+  Object.keys(DIRECT_PROVIDERS).forEach(k => {
+    const btn = document.getElementById(`btn-prov-${k}`);
+    if (!btn) return;
+    if (k === provId) {
+      btn.className = 'provider-chip py-2 px-2.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center gap-1 border-orange-400/80 bg-orange-500/15 text-orange-400 font-bold shadow-sm';
+    } else {
+      btn.className = 'provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold';
+    }
+  });
+
+  showToast(`⚡ Đã chọn ${p.name}! Chỉ cần dán Token vào ô bên dưới.`, 'info');
+}
+
+/** Ẩn/Hiện Token Direct */
+function toggleAIDirectKeyVisibility() {
+  const input = document.getElementById('ai-direct-api-key');
+  const icon = document.getElementById('ai-direct-eye-icon');
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (icon) icon.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>`;
+  } else {
+    input.type = 'password';
+    if (icon) icon.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+  }
+}
+
+// Alias tương thích
+const applyDirectPreset = selectDirectProvider;
+
+/**
+ * Phase 91: Chuyển đổi độc quyền 2 chế độ ngay trên Tab Cấu Hình Hệ Thống:
+ *  - 'router': Dùng 9Router Gateway
+ *  - 'direct': Dùng Trực Tiếp Direct LLM Engine
+ */
+function switchCfgRoutingMode(mode) {
+  if (mode !== 'direct') mode = 'router';
+
+  const hiddenEl = document.getElementById('cfg-routing-mode');
+  if (hiddenEl) hiddenEl.value = mode;
+
+  const tabRouter = document.getElementById('cfg-mode-tab-router');
+  const tabDirect = document.getElementById('cfg-mode-tab-direct');
+  const badgeRouter = document.getElementById('cfg-badge-tab-router');
+  const badgeDirect = document.getElementById('cfg-badge-tab-direct');
+  const panelRouter = document.getElementById('cfg-panel-router');
+  const panelDirect = document.getElementById('cfg-panel-direct');
+  const modeBadge = document.getElementById('cfg-routing-mode-badge');
+
+  if (mode === 'direct') {
+    if (tabDirect) {
+      tabDirect.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-orange-400 ring-2 ring-orange-400/30 bg-orange-500/10 shadow-sm opacity-100';
+    }
+    if (badgeDirect) {
+      badgeDirect.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-orange-500/20 text-orange-300 border border-orange-400/40';
+      badgeDirect.textContent = '● ĐANG BẬT';
+    }
+    if (tabRouter) {
+      tabRouter.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100 bg-slate-50 dark:bg-white/[0.02]';
+    }
+    if (badgeRouter) {
+      badgeRouter.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/60 dark:bg-white/5 text-slate-400 border border-transparent';
+      badgeRouter.textContent = 'TẮT';
+    }
+    if (panelDirect) panelDirect.classList.remove('hidden');
+    if (panelRouter) panelRouter.classList.add('hidden');
+    if (modeBadge) {
+      modeBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase font-mono bg-orange-500/20 text-orange-400 border border-orange-400/40';
+      modeBadge.textContent = '⚡ CHẾ ĐỘ: DIRECT LLM';
+    }
+  } else {
+    if (tabRouter) {
+      tabRouter.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-cyan-400 ring-2 ring-cyan-400/30 bg-cyan-500/10 shadow-sm opacity-100';
+    }
+    if (badgeRouter) {
+      badgeRouter.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40';
+      badgeRouter.textContent = '● ĐANG BẬT';
+    }
+    if (tabDirect) {
+      tabDirect.className = 'cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100 bg-slate-50 dark:bg-white/[0.02]';
+    }
+    if (badgeDirect) {
+      badgeDirect.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/60 dark:bg-white/5 text-slate-400 border border-transparent';
+      badgeDirect.textContent = 'TẮT';
+    }
+    if (panelRouter) panelRouter.classList.remove('hidden');
+    if (panelDirect) panelDirect.classList.add('hidden');
+    if (modeBadge) {
+      modeBadge.className = 'px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase font-mono bg-cyan-500/20 text-cyan-400 border border-cyan-400/40';
+      modeBadge.textContent = '🔀 CHẾ ĐỘ: 9ROUTER GATEWAY';
+    }
+  }
+}
+
+/** Chọn provider trên tab Cấu Hình Hệ Thống */
+function selectCfgDirectProvider(provId) {
+  const p = DIRECT_PROVIDERS[provId];
+  if (!p) return;
+  const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+
+  setV('cfg-direct-url', p.url);
+  setV('cfg-direct-model', p.model);
+
+  const keyInput = document.getElementById('cfg-direct-key');
+  if (keyInput) {
+    keyInput.placeholder = p.placeholder;
+    if (p.defaultKey && !keyInput.value.trim()) keyInput.value = p.defaultKey;
+  }
+
+  const guideLink = document.getElementById('cfg-direct-token-guide-link');
+  if (guideLink) {
+    guideLink.href = p.guideLink;
+    guideLink.innerHTML = `<span>${p.guideText}</span> <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+  }
+  const badge = document.getElementById('cfg-direct-provider-badge');
+  if (badge) badge.textContent = p.name;
+
+  const hint = document.getElementById('cfg-direct-key-hint');
+  if (hint) hint.textContent = p.hint;
+
+  Object.keys(DIRECT_PROVIDERS).forEach(k => {
+    const btn = document.getElementById(`btn-cfg-prov-${k}`);
+    if (!btn) return;
+    if (k === provId) {
+      btn.className = 'provider-chip py-2 px-2.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center gap-1 border-orange-400/80 bg-orange-500/15 text-orange-400 font-bold shadow-sm';
+    } else {
+      btn.className = 'provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold';
+    }
+  });
+
+  showToast(`⚡ Đã chọn ${p.name}! Dán Token của bạn vào ô bên dưới.`, 'info');
+}
+
+/** Ẩn/Hiện Token Direct trên tab Config */
+function toggleCfgDirectKeyVisibility() {
+  const input = document.getElementById('cfg-direct-key');
+  const icon = document.getElementById('cfg-direct-eye-icon');
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (icon) icon.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>`;
+  } else {
+    input.type = 'password';
+    if (icon) icon.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+  }
+}
+
+// ─── End Phase 91 ───────────────────────────────────────────────────────────
 
 function toggleAISwitch(id) {
   const el = document.getElementById(id);
@@ -4336,7 +5236,15 @@ function onAIASREngineChange() {
 }
 
 function onAITTSEngineChange() {
-  // Future: switch voice list based on engine
+  const engine = document.getElementById('ai-tts-engine')?.value || 'edge-tts';
+  const elSection = document.getElementById('ai-elevenlabs-section');
+  if (elSection) {
+    if (engine === 'elevenlabs') {
+      elSection.classList.remove('hidden');
+    } else {
+      elSection.classList.add('hidden');
+    }
+  }
 }
 
 /** Sắp xếp danh sách model theo tên. Giá trị lấy từ đâu ra cũng dùng chung
@@ -4387,9 +5295,18 @@ async function loadAIProxyModels() {
 async function testAILLMConnection() {
   const btn = document.getElementById('btn-ai-test-llm');
   const statusEl = document.getElementById('ai-status-test-llm');
-  const baseUrl = document.getElementById('ai-llm-base')?.value?.trim() || 'http://localhost:20128/v1';
-  const modelName = document.getElementById('ai-llm-model')?.value?.trim() || '';
-  const apiKey = document.getElementById('ai-llm-key')?.value?.trim() || '';
+  const isDirect = (document.getElementById('ai-routing-mode')?.value === 'direct');
+
+  let baseUrl, modelName, apiKey;
+  if (isDirect) {
+    baseUrl = document.getElementById('ai-direct-url')?.value?.trim() || 'http://localhost:1234/v1';
+    modelName = document.getElementById('ai-direct-model')?.value?.trim() || document.getElementById('ai-llm-model')?.value?.trim() || '';
+    apiKey = document.getElementById('ai-direct-api-key')?.value?.trim() || 'sk-dummy';
+  } else {
+    baseUrl = document.getElementById('ai-llm-base')?.value?.trim() || 'http://localhost:20128/v1';
+    modelName = document.getElementById('ai-llm-model')?.value?.trim() || '';
+    apiKey = document.getElementById('ai-llm-key')?.value?.trim() || '';
+  }
 
   if (!btn || !statusEl) return;
 
@@ -4397,7 +5314,9 @@ async function testAILLMConnection() {
   btn.disabled = true;
   btn.innerHTML = `<svg class="animate-spin inline mr-1" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang kiểm tra...`;
   statusEl.className = 'mt-3 text-xs p-3 rounded-xl bg-slate-100 dark:bg-white/5 text-slate-500';
-  statusEl.textContent = 'Đang kết nối đến LLM router...';
+  statusEl.textContent = isDirect
+    ? 'Đang kết nối trực tiếp đến Direct LLM Engine (bỏ qua 9Router)...'
+    : 'Đang kết nối đến 9Router Gateway...';
   statusEl.classList.remove('hidden');
 
   try {
@@ -4413,28 +5332,31 @@ async function testAILLMConnection() {
         statusEl.innerHTML = `
           <div class="flex items-center gap-1.5 font-bold mb-1 text-amber-600 dark:text-amber-300 text-sm">
             <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-            ⚡ Auto-Fallback Đã Kích Hoạt Thành Công! (Độ trễ: ${data.latency_ms || 0}ms)
+            ⚡ Auto-Fallback Đã Kích Hoạt! (Độ trễ: ${data.latency_ms || 0}ms)
           </div>
           <div class="text-[11px] opacity-90 mb-1 leading-relaxed">
-            Mô hình chính <code>${data.requested_model}</code> gặp sự cố. Hệ thống đã <strong>tự động chuyển đổi dự phòng</strong> sang mô hình: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">${data.resolved_model}</strong>.
+            Mô hình chính <code>${data.requested_model}</code> gặp sự cố. Hệ thống đã tự động chuyển đổi sang: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">${data.resolved_model}</strong>.
           </div>
           ${data.reply ? `<div class="text-[11px] mt-1.5 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${data.reply}"</div>` : ''}
-          <div class="mt-2 text-[10px] text-slate-500 dark:text-slate-400">
-            👉 Khuyên dùng: Bạn có thể nhấn <button type="button" onclick="selectQuickModel('${data.resolved_model}')" class="underline text-cyan-600 dark:text-cyan-400 hover:opacity-80 font-bold">chọn ${data.resolved_model}</button> làm mô hình chính.
-          </div>
         `;
-        showToast(`⚡ Auto-Fallback: Đã chuyển sang ${data.resolved_model}!`, 'info');
+        showToast(`⚡ Chuyển đổi sang ${data.resolved_model}!`, 'info');
       } else {
+        const modeBadge = isDirect
+          ? '<span class="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[10px] font-mono font-bold">DIRECT (Bypass Proxy)</span>'
+          : '<span class="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 text-[10px] font-mono font-bold">9ROUTER GATEWAY</span>';
         statusEl.className = 'mt-3 text-xs p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300';
         statusEl.innerHTML = `
-          <div class="flex items-center gap-1.5 font-bold mb-1">
-            <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
-            Kết nối thành công! (Độ trễ: ${data.latency_ms || 0}ms)
+          <div class="flex items-center justify-between font-bold mb-1">
+            <div class="flex items-center gap-1.5">
+              <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+              Kết nối thành công! (Độ trễ: ${data.latency_ms || 0}ms)
+            </div>
+            ${modeBadge}
           </div>
-          <div class="text-[11px] opacity-80">Mô hình: <code>${data.resolved_model || modelName}</code></div>
-          ${data.reply ? `<div class="text-[11px] mt-1.5 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${data.reply}"</div>` : ''}
+          <div class="text-[11px] opacity-80 mt-1">Endpoint: <code>${baseUrl}</code> | Mô hình: <code>${data.resolved_model || modelName || 'mặc định'}</code></div>
+          ${data.reply ? `<div class="text-[11px] mt-2 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${data.reply}"</div>` : ''}
         `;
-        showToast('⚡ Kết nối LLM thành công!', 'success');
+        showToast(isDirect ? '⚡ Kết nối Direct LLM siêu tốc thành công!' : '⚡ Kết nối 9Router Gateway thành công!', 'success');
       }
     } else {
       let errMsg = data.error || data.message || 'Mô hình không phản hồi';
@@ -4593,6 +5515,13 @@ async function previewAITTS() {
     btn.innerHTML = `<svg class="animate-spin inline mr-1" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Đang tạo...`;
   }
   if (statusTag) statusTag.classList.remove('hidden');
+
+  // Dừng tất cả audio đang phát để tránh nhiều giọng phát cùng lúc
+  if (_currentAudioStreamQueue) _currentAudioStreamQueue.stop();
+  ['audio-player', 'studio-audio-player'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.paused) { el.pause(); el.currentTime = 0; }
+  });
 
   try {
     const res = await apiFetch(`${API_BASE}/api/v1/tts`, {
@@ -5140,19 +6069,32 @@ async function loadProxyModels() {
 async function testLLMConnection() {
   const btn = document.getElementById('btn-test-llm');
   const statusEl = document.getElementById('status-test-llm');
+  const currentMode = document.getElementById('cfg-routing-mode')?.value || 'router';
+  const isDirect = currentMode === 'direct';
 
-  const baseInput = document.getElementById('cfg-llm-base');
-  const modelInput = document.getElementById('cfg-llm-model');
-  const keyInput = document.getElementById('cfg-llm-key');
+  let baseUrl = '';
+  let modelName = '';
+  let apiKey = '';
 
-  const baseUrl = (baseInput ? baseInput.value.trim() : '') || 'http://localhost:20128/v1';
-  const modelName = (modelInput ? modelInput.value.trim() : '') || '';
-  // Phase 73: không dùng khoá giả "sk-dummy" để thử. Nếu ô trống thì dùng khoá
-  // đang lưu; nếu cả hai đều không có thì nói thẳng, đừng báo kiểm tra xong
-  // với một khoá bịa ra.
-  const typedKey = keyInput ? keyInput.value.trim() : '';
-  const storedKey = currentConfig?.llm?.api_key || currentConfig?.routing?.primary?.api_key || '';
-  const apiKey = typedKey || storedKey;
+  if (isDirect) {
+    const directUrlInput = document.getElementById('cfg-direct-url');
+    const directModelInput = document.getElementById('cfg-direct-model');
+    const directKeyInput = document.getElementById('cfg-direct-key');
+    baseUrl = (directUrlInput ? directUrlInput.value.trim() : '') || 'https://api.deepseek.com/v1';
+    modelName = (directModelInput ? directModelInput.value.trim() : '') || 'deepseek-chat';
+    const typedKey = directKeyInput ? directKeyInput.value.trim() : '';
+    const storedKey = currentConfig?.llm?.direct_api_key || '';
+    apiKey = typedKey || storedKey;
+  } else {
+    const baseInput = document.getElementById('cfg-llm-base');
+    const modelInput = document.getElementById('cfg-llm-model');
+    const keyInput = document.getElementById('cfg-llm-key');
+    baseUrl = (baseInput ? baseInput.value.trim() : '') || 'http://localhost:20128/v1';
+    modelName = (modelInput ? modelInput.value.trim() : '') || '';
+    const typedKey = keyInput ? keyInput.value.trim() : '';
+    const storedKey = currentConfig?.llm?.api_key || currentConfig?.routing?.primary?.api_key || '';
+    apiKey = typedKey || storedKey;
+  }
 
   if (!modelName) {
     showToast('Vui lòng nhập tên mô hình trước khi kiểm tra.', 'warning');

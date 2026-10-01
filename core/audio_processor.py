@@ -51,7 +51,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _DEFAULT_TTS_VOICE: str = "vi-VN-HoaiMyNeural"   # Microsoft Neural TTS — Vietnamese female
-_DEFAULT_TTS_RATE: str = "+15%"                  # Brisk, natural pace (prevents dragging)
+_DEFAULT_TTS_RATE: str = "+50%"                  # Fast, crisp, consistent pace across all modules
 _EDGE_TTS_TIMEOUT: float = 3.5                   # Max seconds to wait for edge-tts
 
 # In-Memory Fast LRU Cache for TTS audio bytes (Zero-Disk-I/O, 0ms latency for repeated speech)
@@ -541,24 +541,23 @@ class AudioEngine:
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = fname
 
-        async with httpx.AsyncClient(
-            base_url=groq_url,
+        from core.connection_pool import get_stt_http_client
+        client = await get_stt_http_client()
+        endpoint_url = groq_url.rstrip("/") + "/audio/transcriptions"
+        response = await client.post(
+            endpoint_url,
             headers={"Authorization": f"Bearer {groq_key}"},
-            timeout=30.0,
-        ) as client:
-            response = await client.post(
-                "/audio/transcriptions",
-                files={"file": (fname, audio_file, mime)},
-                data={
-                    "model": _GROQ_WHISPER_MODEL,
-                    "language": "vi",
-                    "response_format": "text",
-                },
-            )
-            response.raise_for_status()
-            text = response.text.strip()
-            logger.info("Groq ASR result: '%s'", text[:100])
-            return text
+            files={"file": (fname, audio_file, mime)},
+            data={
+                "model": _GROQ_WHISPER_MODEL,
+                "language": "vi",
+                "response_format": "text",
+            },
+        )
+        response.raise_for_status()
+        text = response.text.strip()
+        logger.info("Groq ASR result: '%s'", text[:100])
+        return text
 
     async def _transcribe_google(self, audio_bytes: bytes) -> str:
         """
@@ -768,11 +767,12 @@ class AudioEngine:
                 "model": model_id,
                 "input": text,
             }
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(f"{base_url}/audio/speech", headers=headers, json=payload)
-                if resp.status_code == 200 and len(resp.content) > 100:
-                    return resp.content
-                logger.warning("9Router TTS error status %d: %s", resp.status_code, resp.text[:120])
+            from core.connection_pool import get_tts_http_client
+            client = await get_tts_http_client()
+            resp = await client.post(f"{base_url}/audio/speech", headers=headers, json=payload)
+            if resp.status_code == 200 and len(resp.content) > 100:
+                return resp.content
+            logger.warning("9Router TTS error status %d: %s", resp.status_code, resp.text[:120])
         except Exception as exc:
             logger.warning("9Router TTS exception: %s", exc)
         return b""

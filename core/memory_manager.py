@@ -55,6 +55,19 @@ class MemoryManager:
             history = CHAT_HISTORY.get(session_id, [])
             return [dict(msg) for msg in history[-limit:]]
 
+    def get_voice_history(
+        self,
+        session_id: str = "default",
+        max_turns: int = 4,
+        max_total_chars: int = 1200,
+    ) -> List[Dict[str, str]]:
+        """
+        Phase 9: Lấy lịch sử hội thoại đã được cắt tỉa và nén tối ưu cho giọng nói Realtime.
+        """
+        raw_history = self.get_history(session_id, max_messages=max_turns * 3)
+        from core.history_pruner import prune_history_for_voice
+        return prune_history_for_voice(raw_history, max_turns=max_turns, max_total_chars=max_total_chars)
+
     def add_message(
         self,
         session_id: str,

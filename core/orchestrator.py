@@ -175,6 +175,8 @@ class Orchestrator:
 
         try:
             logger.info("Orchestrator: Gửi lệnh '%s' tới máy trạm [%s] (Task ID: %s)", skill_name, client_id, task_id)
+            # Bước 4: Phát âm thanh đệm xác nhận (< 100ms) từ RAM cache khi kích hoạt Tool/Skill
+            asyncio.create_task(self._broadcast_skill_acoustic_ack(skill_name))
             await ws.send_text(json.dumps(payload, ensure_ascii=False))
 
             # Await worker reply with timeout
@@ -207,6 +209,21 @@ class Orchestrator:
             }
         finally:
             self._pending_tasks.pop(task_id, None)
+
+    async def _broadcast_skill_acoustic_ack(self, skill_name: str = "") -> None:
+        """
+        Bước 4: Bắn âm thanh đệm xác nhận (< 100ms) từ RAM cache khi kích hoạt Tool/Skill
+        để người dùng không có cảm giác bị 'im lặng chết'.
+        """
+        try:
+            from core.audio.streaming_tts_pipeline import get_acoustic_ack_audio
+            ack_audio = await get_acoustic_ack_audio()
+            if ack_audio:
+                from core.server import broadcast_hud_binary
+                await broadcast_hud_binary(ack_audio)
+                logger.info("[Orchestrator] Bắn âm thanh đệm ACK (<100ms) khi kích hoạt skill '%s'", skill_name)
+        except Exception as exc:
+            logger.debug("[Orchestrator] Acoustic ACK broadcast error: %s", exc)
 
     async def deploy_skill_to_client(
         self,

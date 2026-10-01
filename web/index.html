@@ -512,6 +512,19 @@
       transform: translateX(20px);
     }
 
+    /* ─── Phase 91: Routing Mode Cards ──────────────────────────── */
+    .routing-mode-card {
+      transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+      user-select: none;
+    }
+    .routing-mode-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+    }
+    .routing-mode-card:active {
+      transform: translateY(0);
+    }
+
     /* ─── Form Inputs ───────────────────────────────────────────── */
     .input-dark {
       width: 100%;
@@ -3147,106 +3160,379 @@
 
             <!-- Fields -->
             <div class="space-y-4 text-xs">
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Base URL -->
-                <div class="space-y-1.5">
-                  <label
-                    class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
-                    <span class="flex items-center gap-1.5">
-                      ĐỊA CHỈ KẾT NỐI (BASE URL)
-                      <span class="ai-tooltip-trigger"
-                        data-tip="Chuyển toàn bộ luồng xử lý AI sang server đích tương thích OpenAI API.">
-                        <svg class="text-amber-400" width="12" height="12" fill="none" stroke="currentColor"
-                          stroke-width="2" viewBox="0 0 24 24">
-                          <circle cx="12" cy="12" r="10" />
-                          <line x1="12" y1="16" x2="12" y2="12" />
-                          <line x1="12" y1="8" x2="12.01" y2="8" />
-                        </svg>
-                      </span>
-                    </span>
-                    <span class="text-[9px] text-cyan-500 font-mono">OpenAI Compatible</span>
+              <!-- Phase 91: Bộ Chuyển Đổi Nguồn LLM (Chỉ 1 trong 2 hoạt động) -->
+              <input type="hidden" id="ai-routing-mode" value="router" />
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px] uppercase tracking-wide flex items-center gap-1.5">
+                    <span>CHẾ ĐỘ KẾT NỐI BỘ NÃO AI</span>
+                    <span class="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-violet-500/10 text-violet-400 border border-violet-500/20">CHỌN 1 TRONG 2</span>
                   </label>
-                  <input type="text" id="ai-llm-base"
-                    class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
-                    placeholder="http://localhost:20128/v1" />
+                  <span id="ai-mode-status-text" class="text-[10px] text-cyan-400 font-mono font-semibold flex items-center gap-1">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                    Đang dùng: 9Router Gateway
+                  </span>
                 </div>
 
-                <!-- API Key -->
+                <!-- 2 Lựa chọn Độc Quyền (Exclusive Toggle) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="ai-routing-selector-group">
+                  <!-- LỰA CHỌN 1: 9ROUTER GATEWAY -->
+                  <div id="ai-mode-tab-router" onclick="switchLLMEngineMode('router')"
+                    class="cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between
+                      border-cyan-400 ring-2 ring-cyan-400/30 bg-cyan-500/10 shadow-sm">
+                    <div class="flex items-center gap-3">
+                      <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 shrink-0">
+                        🔀
+                      </div>
+                      <div>
+                        <div class="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                          9Router Gateway
+                        </div>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                          Định tuyến proxy • Quản lý nhiều model
+                        </p>
+                      </div>
+                    </div>
+                    <span id="badge-tab-router"
+                      class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">
+                      ● ĐANG BẬT
+                    </span>
+                  </div>
+
+                  <!-- LỰA CHỌN 2: DIRECT LLM ENGINE -->
+                  <div id="ai-mode-tab-direct" onclick="switchLLMEngineMode('direct')"
+                    class="cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between
+                      border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100 bg-slate-50 dark:bg-white/[0.02]">
+                    <div class="flex items-center gap-3">
+                      <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg bg-orange-500/20 text-orange-300 border border-orange-400/30 shrink-0">
+                        ⚡
+                      </div>
+                      <div>
+                        <div class="font-bold text-slate-900 dark:text-white text-xs flex items-center gap-1.5">
+                          Kết Nối Trực Tiếp (Direct)
+                        </div>
+                        <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                          Bypass 9Router • Tối đa tốc độ (−300ms)
+                        </p>
+                      </div>
+                    </div>
+                    <span id="badge-tab-direct"
+                      class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/60 dark:bg-white/5 text-slate-400 border border-transparent">
+                      TẮT
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ================================================================= -->
+              <!-- PANEL 1: CẤU HÌNH 9ROUTER GATEWAY (Hiện khi chọn 9Router)         -->
+              <!-- ================================================================= -->
+              <div id="panel-llm-router" class="space-y-4 pt-1">
+                <div class="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/20 flex items-start gap-2.5">
+                  <svg width="14" height="14" class="shrink-0 mt-0.5 text-cyan-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                  </svg>
+                  <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                    <b class="text-cyan-400">Chế độ 9Router Gateway</b>: VN-MateAI kết nối qua máy chủ proxy 9Router. Phù hợp khi cần điều phối đa mô hình linh hoạt và tự động chuyển đổi dự phòng.
+                  </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <!-- Base URL -->
+                  <div class="space-y-1.5">
+                    <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                      <span class="flex items-center gap-1.5">
+                        ĐỊA CHỈ 9ROUTER (BASE URL)
+                        <span class="ai-tooltip-trigger" data-tip="Địa chỉ máy chủ 9router tương thích OpenAI API.">
+                          <svg class="text-amber-400" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" />
+                          </svg>
+                        </span>
+                      </span>
+                      <span class="text-[9px] text-cyan-500 font-mono">Gateway Endpoint</span>
+                    </label>
+                    <input type="text" id="ai-llm-base"
+                      class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
+                      placeholder="http://localhost:20128/v1" />
+                  </div>
+
+                  <!-- API Key -->
+                  <div class="space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">MÃ BẢO MẬT (API KEY)</label>
+                      <span id="ai-llm-key-badge"
+                        class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU KHOÁ</span>
+                    </div>
+                    <div class="relative">
+                      <input type="password" id="ai-llm-key" class="input-dark font-mono text-xs w-full pr-8"
+                        placeholder="sk-..." />
+                      <button type="button" onclick="toggleAIKeyVisibility()"
+                        class="absolute right-2 top-2 text-slate-400 hover:text-white transition" title="Ẩn/Hiện khóa">
+                        <svg id="ai-eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p id="ai-llm-key-hint" class="text-[10px] italic"></p>
+                  </div>
+                </div>
+
+                <!-- Model Name with Selector & Chips -->
+                <div class="space-y-1.5 pt-1">
+                  <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                    <span>TÊN MÔ HÌNH CHÍNH (MODEL NAME)</span>
+                    <button type="button" onclick="loadAIProxyModels()"
+                      class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 font-semibold">
+                      <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                      </svg>
+                      Tải từ 9router
+                    </button>
+                  </label>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <input type="text" id="ai-llm-model" list="ai-models-list"
+                      class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
+                      placeholder="VD: ag/claude-opus-4-6-thinking" />
+                    <div id="ai-proxy-model-picker-wrap" class="hidden">
+                      <select id="ai-proxy-model-select"
+                        onchange="document.getElementById('ai-llm-model').value = this.value; if(typeof onModelChanged === 'function') onModelChanged();"
+                        class="input-dark text-[11px] font-mono w-full">
+                        <option value="">-- Chọn mô hình từ 9router --</option>
+                      </select>
+                    </div>
+                  </div>
+                  <datalist id="ai-models-list"></datalist>
+
+                  <!-- Quick Model Selector Chips -->
+                  <div class="pt-1.5 flex items-center gap-2">
+                    <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider shrink-0">Gợi ý nhanh:</span>
+                    <div id="ai-quick-models" class="flex flex-wrap gap-1.5">
+                      <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ================================================================= -->
+              <!-- PANEL 2: CẤU HÌNH KẾT NỐI TRỰC TIẾP (Hiện khi chọn Direct)        -->
+              <!-- ================================================================= -->
+              <!-- ================================================================= -->
+              <!-- PANEL 2: CẤU HÌNH KẾT NỐI TRỰC TIẾP (Chỉ cần dán Token)           -->
+              <!-- ================================================================= -->
+              <div id="panel-llm-direct" class="space-y-4 pt-1 hidden">
+                <div class="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-start gap-2.5">
+                  <div class="text-orange-400 text-base leading-none mt-0.5">⚡</div>
+                  <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                    <b class="text-orange-400">Kết Nối Trực Tiếp</b>: Chỉ cần chọn Nhà Cung Cấp và <b>dán Token (API Key)</b> của bạn vào là xong. Hệ thống sẽ tự động cấu hình URL và mô hình tối ưu nhất, bỏ qua máy chủ trung gian để đạt tốc độ phản hồi tối đa!
+                  </p>
+                </div>
+
+                <!-- 1. Chọn Nhà Cung Cấp Phổ Biến (1-Click Provider) -->
+                <div class="space-y-1.5">
+                  <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px] uppercase tracking-wide flex items-center justify-between">
+                    <span>1. CHỌN NHÀ CUNG CẤP AI</span>
+                    <span id="direct-provider-badge" class="text-[10px] font-mono text-orange-400 font-bold">DeepSeek</span>
+                  </label>
+                  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2" id="direct-provider-selector">
+                    <!-- DeepSeek -->
+                    <button type="button" onclick="selectDirectProvider('deepseek')" id="btn-prov-deepseek"
+                      class="provider-chip py-2 px-2.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center gap-1
+                        border-orange-400/80 bg-orange-500/15 text-orange-400 font-bold shadow-sm">
+                      <span class="text-base">🚀</span>
+                      <span class="text-[11px] leading-tight">DeepSeek</span>
+                    </button>
+                    <!-- Groq -->
+                    <button type="button" onclick="selectDirectProvider('groq')" id="btn-prov-groq"
+                      class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                      <span class="text-base">⚡</span>
+                      <span class="text-[11px] leading-tight">Groq Cloud</span>
+                    </button>
+                    <!-- OpenAI -->
+                    <button type="button" onclick="selectDirectProvider('openai')" id="btn-prov-openai"
+                      class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                      <span class="text-base">🟢</span>
+                      <span class="text-[11px] leading-tight">OpenAI</span>
+                    </button>
+                    <!-- OpenRouter -->
+                    <button type="button" onclick="selectDirectProvider('openrouter')" id="btn-prov-openrouter"
+                      class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                      <span class="text-base">🌐</span>
+                      <span class="text-[11px] leading-tight">OpenRouter</span>
+                    </button>
+                    <!-- Ollama -->
+                    <button type="button" onclick="selectDirectProvider('ollama')" id="btn-prov-ollama"
+                      class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                      <span class="text-base">🦙</span>
+                      <span class="text-[11px] leading-tight">Ollama (Máy)</span>
+                    </button>
+                    <!-- LM Studio -->
+                    <button type="button" onclick="selectDirectProvider('lmstudio')" id="btn-prov-lmstudio"
+                      class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                      <span class="text-base">🏢</span>
+                      <span class="text-[11px] leading-tight">LM Studio</span>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 2. Nhập Token / API Key (TRỌNG TÂM NHẤT) -->
                 <div class="space-y-1.5">
                   <div class="flex items-center justify-between">
-                    <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">MÃ BẢO MẬT (API
-                      KEY)</label>
-                    <span id="ai-llm-key-badge"
-                      class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">●
-                      ĐÃ LƯU KHOÁ</span>
+                    <label class="font-bold text-slate-800 dark:text-slate-100 text-[11px] uppercase flex items-center gap-1.5">
+                      <span>2. TOKEN / MÃ BẢO MẬT (API KEY)</span>
+                      <span class="text-amber-500 font-bold">*</span>
+                    </label>
+                    <a id="direct-token-guide-link" href="https://platform.deepseek.com/api_keys" target="_blank"
+                      class="text-[11px] text-cyan-500 hover:text-cyan-400 underline flex items-center gap-1 font-semibold">
+                      <span>Lấy Token tại DeepSeek</span>
+                      <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    </a>
                   </div>
                   <div class="relative">
-                    <input type="password" id="ai-llm-key" class="input-dark font-mono text-xs w-full pr-8"
+                    <input type="password" id="ai-direct-api-key"
+                      class="input-dark font-mono text-xs w-full pr-8 border-orange-500/40 focus:border-orange-400"
                       placeholder="sk-..." />
-                    <button type="button" onclick="toggleAIKeyVisibility()"
+                    <button type="button" onclick="toggleAIDirectKeyVisibility()"
                       class="absolute right-2 top-2 text-slate-400 hover:text-white transition" title="Ẩn/Hiện khóa">
-                      <svg id="ai-eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
-                        viewBox="0 0 24 24">
+                      <svg id="ai-direct-eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                         <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                         <circle cx="12" cy="12" r="3" />
                       </svg>
                     </button>
                   </div>
-                  <p id="ai-llm-key-hint" class="text-[10px] italic"></p>
+                  <p id="direct-key-hint" class="text-[10px] text-slate-400 italic">Dán mã API Key bạn đã sao chép từ nhà cung cấp vào đây.</p>
                 </div>
-              </div>
 
-              <!-- Model Name with Selector & Chips -->
-              <div class="space-y-1.5 pt-1">
-                <label
-                  class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
-                  <span>TÊN MÔ HÌNH CHÍNH (MODEL NAME)</span>
-                  <button type="button" onclick="loadAIProxyModels()"
-                    class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1 font-semibold">
-                    <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-                    </svg>
-                    Tải từ 9router
-                  </button>
-                </label>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-                  <input type="text" id="ai-llm-model" list="ai-models-list"
-                    class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
-                    placeholder="VD: ag/claude-opus-4-6-thinking" />
-                  <div id="ai-proxy-model-picker-wrap" class="hidden">
-                    <select id="ai-proxy-model-select"
-                      onchange="document.getElementById('ai-llm-model').value = this.value; if(typeof onModelChanged === 'function') onModelChanged();"
-                      class="input-dark text-[11px] font-mono w-full">
-                      <option value="">-- Chọn mô hình từ 9router --</option>
-                    </select>
+                <!-- 3. Tên Mô Hình & Tùy Chỉnh Nâng Cao -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <!-- Direct Model -->
+                  <div class="space-y-1.5">
+                    <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                      <span>3. TÊN MÔ HÌNH (MODEL NAME)</span>
+                      <span class="text-[9px] text-emerald-400 font-mono">Tự động gợi ý</span>
+                    </label>
+                    <input type="text" id="ai-direct-model" list="direct-models-datalist"
+                      class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
+                      placeholder="deepseek-chat" />
+                    <datalist id="direct-models-datalist">
+                      <option value="deepseek-chat">DeepSeek Chat (V3)</option>
+                      <option value="deepseek-reasoner">DeepSeek Reasoner (R1)</option>
+                      <option value="llama-3.3-70b-versatile">Groq Llama 3.3 70B</option>
+                      <option value="gpt-4o">OpenAI GPT-4o</option>
+                      <option value="gpt-4o-mini">OpenAI GPT-4o Mini</option>
+                    </datalist>
                   </div>
-                </div>
-                <!-- Datalist -->
-                <datalist id="ai-models-list"></datalist>
 
-                <!-- Quick Model Selector Chips -->
-                <div class="pt-1.5 flex items-center gap-2">
-                  <span class="text-[10px] text-slate-500 font-semibold uppercase tracking-wider shrink-0">Gợi ý
-                    nhanh:</span>
-                  <div id="ai-quick-models" class="flex flex-wrap gap-1.5">
-                    <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
+                  <!-- Direct Base URL (Tự động điền) -->
+                  <div class="space-y-1.5">
+                    <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                      <span>ĐỊA CHỈ KẾT NỐI (BASE URL)</span>
+                      <span class="text-[9px] text-slate-400 font-mono">Tự động điền</span>
+                    </label>
+                    <input type="text" id="ai-direct-url"
+                      class="input-dark font-mono text-slate-400 text-xs w-full"
+                      value="https://api.deepseek.com"
+                      placeholder="https://api.deepseek.com" />
                   </div>
                 </div>
               </div>
 
-              <!-- Streaming Switch -->
-              <div
-                class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 flex items-center justify-between gap-3">
+              <!-- Phase 94: Kiến Trúc 3 Bộ Não Chuyên Biệt (Tri-Brain Specialized Architecture) -->
+              <div class="space-y-3 p-4 rounded-2xl bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-cyan-500/5 border border-indigo-500/20">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-500/20 to-purple-500/20 border border-indigo-400/30 flex items-center justify-center text-sm shadow-sm">
+                      🧠
+                    </div>
+                    <div>
+                      <div class="font-bold text-slate-800 dark:text-white text-xs flex items-center gap-2">
+                        <span>Kiến Trúc 3 Bộ Não Chuyên Biệt</span>
+                        <span class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">TRI-BRAIN ENGINE</span>
+                      </div>
+                      <p class="text-[10px] text-slate-500 dark:text-slate-400">Tách biệt hoàn toàn: Kiểm soát điều phối • Giao tiếp giọng nói • Thực thi vận hành kỹ năng</p>
+                    </div>
+                  </div>
+                  <div class="switch-track is-active" id="ai-switch-tribrain" onclick="toggleAISwitch('ai-switch-tribrain');">
+                    <div class="switch-knob"></div>
+                  </div>
+                </div>
+
+                <!-- 3 Bộ Não Cards -->
+                <div id="ai-tribrain-cards-container" class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                  <!-- NÃO 1: KIỂM SOÁT -->
+                  <div class="p-3 rounded-xl bg-white/40 dark:bg-slate-900/40 border border-indigo-500/20 space-y-2">
+                    <div class="flex items-center justify-between">
+                      <span class="font-bold text-[11px] text-indigo-500 dark:text-indigo-400 flex items-center gap-1.5">
+                        <span>👑</span>
+                        <span>1. NÃO KIỂM SOÁT</span>
+                      </span>
+                      <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">ROUTER</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">Phân loại ý định, điều phối luồng và kiểm soát Zero-Trust.</p>
+                    <div class="space-y-1">
+                      <select id="ai-tribrain-controller-select" onchange="onTriBrainSelectChange('controller', this.value)"
+                        class="input-dark text-[11px] font-mono w-full cursor-pointer bg-slate-100 dark:bg-slate-800">
+                        <option value="">-- Chọn mô hình từ danh sách --</option>
+                      </select>
+                      <input type="text" id="ai-tribrain-controller-model" list="ai-models-list"
+                        class="input-dark font-mono text-[11px] text-indigo-600 dark:text-indigo-300 w-full"
+                        placeholder="ag/gemini-3.6-flash-high" />
+                    </div>
+                  </div>
+
+                  <!-- NÃO 2: GIAO TIẾP & THOẠI -->
+                  <div class="p-3 rounded-xl bg-white/40 dark:bg-slate-900/40 border border-cyan-500/20 space-y-2">
+                    <div class="flex items-center justify-between">
+                      <span class="font-bold text-[11px] text-cyan-500 dark:text-cyan-400 flex items-center gap-1.5">
+                        <span>🎙️</span>
+                        <span>2. NÃO GIAO TIẾP</span>
+                      </span>
+                      <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">&lt; 300MS</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">Giao tiếp tự nhiên, không tải 79 tools, phát tiếng tức thì.</p>
+                    <div class="space-y-1">
+                      <select id="ai-tribrain-voice-select" onchange="onTriBrainSelectChange('voice', this.value)"
+                        class="input-dark text-[11px] font-mono w-full cursor-pointer bg-slate-100 dark:bg-slate-800">
+                        <option value="">-- Chọn mô hình từ danh sách --</option>
+                      </select>
+                      <input type="text" id="ai-tribrain-voice-model" list="ai-models-list"
+                        class="input-dark font-mono text-[11px] text-cyan-600 dark:text-cyan-300 w-full"
+                        placeholder="ag/gemini-3.6-flash-high" />
+                    </div>
+                  </div>
+
+                  <!-- NÃO 3: VẬN HÀNH KỸ NĂNG -->
+                  <div class="p-3 rounded-xl bg-white/40 dark:bg-slate-900/40 border border-amber-500/20 space-y-2">
+                    <div class="flex items-center justify-between">
+                      <span class="font-bold text-[11px] text-amber-500 dark:text-amber-400 flex items-center gap-1.5">
+                        <span>⚙️</span>
+                        <span>3. NÃO VẬN HÀNH</span>
+                      </span>
+                      <span class="text-[8px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">79 SKILLS</span>
+                    </div>
+                    <p class="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">Thực thi kỹ năng hệ thống, RPA, quét mạng, file, ERP.</p>
+                    <div class="space-y-1">
+                      <select id="ai-tribrain-ops-select" onchange="onTriBrainSelectChange('ops', this.value)"
+                        class="input-dark text-[11px] font-mono w-full cursor-pointer bg-slate-100 dark:bg-slate-800">
+                        <option value="">-- Chọn mô hình từ danh sách --</option>
+                      </select>
+                      <input type="text" id="ai-tribrain-ops-model" list="ai-models-list"
+                        class="input-dark font-mono text-[11px] text-amber-600 dark:text-amber-300 w-full"
+                        placeholder="VN-MateAi" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Streaming Switch (Dùng chung cho cả 2 chế độ) -->
+              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 flex items-center justify-between gap-3">
                 <div class="flex items-center gap-2.5">
-                  <div
-                    class="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm">
+                  <div class="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm">
                     ⚡
                   </div>
                   <div>
-                    <div class="font-bold text-slate-800 dark:text-white text-xs">Chế Độ Streaming (Token By Token)
-                    </div>
-                    <p class="text-[10px] text-slate-400 mt-0.5">Phản hồi văn bản xuất hiện ngay lập tức theo thời gian
-                      thực.</p>
+                    <div class="font-bold text-slate-800 dark:text-white text-xs">Chế Độ Streaming (Token By Token)</div>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Phản hồi văn bản xuất hiện ngay lập tức theo thời gian thực.</p>
                   </div>
                 </div>
                 <div class="switch-track" id="ai-switch-streaming" onclick="toggleAISwitch('ai-switch-streaming')">
@@ -3465,8 +3751,8 @@
                     <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">GIỌNG ĐỌC AI</label>
                     <select id="ai-tts-voice" class="input-dark w-full">
                       <optgroup label="🇻🇳 Tiếng Việt — Edge TTS">
-                        <option value="vi-VN-HoaiMyNeural" selected>Hoài My (Nữ, Nam) ★</option>
-                        <option value="vi-VN-NamMinhNeural">Nam Minh (Nam, Bắc)</option>
+                        <option value="vi-VN-HoaiMyNeural" selected>Hoài My — Nữ, Giọng Hà Nội ★</option>
+                        <option value="vi-VN-NamMinhNeural">Nam Minh — Nam, Giọng Hà Nội</option>
                       </optgroup>
                       <optgroup label="🇺🇸 English — Edge TTS">
                         <option value="en-US-JennyNeural">Jenny (Female, US)</option>
@@ -3482,6 +3768,39 @@
                   class="input-dark w-full text-xs hidden" oninput="filterTTSVoices(this.value)" />
                 <p id="ai-voice-count-label" class="text-[10px] text-slate-400">Click "Tải 322 Giọng" để mở rộng kho
                   giọng đa ngôn ngữ.</p>
+
+                <!-- ElevenLabs Section (conditional) -->
+                <div id="ai-elevenlabs-section"
+                  class="space-y-2.5 p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-amber-500/20 hidden">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-amber-500 text-[11px] uppercase tracking-wider flex items-center gap-1.5">
+                      <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                      </svg>
+                      ElevenLabs WebSocket Streaming (Siêu Tốc)
+                    </span>
+                    <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30">WS REALTIME</span>
+                  </div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div class="space-y-1">
+                      <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">ELEVENLABS API KEY</label>
+                      <input type="password" id="ai-elevenlabs-key" placeholder="xi-..." class="input-dark w-full text-xs" />
+                    </div>
+                    <div class="space-y-1">
+                      <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">VOICE ID</label>
+                      <input type="text" id="ai-elevenlabs-voice-id" placeholder="21m00Tcm4TlvDq8ikWAM" class="input-dark w-full text-xs" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">MÔ HÌNH STREAMING (MODEL)</label>
+                    <select id="ai-elevenlabs-model" class="input-dark w-full text-xs">
+                      <option value="eleven_turbo_v2_5" selected>eleven_turbo_v2_5 (Độ trễ thấp, chuẩn tiếng Việt đa ngữ)</option>
+                      <option value="eleven_flash_v2">eleven_flash_v2 (Siêu tốc ~75ms)</option>
+                      <option value="eleven_multilingual_v2">eleven_multilingual_v2 (Biểu cảm cao)</option>
+                    </select>
+                  </div>
+                  <p class="text-[10px] text-slate-400">Kết nối trực tiếp WebSocket Stream: <code>wss://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream-input</code></p>
+                </div>
               </div>
 
               <!-- SLIDERS: RATE & VOLUME -->
@@ -4410,13 +4729,20 @@
             <!-- AI Response Card with Audio Waveform Visualizer -->
             <div id="voice-response-card"
               class="hidden p-5 rounded-2xl bg-cyan-50/60 dark:bg-cyan-950/30 border border-cyan-300 dark:border-cyan-500/30 space-y-4 shadow-lg backdrop-blur-sm transition-all duration-300">
-              <div class="flex items-center justify-between border-b border-cyan-200 dark:border-cyan-500/20 pb-2.5">
+              <div class="flex items-center justify-between border-b border-cyan-200 dark:border-cyan-500/20 pb-2.5 flex-wrap gap-2">
                 <div
                   class="text-xs font-bold text-cyan-700 dark:text-cyan-400 uppercase tracking-wide flex items-center gap-2">
                   <span class="w-2.5 h-2.5 rounded-full bg-cyan-500 animate-pulse"></span>
                   Phản hồi từ trợ lý VN-MateAI:
                 </div>
-                <span class="text-[10px] font-mono text-cyan-600 dark:text-cyan-300">EDGE-TTS HOÀI MY NEURAL</span>
+                <div class="flex items-center gap-2">
+                  <span id="voice-stream-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-600 dark:text-cyan-300 border border-cyan-500/20">⚡ STREAMING</span>
+                  <span id="voice-ttfa-badge" class="hidden text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 font-bold"></span>
+                  <button id="btn-stop-voice-stream" onclick="stopActiveVoiceStream()" title="Ngắt lời trợ lý ngay lập tức (Barge-In)" class="hidden text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-500/20 hover:bg-rose-500/30 text-rose-600 dark:text-rose-400 border border-rose-500/30 transition-all flex items-center gap-1 cursor-pointer">
+                    <svg width="8" height="8" fill="currentColor" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/></svg> DỪNG
+                  </button>
+                  <span class="text-[10px] font-mono text-cyan-600 dark:text-cyan-300">EDGE-TTS HOÀI MY NEURAL</span>
+                </div>
               </div>
 
               <!-- AI Reply Text (Markdown & Table Support) -->
@@ -4538,8 +4864,8 @@
               </label>
               <select id="studio-tts-voice" class="input-dark w-full text-xs font-mono">
                 <optgroup label="🇻🇳 Tiếng Việt (Khuyên dùng)">
-                  <option value="vi-VN-HoaiMyNeural" selected>Hoài My Neural (Nữ - Truyền cảm, tự nhiên)</option>
-                  <option value="vi-VN-NamMinhNeural">Nam Minh Neural (Nam - Trầm ấm, dõng dạc)</option>
+                  <option value="vi-VN-HoaiMyNeural" selected>Hoài My Neural (Nữ · Giọng Hà Nội) ★</option>
+                  <option value="vi-VN-NamMinhNeural">Nam Minh Neural (Nam · Giọng Hà Nội)</option>
                 </optgroup>
                 <optgroup label="🇺🇸 Tiếng Anh (English US)">
                   <option value="en-US-JennyNeural">Jenny Neural (Female - Natural)</option>
@@ -4644,7 +4970,7 @@
         <div
           class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-white/10 pb-5">
           <div>
-            <div class="flex items-center gap-2 mb-1.5">
+            <div class="flex items-center gap-2 mb-1.5 flex-wrap">
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-400/40">
                 OPENAI THIN CLIENT
@@ -4653,12 +4979,15 @@
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-400/40">
                 9ROUTER NATIVE DIRECT
               </span>
+              <!-- Phase 91: Trạng thái Routing Mode -->
+              <span id="cfg-routing-mode-badge"
+                class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase font-mono bg-cyan-500/20 text-cyan-400 border border-cyan-400/40">
+                🔀 CHẾ ĐỘ: 9ROUTER GATEWAY
+              </span>
             </div>
-            <h2 class="text-xl font-bold text-slate-800 dark:text-white tracking-tight">Cấu Hình Điểm Nối AI (9router
-              Endpoint)</h2>
+            <h2 class="text-xl font-bold text-slate-800 dark:text-white tracking-tight">Cấu Hình Nguồn AI (9Router / Direct LLM)</h2>
             <p class="text-xs text-slate-400 mt-0.5">
-              Kết nối trực tiếp toàn bộ luồng xử lý AI & RPA sang 9router hoặc proxy OpenAI-compatible. Đơn giản, siêu
-              nhẹ, không phụ thuộc router trung gian.
+              Chọn 1 trong 2 chế độ: 9Router Gateway (qua proxy) hoặc Kết Nối Trực Tiếp Direct LLM (điền Token giảm tối đa độ trễ).
             </p>
           </div>
           <button onclick="saveFullConfig()" class="btn-neon-cyan flex-shrink-0 self-start md:self-auto"
@@ -4670,72 +4999,209 @@
           </button>
         </div>
 
-        <!-- 9router Endpoint Form Card -->
-        <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-5">
-          <!-- URL Kết Nối -->
-          <div class="space-y-1.5">
-            <label
-              class="block font-semibold text-slate-700 dark:text-slate-200 text-xs flex items-center justify-between">
-              <span>ĐỊA CHỈ KẾT NỐI (BASE URL)</span>
-              <span class="text-[10px] text-cyan-500 font-mono">OpenAI Compatible</span>
-            </label>
-            <input type="text" id="cfg-llm-base"
-              class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
-              placeholder="http://localhost:20128/v1" />
+        <!-- Phase 91: Bộ Chuyển Đổi Nguồn LLM Tại Tab Config (1 Trong 2) -->
+        <input type="hidden" id="cfg-routing-mode" value="router" />
+        <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3" id="cfg-routing-selector-group">
+          <!-- LỰA CHỌN 1: 9ROUTER GATEWAY -->
+          <div id="cfg-mode-tab-router" onclick="switchCfgRoutingMode('router')"
+            class="cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between
+              border-cyan-400 ring-2 ring-cyan-400/30 bg-cyan-500/10 shadow-sm">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg bg-cyan-500/20 text-cyan-300 border border-cyan-400/30 shrink-0">
+                🔀
+              </div>
+              <div>
+                <div class="font-bold text-slate-900 dark:text-white text-xs">9Router Gateway</div>
+                <p class="text-[10px] text-slate-400 leading-tight mt-0.5">Định tuyến proxy trung gian • Quản lý nhiều model</p>
+              </div>
+            </div>
+            <span id="cfg-badge-tab-router" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">● ĐANG BẬT</span>
           </div>
 
-          <!-- Tên Mô Hình -->
+          <!-- LỰA CHỌN 2: DIRECT LLM ENGINE -->
+          <div id="cfg-mode-tab-direct" onclick="switchCfgRoutingMode('direct')"
+            class="cursor-pointer p-3.5 rounded-xl border-2 transition-all duration-200 flex items-center justify-between
+              border-slate-200 dark:border-white/10 opacity-70 hover:opacity-100 bg-slate-50 dark:bg-white/[0.02]">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl flex items-center justify-center text-lg bg-orange-500/20 text-orange-300 border border-orange-400/30 shrink-0">
+                ⚡
+              </div>
+              <div>
+                <div class="font-bold text-slate-900 dark:text-white text-xs">Kết Nối Trực Tiếp (Direct)</div>
+                <p class="text-[10px] text-slate-400 leading-tight mt-0.5">Bỏ qua proxy • Dán Token DeepSeek, Groq, OpenAI...</p>
+              </div>
+            </div>
+            <span id="cfg-badge-tab-direct" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-200/60 dark:bg-white/5 text-slate-400 border border-transparent">TẮT</span>
+          </div>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- PANEL 1: CẤU HÌNH 9ROUTER (Hiện khi chọn 9Router Gateway)        -->
+        <!-- ================================================================= -->
+        <div id="cfg-panel-router" class="mt-5 space-y-4">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            <!-- URL Kết Nối -->
+            <div class="space-y-1.5">
+              <label class="block font-semibold text-slate-700 dark:text-slate-200 text-xs flex items-center justify-between">
+                <span>ĐỊA CHỈ KẾT NỐI (BASE URL)</span>
+                <span class="text-[10px] text-cyan-500 font-mono">OpenAI Compatible</span>
+              </label>
+              <input type="text" id="cfg-llm-base"
+                class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
+                placeholder="http://localhost:20128/v1" />
+            </div>
+
+            <!-- Tên Mô Hình -->
+            <div class="space-y-1.5">
+              <label class="block font-semibold text-slate-700 dark:text-slate-200 text-xs flex items-center justify-between">
+                <span>TÊN MÔ HÌNH (MODEL NAME)</span>
+                <button type="button" onclick="loadProxyModels()" id="btn-load-proxy-models"
+                  class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1">
+                  <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                  Tải từ 9router
+                </button>
+              </label>
+              <input type="text" id="cfg-llm-model" list="models-list" oninput="onConfigModelChanged()"
+                class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
+                placeholder="VD: VN-MateAi hoặc openrouter/ling-3.0-flash-fin:free" />
+              <div id="proxy-model-picker-wrap" class="hidden mt-1">
+                <select id="proxy-model-select"
+                  onchange="document.getElementById('cfg-llm-model').value = this.value; if(typeof onConfigModelChanged === 'function') onConfigModelChanged();"
+                  class="input-dark text-[11px] font-mono w-full">
+                  <option value="">-- Chọn mô hình từ 9router --</option>
+                </select>
+              </div>
+              <div id="cfg-quick-models" class="flex flex-wrap gap-1 pt-1">
+                <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
+              </div>
+            </div>
+
+            <!-- Khóa API -->
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between">
+                <label class="block font-semibold text-slate-700 dark:text-slate-200 text-xs">MÃ BẢO MẬT (API KEY)</label>
+                <span id="cfg-llm-key-badge"
+                  class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">● ĐÃ LƯU KHOÁ</span>
+              </div>
+              <div class="relative">
+                <input type="password" id="cfg-llm-key" class="input-dark font-mono text-xs w-full pr-8"
+                  placeholder="sk-... (nhập tại máy chủ, không lưu trong mã nguồn)" />
+                <button type="button" onclick="toggleKeyVisibility()"
+                  class="absolute right-2 top-2 text-slate-400 hover:text-white" title="Ẩn/Hiện khóa">
+                  <svg id="eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
+                    viewBox="0 0 24 24">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </button>
+              </div>
+              <p id="cfg-llm-key-hint" class="text-[10px] italic">Đang kiểm tra khoá đã lưu...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================================================================= -->
+        <!-- PANEL 2: CẤU HÌNH TRỰC TIẾP (Hiện khi chọn Direct)                -->
+        <!-- ================================================================= -->
+        <div id="cfg-panel-direct" class="mt-5 space-y-4 hidden">
+          <div class="p-3 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-start gap-2.5">
+            <div class="text-orange-400 text-base leading-none mt-0.5">⚡</div>
+            <p class="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+              <b class="text-orange-400">Kết Nối Trực Tiếp</b>: Chọn nhà cung cấp bên dưới và <b>dán Token (API Key)</b> của bạn vào. Hệ thống sẽ kết nối thẳng, cắt giảm tối đa độ trễ phản hồi!
+            </p>
+          </div>
+
+          <!-- Chọn Nhà Cung Cấp -->
           <div class="space-y-1.5">
-            <label
-              class="block font-semibold text-slate-700 dark:text-slate-200 text-xs flex items-center justify-between">
-              <span>TÊN MÔ HÌNH (MODEL NAME)</span>
-              <button type="button" onclick="loadProxyModels()" id="btn-load-proxy-models"
-                class="text-[10px] text-emerald-400 hover:text-emerald-300 transition flex items-center gap-1">
-                <svg width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-                </svg>
-                Tải từ 9router
+            <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px] uppercase tracking-wide flex items-center justify-between">
+              <span>1. CHỌN NHÀ CUNG CẤP AI</span>
+              <span id="cfg-direct-provider-badge" class="text-[10px] font-mono text-orange-400 font-bold">DeepSeek</span>
+            </label>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2" id="cfg-direct-provider-selector">
+              <button type="button" onclick="selectCfgDirectProvider('deepseek')" id="btn-cfg-prov-deepseek"
+                class="provider-chip py-2 px-2.5 rounded-xl border text-center transition-all duration-150 flex flex-col items-center gap-1 border-orange-400/80 bg-orange-500/15 text-orange-400 font-bold shadow-sm">
+                <span class="text-base">🚀</span>
+                <span class="text-[11px] leading-tight">DeepSeek</span>
               </button>
-            </label>
-            <input type="text" id="cfg-llm-model" list="models-list" oninput="onConfigModelChanged()"
-              class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
-              placeholder="VD: VN-MateAi hoặc openrouter/ling-3.0-flash-fin:free" />
-            <div id="proxy-model-picker-wrap" class="hidden mt-1">
-              <select id="proxy-model-select"
-                onchange="document.getElementById('cfg-llm-model').value = this.value; if(typeof onConfigModelChanged === 'function') onConfigModelChanged();"
-                class="input-dark text-[11px] font-mono w-full">
-                <option value="">-- Chọn mô hình từ 9router --</option>
-              </select>
-            </div>
-            <!-- Quick Model Selector Chips for Tab Config -->
-            <div id="cfg-quick-models" class="flex flex-wrap gap-1 pt-1">
-              <span class="text-[10px] text-slate-500 font-mono">Đang tải danh sách model từ router…</span>
+              <button type="button" onclick="selectCfgDirectProvider('groq')" id="btn-cfg-prov-groq"
+                class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                <span class="text-base">⚡</span>
+                <span class="text-[11px] leading-tight">Groq Cloud</span>
+              </button>
+              <button type="button" onclick="selectCfgDirectProvider('openai')" id="btn-cfg-prov-openai"
+                class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                <span class="text-base">🟢</span>
+                <span class="text-[11px] leading-tight">OpenAI</span>
+              </button>
+              <button type="button" onclick="selectCfgDirectProvider('openrouter')" id="btn-cfg-prov-openrouter"
+                class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                <span class="text-base">🌐</span>
+                <span class="text-[11px] leading-tight">OpenRouter</span>
+              </button>
+              <button type="button" onclick="selectCfgDirectProvider('ollama')" id="btn-cfg-prov-ollama"
+                class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                <span class="text-base">🦙</span>
+                <span class="text-[11px] leading-tight">Ollama</span>
+              </button>
+              <button type="button" onclick="selectCfgDirectProvider('lmstudio')" id="btn-cfg-prov-lmstudio"
+                class="provider-chip py-2 px-2.5 rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.02] text-slate-700 dark:text-slate-300 hover:border-orange-400/50 text-center transition-all duration-150 flex flex-col items-center gap-1 font-semibold">
+                <span class="text-base">🏢</span>
+                <span class="text-[11px] leading-tight">LM Studio</span>
+              </button>
             </div>
           </div>
 
-          <!-- Khóa API -->
+          <!-- Ô Dán Token -->
           <div class="space-y-1.5">
             <div class="flex items-center justify-between">
-              <label class="block font-semibold text-slate-700 dark:text-slate-200 text-xs">MÃ BẢO MẬT (API KEY)</label>
-              <span id="cfg-llm-key-badge"
-                class="hidden px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">●
-                ĐÃ LƯU KHOÁ</span>
+              <label class="font-bold text-slate-800 dark:text-slate-100 text-[11px] uppercase flex items-center gap-1.5">
+                <span>2. TOKEN / MÃ BẢO MẬT (API KEY)</span>
+                <span class="text-amber-500 font-bold">*</span>
+              </label>
+              <a id="cfg-direct-token-guide-link" href="https://platform.deepseek.com/api_keys" target="_blank"
+                class="text-[11px] text-cyan-500 hover:text-cyan-400 underline flex items-center gap-1 font-semibold">
+                <span>Lấy Token tại DeepSeek</span>
+                <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </a>
             </div>
             <div class="relative">
-              <input type="password" id="cfg-llm-key" class="input-dark font-mono text-xs w-full pr-8"
-                placeholder="sk-... (nhập tại máy chủ, không lưu trong mã nguồn)" />
-              <button type="button" onclick="toggleKeyVisibility()"
-                class="absolute right-2 top-2 text-slate-400 hover:text-white" title="Ẩn/Hiện khóa">
-                <svg id="eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"
-                  viewBox="0 0 24 24">
+              <input type="password" id="cfg-direct-key"
+                class="input-dark font-mono text-xs w-full pr-8 border-orange-500/40 focus:border-orange-400"
+                placeholder="sk-... (Dán mã Token vào đây)" />
+              <button type="button" onclick="toggleCfgDirectKeyVisibility()"
+                class="absolute right-2 top-2 text-slate-400 hover:text-white transition" title="Ẩn/Hiện khóa">
+                <svg id="cfg-direct-eye-icon" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
               </button>
             </div>
-            <p id="cfg-llm-key-hint" class="text-[10px] italic">
-              Đang kiểm tra khoá đã lưu...
-            </p>
+            <p id="cfg-direct-key-hint" class="text-[10px] text-slate-400 italic">Dán mã API Key từ nhà cung cấp vào đây.</p>
+          </div>
+
+          <!-- Tên Model & Base URL -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="space-y-1.5">
+              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                <span>3. TÊN MÔ HÌNH (MODEL NAME)</span>
+                <span class="text-[9px] text-emerald-400 font-mono">Tự động gợi ý</span>
+              </label>
+              <input type="text" id="cfg-direct-model" list="direct-models-datalist"
+                class="input-dark font-mono text-emerald-600 dark:text-emerald-300 text-xs w-full"
+                placeholder="deepseek-chat" />
+            </div>
+            <div class="space-y-1.5">
+              <label class="flex items-center justify-between font-semibold text-slate-700 dark:text-slate-200 text-[11px]">
+                <span>ĐỊA CHỈ KẾT NỐI (BASE URL)</span>
+                <span class="text-[9px] text-slate-400 font-mono">Tự động điền</span>
+              </label>
+              <input type="text" id="cfg-direct-url"
+                class="input-dark font-mono text-slate-400 text-xs w-full"
+                value="https://api.deepseek.com"
+                placeholder="https://api.deepseek.com" />
+            </div>
           </div>
         </div>
 

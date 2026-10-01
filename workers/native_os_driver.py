@@ -180,16 +180,15 @@ class NativeOSDriver:
             for char in text:
                 event_down = CGEventCreateKeyboardEvent(None, 0, True)
                 event_up = CGEventCreateKeyboardEvent(None, 0, False)
-                chars = [ord(char)]
-                CGEventKeyboardSetUnicodeString(event_down, len(chars), chars)
-                CGEventKeyboardSetUnicodeString(event_up, len(chars), chars)
+                CGEventKeyboardSetUnicodeString(event_down, len(char), char)
+                CGEventKeyboardSetUnicodeString(event_up, len(char), char)
                 CGEventPost(kCGHIDEventTap, event_down)
                 CGEventPost(kCGHIDEventTap, event_up)
                 time.sleep(0.01)
             return True
         except Exception as e:
-            logger.error("[NativeOSDriver] Unicode injection failed: %s", e)
-            return False
+            logger.error("[NativeOSDriver] Unicode injection failed: %s. Trying fallback.", e)
+            return self._fallback_type_utf8(text)
 
     def _fallback_type_utf8(self, text: str) -> bool:
         """Cross-platform clipboard paste fallback cho dev môi trường."""
