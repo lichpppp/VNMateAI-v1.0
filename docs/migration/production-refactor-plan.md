@@ -1,123 +1,144 @@
-# VN-MateAI — Kế Hoạch Chuyển Đổi Kiến Trúc Doanh Nghiệp (Production Refactor Plan)
+# VN-MateAI — Kế hoạch refactor production
 
-## I. NGUYÊN TẮC THI CÔNG BẤT DI BẤT DỊCH (NON-DESTRUCTIVE REFACTOR)
+> Cập nhật Phase 0 · 2026-10-01. Thay thế bản trước (bản trước ghi Phase 2–11 đã xong, nhưng phần code của các phase đó nằm trong `src/mateai/` và chưa được nối vào runtime).
+> Số liệu hiện trạng: `docs/architecture/current-vs-target.md`. Trùng lặp: `docs/architecture/duplication-matrix.md`.
 
-1. **Tuyệt đối không xóa code cũ mù quáng**: Trong suốt quá trình chuyển đổi, code hiện hành tiếp tục phục vụ như một baseline hoạt động. Chỉ loại bỏ code cũ khi implementation mới đã được xác minh toàn diện bằng test suite.
-2. **Áp dụng mô hình Strangler Fig Pattern**: Tạo kiến trúc mới song song (`src/mateai/`), điều hướng từng phần lưu lượng (traffic) qua Adapter, xác minh tính toàn vẹn rồi mới ngắt kết nối implementation cũ.
-3. **Hiệu năng Realtime không được thoái lui**: Sau mỗi bước chuyển đổi, các chỉ số cốt lõi (Fast Command < 0.05ms, Barge-in < 0.01ms, TTFA < 600ms, RAM idle < 100MB) phải được benchmark lại để đảm bảo không bị suy giảm.
+## 1. Nguyên tắc
 
----
+1. **Một tính năng = một implementation.** Không thêm bản mới bên cạnh bản cũ. Trình tự mỗi bước: chứng minh bản thay thế → chuyển caller → xóa bản cũ.
+2. **Gộp trước, di chuyển sau.** Bản trùng được gộp vào bản canonical ngay trong `core/`. Chỉ khi một context còn đúng một implementation mới di chuyển nó sang tầng đích. Không lúc nào có hai bản chạy song song ở hai cây thư mục.
+3. **Từng bounded context một**, theo thứ tự: Voice → LLM/Agent → Skills/Tools → Security → Data → Connectors → Deployment.
+4. **Không xóa** khi chưa đủ: thay thế có sẵn, caller đã chuyển, test pass, đã chạy thử runtime. Phase 0–3 không xóa, không di chuyển hàng loạt, không đổi tên hàng loạt.
+5. **Không lùi hiệu năng realtime.** Mỗi bước Voice phải đo lại TTFT/TTFA/fast path bằng cùng một công cụ đo (xây ở Phase 1).
+6. **Không số liệu giả.** Số nào chưa đo thì ghi "chưa đo".
 
-## II. LỘ TRÌNH 18 GIAI ĐOẠN CHI TIẾT (PHASE 0 ➔ PHASE 17)
+## 2. Trạng thái thật của các phase cũ (commit `4f6464a`)
 
-### Phase 0: Thẩm định & Lập bản đồ kiến trúc (Current Audit & Boundary Mapping)
-- **Trạng thái**: **ĐANG HOÀN TẤT**
-- **Nội dung**:
-  - Đo đạc chính xác 100% LOC, số tệp tin, số bảng database, số route HTTP (169) và WebSocket (13).
-  - Xác định các "God Files" (`server.py`, `llm_engine.py`, `database.py`, `xiaozhi_gateway.py`).
-  - Xuất bản 4 tài liệu cốt lõi: `current-vs-target.md`, `target-architecture.md`, `dependency-rules.md`, `production-refactor-plan.md`.
-  - **Quy tắc**: Không xóa file, không di chuyển hàng loạt.
+| Phase cũ | Ghi trong bản trước | Thực tế |
+|---|---|---|
+| 0 Audit | đã xong | số liệu sai (đếm lẫn `node_modules`/`.venv`) — làm lại ở Phase 0 này |
+| 1 Dependency graph + test baseline | đã xong | "24 vòng import" không khớp (thực đo: 1 khối 37 module + 1 vòng 2 module); không có runner test chung |
+| 2 Skeleton `src/mateai` | đã xong | có thư mục; không được import |
+| 3–11 Domain, voice, LLM, fast router, skills, repository, connectors, IoT, client agent | đã xong | mỗi phase viết một bản mới trong `src/mateai/`; runtime vẫn dùng `core/`; unit test kiểm tra bản mới |
+| Architecture tests | 100 % pass | chỉ quét `src/mateai/`, 3/10 quy tắc |
 
-### Phase 1: Bản đồ phụ thuộc chi tiết & Test Baseline
-- **Nội dung**:
-  - Chạy toàn bộ test suite hiện có để lưu trữ baseline kết quả kiểm thử.
-  - Đo đạc latency thực tế của Fast Command, LLM streaming và TTS synthesis.
-  - Khởi tạo thư mục kiểm thử kiến trúc `tests/architecture/`.
+## 3. Quyết định cần chủ dự án chốt
 
-### Phase 2: Khởi tạo khung cấu trúc đích (Target Skeleton Setup)
-- **Nội dung**:
-  - Tạo cấu trúc thư mục `src/mateai/` chuẩn:
-    - `src/mateai/domain/`
-    - `src/mateai/application/`
-    - `src/mateai/infrastructure/`
-    - `src/mateai/interfaces/`
-    - `src/mateai/config/`
-  - Thêm các tệp `__init__.py` và cấu hình package resolution.
+| Mã | Câu hỏi | Khuyến nghị | Ảnh hưởng nếu chưa chốt |
+|---|---|---|---|
+| **D1** | Làm gì với `src/mateai/` (69 file viết lại, chưa nối)? | Giữ `src/mateai/` làm **thư mục đích**, nhưng nội dung đích là **code canonical di chuyển từ `core/`**. Bản viết lại nào trùng với code đang chạy thì xóa khi context đó được di chuyển; entity domain thuần Python giữ lại nếu được dùng thật. Sửa import `src.mateai.*` → `mateai.*` (cài package editable). | Phase 4 trở đi bị chặn |
+| D2 | HUD có chuyển sang giao thức `/ws/v1/voice-stream` không? | Có. `/ws/hud` giữ phần telemetry, bỏ phần voice | P2 phải giữ song song |
+| D3 | Gộp hai mô hình vai trò (`admin/manager/viewer` và `admin/it_support/operator/viewer`) thế nào? | Bảng ánh xạ do chủ dự án duyệt | Phase Security bị chặn |
+| D4 | Máy chủ có được chạy skill điều khiển PC (`skills/pc_control_skills.py`…) trên chính nó không? | Hỏi chủ dự án | E3 trong `legacy-candidates.md` giữ nguyên |
+| D5 | Khi nào chuyển PostgreSQL làm system of record? | Sau khi gộp DAO (bảng `tasks`, user) — không chuyển DB khi dữ liệu còn hai chủ | Phase Data chỉ làm phần gộp |
 
-### Phase 3: Bounded Context 1 — Domain Entities & Value Objects
-- **Nội dung**:
-  - Di chuyển và chuẩn hóa các Entity thuần túy: `VoiceSession`, `AudioFrame`, `ConversationContext`, `AgentTask`, `UserIdentity`.
-  - Đảm bảo 100% tệp tin trong `domain/` không import framework ngoài.
+## 4. Lộ trình
 
-### Phase 4: Bounded Context 2 — Voice Pipeline Refactor
-- **Nội dung**:
-  - Trích xuất `ProcessVoiceTurnUseCase`, `SentenceBuffer`, `BargeInController` vào `application/voice/`.
-  - Trích xuất `StreamingTTSWorker` và `WhisperSTTAdapter` vào `infrastructure/tts/` và `infrastructure/stt/`.
-  - Tạo `interfaces/websocket/realtime_voice_endpoint.py`.
-  - **Kiểm thử**: Đảm bảo pipeline voice binary đạt độ trễ TTFA < 600ms và không bị lặp giọng nói.
+Mỗi phase kết thúc bằng báo cáo: PHASE / STATUS / FILES CHANGED / ARCHITECTURAL IMPACT / RISKS / TESTS / PERFORMANCE / NEXT STEP.
 
-### Phase 5: Bounded Context 3 — LLM Provider Abstraction
-- **Nội dung**:
-  - Xây dựng giao diện trừu tượng `LLMProvider` với các phương thức `generate()` và `stream()`.
-  - Tách các adapter cụ thể: `DeepSeekAdapter`, `GroqAdapter`, `OpenAIAdapter`, `NineRouterAdapter`.
-  - Tách logic prompt template và context window khỏi engine chính.
+### Phase 0 — Audit (xong)
+Tài liệu: `current-vs-target.md`, `target-architecture.md`, `dependency-rules.md`, `duplication-matrix.md`, `legacy-candidates.md`, `canonical-components.md`, file này. Không đổi code.
 
-### Phase 6: Bounded Context 4 — Fast Command Router
-- **Nội dung**:
-  - Đưa `FastCommandRouter` vào `application/commands/fast_command_router.py`.
-  - Chuẩn hóa các câu lệnh điều khiển hệ thống nội bộ (mở ứng dụng, chụp màn hình, chỉnh âm lượng) với cơ chế phân quyền RBAC.
-  - Đảm bảo thời gian phản hồi đạt mức sub-millisecond (< 0.05ms).
+### Phase 1 — Lưới an toàn (xong 2026-10-01, xem báo cáo ở mục 6)
+- Khai báo phụ thuộc test (`pytest`, `pytest-asyncio`, `pytest-timeout`). (`gTTS` **không** thêm: xung đột `click` với `huggingface-hub` — nhánh gTTS chuyển thành ứng viên xoá, xem `legacy-candidates.md` A7.)
+- Một lệnh chạy toàn bộ test: chuyển các file dạng script sang hàm `test_*` hoặc runner tách tiến trình; cô lập test khỏi `config.json`/DB thật (thư mục tạm + biến môi trường).
+- Sửa test phụ thuộc môi trường (ngưỡng thời gian, số dòng audit của máy dev, quyền file trên Windows, gọi mạng thật → đánh dấu `network`).
+- Sửa architecture test: quét `core/` + baseline ngoại lệ; thêm RULE-011…016.
+- **Công cụ đo latency voice** chạy được lặp lại: fast path, TTFT, TTFA, first audio qua WS, RAM/CPU — ghi baseline thật trước khi đụng Voice.
+- Kiểm chứng: tất cả test pass hoặc được đánh dấu rõ lý do skip.
 
-### Phase 7: Bounded Context 5 — Skills & Tool Taxonomy
-- **Nội dung**:
-  - Hợp nhất đăng ký Tool từ `core/skills/` và `skills/` vào một `ToolRegistry` duy nhất.
-  - Phân loại rõ ràng 10 miền chức năng (`SYSTEM_OPS`, `NETWORK_SECURITY`, `FILE_STORAGE`, `DATABASE_ERP`, v.v.).
-  - Triển khai `SkillResolver` nạp động công cụ theo ngữ cảnh thay vì nạp toàn bộ 79+ tools.
+### Phase 2 — Voice: gộp TTS và làm sạch text (Phase B/C trong `core/`)
+- Bỏ chặn event loop: `fast_command_router` gọi `psutil.cpu_percent(interval=0.05)` trong handler async → khoá loop 50 ms cho **mọi** phiên realtime mỗi lần hỏi CPU (đo: p50 50,5 ms).
+- Edge-TTS trả 403 → mọi câu rơi xuống 9Router (TTFA engine p50 2,3 s). Kiểm tra nâng `edge-tts` (đang ghim 6.1.12).
+- A7: xoá nhánh gTTS chết (3 nơi).
+- C3: một hàm `sanitise_for_tts` (test so sánh đầu ra ba hàm cũ trước).
+- C1, C2: mọi tổng hợp giọng qua `TTSStreamEngine`; `AudioEngine` chỉ còn STT/VAD; bỏ race gTTS trong `server.py`.
+- A1, B1, B2: xóa facade chết sau khi sửa test.
+- Kiểm chứng: test voice, chạy thử portal + HUD + ESP32 (nếu có thiết bị) + mic máy chủ, đo lại TTFA.
 
-### Phase 8: Bounded Context 6 — Data Access & Repository Pattern
-- **Nội dung**:
-  - Định nghĩa Repository Interfaces trong `domain/`: `UserRepository`, `AuditRepository`, `TaskRepository`, `DeviceRepository`.
-  - Xây dựng triển khai `SQLiteRepository` để duy trì tương thích 100% với dữ liệu hiện hành.
-  - Chuẩn bị sẵn `PostgresRepository` phục vụ triển khai mở rộng doanh nghiệp.
+### Phase 3 — Voice: một use case xử lý lượt nói
+- Tách phần xử lý lượt nói của P1 thành một hàm/lớp dùng chung (không có WebSocket bên trong).
+- Chuyển P2 (HUD, sau D2), P3 (XiaoZhi), P4 (mic), P5 (REST) sang use case đó; mỗi kênh chỉ còn transport + audio sink.
+- C4, C7, C8: bỏ `stream_voice_response`, pipeline HUD trong `server.py`, `VoiceSessionStore`, `_history` của `voice_controller`.
+- A5: bỏ alias `/ws/voice`. E2 `/ws/audio-stream`: chỉ bỏ khi log truy cập xác nhận không còn thiết bị dùng.
+- Kiểm chứng: như Phase 2 + test barge-in trên mọi kênh.
 
-### Phase 9: Bounded Context 7 — External Connectors Isolation
-- **Nội dung**:
-  - Tách các connector trong `core/connectors/` (AWS, OCI, Telegram, ERP, Paperless) vào `infrastructure/connectors/`.
-  - Bổ sung circuit breaker, timeout và retry policy cho từng connector để cách ly lỗi.
+### Phase 4 — Voice: di chuyển sang tầng đích (cần D1)
+- Di chuyển canonical Voice sang `src/mateai/{application,infrastructure,interfaces}` theo bảng ánh xạ ở `target-architecture.md` §V; xóa bản viết lại trùng trong `src/mateai/`; trỏ test về code đã di chuyển.
 
-### Phase 10: Bounded Context 8 — IoT Device Transport (ESP32 XiaoZhi)
-- **Nội dung**:
-  - Tách logic giao thức XiaoZhi từ `core/xiaozhi_gateway.py` thành `interfaces/websocket/xiaozhi_iot_endpoint.py`.
-  - Chuyển logic giải mã Opus và quản lý trạng thái thiết bị thành adapter riêng.
+### Phase 5 — LLM / Agent
+- Failover phải nhớ model hỏng: hiện `NineRouterLLMProvider` thử lại toàn bộ danh sách mỗi lượt, mỗi model hỏng tốn tới 5 s → đo được TTFT p50 22,6 s (6 model hỏng/chậm trước model chạy được). Cần breaker theo từng model + bỏ giá trị mẫu `YOUR_MODEL_NAME_HERE` khỏi danh sách dự phòng.
+- C5, C6: mọi lời gọi LLM qua `LLMProvider` (`complete()` cho đường không stream); bỏ hai vòng fallback trong `llm_engine`; 5 module tự tạo client chuyển sang provider.
+- Sau đó di chuyển `llm_provider` → `infrastructure/llm`, phần agent/prompt của `llm_engine` → `application/agent`.
 
-### Phase 11: Bounded Context 9 — Client Agent Separation
-- **Nội dung**:
-  - Định nghĩa giao thức truyền tin chuẩn giữa Server và `client_agent/`.
-  - Đảm bảo Client Agent hoạt động độc lập, không import mã nội bộ backend.
+### Phase 6 — Skills / Tools
+- D7: một registry (giữ circuit breaker + HITL gate của `plugin_registry`); A2, A3, A4.
+- D4 quyết định skill máy trạm phía server; C9 sinh gói tải về từ `client_agent/`.
 
-### Phase 12: Phân rã God Module `server.py` (HTTP Routers Refactoring)
-- **Nội dung**:
-  - Chia tách 150 HTTP routes sang các controller tương ứng trong `interfaces/http/`:
-    - `auth_routes.py`
-    - `admin_routes.py`
-    - `voice_routes.py`
-    - `erp_routes.py`
-    - `system_routes.py`
-  - Chuyển `server.py` thành hàm factory `create_app()` gọn gàng trong `apps/api/main.py`.
+### Phase 7 — Security (cẩn thận, không xóa vì "trông giống")
+- D1 (legacy) HITL: gộp trạng thái chờ duyệt rồi mới chuyển caller. D2 audit: một sink, giữ INSERT-only. D3 rủi ro. D4 vai trò (cần quyết định D3 của mục 3).
+- Health `/livez` `/readyz` `/startupz`.
 
-### Phase 13: Bảo mật & Phân quyền (Security & Zero-Trust Boundary)
-- **Nội dung**:
-  - Thống nhất các cơ chế bảo vệ từ `core/security/` vào `infrastructure/security/`.
-  - Enforce RBAC và phân loại dữ liệu (Public, Internal, Confidential, Restricted) tại Application layer.
+### Phase 8 — Data
+- D6: một repository cho `tasks`; D5: một kho user; C11: bỏ `sqlite3.connect` rải rác; E5 `hr_kpi.db`.
+- Sau khi dữ liệu chỉ còn một chủ: kế hoạch SQLite → PostgreSQL (inventory schema, script, đếm dòng, checksum, cutover, rollback).
 
-### Phase 14: Giám sát & Đo lường (Observability & Telemetry)
-- **Nội dung**:
-  - Chuẩn hóa structured logging (JSON format) với `trace_id`, `request_id`, `session_id`.
-  - Tích hợp Prometheus metrics cho voice latency (TTFT, TTFA, queue depth).
-  - Bổ sung endpoint kiểm tra sức khỏe `/livez`, `/readyz`, `/startupz`.
+### Phase 9 — Connectors, cấu hình
+- C10: một loader cấu hình; gộp khóa trùng; tách secret khỏi `config.json`.
+- 17 `httpx` client: timeout/retry/breaker thống nhất.
 
-### Phase 15: Externalized State & Distributed Scaling
-- **Nội dung**:
-  - Tách state trong bộ nhớ Python dictionary sang Redis adapter (`infrastructure/cache/`).
-  - Hỗ trợ chạy nhiều instance song song của API và Realtime Gateway.
+### Phase 10 — State, worker, triển khai
+- Đưa state chia sẻ (session, HITL chờ duyệt, lịch sử ngắn hạn) ra Redis; tiến trình api / realtime / worker tách được; container; CI.
 
-### Phase 16: Dọn dẹp Legacy Code & Hoàn thiện Tests
-- **Nội dung**:
-  - Chạy toàn bộ regression test suite (Unit, Integration, Realtime, E2E).
-  - Sau khi xác nhận 100% chức năng hoạt động hoàn hảo trên kiến trúc mới, chuyển các file cũ không còn dùng trong `core/` vào `_archive/`.
+### Phase 11 — Kiểm toán cuối
+- Trả lời đầy đủ các câu hỏi "final check" (số implementation cũ, đã xóa, wrapper còn lại và lý do, có bản cũ nào còn gọi được lúc chạy không).
 
-### Phase 17: Báo cáo nghiệm thu & Sẵn sàng vận hành (Final Enterprise Delivery)
-- **Nội dung**:
-  - Xuất bản tài liệu vận hành: `runbook.md`, `incident-response.md`, `backup-restore.md`.
-  - Kiểm tra Production Readiness Checklist.
-  - Nghiệm thu kết quả cùng người dùng.
+## 5. Rủi ro chính
+
+| Rủi ro | Giảm thiểu |
+|---|---|
+| Gộp voice làm lệch giọng đọc / ngắt câu ở một kênh | test so sánh đầu ra sanitize + chạy thử từng kênh |
+| Thiết bị ESP32 ngoài thực địa dùng đường WS cũ | không bỏ `/ws/audio-stream` khi chưa có log truy cập |
+| Gộp HITL làm mất yêu cầu đang chờ duyệt | gộp kho trạng thái trước, chuyển caller sau, có test đường Telegram |
+| Test hiện tại ghi vào dữ liệu thật | cô lập test ở Phase 1 trước mọi thay đổi khác |
+| Hiệu năng lùi mà không ai biết | công cụ đo Phase 1, đo lại sau mỗi phase Voice |
+
+## 6. Báo cáo Phase 1 (2026-10-01)
+
+**STATUS:** xong. Chạy toàn bộ test bằng một lệnh: `python -m pytest` (cài trước `pip install -r requirements-dev.txt`).
+
+**Kết quả test:** 158 pass / 0 fail (trước Phase 1: 38/47 file Python pass, 5/12 file `.mjs` pass, không có lệnh chạy chung). 1 test `network` bỏ qua mặc định (`pytest -m network` để chạy; đang fail vì model trên 9Router chết — dữ liệu ngoài, không phải lỗi code).
+
+**Lỗi thật tìm ra và đã sửa** (mỗi lỗi có test fail trên `HEAD`, pass sau khi sửa):
+
+| Lỗi | Nơi | Hệ quả trước khi sửa | Test |
+|---|---|---|---|
+| `NameError: sanitized_query` | `core/realtime_voice_ws.py` | **mọi câu hỏi qua LLM ở portal đều lỗi**; chỉ lệnh nhanh chạy được | `tests/test_realtime_voice_llm_turn.py` |
+| HUD mất hàng đợi TTS song song, lời đệm, timeout TTS (commit 4f6464a) | `core/server.py` `_process_hud_voice_command_body` | mỗi câu cộng nguyên thời gian TTS; TTS treo thì treo cả lượt | `tests/test_hud_voice_pipeline_behavior.py` (+ 2 test cũ) |
+| Khoá giả `sk-dummy` quay lại UI + ghi vào `config.json` | `web/app.js`, `core/server.py` | ghi khoá giả vào config | `test_phase74_no_fake_ui.mjs` |
+| Nút thử kết nối "direct" gửi **khoá 9Router sang URL direct** khi ô khoá trống | `core/server.py` `/api/v1/llm/test` | lộ khoá 9Router cho máy chủ khác | (kiểm tra tay) |
+| Pane Phòng Ban / Elastic Grid không được bảo vệ | `web/app.js` `CC_HANDWRITTEN_SUBTABS` | lần đồng bộ nguồn dữ liệu kế tiếp xoá trắng nội dung pane | `test_phase85_may_tram_that_muc.py` |
+| `with sqlite3.Connection` không đóng kết nối | `core/database.py`, `db_manager.py`, `domain_sync.py` | file DB bị giữ tới khi GC; Windows lỗi `WinError 32` | `test_phase73`, `test_phase75` |
+| Đồng hồ đo latency phân giải 15,6 ms trên Windows | `core/realtime_voice_ws.py` `VoiceRequestTrace` | TTFD/TTFT/TTFA nhảy bậc | `test_phase1_realtime_ws.py` |
+
+**Cô lập test:** `VNMATEAI_DB_PATH` / `VNMATEAI_HR_DB_PATH` (mặc định giữ đường dẫn cũ) — `tests/conftest.py` trỏ chúng vào thư mục tạm; sao lưu và trả lại `config.json`, `users.json`, `skills/registry.json`, `config/data_sources.json` quanh phiên test. Trước đó test đã ghi 54 sự kiện audit giả vào `audit_logs` thật và 3 task giả vào `tasks` thật (3 task đã xoá; 54 dòng audit chưa xoá vì bảng là chỉ-ghi — chờ chủ dự án quyết).
+
+**Test sửa vì phụ thuộc môi trường** (không nới điều kiện kiểm tra): đọc file `.mjs` chuẩn hoá CRLF (6 file fail chỉ vì `core.autocrlf=true`); `test_repositories` dùng DB tạm thay vì đòi ≥ 2459 dòng audit của máy dev; `test_phase62` bỏ qua kiểm tra chmod 600 trên Windows kèm cảnh báo (rủi ro thật, xem `legacy-candidates.md` E7); `test_phase85` đo đúng phạm vi khối Máy Trạm; `test_phase67` chấp nhận `_tts_bytes` (bọc timeout, trả bytes cho binary frame).
+
+**Architecture test:** `tests/architecture/test_core_rules.py` quét `core/`, `skills/`, `workers/`, `main.py` theo RULE-011…015, baseline `core_rules_baseline.json` (bánh cóc: vi phạm mới → fail; giảm → phải hạ baseline). Test cũ chỉ quét `src/mateai` nay được pytest chạy (trước đó không có hàm `test_*`).
+
+**Baseline hiệu năng** (`scripts/bench_voice.py`, Windows 10, `perf_counter`, đo thật):
+
+| Chỉ số | p50 | p95 / max | Ghi chú |
+|---|---|---|---|
+| Fast path — 4/5 lệnh | 0,006–1,3 ms | ≤ 2 ms | `mấy giờ rồi`, `xin chào`, `ping`, `xem ram` |
+| Fast path — `kiểm tra cpu` | 50,5 ms | 51,7 ms | chặn event loop (Phase 2) |
+| SentenceBuffer, 58 token → 5 câu | 0,48 ms | 1,37 ms | |
+| TTS chunk đầu (engine, không cache) | 2.297 ms | 3.625 ms | Edge-TTS 403 → 9Router |
+| WS fast path: sự kiện đầu / chữ đầu | 2,8 ms / 252 ms | 2,8 / 321 ms | 3 lượt |
+| WS fast path: audio đầu / hết lượt | 1.612 ms / 1.830 ms | 3.221 ms | |
+| WS LLM: chữ đầu (TTFT) | 22.623 ms | 26.552 ms | 6 model hỏng trước model chạy được (Phase 5) |
+| WS LLM: audio đầu / hết lượt | 26.402 ms / 26.408 ms | 26.558 ms | |
+| Server rảnh | 405 MB WS, 6,4 % CPU | | đo Phase 0 |
+
+Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải p95 có ý nghĩa thống kê. Tăng `--ws-rounds` khi cần.

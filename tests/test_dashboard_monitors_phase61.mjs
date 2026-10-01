@@ -17,12 +17,12 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(HERE, '..', 'web', 'app.js'), 'utf-8');
+const src = readFileSync(join(HERE, '..', 'web', 'app.js'), 'utf-8').replace(/\r\n/g, '\n');
 // Bản code đã bỏ comment. Bắt buộc phải có khi kiểm tra "cái gì đó đã bị gỡ":
 // các bình luận giải thích fix hay nhắc lại đúng tên biến/hằng đã xoá, nên quét
 // `src` thôi sẽ khẳng định sai là chúng còn tồn tại.
 const srcCode = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-const html = readFileSync(join(HERE, '..', 'web', 'index.html'), 'utf-8');
+const html = readFileSync(join(HERE, '..', 'web', 'index.html'), 'utf-8').replace(/\r\n/g, '\n');
 
 let pass = 0, fail = 0;
 const results = [];
@@ -564,7 +564,7 @@ check('tầng nặng gom đủ 8 endpoint',
 
 // ── 10. Backend: nhóm counters phải là phần bổ sung thuần, không phá cũ ───
 results.push('▸ core/server.py — health-dashboard chỉ BỔ SUNG, không phá');
-const py = readFileSync(join(HERE, '..', 'core', 'server.py'), 'utf-8');
+const py = readFileSync(join(HERE, '..', 'core', 'server.py'), 'utf-8').replace(/\r\n/g, '\n');
 const ep = py.slice(py.indexOf('async def health_dashboard_endpoint()'), py.indexOf('@app.post(\n    "/api/v1/voice-command"'));
 check('giữ nguyên 4 dòng inject gốc',
   ep.includes('active_portal_websockets') && ep.includes('active_audio_hardware')

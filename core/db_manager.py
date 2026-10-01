@@ -24,10 +24,12 @@ from typing import Any, Dict, List, Optional, Tuple
 import bcrypt
 import psutil
 
+from core.database import ClosingConnection
+
 logger = logging.getLogger("core.db_manager")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = _PROJECT_ROOT / "vnmateai.db"
+DB_PATH = Path(os.environ.get("VNMATEAI_DB_PATH") or _PROJECT_ROOT / "vnmateai.db")
 USERS_JSON_PATH = _PROJECT_ROOT / "users.json"
 KPI_CSV_PATH = _PROJECT_ROOT / "logs" / "kpi_logs.csv"
 
@@ -42,7 +44,10 @@ class DatabaseManager:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Tạo kết nối SQLite với Row factory để dễ dàng truy xuất cột dạng dict."""
-        conn = sqlite3.connect(str(self.db_path), timeout=20.0, check_same_thread=False)
+        conn = sqlite3.connect(
+            str(self.db_path), timeout=20.0, check_same_thread=False,
+            factory=ClosingConnection,
+        )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL;")  # Tăng tốc độ đọc/ghi đồng thời
         return conn

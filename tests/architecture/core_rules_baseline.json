@@ -1,0 +1,39 @@
+{
+  "RULE-011": {
+    "core/analytics_engine.py": 2,
+    "core/llm_engine.py": 7,
+    "core/meta_architect.py": 3,
+    "core/server.py": 3,
+    "core/skills/ai_delegation.py": 4
+  },
+  "RULE-012": {
+    "core/audio_processor.py": 3,
+    "core/server.py": 1,
+    "skills/ninerouter_skills.py": 1
+  },
+  "RULE-013": {
+    "core/autonomous_sentinel.py": 1,
+    "core/cognitive_memory.py": 1,
+    "core/llm_engine.py": 2,
+    "core/server.py": 8,
+    "core/telegram_gateway.py": 2
+  },
+  "RULE-014": {
+    "core/autonomous_sentinel.py": 2,
+    "core/db_manager.py": 1,
+    "core/domain_sync.py": 1,
+    "core/health_monitor.py": 1
+  },
+  "RULE-015": {
+    "core/api_admin.py": 1,
+    "core/background_workers.py": 1,
+    "core/orchestrator.py": 1,
+    "core/plugin_registry.py": 1,
+    "core/skills/robotics_tools.py": 1,
+    "core/voice_controller.py": 2,
+    "core/webhook_gateway.py": 1,
+    "core/xiaozhi_gateway.py": 6,
+    "skills/data_source_tools.py": 1,
+    "skills/visual_skills.py": 1
+  }
+}

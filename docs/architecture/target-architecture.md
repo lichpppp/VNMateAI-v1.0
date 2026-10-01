@@ -1,5 +1,10 @@
 # VN-MateAI — Thiết Kế Kiến Trúc Mục Tiêu (Target Production Architecture)
 
+> **Trạng thái (Phase 0, 2026-10-01):** đây là kiến trúc **đích**, chưa phải kiến trúc đang chạy.
+> Khung thư mục `src/mateai/` đã được tạo ở commit `4f6464a` nhưng **không module production nào import nó** — runtime vẫn chạy 100 % bằng `core/`.
+> Mục V bên dưới ánh xạ từng thành phần canonical đang chạy (xem `canonical-components.md`) vào tầng đích. Cách xử lý phần viết lại trong `src/mateai/` là quyết định D1 trong `docs/migration/production-refactor-plan.md`.
+> Các chỉ số latency ghi trong tài liệu này (`< 0.05ms`, Hoài My `+50%`, …) là **mục tiêu**, chưa được đo lại trong Phase 0.
+
 ## I. TỔNG QUAN KIẾN TRÚC MỤC TIÊU (MODULAR MONOLITH)
 
 VN-MateAI được chuẩn hóa theo mô hình **Modular Monolith & Clean Hexagonal Architecture**, phân tách nghiêm ngặt giữa Domain Business Logic, Application Use Cases, Infrastructure Adapters và Network Delivery Interfaces:
@@ -103,7 +108,7 @@ VN-MateAI được chuẩn hóa theo mô hình **Modular Monolith & Clean Hexago
 ### 4. Interfaces Layer (`src/mateai/interfaces/`)
 - **Nguyên tắc**: Tầng giao tiếp mạng (Delivery Mechanism). Chỉ nhận request, validate payload, chuyển đến Application use case và trả về response chuẩn hóa.
 - **Thành phần**:
-  - `interfaces/http/`: Tách 169 endpoints thành các router module mỏng:
+  - `interfaces/http/`: Tách 165 endpoint (đo bằng `app.routes`) thành các router module mỏng:
     - `auth_router.py`: Đăng nhập, refresh token, xác thực identity.
     - `admin_router.py`: Quản trị hệ thống, users, logs, telemetry.
     - `voice_router.py`: Cấu hình voice, upload audio, test synthesis.
@@ -215,4 +220,87 @@ LLMProvider (Interface)
        ├─► GroqAdapter (Ultra-fast inference)
        ├─► OpenAIAdapter (General capability)
        └─► 9RouterAdapter (Gateway compatibility)
+```
+
+---
+
+## IV. MỘT VOICE PIPELINE, NHIỀU TRANSPORT
+
+Năm kênh voice hiện có (portal, HUD, ESP32, mic máy chủ, REST) phải dùng chung **một** use case xử lý lượt nói. Khác biệt giữa các kênh chỉ nằm ở tầng transport:
+
+```text
+ web/app.js      web/hud.js     ESP32 (XiaoZhi)    Mic máy chủ       REST
+     │               │                │                  │              │
+ /ws/v1/voice-stream │       /api/v1/xiaozhi/ws    voice_controller   /api/v1/voice-command
+     │               │                │            (thu âm / phát loa)  │
+     └───────┬───────┘          XiaoZhi adapter          │              │
+             │                  (Opus, LCD, pairing)     │              │
+             ▼                        │                  │              │
+   ┌──────────────────────────────────▼──────────────────▼──────────────▼──┐
+   │ ProcessVoiceTurn (một implementation)                                 │
+   │  FastCommandRouter → LLMProvider.stream → SentenceBuffer               │
+   │  → StreamingTTSWorkerPipeline(TTSStreamEngine) → audio sink của kênh   │
+   │  lịch sử: MemoryManager + history_pruner · hủy: cancellation token     │
+   └────────────────────────────────────────────────────────────────────────┘
+```
+
+## V. ÁNH XẠ TỪ CODE ĐANG CHẠY SANG TẦNG ĐÍCH
+
+Chỉ di chuyển **bản canonical**. Bản trùng được gộp vào canonical ngay trong `core/` trước (Phase B), sau đó mới di chuyển — để không lúc nào tồn tại hai implementation chạy song song ở hai cây thư mục.
+
+| Code canonical hiện tại | Tầng đích |
+|---|---|
+| `core/realtime_voice_ws.py` (phần xử lý lượt nói), `core/agent_voice_loop.py` | `application/voice/` |
+| `core/realtime_voice_ws.py` (phần nhận/gửi frame), `core/audio/binary_transport.py` | `interfaces/websocket/voice` |
+| `core/xiaozhi_gateway.py` (phần giao thức thiết bị) | `interfaces/websocket/device` + `infrastructure/websocket/xiaozhi` |
+| `core/audio/sentence_buffer.py`, `sentence_streamer.sanitise_for_tts` | `application/voice/` (thuần Python) |
+| `core/audio/tts_stream_engine.py`, `tts_queue_pipeline.py`, `audio_cache.py` | `infrastructure/tts/` |
+| `core/audio_processor.py` (STT + VAD) | `infrastructure/stt/` |
+| `core/fast_command_router.py` | `application/commands/` (handler gọi tool qua port, không gọi `psutil` trực tiếp) |
+| `core/llm_provider.py`, `core/connection_pool.py` | `infrastructure/llm/` |
+| `core/llm_engine.py` (prompt, agent loop, Tri-Brain) | `application/agent/` |
+| `core/dynamic_skill_router.py`, `plugin_manager.py`, `plugin_registry.py` (sau khi gộp) | `application/skills/` + `infrastructure/plugins/` |
+| `core/auth_manager.py`, `zero_trust.py`, `safety_guard.py`, `security_guard.py` (sau khi gộp) | `application/security/` + `infrastructure/security/` |
+| `core/database.py`, `db_manager.py` (sau khi gộp) | `infrastructure/database/` sau repository port |
+| `core/memory_manager.py`, `history_pruner.py` | `application/conversation/` + `infrastructure/cache/` |
+| `core/connectors/*`, `telegram_gateway.py`, `email_gateway.py`, `webhook_gateway.py` | `infrastructure/connectors/` |
+| `core/server.py` | `interfaces/http/*` + `create_app()` |
+| `core/config_loader.py` | `config/` |
+
+## VI. SƠ ĐỒ KIẾN TRÚC ĐÍCH (TỔNG THỂ)
+
+```text
+                         ┌──────────────┐
+                         │   Browser    │   ESP32 · Client Agent · Telegram
+                         └──────┬───────┘
+                                │
+                         WebSocket / HTTP
+                                │
+                      ┌─────────▼─────────┐
+                      │    Interfaces     │  http/* · websocket/voice · websocket/device · websocket/client
+                      └─────────┬─────────┘
+                                │
+                      ┌─────────▼─────────┐
+                      │   Application     │  ProcessVoiceTurn · FastCommand · Agent · ToolExecution · Policy
+                      └─────────┬─────────┘
+                                │
+                 ┌──────────────┼───────────────┐
+                 │              │               │
+                 ▼              ▼               ▼
+              Voice           Agent          Skills
+                 │              │               │
+                 └──────────────┼───────────────┘
+                                │
+                      ┌─────────▼─────────┐
+                      │      Domain       │  entities thuần Python
+                      └─────────┬─────────┘
+                                │ (ports)
+                      ┌─────────▼─────────┐
+                      │  Infrastructure   │
+                      └─┬────┬────┬────┬──┘
+                        │    │    │    │
+                        ▼    ▼    ▼    ▼
+                       PG  Redis LLM  TTS/STT
+
+                         Object Storage (âm thanh, tài liệu)
 ```

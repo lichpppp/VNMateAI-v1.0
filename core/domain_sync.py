@@ -23,6 +23,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+from core.database import ClosingConnection
+
 logger = logging.getLogger(__name__)
 
 # Resolve default database location
@@ -31,7 +33,7 @@ if getattr(sys, "frozen", False):
 else:
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-DEFAULT_DB_PATH = _PROJECT_ROOT / "hr_kpi.db"
+DEFAULT_DB_PATH = Path(os.environ.get("VNMATEAI_HR_DB_PATH") or _PROJECT_ROOT / "hr_kpi.db")
 
 
 class WindowsDomainManager:
@@ -46,7 +48,7 @@ class WindowsDomainManager:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Create and configure SQLite connection with WAL mode and row factory."""
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0)
+        conn = sqlite3.connect(str(self.db_path), timeout=10.0, factory=ClosingConnection)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL")
         conn.execute("PRAGMA synchronous = NORMAL")

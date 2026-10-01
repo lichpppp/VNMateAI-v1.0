@@ -12,17 +12,33 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import tempfile
+
 from src.mateai.domain.identity.entities import UserIdentity, UserRole, ClearanceLevel
 from src.mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
 from src.mateai.domain.tasks.entities import BackgroundTask, TaskStatus
 from src.mateai.infrastructure.database.factory import get_repository_registry
+from core.database import ERPDatabase
+from core.db_manager import DatabaseManager
+
+# DB tạm, dựng schema bằng chính hai lớp tạo bảng của runtime. Trước đây test
+# dùng vnmateai.db thật: phụ thuộc số dòng audit của máy dev (>= 2459) và ghi
+# task/audit giả vào DB thật mỗi lần chạy (audit_logs là bảng chỉ-ghi).
+_TMP_DIR = tempfile.mkdtemp(prefix="vnmateai-repo-test-")
+_DB_PATH = str(Path(_TMP_DIR) / "repo_test.db")
+DatabaseManager(Path(_DB_PATH))
+ERPDatabase(Path(_DB_PATH))
+
+
+def get_test_registry():
+    return get_repository_registry(_DB_PATH)
 
 
 async def test_user_repository():
-    print("\n▸ 1. Kiểm thử UserRepository (Đọc dữ liệu tài khoản thực tế)")
-    repo = get_repository_registry()
+    print("\n▸ 1. Kiểm thử UserRepository (Đọc dữ liệu tài khoản)")
+    repo = get_test_registry()
     users = await repo.users.list_users()
-    assert len(users) >= 3, f"Kỳ vọng ít nhất 3 users trong DB, thực tế: {len(users)}"
+    assert len(users) >= 1, f"Kỳ vọng có tài khoản mặc định trong DB, thực tế: {len(users)}"
     print(f"  ✅ Đã tải thành công {len(users)} người dùng từ vnmateai.db:")
     for u in users:
         print(f"     • Username: {u.username:15s} | Role: {u.role.value:10s} | Clearance: {u.clearance.value}")
@@ -37,9 +53,8 @@ async def test_user_repository():
 
 async def test_audit_repository():
     print("\n▸ 2. Kiểm thử AuditRepository (Nhật ký kiểm toán an ninh)")
-    repo = get_repository_registry()
+    repo = get_test_registry()
     count_before = await repo.audits.count_events()
-    assert count_before >= 2459, f"Kỳ vọng ít nhất 2459 audit events, thực tế: {count_before}"
     print(f"  ✅ Đếm được {count_before} bản ghi audit logs trong cơ sở dữ liệu.")
 
     # Ghi nhận sự kiện kiểm toán mới
@@ -60,14 +75,14 @@ async def test_audit_repository():
 
     # Lấy danh sách 5 sự kiện gần nhất
     latest_events = await repo.audits.list_events(limit=5)
-    assert len(latest_events) == 5
+    assert len(latest_events) == min(5, count_after)
     assert latest_events[0]["action_type"] == "tool_execute"
     print(f"  ✅ list_events(limit=5) trả về bản ghi vừa tạo thành công.")
 
 
 async def test_task_repository():
     print("\n▸ 3. Kiểm thử TaskRepository (Quản lý tác vụ nền)")
-    repo = get_repository_registry()
+    repo = get_test_registry()
     
     # Tạo task mới
     new_task = BackgroundTask(

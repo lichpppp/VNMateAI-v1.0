@@ -213,6 +213,8 @@ def _get_assistant_name() -> str:
 async def _tts_bytes(audio_engine, text: str, timeout_s: float = 14.0) -> Optional[bytes]:
     """Sinh audio có chặn trên, trả về bytes thô (None khi lỗi/timeout).
 
+    Trả None thì HUD vẫn gửi chữ của câu đó, chỉ không có tiếng.
+
     Phase 82 — Parallel TTS Race:
     - Chạy đồng thời edge-tts (via audio_engine) VÀ gTTS fallback.
     - Ai trả về audio trước thì thắng — task còn lại bị huỷ.
@@ -330,8 +332,8 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
     Câu tiếp theo đang stream từ LLM trong khi câu đầu đang được phát.
     """
     from core.llm_engine import llm_engine
+    from core.audio_processor import audio_engine
     from core.audio.tts_stream_engine import TTSStreamEngine
-    from core.audio.sentence_streamer import SentenceStreamer
     from core.voice_session import voice_sessions, is_stop_reply, looks_like_question
     from core.memory_manager import detect_and_handle_context_lifecycle
     from core.audio_cache import get_cached_audio_bytes
@@ -373,34 +375,61 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
     _t_start = time.monotonic()
     tts_engine = TTSStreamEngine()
 
+    # ── Lời đệm chỉ phát khi câu trả lời thật chưa về (Phase 67/70) ────────
+    # Commit 4f6464a bỏ mất khối này cùng hàng đợi TTS bên dưới; khôi phục lại,
+    # giữ cách gửi audio bằng binary frame của Phase 93.
+    FILLER_GRACE_SEC = 1.0
+    _filler_sent = False
+    _filler_played = False
+    _filler_task: Optional["asyncio.Task"] = None
+
+    async def _play_filler_later() -> None:
+        """Phát lời đệm, nhưng chỉ khi câu trả lời thật chưa tới."""
+        nonlocal _filler_sent, _filler_played
+        await asyncio.sleep(FILLER_GRACE_SEC)
+        if _filler_sent:
+            return
+        _filler_sent = True
+        _filler_played = True
+        phrase = get_contextual_filler(cmd_query)
+        try:
+            fb = get_cached_audio_bytes(phrase)
+        except Exception:
+            fb = None
+        if not fb:
+            fb = await _tts_bytes(audio_engine, phrase)
+        await broadcast_hud({
+            "type": "voice_active",
+            "status": "speaking",
+            "text": phrase,
+            "source_device": "hud",
+            "is_filler": True,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        if fb and len(fb) > 100:
+            await broadcast_hud_binary(fb)
+        logger.info("[HUD] Phát lời đệm sau %.1fs chờ: %s", FILLER_GRACE_SEC, phrase)
+
+    _filler_task = asyncio.create_task(_play_filler_later())
+
+    def _stop_filler() -> None:
+        nonlocal _filler_task, _filler_sent
+        _filler_sent = True
+        if _filler_task is not None and not _filler_task.done():
+            _filler_task.cancel()
+        _filler_task = None
+
     # ---------------------------------------------------------------------------
-    # Phase 93: Stream LLM → SentenceStreamer → TTSStreamEngine → Binary WS
+    # Phase 93: Stream LLM → câu → TTS → Binary WS
     # ---------------------------------------------------------------------------
     full_sentences: list[str] = []
     display_text: str = ""
-    first_sentence_sent = False
 
-    async def _stream_sentence_audio(sentence: str) -> None:
-        """Stream audio của một câu hoàn chỉnh qua HUD binary frame."""
-        nonlocal first_sentence_sent, display_text
-
-        if not first_sentence_sent:
-            first_sentence_sent = True
-            elapsed = time.monotonic() - _t_start
-            logger.info(
-                "[HUD/Stream] Câu đầu về sau %.2fs — bắt đầu phát TTS",
-                elapsed,
-            )
-            await _broadcast_thinking(
-                "done",
-                getattr(llm_engine, "last_voice_reasoning", ""),
-                cmd_query,
-            )
-
-        full_sentences.append(sentence)
+    async def _emit_sentence(sentence: str, audio_data: Optional[bytes]) -> None:
+        """Gửi chữ + audio của một câu xuống HUD, đúng thứ tự câu."""
+        nonlocal display_text
         display_text = getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences)
 
-        # Thông báo text cho HUD hiển thị ngay (typewriter effect)
         await broadcast_hud({
             "type": "voice_active",
             "status": "speaking",
@@ -410,20 +439,10 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             "source_device": "hud",
             "timestamp": datetime.utcnow().isoformat(),
         })
-
-        # Tổng hợp câu thành một khối MP3 trọn vẹn rồi gửi qua binary frame (tránh vỡ âm thanh)
-        t_tts_start = time.monotonic()
-        audio_data = await tts_engine.synthesise(sentence)
+        # TTS lỗi/timeout thì HUD vẫn hiện chữ, chỉ không có tiếng.
         if audio_data and len(audio_data) > 100:
             await broadcast_hud_binary(audio_data)
 
-        tts_ms = (time.monotonic() - t_tts_start) * 1000
-        logger.info(
-            "[HUD/Stream] Câu '%s' → %d bytes / %.0fms",
-            sentence[:40], len(audio_data) if audio_data else 0, tts_ms
-        )
-
-        # Sync Portal UI
         await broadcast_portal_ui("voice_response", {
             "query": cmd_query,
             "reply": sentence,
@@ -432,7 +451,21 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             "timestamp": datetime.utcnow().isoformat(),
         })
 
-    # Chạy sentence streamer — mỗi câu được stream audio ngay lập tức
+    # Hàng đợi task TTS: câu n đang phát thì câu n+1..n+3 đang được sinh, vòng
+    # lặp LLM không bị chặn bởi TTS. Bản Phase 93 gọi TTS tuần tự trong vòng
+    # lặp, nên mỗi câu cộng nguyên thời gian TTS vào độ trễ và không có timeout.
+    _TTS_LOOKAHEAD = 3
+    _tts_pending: list = []
+
+    async def _flush_one() -> None:
+        pend_text, pend_task = _tts_pending.pop(0)
+        try:
+            audio_data = await pend_task
+        except Exception:  # pylint: disable=broad-except
+            audio_data = None
+        _stop_filler()
+        await _emit_sentence(pend_text, audio_data)
+
     try:
         async for sentence in llm_engine.stream_voice_response(
             query=cmd_query,
@@ -442,17 +475,46 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             clean_s = llm_engine._sanitise_for_tts(sentence)
             if not clean_s:
                 continue
-            await _stream_sentence_audio(clean_s)
+            if not full_sentences:
+                _stop_filler()
+                logger.info(
+                    "[HUD/Stream] Câu đầu về sau %.2fs — bỏ lời đệm, nói thẳng",
+                    time.monotonic() - _t_start,
+                )
+                await _broadcast_thinking(
+                    "done",
+                    getattr(llm_engine, "last_voice_reasoning", ""),
+                    cmd_query,
+                )
+            full_sentences.append(clean_s)
+            _tts_pending.append(
+                (clean_s, asyncio.create_task(_tts_bytes(audio_engine, clean_s)))
+            )
+            while len(_tts_pending) > _TTS_LOOKAHEAD:
+                await _flush_one()
+
+        # Rải nốt những câu còn trong hàng đợi — bỏ bước này thì câu cuối
+        # không bao giờ được phát.
+        for _pend_text, _pend_task in list(_tts_pending):
+            await _flush_one()
 
     except asyncio.CancelledError:
         logger.info("[HUD/Stream] Task bị huỷ (lệnh mới đến)")
+        for _pend_text, _pend_task in _tts_pending:
+            _pend_task.cancel()
+        _tts_pending.clear()
         raise
     except Exception as exc:
         logger.error("[HUD/Stream] Lỗi stream: %s", exc, exc_info=True)
+        for _pend_text, _pend_task in _tts_pending:
+            _pend_task.cancel()
+        _tts_pending.clear()
+    finally:
+        _stop_filler()
 
     logger.info(
-        "[HUD/Stream] Hoàn tất lượt nói sau %.2fs (%d câu)",
-        time.monotonic() - _t_start, len(full_sentences),
+        "[HUD/Stream] Hoàn tất lượt nói sau %.2fs (%d câu, %d câu đệm)",
+        time.monotonic() - _t_start, len(full_sentences), 1 if _filler_played else 0,
     )
 
     # Fallback: nếu LLM stream không yield được gì
@@ -3073,7 +3135,14 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     model_name = (payload.model_name or payload.provider_model or default_model).strip()
     api_key = payload.api_key if payload.api_key is not None else default_key
     if not api_key or (isinstance(api_key, str) and api_key.strip() == _SECRET_MASK):
-        api_key = getattr(cfg_llm, "api_key", "sk-dummy") if cfg_llm else "sk-dummy"
+        # Đang thử URL direct (LM Studio / Ollama / DeepSeek) thì dùng khoá direct,
+        # không gửi khoá 9Router sang một máy chủ khác.
+        _norm = lambda u: (u or "").strip().rstrip("/").removesuffix("/v1")  # noqa: E731
+        direct_url = getattr(cfg_llm, "direct_url", "") if cfg_llm else ""
+        if direct_url and _norm(base_url) == _norm(direct_url):
+            api_key = (getattr(cfg_llm, "direct_api_key", "") or "lm-studio")
+        else:
+            api_key = getattr(cfg_llm, "api_key", "sk-dummy") if cfg_llm else "sk-dummy"
     api_key = (api_key or "sk-dummy").strip()
 
     if not model_name:
@@ -3662,7 +3731,9 @@ async def save_config(
                 "routing_mode": payload["llm"].get("routing_mode", existing_llm.get("routing_mode", "router")),
                 "direct_url": payload["llm"].get("direct_url", existing_llm.get("direct_url", "")),
                 "direct_model": payload["llm"].get("direct_model", existing_llm.get("direct_model", "")),
-                "direct_api_key": payload["llm"].get("direct_api_key") or existing_llm.get("direct_api_key") or "sk-dummy",
+                # Không ghi khoá giả vào config.json; client direct tự dùng
+                # khoá giữ chỗ khi rỗng (llm_engine: `direct_api_key or "lm-studio"`).
+                "direct_api_key": payload["llm"].get("direct_api_key") or existing_llm.get("direct_api_key") or "",
             }
         elif "routing" in payload and isinstance(payload["routing"], dict):
             # If incoming is legacy routing, extract primary into 'llm'

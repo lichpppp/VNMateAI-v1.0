@@ -1,5 +1,7 @@
 # VN-MateAI — Bản Đồ Phụ Thuộc Mã Nguồn & Vòng Lặp Import (Dependency Graph & Coupling Analysis)
 
+> **Đã cập nhật (Phase 0, 2026-10-01):** thực đo không có vòng import top-level; tính cả import trong hàm có 1 khối liên thông 37 module + 1 vòng 2 module (`sentence_buffer` ↔ `sentence_streamer`); 10 module lõi import ngược `core.server` (không tính `main.py`). Xem `current-vs-target.md` §6.
+
 ## I. TỔNG QUAN PHÂN TÍCH PHỤ THUỘC TẦNG `core/`
 
 Phân tích tĩnh trên toàn bộ 87 tệp Python trong thư mục `core/` cho kết quả:

@@ -20,7 +20,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(HERE, '..', 'web', 'app.js'), 'utf-8');
+const src = readFileSync(join(HERE, '..', 'web', 'app.js'), 'utf-8').replace(/\r\n/g, '\n');
 
 let pass = 0, fail = 0;
 const results = [];

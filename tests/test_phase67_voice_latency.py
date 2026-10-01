@@ -143,8 +143,12 @@ check("có hàm hủy filler khi câu thật về", "_stop_filler()" in fn_src)
 check("ghi log khi bỏ filler", "bỏ lời đệm" in fn_src)
 
 section("TTS không chặn vòng lặp")
-check("TTS chạy bằng task riêng", "create_task(" in fn_src and "_safe_tts" in fn_src)
-check("TTS qua hàm bọc có timeout", "_safe_tts(audio_engine" in fn_src)
+# Phase 93 gửi audio HUD bằng binary frame nên thân hàm dùng `_tts_bytes`
+# (bytes) thay cho `_safe_tts` (base64) — cả hai đều là hàm bọc có timeout.
+_tts_wrapped = "_safe_tts(audio_engine" in fn_src or "_tts_bytes(audio_engine" in fn_src
+check("TTS chạy bằng task riêng",
+      "create_task(_tts_bytes(" in fn_src or "create_task(_safe_tts(" in fn_src)
+check("TTS qua hàm bọc có timeout", _tts_wrapped)
 check("không còn gọi TTS trực tiếp không bọc trong hàm HUD",
       "await audio_engine.text_to_speech_bytes(" not in fn_src,
       "còn gọi thẳng, không qua hàm bọc timeout")

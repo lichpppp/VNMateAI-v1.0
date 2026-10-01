@@ -17,16 +17,33 @@ Tables:
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+
+class ClosingConnection(sqlite3.Connection):
+    """Kết nối SQLite đóng hẳn khi ra khỏi khối `with`.
+
+    `with sqlite3.Connection` gốc chỉ commit/rollback, KHÔNG đóng kết nối. Kết
+    nối chỉ đóng khi bị thu gom, nên file DB (và -wal/-shm) bị giữ lâu hơn cần
+    thiết — trên Windows điều đó làm xoá/di chuyển file DB lỗi `WinError 32`.
+    Gọi trực tiếp `conn = ...get_connection()` thì vẫn tự đóng như trước.
+    """
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
 logger = logging.getLogger("core.database")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DB_PATH = _PROJECT_ROOT / "vnmateai.db"
+DB_PATH = Path(os.environ.get("VNMATEAI_DB_PATH") or _PROJECT_ROOT / "vnmateai.db")
 
 # Số giờ tiết kiệm ước tính cho mỗi phiếu do AI tự xử lý.
 #
@@ -59,7 +76,10 @@ class ERPDatabase:
 
     def get_connection(self) -> sqlite3.Connection:
         """Tạo kết nối SQLite có kích hoạt FOREIGN KEY và Row factory."""
-        conn = sqlite3.connect(str(self.db_path), timeout=30.0, check_same_thread=False)
+        conn = sqlite3.connect(
+            str(self.db_path), timeout=30.0, check_same_thread=False,
+            factory=ClosingConnection,
+        )
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
         conn.execute("PRAGMA journal_mode = WAL;")

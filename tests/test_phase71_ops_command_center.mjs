@@ -22,8 +22,8 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(HERE, '..', 'web', 'app.js');
 const HTML = join(HERE, '..', 'web', 'index.html');
-const src = readFileSync(APP, 'utf-8');
-const html = readFileSync(HTML, 'utf-8');
+const src = readFileSync(APP, 'utf-8').replace(/\r\n/g, '\n');
+const html = readFileSync(HTML, 'utf-8').replace(/\r\n/g, '\n');
 
 let pass = 0, fail = 0;
 const results = [];

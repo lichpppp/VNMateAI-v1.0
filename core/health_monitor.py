@@ -37,7 +37,7 @@ if getattr(sys, "frozen", False):
 else:
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-_DB_PATH = _PROJECT_ROOT / "hr_kpi.db"
+_DB_PATH = Path(os.environ.get("VNMATEAI_HR_DB_PATH") or _PROJECT_ROOT / "hr_kpi.db")
 _START_TIME = time.time()
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -4294,13 +4294,11 @@ async function loadConfig() {
   const routingMode = llm.routing_mode || 'router';
   const directUrl = llm.direct_url || 'https://api.deepseek.com';
   const directModel = llm.direct_model || 'deepseek-chat';
-  const directKey = llm.direct_api_key || '';
-
   setVal('cfg-direct-url', directUrl);
   setVal('cfg-direct-model', directModel);
-  if (directKey && directKey !== 'sk-dummy') {
-    setVal('cfg-direct-key', directKey);
-  }
+  // Như ô khoá 9Router: server đã che khoá, nên để trống; bỏ trống khi Lưu thì
+  // server giữ khoá cũ.
+  setVal('cfg-direct-key', '');
   switchCfgRoutingMode(routingMode);
 
   // Nhận diện và highlight provider trên tab Config
@@ -4435,7 +4433,7 @@ async function saveFullConfig() {
       direct_model: getVal('cfg-direct-model') || currentConfig?.llm?.direct_model || 'deepseek-chat',
       direct_api_key: (getVal('cfg-direct-key') && getVal('cfg-direct-key') !== SECRET_MASK)
         ? getVal('cfg-direct-key')
-        : (currentConfig?.llm?.direct_api_key || 'sk-dummy'),
+        : '',
     },
     routing: {
       ...(currentConfig?.routing || {}),
@@ -4749,7 +4747,7 @@ async function saveAIConfig() {
   }
 
   const typedDirectKey = getVal('ai-direct-api-key');
-  const directApiKey = (typedDirectKey && typedDirectKey !== SECRET_MASK) ? typedDirectKey : (currentConfig?.llm?.direct_api_key || 'sk-dummy');
+  const directApiKey = (typedDirectKey && typedDirectKey !== SECRET_MASK) ? typedDirectKey : '';
 
   const updated = {
     ...currentConfig,
@@ -5301,7 +5299,8 @@ async function testAILLMConnection() {
   if (isDirect) {
     baseUrl = document.getElementById('ai-direct-url')?.value?.trim() || 'http://localhost:1234/v1';
     modelName = document.getElementById('ai-direct-model')?.value?.trim() || document.getElementById('ai-llm-model')?.value?.trim() || '';
-    apiKey = document.getElementById('ai-direct-api-key')?.value?.trim() || 'sk-dummy';
+    // Trống thì server tự dùng khoá đang lưu hoặc khoá giữ chỗ cho LM Studio/Ollama.
+    apiKey = document.getElementById('ai-direct-api-key')?.value?.trim() || '';
   } else {
     baseUrl = document.getElementById('ai-llm-base')?.value?.trim() || 'http://localhost:20128/v1';
     modelName = document.getElementById('ai-llm-model')?.value?.trim() || '';
@@ -12190,7 +12189,7 @@ function renderEmptyDataSourceTab(subTabId) {
  * (`loadCcDataSourceTab`) thay vì vá từng nơi gọi — sau này thêm nơi gọi thứ ba
  * thì vẫn an toàn.
  */
-const CC_HANDWRITTEN_SUBTABS = ['config', 'webhook', 'tools', 'sys', 'devices'];
+const CC_HANDWRITTEN_SUBTABS = ['config', 'webhook', 'tools', 'sys', 'devices', 'departments', 'elastic-grid'];
 
 async function loadCcDataSourceTab(subTabId) {
   // Chặn trước mọi thứ: không vẽ nguồn dữ liệu lên pane viết tay (xem

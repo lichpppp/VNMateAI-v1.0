@@ -16,7 +16,7 @@ import { dirname, resolve } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const appJs = readFileSync(resolve(__dirname, '../web/app.js'), 'utf8');
+const appJs = readFileSync(resolve(__dirname, '../web/app.js'), 'utf8').replace(/\r\n/g, '\n');
 
 // Cắt phần router giữa hai marker
 const m = appJs.match(/\/\* ROUTER_START[\s\S]*?ROUTER_END \*\//);

@@ -22,7 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -36,10 +36,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class VoiceRequestTrace:
     """Theo dõi độ trễ từng chặng của một yêu cầu giọng nói."""
+    # perf_counter thay monotonic: trên Windows monotonic chỉ phân giải 15,6 ms,
+    # làm TTFD/TTFT/TTFA nhảy bậc 0/15/31 ms.
     request_id: str
     session_id: str
     trace_id: str = field(default_factory=lambda: f"trace_{uuid.uuid4().hex[:12]}")
-    t_received: float = field(default_factory=time.monotonic)
+    t_received: float = field(default_factory=time.perf_counter)
     t_first_display: Optional[float] = None
     t_first_token: Optional[float] = None
     t_first_audio: Optional[float] = None
@@ -47,25 +49,25 @@ class VoiceRequestTrace:
     status_history: list[str] = field(default_factory=list)
 
     def mark_status(self, status: str) -> None:
-        self.status_history.append(f"{status}@{int((time.monotonic() - self.t_received) * 1000)}ms")
+        self.status_history.append(f"{status}@{int((time.perf_counter() - self.t_received) * 1000)}ms")
 
     def mark_first_display(self) -> int:
         if self.t_first_display is None:
-            self.t_first_display = time.monotonic()
+            self.t_first_display = time.perf_counter()
         return int((self.t_first_display - self.t_received) * 1000)
 
     def mark_first_token(self) -> int:
         if self.t_first_token is None:
-            self.t_first_token = time.monotonic()
+            self.t_first_token = time.perf_counter()
         return int((self.t_first_token - self.t_received) * 1000)
 
     def mark_first_audio(self) -> int:
         if self.t_first_audio is None:
-            self.t_first_audio = time.monotonic()
+            self.t_first_audio = time.perf_counter()
         return int((self.t_first_audio - self.t_received) * 1000)
 
     def mark_completed(self) -> Dict[str, Any]:
-        self.t_completed = time.monotonic()
+        self.t_completed = time.perf_counter()
         ttl_ms = int((self.t_completed - self.t_received) * 1000)
         ttfd_ms = int((self.t_first_display - self.t_received) * 1000) if self.t_first_display else None
         ttft_ms = int((self.t_first_token - self.t_received) * 1000) if self.t_first_token else None
@@ -411,6 +413,10 @@ async def _execute_voice_turn(
         from core.history_pruner import prune_history_for_voice
         raw_history = payload.get("history") or memory_manager.get_history(session.session_id)
         pruned_history = prune_history_for_voice(raw_history, max_turns=4, max_total_chars=1200)
+
+        # Che IP nội bộ / mật khẩu / token trước khi gửi lên LLM (như llm_engine).
+        # Commit 4f6464a dùng biến này mà không gán -> mọi lượt qua LLM NameError.
+        sanitized_query = security_engine.mask_sensitive_data(query)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
         if pruned_history:

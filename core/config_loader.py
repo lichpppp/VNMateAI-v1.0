@@ -212,8 +212,8 @@ class LLMConfig(BaseModel):
                     final_rm.append(dm)
 
             data["router_models"] = final_rm
-            data["router_model"] = final_rm[0]
-            data["model_name"] = final_rm[0]
+            data["router_model"] = final_rm[0] if final_rm else ""
+            data["model_name"] = final_rm[0] if final_rm else ""
 
             # Normalize specialist_models
             sm = data.get("specialist_models")
@@ -236,8 +236,10 @@ class LLMConfig(BaseModel):
                 if dm not in final_sm:
                     final_sm.append(dm)
 
+            # Không cấu hình specialist thì dùng tạm model chính, tránh IndexError
+            # khi config mới tạo từ config.example.json (specialist_models rỗng).
             data["specialist_models"] = final_sm
-            data["specialist_model"] = final_sm[0]
+            data["specialist_model"] = final_sm[0] if final_sm else data["model_name"]
 
             # Ensure base_url ends with /v1
             bu = data.get("base_url", "")

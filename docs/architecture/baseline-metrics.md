@@ -1,5 +1,7 @@
 # VN-MateAI — Bảng Chỉ Số Hiệu Năng Chuẩn Đo Đạc Thực Tế (Baseline Metrics)
 
+> **Chưa được kiểm chứng (Phase 0, 2026-10-01):** các số dưới đây không đo lại được trên cấu hình đang chạy (thực đo khi rảnh: 405 MB working set, 6,4 % CPU một core). Baseline thật xem `current-vs-target.md` §3 và §7; công cụ đo latency voice sẽ được xây ở Phase 1.
+
 Toàn bộ chỉ số dưới đây được đo lường trực tiếp từ việc chạy bộ kiểm thử hệ thống tại Phase 1 trên môi trường máy chủ cục bộ:
 
 ## I. HIỆU NĂNG REALTIME VOICE & COMMAND PIPELINE

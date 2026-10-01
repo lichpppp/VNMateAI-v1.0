@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const src = readFileSync(join(ROOT, 'web', 'hud.js'), 'utf8');
+const src = readFileSync(join(ROOT, 'web', 'hud.js'), 'utf8').replace(/\r\n/g, '\n');
 
 let passed = 0;
 let failed = 0;
@@ -233,7 +233,7 @@ check('hudStopListeningForTurn cũng giữ cảnh báo',
 section('Bản nạp vào trình duyệt phải là bản mới');
 // Hai lỗi trước đều do trình duyệt chạy bản cache cũ mà không ai biết:
 // StaticFiles không gửi Cache-Control, và thẻ script ghi số phiên bản cứng.
-const srv = readFileSync(join(ROOT, 'core', 'server.py'), 'utf8');
+const srv = readFileSync(join(ROOT, 'core', 'server.py'), 'utf8').replace(/\r\n/g, '\n');
 check('static buộc kiểm tra lại bản mới',
   srv.includes('no-cache, must-revalidate'));
 check('có lớp static tuỳ chỉnh cache',

@@ -178,3 +178,8 @@ def run_architecture_tests():
 if __name__ == "__main__":
     exit_code = run_architecture_tests()
     sys.exit(exit_code)
+
+
+def test_src_mateai_boundaries():
+    """Cho pytest chạy bộ kiểm tra này (trước đây chỉ chạy khi gọi trực tiếp)."""
+    assert run_architecture_tests() == 0

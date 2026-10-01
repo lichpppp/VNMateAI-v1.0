@@ -113,6 +113,11 @@ def main() -> None:
     # Chỉ khối máy trạm, để so số "số bịa" trong đúng vùng cần sạch.
     dev_start = index_html.index('<div id="cc-int-devices"')
     nxt = index_html.index("</section>", dev_start)
+    # Từ f389bbe, pane Phòng Ban / Elastic Grid nằm ngay sau Máy Trạm trong cùng
+    # <section>: khối Máy Trạm kết thúc ở pane kế tiếp, không phải </section>.
+    _next_pane = re.search(r'<div id="cc-int-(?!devices")[a-z-]+"', index_html[dev_start + 1:nxt])
+    if _next_pane:
+        nxt = dev_start + 1 + _next_pane.start()
     devices_html = index_html[dev_start:nxt]
     dev_code_start = index_html_code.index('<div id="cc-int-devices"')
     devices_code = index_html_code[dev_code_start:index_html_code.index("</section>", dev_code_start)]

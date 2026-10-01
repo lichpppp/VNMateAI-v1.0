@@ -38,7 +38,7 @@ from core.xiaozhi_gateway import xiaozhi_gateway
 logger = logging.getLogger("core.autonomous_sentinel")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_DB_PATH = _PROJECT_ROOT / "hr_kpi.db"
+_DB_PATH = Path(os.environ.get("VNMATEAI_HR_DB_PATH") or _PROJECT_ROOT / "hr_kpi.db")
 
 
 class AutonomousSentinel:

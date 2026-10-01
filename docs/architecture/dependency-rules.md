@@ -59,9 +59,41 @@ Mọi module và thay đổi code trong quá trình tái cấu trúc VN-MateAI p
 
 ---
 
-## III. CƠ CHẾ KIỂM TRA TỰ ĐỘNG BẰNG ARCHITECTURE TESTS
+## III. CƠ CHẾ KIỂM TRA TỰ ĐỘNG — TRẠNG THÁI THẬT (Phase 0, 2026-10-01)
 
-Trong các phase tiếp theo, một bộ kiểm tra tĩnh (Architecture Tests) sẽ được đưa vào thư mục `tests/architecture/` để quét AST mã nguồn:
-1. Quét toàn bộ lệnh `import` trong `src/mateai/domain/`: Báo lỗi nếu phát hiện bất kỳ package ngoài Python standard library (ngoại trừ Pydantic).
-2. Quét các file trong `src/mateai/application/`: Báo lỗi nếu phát hiện `fastapi`, `starlette` hoặc module `sqlite3`/`asyncpg`.
-3. Quét các file trong `src/mateai/interfaces/http/`: Báo lỗi nếu phát hiện câu lệnh SQL thô (`SELECT`, `INSERT`).
+`tests/architecture/test_architecture_boundaries.py` hiện chỉ kiểm tra **3/10 quy tắc** (RULE-001/002, RULE-003, RULE-004) và chỉ quét `src/mateai/` — cây code **không chạy** trong runtime. Thư mục `src/mateai/interfaces/` rỗng nên RULE-004 luôn đạt. Kết quả "đạt 100 %" vì thế không nói gì về `core/`.
+
+**Phase 1 đã làm:** `tests/architecture/test_core_rules.py` quét code đang chạy (`core/`, `skills/`, `workers/`, `main.py`) theo RULE-011…015 với baseline `tests/architecture/core_rules_baseline.json` — vi phạm mới làm test fail, số vi phạm giảm thì phải hạ baseline (bánh cóc). Test cũ cho `src/mateai/` nay được pytest chạy.
+
+Yêu cầu ban đầu (giữ để đối chiếu):
+1. Quét **code thật đang chạy**: `core/` hôm nay, và các tầng đích khi code được di chuyển sang.
+2. Cho phép ghi nhận vi phạm hiện có vào một danh sách ngoại lệ có hạn chót (baseline), và **fail khi xuất hiện vi phạm mới** — để cấm quay lui mà không chặn công việc.
+3. Kiểm tra thêm các quy tắc chống trùng lặp ở mục IV.
+
+## IV. QUY TẮC CHỐNG TRÙNG LẶP (bổ sung từ audit trùng lặp)
+
+| Mã | Quy tắc | Kiểm tra tự động |
+|---|---|---|
+| RULE-011 | Chỉ `infrastructure/llm` (hôm nay: `core/llm_provider.py`) được tạo client `OpenAI`/`AsyncOpenAI` hoặc gọi `chat.completions.create` | grep AST `OpenAI(`, `AsyncOpenAI(`, `.chat.completions.create` |
+| RULE-012 | Chỉ `infrastructure/tts` (hôm nay: `core/audio/tts_stream_engine.py`) được gọi `edge_tts.Communicate`, `gTTS`, `/audio/speech` | grep AST |
+| RULE-013 | Chỉ loader cấu hình được mở `config.json` | grep chuỗi `"config.json"` kèm `open`/`read_text`/`json.load` |
+| RULE-014 | Chỉ tầng persistence được gọi `sqlite3.connect` | grep AST |
+| RULE-015 | Không module nào trong lõi import `core.server` (hoặc `interfaces/*`) | đồ thị import |
+| RULE-016 | Mỗi tên tool chỉ được đăng ký ở một registry | so khớp tên từ `plugin_manager` và `plugin_registry` lúc khởi động |
+
+## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`core/`)
+
+| Quy tắc | Trạng thái | Bằng chứng |
+|---|---|---|
+| RULE-001/002 | Không áp dụng được — `core/` chưa tách tầng | — |
+| RULE-005 | Vi phạm | các handler WS trong `server.py` gọi thẳng `llm_engine`, TTS, `memory_manager` |
+| RULE-007 | Một phần | `/api/v1/skills/execute` qua `security_guard`; đường agent qua `zero_trust`; hai mô hình vai trò |
+| RULE-008 | Một phần | `plugin_registry` có timeout + circuit breaker; 17 `httpx.AsyncClient` tự tạo với cấu hình riêng |
+| RULE-009 | Chỉ P1 | P1 có cancellation token; P2 hủy bằng task; P3/P4 chưa kiểm chứng |
+| RULE-010 | Chưa | chỉ có `/health` |
+| RULE-011 | Vi phạm | 5 module ngoài `llm_provider` tự tạo client OpenAI |
+| RULE-012 | Vi phạm | `audio_processor.py`, `server.py` cũng tổng hợp TTS |
+| RULE-013 | Vi phạm | 14 chỗ đọc `config.json` |
+| RULE-014 | Vi phạm | `autonomous_sentinel`, `health_monitor`, `domain_sync`, `db_manager` |
+| RULE-015 | Vi phạm | 10 module lõi import `core.server` (không tính `main.py`) |
+| RULE-016 | Chưa đo | log khởi động có cảnh báo `Tool 'tool_execute_gui_task' already registered` |

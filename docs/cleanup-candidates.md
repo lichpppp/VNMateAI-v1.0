@@ -1,5 +1,7 @@
 # DANH SÁCH ĐỐI TƯỢNG RÀ SOÁT & DỌN DẸP (CLEANUP CANDIDATES)
 
+> **Đã được thay thế (Phase 0, 2026-10-01):** xem `docs/architecture/legacy-candidates.md`. Nhiều mục dưới đây tham chiếu file không còn tồn tại (`core/api_voice_stream.py`, `scratch/`, `vnmateai.db.bak-*`).
+
 **Dự án**: VN-MateAI  
 **Mục tiêu**: Loại bỏ code thừa, trùng lặp, tệp rác lịch sử nhưng bảo tồn 100% chức năng hoạt động.  
 **Nguyên tắc**: Xác định rõ Canonical Implementation trước khi sửa đổi, kiểm chứng tất cả liên kết tĩnh và động.

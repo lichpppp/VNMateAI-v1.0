@@ -18,12 +18,12 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(HERE, '..', 'web', 'app.js');
 const HTML = join(HERE, '..', 'web', 'index.html');
-const src = readFileSync(APP, 'utf-8');
+const src = readFileSync(APP, 'utf-8').replace(/\r\n/g, '\n');
 // Bản code đã bỏ comment — bắt buộc khi kiểm tra "cái gì đó đã bị gỡ": các
 // bình luận giải thích fix hay nhắc lại đúng tên hàm đã xoá, nên quét `src`
 // thôi sẽ khẳng định sai là nó còn tồn tại.
 const srcCode = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-const html = readFileSync(HTML, 'utf-8');
+const html = readFileSync(HTML, 'utf-8').replace(/\r\n/g, '\n');
 
 let pass = 0, fail = 0;
 const results = [];
