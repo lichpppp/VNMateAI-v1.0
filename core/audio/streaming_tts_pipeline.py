@@ -1,155 +1,35 @@
 """
 core/audio/streaming_tts_pipeline.py
 =====================================
-Streaming TTS Pipeline — Full-Duplex Voice Latency Optimisation.
+Âm đệm phản xạ (Acoustic ACK) cho đường voice.
 
-Mục tiêu: TTFA (Time-To-First-Audio) < 600ms.
+  - get_acoustic_ack_audio():     lấy câu đệm từ cache (0ms) hoặc tổng hợp qua TTS
+  - warmup_acoustic_ack_cache():  làm nóng cache câu đệm + câu hệ thống khi khởi động
 
-Kiến trúc:
-  LLM tokens → SentenceStreamer → TTSStreamEngine → WebSocket Binary Frame
-  Tool call  → AcousticACK (cache 0ms) → immediate audio frame
-
-Các lớp/hàm chính:
-  - SentenceBoundaryStreamer: tương thích ngược với code cũ (api_voice_stream.py)
-  - get_acoustic_ack_audio():  lấy câu ACK từ cache hoặc tổng hợp nhanh
-  - warmup_acoustic_ack_cache(): pre-warm khi server khởi động
-  - edge_tts_stream_audio():   stream audio bytes từ edge-tts (cho HUD binary)
+Phase 2: đã gỡ các lớp tương thích chết (SentenceBoundaryStreamer — "tương
+thích api_voice_stream.py", file đó không còn; edge_tts_stream_audio;
+get_acoustic_ack_for_query) và các re-export. Tách câu: core/audio/sentence_buffer.py;
+tổng hợp giọng: core/audio/tts_stream_engine.py; hàng đợi TTS:
+core/audio/tts_queue_pipeline.py.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
-from typing import AsyncGenerator, List, Optional, Callable, Awaitable
+from typing import List, Optional
 
-# Re-export từ module mới để API cũ vẫn hoạt động
-from core.audio.sentence_streamer import (
-    SentenceStreamer,
-    sanitise_for_tts as _sanitise_for_tts,
-    MIN_SENTENCE_CHARS as _MIN_SENTENCE_LEN,
-)
-from core.audio.tts_stream_engine import TTSStreamEngine, get_tts_engine, _get_tts_voice
-
-logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Acoustic ACK phrases (Context-Aware Catalog Re-export)
-# ---------------------------------------------------------------------------
-
+from core.audio.tts_stream_engine import get_tts_engine
 from core.audio.acoustic_ack_catalog import (
     ACOUSTIC_ACK_CATALOG,
     ALL_ACOUSTIC_ACK_PHRASES,
     select_acoustic_ack,
-    get_all_ack_phrases,
 )
+
+logger = logging.getLogger(__name__)
 
 ACOUSTIC_ACK_PHRASES: List[str] = ACOUSTIC_ACK_CATALOG["GENERAL_GENERIC"]
 _ack_phrase_index: int = 0
-
-
-# ---------------------------------------------------------------------------
-# Backward-compatible SentenceBoundaryStreamer
-# ---------------------------------------------------------------------------
-
-class SentenceBoundaryStreamer:
-    """
-    Wrapper tương thích ngược với api_voice_stream.py.
-
-    Sử dụng StreamingTTSWorkerPipeline để tổng hợp giọng nói gối đầu đa luồng
-    với bảo đảm tuyệt đối thứ tự âm thanh (In-Order Guaranteed).
-    """
-
-    def __init__(
-        self,
-        voice: Optional[str] = None,
-        on_sentence_ready: Optional[Callable[[str], Awaitable[None]]] = None,
-        num_workers: int = 2,
-    ) -> None:
-        self._voice = voice
-        self._on_sentence_ready = on_sentence_ready
-        self._num_workers = num_workers
-        self._sentence_streamer = SentenceStreamer()
-        self._tts_engine = TTSStreamEngine(voice=voice)
-        self._start_time: float = time.monotonic()
-        self._first_audio_time: Optional[float] = None
-        self._sentences_streamed: int = 0
-        self._total_audio_bytes: int = 0
-
-    async def stream(
-        self,
-        token_generator: AsyncGenerator[str, None],
-        voice: Optional[str] = None,
-    ) -> AsyncGenerator[bytes, None]:
-        """
-        Nhận token generator, gom câu qua SentenceBuffer, tổng hợp gối đầu đa luồng,
-        yield audio bytes theo đúng thứ tự câu.
-        """
-        from core.audio.tts_queue_pipeline import StreamingTTSWorkerPipeline
-
-        pipeline = StreamingTTSWorkerPipeline(
-            voice=voice or self._voice,
-            num_workers=self._num_workers,
-        )
-        pipeline.start()
-
-        async def _produce() -> None:
-            seq = 0
-            try:
-                async for sentence in self._sentence_streamer.stream(token_generator):
-                    seq += 1
-                    if self._on_sentence_ready:
-                        try:
-                            await self._on_sentence_ready(sentence)
-                        except Exception:
-                            pass
-                    await pipeline.push_sentence(seq, sentence, request_id="stream")
-                await pipeline.mark_complete(seq)
-            except Exception as exc:
-                logger.warning("[SentenceBoundaryStreamer] Producer error: %s", exc)
-                await pipeline.mark_complete(seq)
-
-        producer_task = asyncio.create_task(_produce())
-        try:
-            async for audio_item in pipeline.iterate_audio_results():
-                if audio_item.audio_bytes:
-                    if self._first_audio_time is None:
-                        self._first_audio_time = time.monotonic()
-                        ttfa = (self._first_audio_time - self._start_time) * 1000
-                        logger.info(
-                            "[SentenceBoundaryStreamer] TTFA = %.0fms (câu #%d: '%s')",
-                            ttfa, self._sentences_streamed + 1, audio_item.text[:40]
-                        )
-                    self._sentences_streamed += 1
-                    self._total_audio_bytes += len(audio_item.audio_bytes)
-                    yield audio_item.audio_bytes
-        finally:
-            if not producer_task.done():
-                producer_task.cancel()
-            pipeline.cancel()
-
-    def get_ttfa_ms(self) -> Optional[float]:
-        """Thời gian từ init đến chunk audio đầu tiên (ms)."""
-        if self._first_audio_time is None:
-            return None
-        return (self._first_audio_time - self._start_time) * 1000
-
-
-# ---------------------------------------------------------------------------
-# edge_tts_stream_audio — backward compat cho các nơi import trực tiếp
-# ---------------------------------------------------------------------------
-
-async def edge_tts_stream_audio(
-    text: str,
-    voice: Optional[str] = None,
-) -> AsyncGenerator[bytes, None]:
-    """
-    Yield raw audio bytes từ edge-tts (có cache + fallback).
-    Backward-compatible function — dùng TTSStreamEngine bên trong.
-    """
-    engine = TTSStreamEngine(voice=voice)
-    async for chunk in engine.stream(text, voice=voice):
-        yield chunk
 
 
 # ---------------------------------------------------------------------------
@@ -192,18 +72,6 @@ async def get_acoustic_ack_audio(
     return audio
 
 
-async def get_acoustic_ack_for_query(
-    query: str,
-    domain: Optional[str] = None,
-) -> Tuple[str, Optional[bytes]]:
-    """
-    Lựa chọn câu đệm theo ngữ cảnh và trả về cả (phrase_text, audio_bytes).
-    """
-    phrase = select_acoustic_ack(query, domain=domain)
-    audio = await get_acoustic_ack_audio(phrase=phrase)
-    return phrase, audio
-
-
 async def warmup_acoustic_ack_cache() -> None:
     """
     Pre-warm TTS cache cho TOÀN BỘ câu ACK theo danh mục ngữ cảnh (Phase 6).
@@ -211,7 +79,24 @@ async def warmup_acoustic_ack_cache() -> None:
     """
     from core.audio_cache import get_cached_audio_bytes
 
-    total_phrases = len(ALL_ACOUSTIC_ACK_PHRASES)
+    # Câu hệ thống hay nói (trước đây làm nóng ở `audio_processor.prewarm_tts_cache`
+    # bằng một thread + event loop riêng — trùng chức năng và dùng nhầm HTTP
+    # client của loop chính).
+    try:
+        from core.config_loader import settings
+        ai_name = getattr(settings, "AI_NAME", None) or getattr(settings, "ASSISTANT_NAME", "Ly Ly")
+    except Exception:
+        ai_name = "Ly Ly"
+    system_phrases = [
+        f"Xin chào, em là {ai_name}. Tất cả các hệ thống phòng thủ và mạng lưới đang hoạt động tối ưu.",
+        "Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...",
+        "Em đã thực hiện xong yêu cầu của bạn.",
+        "Xin lỗi, em gặp lỗi xử lý nội bộ.",
+        "Tác vụ này yêu cầu phê duyệt bảo mật, vui lòng xác nhận trên màn hình.",
+    ]
+    phrases = list(dict.fromkeys([*ALL_ACOUSTIC_ACK_PHRASES, *system_phrases]))
+
+    total_phrases = len(phrases)
     logger.info(
         "[AcousticACK] Pre-warm TTS cache cho %d câu đệm ngữ cảnh (Phase 6)...",
         total_phrases,
@@ -219,7 +104,7 @@ async def warmup_acoustic_ack_cache() -> None:
     engine = get_tts_engine()
     ok_count = 0
 
-    for phrase in ALL_ACOUSTIC_ACK_PHRASES:
+    for phrase in phrases:
         try:
             cached = get_cached_audio_bytes(phrase)
             if cached and len(cached) > 100:

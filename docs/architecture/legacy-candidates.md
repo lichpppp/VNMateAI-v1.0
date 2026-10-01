@@ -3,6 +3,17 @@
 > Phase 0 — chỉ phân loại, **chưa xóa gì**. Thay thế `docs/cleanup-candidates.md` (tài liệu đó tham chiếu các file đã không còn, ví dụ `core/api_voice_stream.py`, `scratch/`, `vnmateai.db.bak-*`).
 > Bằng chứng xem `duplication-matrix.md`. Điều kiện xóa (Phase C): thay thế đã có, caller đã chuyển, test pass, đã chạy thử runtime.
 
+## Trạng thái (cập nhật Phase 2, 2026-10-01)
+
+| Mục | Trạng thái |
+|---|---|
+| A1 `edge_tts_stream_audio`, A7 nhánh gTTS (3 nơi) | **ĐÃ XOÁ** |
+| B1 `SentenceBoundaryStreamer`, B2 `get_acoustic_ack_for_query` | **ĐÃ XOÁ** (test chuyển sang thành phần canonical) |
+| C1 TTS của `AudioEngine`, C2 race gTTS trong `server.py` | **ĐÃ THAY** bằng `TTSStreamEngine`, bản cũ đã xoá |
+| C3 `llm_engine._sanitise_for_tts`, `clean_text_for_tts` | **ĐÃ THAY** bằng `sanitise_for_tts` + `shorten_for_speech`, bản cũ đã xoá |
+| Thêm: `SentenceStreamer`, `split_into_sentences`, `race_synthesise`, `_safe_tts`, `prewarm_tts_cache` | **ĐÃ XOÁ** (chỉ còn test / không caller) |
+| A2–A6, C4–C11, D1–D8, E1–E8 | chưa làm |
+
 ## A. Xóa được ngay khi vào Phase C (không có caller)
 
 | # | Đối tượng | Bằng chứng không có caller | Rủi ro |

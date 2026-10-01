@@ -107,7 +107,8 @@ async def prewarm_all(force: bool = False, voice: str = "vi-VN-HoaiMyNeural") ->
     """
     Sinh file âm thanh cho toàn bộ danh sách REFLEX_PHRASES và lưu vào storage/audio_cache/.
     """
-    from core.audio_processor import audio_engine
+    from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
+    from core.audio.tts_stream_engine import get_tts_engine
 
     print("=" * 70)
     print("🚀 [VN-MateAI] KHỞI TẠO VỐN TỪ PHẢN XẠ - DYNAMIC AUDIO CACHE PREWARM")
@@ -135,7 +136,9 @@ async def prewarm_all(force: bool = False, voice: str = "vi-VN-HoaiMyNeural") ->
         print(f"[{idx:02d}/{len(REFLEX_PHRASES):02d}] ⏳ [SYNTH] Đang tổng hợp: '{phrase}'...")
         synth_t0 = time.perf_counter()
         try:
-            audio_bytes = await audio_engine.text_to_speech_bytes(phrase, voice=voice)
+            audio_bytes = await get_tts_engine().synthesise(
+                shorten_for_speech(sanitise_for_tts(phrase)), voice=voice
+            )
             synth_dur = time.perf_counter() - synth_t0
 
             if audio_bytes and len(audio_bytes) > 100:

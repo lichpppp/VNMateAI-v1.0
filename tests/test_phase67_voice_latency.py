@@ -143,34 +143,24 @@ check("có hàm hủy filler khi câu thật về", "_stop_filler()" in fn_src)
 check("ghi log khi bỏ filler", "bỏ lời đệm" in fn_src)
 
 section("TTS không chặn vòng lặp")
-# Phase 93 gửi audio HUD bằng binary frame nên thân hàm dùng `_tts_bytes`
-# (bytes) thay cho `_safe_tts` (base64) — cả hai đều là hàm bọc có timeout.
-_tts_wrapped = "_safe_tts(audio_engine" in fn_src or "_tts_bytes(audio_engine" in fn_src
-check("TTS chạy bằng task riêng",
-      "create_task(_tts_bytes(" in fn_src or "create_task(_safe_tts(" in fn_src)
-check("TTS qua hàm bọc có timeout", _tts_wrapped)
+# Phase 93 gửi audio HUD bằng binary frame; Phase 2 gộp TTS: `_tts_bytes(text)`
+# là hàm bọc có timeout duy nhất quanh engine TTS canonical.
+check("TTS chạy bằng task riêng", "create_task(_tts_bytes(" in fn_src)
+check("TTS qua hàm bọc có timeout", "_tts_bytes(" in fn_src)
 check("không còn gọi TTS trực tiếp không bọc trong hàm HUD",
       "await audio_engine.text_to_speech_bytes(" not in fn_src,
       "còn gọi thẳng, không qua hàm bọc timeout")
 check("mọi đường TTS của HUD đều qua hàm bọc",
-      fn_src.count("_tts_bytes(") + fn_src.count("_safe_tts(") >= 2,
+      fn_src.count("_tts_bytes(") >= 2,
       f"{fn_src.count('_tts_bytes(')} lần _tts_bytes")
 check("có log tổng thời gian lượt nói", "Hoàn tất lượt nói sau" in fn_src)
 check("log có số câu đệm đã phát", "câu đệm" in fn_src)
 
 
-# ══ 3. Hàm _safe_tts ══════════════════════════════════════════════════════
-section("_safe_tts chịu được lỗi")
-safe = None
-for node in ast.walk(tree):
-    if isinstance(node, ast.AsyncFunctionDef) and node.name == "_safe_tts":
-        safe = node
-        break
-check("tồn tại _safe_tts", safe is not None)
-if safe:
-    s_src = ast.get_source_segment(src, safe) or ""
-    check("_safe_tts trả base64", "base64" in s_src)
-    check("_safe_tts gọi _tts_bytes (logic chung)", "_tts_bytes" in s_src)
+# ══ 3. Hàm bọc TTS ════════════════════════════════════════════════════════
+section("_tts_bytes chịu được lỗi")
+check("đã gỡ _safe_tts (bản base64 không còn ai gọi)",
+      not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "_safe_tts" for n in ast.walk(tree)))
 
 # Logic bắt lỗi nằm ở _tts_bytes sau khi tách ra dùng chung.
 tb = None
@@ -187,6 +177,8 @@ if tb:
     check("trả None khi lỗi, không ném tiếp", "return None" in t_src)
     check("không để lỗi TTS làm mất câu trả lời",
           "vẫn gửi chữ" in t_src, "phải nói rõ HUD vẫn hiện chữ")
+    check("đi qua engine TTS canonical", "get_tts_engine()" in t_src)
+    check("không còn nhánh gTTS", "gTTS" not in t_src and "gtts" not in t_src)
 
 
 # ══ 4. Không phát filler trùng ở đường tool ═══════════════════════════════

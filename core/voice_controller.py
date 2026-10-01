@@ -36,6 +36,9 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
+from core.audio.tts_stream_engine import get_tts_engine
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -643,7 +646,6 @@ class VoiceController:
         def _run_streaming() -> None:
             """Runs the concurrent Producer-Consumer audio pipeline in a dedicated event loop."""
             async def _async_stream():
-                from core.audio_processor import audio_engine
                 from core.llm_engine import llm_engine
 
                 audio_queue: asyncio.Queue = asyncio.Queue(maxsize=3)  # Phase 45: bounded for backpressure
@@ -690,7 +692,7 @@ class VoiceController:
                             # receives ready-to-play bytes with zero additional wait.
                             try:
                                 t_tts = time.monotonic()
-                                audio_bytes = await audio_engine.text_to_speech_bytes(sentence)
+                                audio_bytes = await get_tts_engine().synthesise(shorten_for_speech(sanitise_for_tts(sentence)))
                                 logger.info(
                                     "VoiceController: [Phase45] TTS S%d done in %.2fs",
                                     sentence_idx, time.monotonic() - t_tts,
@@ -744,7 +746,7 @@ class VoiceController:
                             from core.audio_cache import get_cached_audio_bytes
                             ka_bytes = get_cached_audio_bytes(KEEP_ALIVE_PHRASE)
                             if not ka_bytes:
-                                ka_bytes = await audio_engine.text_to_speech_bytes(KEEP_ALIVE_PHRASE)
+                                ka_bytes = await get_tts_engine().synthesise(shorten_for_speech(sanitise_for_tts(KEEP_ALIVE_PHRASE)))
                             if ka_bytes:
                                 loop = asyncio.get_event_loop()
                                 await loop.run_in_executor(None, self._play_audio_bytes, ka_bytes)
@@ -855,8 +857,7 @@ class VoiceController:
             logger.error("VoiceController: TTS playback error: %s", exc)
 
     async def _play_tts_async(self, text: str) -> None:
-        from core.audio_processor import audio_engine
-        audio_bytes = await audio_engine.text_to_speech_bytes(text)
+        audio_bytes = await get_tts_engine().synthesise(shorten_for_speech(sanitise_for_tts(text)))
         if not audio_bytes:
             return
         loop = asyncio.get_event_loop()

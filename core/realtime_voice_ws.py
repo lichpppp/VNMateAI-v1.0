@@ -366,11 +366,9 @@ async def _execute_voice_turn(
         from core.memory_manager import memory_manager
         from core.audio.sentence_buffer import SentenceBuffer
         from core.audio.tts_queue_pipeline import StreamingTTSWorkerPipeline
-        from core.audio.streaming_tts_pipeline import (
-            get_acoustic_ack_audio,
-            _sanitise_for_tts,
-            _get_tts_voice,
-        )
+        from core.audio.streaming_tts_pipeline import get_acoustic_ack_audio
+        from core.audio.sentence_streamer import sanitise_for_tts as _sanitise_for_tts
+        from core.audio.tts_stream_engine import _get_tts_voice
 
         # Phân loại ý định qua Bộ Não Kiểm Soát
         intent = llm_engine.classify_intent(query)

@@ -23,7 +23,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.audio.sentence_buffer import SentenceBuffer
-from core.audio.sentence_streamer import split_into_sentences, SentenceStreamer
+
+
+def split_into_sentences(text: str) -> list[str]:
+    """Tách cả đoạn văn bằng SentenceBuffer (trước đây là hàm trong sentence_streamer)."""
+    buf = SentenceBuffer(min_chars=8)
+    return buf.add_token(text) + buf.flush()
 
 
 def test_standard_sentences():
@@ -105,9 +110,9 @@ async def test_token_streaming_simulation():
         for t in tokens:
             yield t
 
-    streamer = SentenceStreamer()
+    streamer = SentenceBuffer(min_chars=8)
     streamed_sentences = []
-    async for s in streamer.stream(_token_generator()):
+    async for s in streamer.stream_sentences(_token_generator()):
         streamed_sentences.append(s)
 
     # Kỳ vọng 3 câu rõ ràng:

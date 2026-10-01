@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import weakref
 from typing import Any, Dict, Optional
 
 import httpx
@@ -27,19 +28,38 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+_POOL_TIMEOUTS: Dict[str, httpx.Timeout] = {
+    # LLM streaming: đọc lâu (180s), kết nối nhanh (5s)
+    "llm": httpx.Timeout(connect=5.0, read=180.0, write=30.0, pool=10.0),
+    # STT Whisper (Groq / OpenAI)
+    "stt": httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=10.0),
+    # TTS (9Router /audio/speech)
+    "tts": httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=10.0),
+    # Connector, webhook, health check
+    "general": httpx.Timeout(connect=5.0, read=30.0, write=15.0, pool=10.0),
+}
+_POOL_NAMES = {"llm": "LLM_Stream_Pool", "stt": "STT_Whisper_Pool",
+               "tts": "TTS_Synthesis_Pool", "general": "General_Connector_Pool"}
+
+
 class ConnectionPoolManager:
     """
     Trình quản lý tập trung các Pool kết nối HTTP/2 Persistent Keep-Alive.
-    Hoạt động dạng Singleton, thread-safe và an toàn trong môi trường bất đồng bộ.
+
+    Mỗi event loop có bộ client riêng: `httpx.AsyncClient` gắn với loop đã mở
+    kết nối của nó. Trước đây chỉ có một bộ client dùng chung, nên các luồng tự
+    chạy event loop riêng (voice_controller, prewarm TTS) dùng nhầm client của
+    loop chính -> lỗi "Event loop is closed" / kết nối treo. `asyncio.Lock` tạo
+    lúc import cũng bị gắn vào loop đầu tiên dùng nó; nay dùng threading.Lock
+    vì việc tạo client là đồng bộ.
     """
 
     def __init__(self) -> None:
-        self._lock = asyncio.Lock()
         self._sync_lock = threading.Lock()
-        self._llm_client: Optional[httpx.AsyncClient] = None
-        self._stt_client: Optional[httpx.AsyncClient] = None
-        self._tts_client: Optional[httpx.AsyncClient] = None
-        self._general_client: Optional[httpx.AsyncClient] = None
+        self._clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, Dict[str, httpx.AsyncClient]]" = (
+            weakref.WeakKeyDictionary()
+        )
+        self._primary_loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Cấu hình Pool tiêu chuẩn cấp doanh nghiệp
         self._limits = httpx.Limits(
@@ -71,101 +91,63 @@ class ConnectionPoolManager:
                 http2=False,
             )
 
+    def _get(self, kind: str) -> httpx.AsyncClient:
+        loop = asyncio.get_running_loop()
+        with self._sync_lock:
+            if self._primary_loop is None or self._primary_loop.is_closed():
+                self._primary_loop = loop
+            per_loop = self._clients.setdefault(loop, {})
+            client = per_loop.get(kind)
+            if client is None or client.is_closed:
+                client = self._create_client(_POOL_NAMES[kind], _POOL_TIMEOUTS[kind])
+                per_loop[kind] = client
+            return client
+
+    def _primary_clients(self) -> Dict[str, httpx.AsyncClient]:
+        loop = self._primary_loop
+        return dict(self._clients.get(loop, {})) if loop is not None else {}
+
     async def get_llm_client(self) -> httpx.AsyncClient:
-        """
-        Lấy HTTP/2 client chuyên dụng cho LLM Streaming:
-        Timeout dài (180s read), connect nhanh (5s), tái sử dụng kết nối 100%.
-        """
-        if self._llm_client is None or self._llm_client.is_closed:
-            async with self._lock:
-                if self._llm_client is None or self._llm_client.is_closed:
-                    self._llm_client = self._create_client(
-                        name="LLM_Stream_Pool",
-                        timeout=httpx.Timeout(connect=5.0, read=180.0, write=30.0, pool=10.0),
-                        enable_http2=True,
-                    )
-        return self._llm_client
+        return self._get("llm")
 
     async def get_stt_client(self) -> httpx.AsyncClient:
-        """
-        Lấy HTTP/2 client chuyên dụng cho STT Whisper (Groq / OpenAI):
-        Giữ ấm socket với api.groq.com / api.openai.com, triệt tiêu 150-300ms TLS handshake.
-        """
-        if self._stt_client is None or self._stt_client.is_closed:
-            async with self._lock:
-                if self._stt_client is None or self._stt_client.is_closed:
-                    self._stt_client = self._create_client(
-                        name="STT_Whisper_Pool",
-                        timeout=httpx.Timeout(connect=5.0, read=30.0, write=30.0, pool=10.0),
-                        enable_http2=True,
-                    )
-        return self._stt_client
+        return self._get("stt")
 
     async def get_tts_client(self) -> httpx.AsyncClient:
-        """
-        Lấy HTTP/2 client chuyên dụng cho Cloud TTS Synthesis:
-        Tải luồng âm thanh cực nhanh, tái sử dụng kết nối cho từng câu phát âm.
-        """
-        if self._tts_client is None or self._tts_client.is_closed:
-            async with self._lock:
-                if self._tts_client is None or self._tts_client.is_closed:
-                    self._tts_client = self._create_client(
-                        name="TTS_Synthesis_Pool",
-                        timeout=httpx.Timeout(connect=5.0, read=20.0, write=10.0, pool=10.0),
-                        enable_http2=True,
-                    )
-        return self._tts_client
+        return self._get("tts")
 
     async def get_general_client(self) -> httpx.AsyncClient:
         """Lấy HTTP client chung cho các connectors, webhooks, health checks."""
-        if self._general_client is None or self._general_client.is_closed:
-            async with self._lock:
-                if self._general_client is None or self._general_client.is_closed:
-                    self._general_client = self._create_client(
-                        name="General_Connector_Pool",
-                        timeout=httpx.Timeout(connect=5.0, read=30.0, write=15.0, pool=10.0),
-                        enable_http2=True,
-                    )
-        return self._general_client
+        return self._get("general")
 
     def get_sync_llm_client(self) -> Optional[httpx.AsyncClient]:
-        """Lấy llm_client hiện có nếu đã khởi tạo (non-async accessor)."""
+        """Client LLM của loop chính (non-async accessor)."""
         with self._sync_lock:
-            return self._llm_client
+            return self._primary_clients().get("llm")
 
     async def warm_up(self) -> None:
         """Khởi tạo trước toàn bộ các pools trong quá trình boot server."""
-        await asyncio.gather(
-            self.get_llm_client(),
-            self.get_stt_client(),
-            self.get_tts_client(),
-            self.get_general_client(),
-            return_exceptions=True,
-        )
+        for kind in _POOL_TIMEOUTS:
+            self._get(kind)
         logger.info("[ConnectionPool] Toàn bộ 4 Persistent Pools đã được khởi tạo và làm ấm.")
 
     async def close_all(self) -> None:
-        """Đóng an toàn tất cả các pools khi shutdown server."""
-        async with self._lock:
-            for name, client in [
-                ("LLM", self._llm_client),
-                ("STT", self._stt_client),
-                ("TTS", self._tts_client),
-                ("General", self._general_client),
-            ]:
-                if client is not None and not client.is_closed:
-                    try:
-                        await client.aclose()
-                        logger.debug("[ConnectionPool] Đã đóng pool %s.", name)
-                    except Exception as e:
-                        logger.debug("[ConnectionPool] Lỗi đóng pool %s: %s", name, e)
-            self._llm_client = None
-            self._stt_client = None
-            self._tts_client = None
-            self._general_client = None
+        """Đóng các pool của loop đang chạy (gọi lúc shutdown server)."""
+        loop = asyncio.get_running_loop()
+        with self._sync_lock:
+            clients = self._clients.pop(loop, {})
+        for kind, client in clients.items():
+            if not client.is_closed:
+                try:
+                    await client.aclose()
+                    logger.debug("[ConnectionPool] Đã đóng pool %s.", kind)
+                except Exception as e:
+                    logger.debug("[ConnectionPool] Lỗi đóng pool %s: %s", kind, e)
 
     def get_diagnostics(self) -> Dict[str, Any]:
-        """Lấy thông số chẩn đoán trạng thái các pools."""
+        """Lấy thông số chẩn đoán trạng thái các pools (của loop chính)."""
+        clients = self._primary_clients()
+
         def _client_status(client: Optional[httpx.AsyncClient]) -> Dict[str, Any]:
             if client is None:
                 return {"initialized": False, "status": "not_created"}
@@ -179,11 +161,9 @@ class ConnectionPoolManager:
             "keepalive_expiry_sec": self._limits.keepalive_expiry,
             "max_keepalive_connections": self._limits.max_keepalive_connections,
             "max_connections": self._limits.max_connections,
+            "event_loops": len(self._clients),
             "pools": {
-                "llm_pool": _client_status(self._llm_client),
-                "stt_pool": _client_status(self._stt_client),
-                "tts_pool": _client_status(self._tts_client),
-                "general_pool": _client_status(self._general_client),
+                f"{kind}_pool": _client_status(clients.get(kind)) for kind in _POOL_TIMEOUTS
             },
         }
 

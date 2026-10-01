@@ -36,7 +36,8 @@ mss>=9.0.1
 wmi>=1.5.1; sys_platform == 'win32'
 
 # --- Audio Pipeline (Phase 2) ---
-edge-tts==6.1.12
+# 6.1.12 bị dịch vụ Edge trả 403 (đo 2026-10-01); 7.2.8 tổng hợp được Hoài My, API tương thích.
+edge-tts==7.2.8
 pydub==0.25.1
 
 # --- ASR & VAD (Local faster-whisper + Silero VAD + Cloud fallback) ---

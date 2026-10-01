@@ -7,8 +7,6 @@
     "core/skills/ai_delegation.py": 4
   },
   "RULE-012": {
-    "core/audio_processor.py": 3,
-    "core/server.py": 1,
     "skills/ninerouter_skills.py": 1
   },
   "RULE-013": {

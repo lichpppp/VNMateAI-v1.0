@@ -29,7 +29,6 @@ from core.audio.acoustic_ack_catalog import (
 )
 from core.audio.streaming_tts_pipeline import (
     get_acoustic_ack_audio,
-    get_acoustic_ack_for_query,
     ACOUSTIC_ACK_PHRASES,
 )
 from core.audio_cache import save_to_cache, get_cached_audio_bytes
@@ -124,10 +123,11 @@ async def test_backward_compatibility():
     # Có thể là bytes hoặc None nếu chưa có internet và chưa cache
     assert len(ACOUSTIC_ACK_PHRASES) >= 5
 
-    # Test get_acoustic_ack_for_query
-    p, a = await get_acoustic_ack_for_query("tìm tài liệu nội bộ")
+    # Chọn câu đệm theo ngữ cảnh rồi lấy audio (thay cho get_acoustic_ack_for_query đã gỡ)
+    p = select_acoustic_ack("tìm tài liệu nội bộ")
+    a = await get_acoustic_ack_audio(phrase=p)
     assert "tra cứu" in p or "tìm kiếm" in p or "kho tri thức" in p or "tài liệu" in p
-    print(f"  ✅ get_acoustic_ack_for_query hoạt động chính xác: '{p}'")
+    print(f"  ✅ select_acoustic_ack + get_acoustic_ack_audio hoạt động chính xác: '{p}'")
 
 
 async def main():

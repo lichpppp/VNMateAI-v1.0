@@ -49,6 +49,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from core.auth_manager import auth_manager, get_current_user, require_roles
+from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
 import sys
 
 # Silence Windows WinError 10054 in asyncio Proactor _call_connection_lost
@@ -210,70 +211,28 @@ def _get_assistant_name() -> str:
         return "Ly Ly"
 
 
-async def _tts_bytes(audio_engine, text: str, timeout_s: float = 14.0) -> Optional[bytes]:
-    """Sinh audio có chặn trên, trả về bytes thô (None khi lỗi/timeout).
+async def _tts_bytes(text: str, timeout_s: float = 14.0) -> Optional[bytes]:
+    """Đọc NGUYÊN một đoạn lời nói thành MP3, có chặn trên thời gian.
 
-    Trả None thì HUD vẫn gửi chữ của câu đó, chỉ không có tiếng.
-
-    Phase 82 — Parallel TTS Race:
-    - Chạy đồng thời edge-tts (via audio_engine) VÀ gTTS fallback.
-    - Ai trả về audio trước thì thắng — task còn lại bị huỷ.
-    - Timeout tổng 14s (edge-tts retry×2 + 9router 10s, nếu mạng chậm thì gTTS
-      ~3-4s sẽ về trước → âm thanh luôn có).
+    Hàm bọc duy nhất của server quanh engine TTS canonical
+    (`core.audio.tts_stream_engine`): làm sạch + rút gọn lời nói như
+    `AudioEngine` cũ, rồi tổng hợp. Trả None khi lỗi/timeout — HUD vẫn gửi chữ
+    của câu đó, chỉ không có tiếng.
     """
-    import base64 as _b  # noqa: F401 (dùng ở _safe_tts)
+    from core.audio.tts_stream_engine import get_tts_engine
 
-    async def _gtts_direct(t: str) -> Optional[bytes]:
-        """gTTS chạy trong executor — không phụ thuộc edge-tts/9router."""
-        try:
-            from gtts import gTTS
-            import io as _io
-            def _synth() -> bytes:
-                buf = _io.BytesIO()
-                gTTS(text=t, lang="vi", slow=False).write_to_fp(buf)
-                return buf.getvalue()
-            loop = asyncio.get_event_loop()
-            data = await asyncio.wait_for(loop.run_in_executor(None, _synth), timeout=12.0)
-            return data if data else None
-        except Exception as exc:
-            logger.debug("[TTS Race] gTTS lỗi: %s", exc)
-            return None
-
-    async def _engine_tts(t: str) -> Optional[bytes]:
-        try:
-            data = await asyncio.wait_for(
-                audio_engine.text_to_speech_bytes(t), timeout=timeout_s
-            )
-            return data if data else None
-        except asyncio.TimeoutError:
-            logger.warning("[HUD] edge-tts timeout sau %ss", timeout_s)
-            return None
-        except Exception as exc:
-            logger.warning("[HUD] engine TTS lỗi: %s", exc)
-            return None
-
-    # Phase 82/100: Ưu tiên tuyệt đối Microsoft Hoài My (Edge-TTS -> 9Router),
-    # chỉ dùng gTTS khi engine gặp sự cố để tránh tình trạng xuất hiện 2 giọng nữ khác nhau.
-    result = await _engine_tts(text)
-    if result and len(result) > 100:
-        return result
-
-    logger.warning("[TTS] Engine Hoài My không khả dụng — chuyển sang gTTS fallback")
-    result = await _gtts_direct(text)
-    if not result:
-        logger.warning("[HUD] TTS thất bại hoàn toàn — bỏ qua audio: %s", str(text)[:60])
-    return result
-
-
-async def _safe_tts(audio_engine, text: str, timeout_s: float = 14.0):
-    """
-    Sinh audio song song (edge-tts race gTTS), có chặn trên và nuốt lỗi.
-
-    Phase 82: Race thay sequential fallback — loại bỏ timeout do chuỗi retry.
-    """
-    import base64 as _b
-    audio = await _tts_bytes(audio_engine, text, timeout_s)
-    return _b.b64encode(audio).decode("utf-8") if audio else None
+    spoken = shorten_for_speech(sanitise_for_tts(text or ""))
+    if not spoken:
+        return None
+    try:
+        data = await asyncio.wait_for(get_tts_engine().synthesise(spoken), timeout=timeout_s)
+        return data if data and len(data) > 100 else None
+    except asyncio.TimeoutError:
+        logger.warning("[TTS] quá %ss, bỏ audio — vẫn gửi chữ: %s", timeout_s, spoken[:60])
+        return None
+    except Exception as exc:
+        logger.warning("[TTS] lỗi, bỏ audio — vẫn gửi chữ: %s", exc)
+        return None
 
 
 #: Task đang xử lý lệnh thoại, theo phiên. Lệnh mới tới sẽ HUỶ task cũ.
@@ -332,7 +291,6 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
     Câu tiếp theo đang stream từ LLM trong khi câu đầu đang được phát.
     """
     from core.llm_engine import llm_engine
-    from core.audio_processor import audio_engine
     from core.audio.tts_stream_engine import TTSStreamEngine
     from core.voice_session import voice_sessions, is_stop_reply, looks_like_question
     from core.memory_manager import detect_and_handle_context_lifecycle
@@ -397,7 +355,7 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
         except Exception:
             fb = None
         if not fb:
-            fb = await _tts_bytes(audio_engine, phrase)
+            fb = await _tts_bytes(phrase)
         await broadcast_hud({
             "type": "voice_active",
             "status": "speaking",
@@ -472,7 +430,7 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             history=session.history(),
             source_device="hud",
         ):
-            clean_s = llm_engine._sanitise_for_tts(sentence)
+            clean_s = sanitise_for_tts(sentence)
             if not clean_s:
                 continue
             if not full_sentences:
@@ -488,7 +446,7 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
                 )
             full_sentences.append(clean_s)
             _tts_pending.append(
-                (clean_s, asyncio.create_task(_tts_bytes(audio_engine, clean_s)))
+                (clean_s, asyncio.create_task(_tts_bytes(clean_s)))
             )
             while len(_tts_pending) > _TTS_LOOKAHEAD:
                 await _flush_one()
@@ -550,7 +508,7 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
                     "timestamp": datetime.utcnow().isoformat(),
                 })
 
-            speech_reply = result.get("speech_reply") or llm_engine._sanitise_for_tts(display_reply)
+            speech_reply = result.get("speech_reply") or sanitise_for_tts(display_reply)
             if not speech_reply:
                 speech_reply = "Em đã thực hiện xong yêu cầu của bạn."
                 display_reply = display_reply or speech_reply
@@ -1579,7 +1537,6 @@ async def _on_startup() -> None:
 
 def broadcast_tts_notification(announcement_text: str) -> None:
     """Stream TTS notification to all connected Xiaozhi audio nodes."""
-    from core.audio_processor import audio_engine
 
     async def _broadcast():
         if not active_audio_nodes:
@@ -1588,7 +1545,10 @@ def broadcast_tts_notification(announcement_text: str) -> None:
         logger.info("Phát thanh TTS thông báo tới %d mạch Xiaozhi: '%s'", len(active_audio_nodes), announcement_text)
         try:
             chunks = []
-            async for chunk in audio_engine.text_to_speech_stream(announcement_text):
+            from core.audio.tts_stream_engine import get_tts_engine
+            async for chunk in get_tts_engine().stream(
+                shorten_for_speech(sanitise_for_tts(announcement_text))
+            ):
                 chunks.append(chunk)
 
             for dev_id, info in list(active_audio_nodes.items()):
@@ -2827,7 +2787,6 @@ async def voice_command(
     Optionally includes base64-encoded audio in the response.
     """
     from core.llm_engine import llm_engine
-    from core.audio_processor import audio_engine
 
     source_device = payload.source_device or "web"
 
@@ -2871,7 +2830,7 @@ async def voice_command(
             result.get("reasoning", ""),
             payload.query,
         )
-        speech_reply: str = result.get("speech_reply") or llm_engine._sanitise_for_tts(display_reply)
+        speech_reply: str = result.get("speech_reply") or sanitise_for_tts(display_reply)
         if not speech_reply:
             if result.get("success"):
                 speech_reply = "Em đã thực hiện xong yêu cầu của bạn."
@@ -2902,7 +2861,7 @@ async def voice_command(
         try:
             import base64
             # Nhánh fallback: cũng bọc timeout để TTS treo không làm treo lượt nói.
-            audio_bytes = await _tts_bytes(audio_engine, speech_reply)
+            audio_bytes = await _tts_bytes(speech_reply)
             if audio_bytes:
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         except Exception as exc:  # pylint: disable=broad-except
@@ -3028,10 +2987,12 @@ async def tts_endpoint(
     Returns raw MP3 bytes (Content-Type: audio/mpeg).
     Assembles entire audio in-memory (io.BytesIO) — no disk I/O.
     """
-    from core.audio_processor import audio_engine
 
     try:
-        audio_bytes = await audio_engine.text_to_speech_bytes(payload.text, voice=payload.voice, rate=payload.rate)
+        from core.audio.tts_stream_engine import get_tts_engine
+        audio_bytes = await get_tts_engine().synthesise(
+            shorten_for_speech(sanitise_for_tts(payload.text)), voice=payload.voice, rate=payload.rate
+        )
         if not audio_bytes:
             raise HTTPException(status_code=500, detail="TTS engine returned empty audio.")
         return Response(content=audio_bytes, media_type="audio/mpeg")
@@ -5357,7 +5318,6 @@ async def xiaozhi_announce_endpoint(
 ) -> Dict[str, Any]:
     """Stream TTS audio trực tiếp tới loa của robot qua WebSocket — không phát trong browser."""
     from core.xiaozhi_gateway import xiaozhi_gateway
-    from core.audio_processor import audio_engine
 
     clean_text = payload.text.strip()
     if not clean_text:
@@ -5377,7 +5337,7 @@ async def xiaozhi_announce_endpoint(
 
     # Sinh audio TTS một lần, chuyển đổi sang PCM 16kHz thuần cho loa MAX98357A
     try:
-        raw_mp3 = await audio_engine.text_to_speech_bytes(clean_text)
+        raw_mp3 = await _tts_bytes(clean_text)
         if not raw_mp3:
             raise HTTPException(status_code=500, detail="Không thể sinh audio TTS.")
         from core.xiaozhi_gateway import convert_to_pcm16_16k
@@ -5905,9 +5865,8 @@ async def confirm_action_endpoint(
 
     async def _async_synth_and_speak_hud(speech_text: str):
         try:
-            from core.audio_processor import audio_engine
             import base64
-            audio_bytes = await audio_engine.text_to_speech_bytes(speech_text)
+            audio_bytes = await _tts_bytes(speech_text)
             audio_b64 = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else None
             await broadcast_hud({
                 "type": "voice_active",

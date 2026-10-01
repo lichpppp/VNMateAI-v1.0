@@ -43,7 +43,7 @@ def hud(monkeypatch):
             yield s
             await asyncio.sleep(0)
 
-    async def fake_tts_bytes(_engine, text, timeout_s=14.0):
+    async def fake_tts_bytes(text, timeout_s=14.0):
         started.append(text)
         try:
             await asyncio.sleep(TTS_DELAY.get(text, 0.01))
@@ -73,7 +73,7 @@ def hud(monkeypatch):
     from core.audio.tts_stream_engine import TTSStreamEngine
 
     async def fake_synthesise(self, text, *a, **k):
-        return await fake_tts_bytes(None, text)
+        return await fake_tts_bytes(text)
 
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synthesise)
     monkeypatch.setattr(server, "broadcast_hud", fake_broadcast_hud)

@@ -1,59 +1,37 @@
 """
 core/audio/sentence_streamer.py
 ================================
-Bộ đệm ngắt câu gối đầu LLM→TTS (< 600ms TTFA).
+Chuẩn hoá văn bản cho lời nói — DUY NHẤT cho mọi kênh voice (Phase 2).
 
-Kiến trúc:
-  LLM token stream → SentenceStreamer → yield câu hoàn chỉnh → TTS engine
+  - sanitise_for_tts(text):   bỏ phần không đọc được (Markdown, code, JSON, URL,
+                              bảng, emoji…). Kết quả vẫn dùng để hiển thị.
+  - shorten_for_speech(text): rút lời nói dài về 1–2 câu đầu khi đọc nguyên đoạn.
 
-Ngắt câu:
-  - Ký tự cứng: . ! ? ; \n\n
-  - Ký tự mềm (dấu ,) nếu buffer > MIN_SOFT_WORDS từ (câu đầu phát siêu nhanh)
-  - Fallback flush sau FLUSH_TIMEOUT giây nếu không gặp điểm ngắt
+Trước Phase 2 có ba hàm làm sạch khác nhau (`llm_engine._sanitise_for_tts`,
+`audio_processor.clean_text_for_tts` và hàm này), nên cùng câu trả lời được đọc
+khác nhau tuỳ kênh. Gợi ý phát âm (A P I, C P U…) nằm ở
+`tts_stream_engine.apply_pronunciation`, không ở đây.
+
+Tách câu từ luồng token: `core/audio/sentence_buffer.py` (lớp `SentenceStreamer`
+cũ chỉ bọc lại SentenceBuffer và đã được gỡ).
 """
 
 from __future__ import annotations
 
-import asyncio
-import logging
 import re
-import time
-from typing import AsyncGenerator, Optional
 
-logger = logging.getLogger(__name__)
+#: Emoji / ký hiệu hình — TTS đọc vấp hoặc đọc tên ký hiệu.
+_EMOJI_RE = re.compile('[\U0001F300-\U0001FAFF☀-➿️‍]')
 
-# ---------------------------------------------------------------------------
-# Regex nhận diện ranh giới câu
-# ---------------------------------------------------------------------------
-
-# Ranh giới CỨNG — ngắt ngay lập tức
-_HARD_BOUNDARY_RE = re.compile(
-    r'([.!?;…]|\?!|!\.{2,}|\.{3,}|\n{2,})',
-    re.UNICODE,
-)
-
-# Ranh giới MỀM — chỉ ngắt khi buffer đã đủ MIN_SOFT_WORDS từ
-_SOFT_BOUNDARY_RE = re.compile(r'[,،،]', re.UNICODE)
-
-# Số từ tối thiểu để ngắt tại dấu phẩy
-MIN_SOFT_WORDS: int = 10
-
-# Độ dài ký tự tối thiểu của câu để đưa vào TTS (tránh âm thanh ngắn vô nghĩa)
-MIN_SENTENCE_CHARS: int = 8
-
-# Thời gian chờ tối đa trước khi flush buffer còn lại (giây)
-FLUSH_TIMEOUT: float = 2.5
-
-
-# ---------------------------------------------------------------------------
-# Text sanitizer
-# ---------------------------------------------------------------------------
 
 def sanitise_for_tts(text: str) -> str:
     """
-    Chuẩn hoá văn bản trước khi đưa vào TTS.
-    Loại bỏ: Markdown, code blocks, bullet, URL, bảng, ký tự đặc biệt.
-    Giữ lại: Nội dung ngôn ngữ tự nhiên thuần tuý.
+    Chuẩn hoá văn bản trước khi đưa vào TTS — hàm DUY NHẤT cho mọi kênh voice.
+
+    Loại bỏ: Markdown, khối code, khối JSON, bullet, URL, bảng, emoji, ký tự đặc
+    biệt. Giữ nguyên số thập phân, IP, và gạch nối trong từ (Wi-Fi, COVID-19).
+    Kết quả vẫn dùng để HIỂN THỊ (HUD, ESP32), nên gợi ý phát âm không đặt ở
+    đây mà ở `tts_stream_engine.apply_pronunciation`.
     """
     if not text:
         return ""
@@ -65,18 +43,22 @@ def sanitise_for_tts(text: str) -> str:
     text = re.sub(r'```[\s\S]*?```', 'em đã thực thi xong.', text)
     text = re.sub(r'`[^`]+`', '', text)
 
+    # Bỏ nguyên khối JSON (kết quả tool lọt vào câu trả lời)
+    text = re.sub(r'\{[^{}]{0,200}\}', '', text)
+
     # Bỏ tiêu đề Markdown
     text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
 
-    # Bỏ định dạng bold/italic
+    # Bỏ định dạng bold/italic. Gạch dưới chỉ là in nghiêng khi đứng ngoài từ —
+    # `get_current_time` là tên, không phải in nghiêng.
     text = re.sub(r'\*{1,3}(.*?)\*{1,3}', r'\1', text, flags=re.DOTALL)
-    text = re.sub(r'_{1,3}(.*?)_{1,3}', r'\1', text, flags=re.DOTALL)
+    text = re.sub(r'(?<!\w)_{1,3}([^_\n]+?)_{1,3}(?!\w)', r'\1', text)
 
     # Bỏ bullet và list đánh số
-    text = re.sub(r'^\s*[-*+]\s+', '', text, flags=re.MULTILINE)
+    text = re.sub(r'^\s*[-*+•]\s+', '', text, flags=re.MULTILINE)
     text = re.sub(r'^\s*\d+[.)]\s+', '', text, flags=re.MULTILINE)
 
-    # Bỏ link Markdown và URL
+    # Bỏ link Markdown (giữ nhãn) và URL
     text = re.sub(r'\[([^\]]*)\]\([^)]*\)', r'\1', text)
     text = re.sub(r'https?://\S+', '', text)
 
@@ -84,6 +66,13 @@ def sanitise_for_tts(text: str) -> str:
     text = re.sub(r'\|[^\n]*', '', text)
     text = re.sub(r'-{3,}', '', text)
     text = re.sub(r'={3,}', '', text)
+
+    text = _EMOJI_RE.sub(' ', text)
+
+    # snake_case đọc thành từng từ
+    text = re.sub(r'(?<=\w)_(?=\w)', ' ', text)
+    # Gạch ngang giữa hai vế câu -> ngắt nghỉ; gạch nối trong từ giữ nguyên
+    text = re.sub(r'\s+[-–—]\s+', ', ', text)
 
     # Bỏ ký tự đặc biệt không phát âm được
     text = re.sub(r'[#@&^~\\<>{}[\]()]', '', text)
@@ -98,95 +87,27 @@ def sanitise_for_tts(text: str) -> str:
     return text.strip()
 
 
-def _word_count(text: str) -> int:
-    """Đếm số từ trong text."""
-    return len(text.split())
-
-
-# ---------------------------------------------------------------------------
-# SentenceStreamer
-# ---------------------------------------------------------------------------
-
-class SentenceStreamer:
+def shorten_for_speech(text: str, max_chars: int = 200) -> str:
     """
-    Gom token từ LLM stream, ngắt tại ranh giới câu tự nhiên tiếng Việt,
-    yield câu đã sanitize ngay cho TTS — không chờ LLM hoàn thành.
+    Rút lời nói dài về 1–2 câu đầu (giữ trọn câu) + báo chi tiết trên màn hình.
 
-    Sử dụng:
-        streamer = SentenceStreamer()
-        async for sentence in streamer.stream(token_gen):
-            audio = await tts_engine.synthesise(sentence)
-            await ws.send_bytes(audio)
+    Dùng khi đọc NGUYÊN câu trả lời một lần (ESP32, mic máy chủ, REST); đường
+    stream từng câu không cần. Trước Phase 2 nằm trong `clean_text_for_tts`.
     """
-
-    def __init__(self) -> None:
-        from core.audio.sentence_buffer import SentenceBuffer
-        self._sentence_buffer = SentenceBuffer(min_chars=MIN_SENTENCE_CHARS)
-        self._sentences_yielded: int = 0
-        self._start_time: float = time.monotonic()
-        self._first_yield_time: Optional[float] = None
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    async def stream(
-        self,
-        token_generator: AsyncGenerator[str, None],
-    ) -> AsyncGenerator[str, None]:
-        """
-        Nhận async generator token từ LLM, yield câu hoàn chỉnh đã sanitize.
-        Sử dụng SentenceBuffer với bộ lọc chống ngắt sai số thập phân/IP/domain.
-
-        Yields:
-            str: Câu văn sạch, sẵn sàng đưa vào TTS.
-        """
-        async for token in token_generator:
-            ready_sentences = self._sentence_buffer.add_token(token)
-            for sentence in ready_sentences:
-                self._record_yield(sentence)
-                yield sentence
-
-        # Flush phần còn lại sau khi token generator kết thúc
-        for remaining in self._sentence_buffer.flush():
-            self._record_yield(remaining)
-            yield remaining
-
-        elapsed = (time.monotonic() - self._start_time) * 1000
-        logger.info(
-            "[SentenceStreamer] Hoàn thành: %d câu đã yield / %.0fms tổng",
-            self._sentences_yielded, elapsed,
-        )
-
-    def get_ttfa_ms(self) -> Optional[float]:
-        """Time-To-First-Audio = thời gian từ init đến câu đầu tiên được yield."""
-        if self._first_yield_time is None:
-            return None
-        return (self._first_yield_time - self._start_time) * 1000
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _record_yield(self, sentence: str = "") -> None:
-        self._sentences_yielded += 1
-        if self._first_yield_time is None:
-            self._first_yield_time = time.monotonic()
-            ttfa = (self._first_yield_time - self._start_time) * 1000
-            logger.info(
-                "[SentenceStreamer] TTFA = %.0fms (câu #1: '%s')",
-                ttfa, sentence[:40]
-            )
-
-
-# ---------------------------------------------------------------------------
-# Convenience: flush single text block (không streaming)
-# ---------------------------------------------------------------------------
-
-def split_into_sentences(text: str) -> list[str]:
-    """
-    Tách văn bản thành danh sách câu hoàn chỉnh an toàn (không ngắt sai số/IP).
-    """
-    from core.audio.sentence_buffer import SentenceBuffer
-    buf = SentenceBuffer(min_chars=MIN_SENTENCE_CHARS)
-    return buf.add_token(text) + buf.flush()
+    if len(text) <= max_chars:
+        return text
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 3]
+    short_parts: list[str] = []
+    cur_len = 0
+    for s in sentences:
+        if cur_len + len(s) < max_chars - 30:
+            short_parts.append(s)
+            cur_len += len(s)
+        else:
+            break
+    if short_parts:
+        out = " ".join(short_parts)
+        if not out.endswith(('.', '!', '?')):
+            out += "."
+        return out + " Chi tiết cụ thể đã hiển thị trên màn hình."
+    return text[:max_chars - 40] + "... Chi tiết đã hiển thị trên màn hình."

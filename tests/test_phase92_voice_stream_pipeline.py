@@ -45,13 +45,10 @@ async def main():
 
     # 1. Kiểm tra cấu hình và câu ACK tiếng Việt chuẩn
     section("1. Acoustic ACK Phrases & Vietnamese Diacritics")
-    from core.audio.streaming_tts_pipeline import (
-        ACOUSTIC_ACK_PHRASES,
-        _get_tts_voice,
-        _sanitise_for_tts,
-        SentenceBoundaryStreamer,
-        get_acoustic_ack_audio,
-    )
+    from core.audio.streaming_tts_pipeline import ACOUSTIC_ACK_PHRASES, get_acoustic_ack_audio
+    from core.audio.tts_stream_engine import _get_tts_voice, get_tts_engine
+    from core.audio.sentence_streamer import sanitise_for_tts as _sanitise_for_tts
+    from core.audio.sentence_buffer import SentenceBuffer
 
     check("Có ít nhất 5 câu đệm ACK", len(ACOUSTIC_ACK_PHRASES) >= 5, str(len(ACOUSTIC_ACK_PHRASES)))
     has_diacritics = any(
@@ -79,8 +76,7 @@ async def main():
         check(f"Đã lưu cache cho: '{phrase[:30]}...'", cached is not None and len(cached) > 1000)
 
     # 4. Sentence Boundary Streamer
-    section("4. Sentence Boundary Streamer (Pipeline gối đầu)")
-    streamer = SentenceBoundaryStreamer()
+    section("4. Tách câu + TTS canonical (SentenceBuffer -> TTSStreamEngine)")
 
     async def token_gen():
         tokens = ["Dạ ", "em ", "chào ", "sếp. ", "Hệ ", "thống ", "đang ", "hoạt ", "động ", "ổn ", "định ạ!"]
@@ -91,11 +87,13 @@ async def main():
     audio_chunks = []
     # Test streaming without edge_tts network delay by mocking edge_tts if needed
     try:
-        async for chunk in streamer.stream(token_gen()):
-            audio_chunks.append(chunk)
-        check("SentenceBoundaryStreamer sinh audio chunks thành công", len(audio_chunks) > 0)
+        engine = get_tts_engine()
+        async for sentence in SentenceBuffer(min_chars=8).stream_sentences(token_gen()):
+            async for chunk in engine.stream(sentence):
+                audio_chunks.append(chunk)
+        check("Pipeline canonical sinh audio chunks thành công", len(audio_chunks) > 0)
     except Exception as e:
-        check("SentenceBoundaryStreamer chạy an toàn", True, f"Bỏ qua lỗi mạng nếu có: {e}")
+        check("Pipeline canonical chạy an toàn", True, f"Bỏ qua lỗi mạng nếu có: {e}")
 
     # 5. Tool Pruning (Phase 8: DynamicSkillRouter)
     section("5. Tool Pruning Optimization (DynamicSkillRouter)")

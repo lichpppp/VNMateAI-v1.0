@@ -26,6 +26,7 @@ import openai
 from openai import AsyncOpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
 
 from core.config_loader import settings
+from core.audio.sentence_streamer import sanitise_for_tts
 
 # Phase 48: RBAC Middleware
 try:
@@ -1595,7 +1596,7 @@ class LLMEngine:
         result = self.ask(text, source_device=source_device, history=history)
         raw_reply: str = result.get("reply", "")
 
-        reply = self._sanitise_for_tts(raw_reply)
+        reply = sanitise_for_tts(raw_reply)
 
         if not reply:
             if result.get("success"):
@@ -1622,7 +1623,7 @@ class LLMEngine:
         """
         result = await self.ask_async(text, source_device=source_device, history=history)
         raw_reply: str = result.get("reply", "")
-        reply = self._sanitise_for_tts(raw_reply)
+        reply = sanitise_for_tts(raw_reply)
 
         if not reply:
             if result.get("success"):
@@ -1917,7 +1918,7 @@ class LLMEngine:
                 # Flush complete sentences
                 sentences, text_buffer = self._extract_sentences(text_buffer)
                 for sentence in sentences:
-                    clean = self._sanitise_for_tts(sentence)
+                    clean = sanitise_for_tts(sentence)
                     if clean:
                         has_yielded_any_sentence = True
                         _publish_reasoning()
@@ -1939,7 +1940,7 @@ class LLMEngine:
 
         # Yield remaining buffer
         if text_buffer.strip() and not has_tool_calls:
-            clean = self._sanitise_for_tts(text_buffer)
+            clean = sanitise_for_tts(text_buffer)
             if clean:
                 has_yielded_any_sentence = True
                 _publish_reasoning()
@@ -1951,7 +1952,7 @@ class LLMEngine:
             try:
                 from core.memory_manager import memory_manager as _mm
                 _session = str(source_device or "voice")
-                _mm.add_turn(_session, query, self._sanitise_for_tts(text_buffer))
+                _mm.add_turn(_session, query, sanitise_for_tts(text_buffer))
             except Exception:
                 pass
 
@@ -1966,7 +1967,7 @@ class LLMEngine:
                     history=history,
                 )
                 self.last_voice_display_text = result.get("reply", "")
-                speech_reply = result.get("speech_reply") or self._sanitise_for_tts(self.last_voice_display_text)
+                speech_reply = result.get("speech_reply") or sanitise_for_tts(self.last_voice_display_text)
                 if speech_reply:
                     # Loại bỏ câu trùng với câu đã phát (acknowledgment)
                     _ack_prefixes = ("dạ, để em kiểm tra", "vâng, em đang", "dạ, để em xử lý", "vâng, để em kiểm tra")
@@ -2113,28 +2114,6 @@ class LLMEngine:
             cut = cut[:space]
         return cut.rstrip(" ,;:.-") + "…"
 
-    @staticmethod
-    def _sanitise_for_tts(text: str) -> str:
-        """
-        Remove characters and patterns that sound unnatural when spoken by edge-tts.
-        """
-        import re
-        # Remove fenced code blocks
-        text = re.sub(r"```[\s\S]*?```", "", text)
-        # Remove inline code
-        text = re.sub(r"`[^`]+`", "", text)
-        # Remove markdown bold/italic
-        text = re.sub(r"[*_]{1,3}([^*_]+)[*_]{1,3}", r"\1", text)
-        # Remove leading bullet/dash per line
-        text = re.sub(r"^\s*[-•*]\s+", "", text, flags=re.MULTILINE)
-        # Collapse multiple newlines into space
-        text = re.sub(r"\n+", " ", text)
-        # Remove JSON fragments
-        text = re.sub(r"\{[^}]{0,200}\}", "", text)
-        # Collapse excess whitespace
-        text = re.sub(r" {2,}", " ", text).strip()
-        return text
-
     @classmethod
     def _make_concise_speech_text(cls, text: str) -> str:
         """
@@ -2150,14 +2129,14 @@ class LLMEngine:
                 intro_parts.append(line)
 
         if intro_parts:
-            intro_str = cls._sanitise_for_tts(" ".join(intro_parts[:2]))
+            intro_str = sanitise_for_tts(" ".join(intro_parts[:2]))
             if len(intro_str) > 10:
                 if not any(intro_str.endswith(p) for p in (".", "!", "?")):
                     intro_str += "."
                 return f"{intro_str} Chi tiết cụ thể đã được hiển thị trên màn hình của anh."
 
         # Fallback sanitisation
-        cleaned = cls._sanitise_for_tts(text)
+        cleaned = sanitise_for_tts(text)
         if len(cleaned) > 220:
             sentences = re.split(r"(?<=[.!?])\s+", cleaned)
             accum = []
@@ -2187,7 +2166,7 @@ class LLMEngine:
         if voice_comment:
             speech_raw = voice_comment.group(1).strip()
             display_text = re.sub(r"<!--\s*VOICE:\s*[\s\S]*?\s*-->", "", text).strip()
-            speech_text = cls._sanitise_for_tts(speech_raw)
+            speech_text = sanitise_for_tts(speech_raw)
             return display_text, speech_text
 
         # 2. Thẻ thay thế: [VOICE] ... [/VOICE]
@@ -2195,7 +2174,7 @@ class LLMEngine:
         if voice_bracket:
             speech_raw = voice_bracket.group(1).strip()
             display_text = re.sub(r"\[VOICE\][\s\S]*?\[/VOICE\]", "", text).strip()
-            speech_text = cls._sanitise_for_tts(speech_raw)
+            speech_text = sanitise_for_tts(speech_raw)
             return display_text, speech_text
 
         display_text = text.strip()
@@ -2204,7 +2183,7 @@ class LLMEngine:
         if "```" in display_text or "|" in display_text or len(display_text) > 250:
             speech_text = cls._make_concise_speech_text(display_text)
         else:
-            speech_text = cls._sanitise_for_tts(display_text)
+            speech_text = sanitise_for_tts(display_text)
 
         return display_text, speech_text
 

@@ -142,3 +142,42 @@ Tài liệu: `current-vs-target.md`, `target-architecture.md`, `dependency-rules
 | Server rảnh | 405 MB WS, 6,4 % CPU | | đo Phase 0 |
 
 Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải p95 có ý nghĩa thống kê. Tăng `--ws-rounds` khi cần.
+
+## 7. Báo cáo Phase 2 — Voice: gộp TTS và làm sạch text (2026-10-01)
+
+**STATUS:** xong, trừ một mục bị chặn (xem cuối mục).
+
+**Một implementation cho mỗi việc (đã chuyển caller rồi xoá bản cũ):**
+
+| Việc | Trước | Sau |
+|---|---|---|
+| Tổng hợp giọng | `TTSStreamEngine` + `AudioEngine.text_to_speech_stream/_bytes/_tts_9router/_tts_gtts` + race gTTS trong `server._tts_bytes` | chỉ `core/audio/tts_stream_engine.py` (`AudioEngine` còn STT/VAD) |
+| Làm sạch text cho TTS | 3 hàm: `sanitise_for_tts`, `llm_engine._sanitise_for_tts`, `audio_processor.clean_text_for_tts` | `sentence_streamer.sanitise_for_tts` + `shorten_for_speech` (rút gọn) + `tts_stream_engine.apply_pronunciation` (chỉ áp lên chữ gửi đi tổng hợp) |
+| Tách câu từ luồng token | `SentenceBuffer` + `SentenceStreamer` (bọc lại) + `split_into_sentences` | chỉ `SentenceBuffer` (hết vòng import `sentence_buffer ↔ sentence_streamer`) |
+| Làm nóng cache TTS | `prewarm_tts_cache` (thread + event loop riêng) + `warmup_acoustic_ack_cache` | chỉ `warmup_acoustic_ack_cache` (loop chính) |
+| Hàm bọc TTS của server | `_tts_bytes(audio_engine, …)` + `_safe_tts` (base64) | `_tts_bytes(text)` |
+
+**Đã xoá:** `SentenceBoundaryStreamer`, `edge_tts_stream_audio`, `get_acoustic_ack_for_query`, `race_synthesise`, `SentenceStreamer`, `split_into_sentences`, `clean_text_for_tts`, `prewarm_tts_cache`, `_safe_tts`, 4 phương thức TTS của `AudioEngine`, mọi nhánh gTTS (3 nơi), cache RAM riêng `_TTS_CACHE`.
+
+**Hành vi thay đổi có chủ đích:**
+- Thứ tự nguồn TTS: 9Router → Edge (trước: Edge → 9Router → gTTS). Lý do đo được: 9Router p50 1,2 s; Edge trực tiếp p50 3,8 s.
+- `edge-tts` 6.1.12 → 7.2.8 (6.1.12 bị dịch vụ trả 403; API dùng trong code tương thích).
+- Mọi kênh đọc cùng một cách: hết đọc to URL/bảng/khối code ở HUD; hết "Wi, Fi" / "COVID, 19" ở ESP32 + mic; gợi ý phát âm (A P I, C P U) áp cho mọi kênh nhưng không lên chữ hiển thị.
+- Pool HTTP theo từng event loop (`core/connection_pool.py`): luồng tự chạy loop riêng không còn dùng nhầm client của loop chính (log khởi động trước đây: `Event loop is closed`).
+
+**Test:** 176 pass / 0 fail (Phase 1: 158). Test mới: `test_tts_text_sanitiser.py`, `test_tts_engine_sources.py`, `test_connection_pool_event_loops.py` (fail trên code cũ). RULE-012 (TTS ngoài engine) giảm từ 5 vi phạm / 3 file xuống 1 (`skills/ninerouter_skills.py` — tool tạo file giọng nói cho người dùng, REVIEW).
+
+**Hiệu năng (cùng công cụ `scripts/bench_voice.py`):**
+
+| Chỉ số | Phase 1 | Phase 2 |
+|---|---|---|
+| TTS chunk đầu (engine, câu mới) | p50 2.297 ms | **p50 1.213 ms** (max 2.298) |
+| WS fast path: audio đầu | p50 1.612 ms | **p50 1.172 ms** |
+| WS fast path: hết lượt | p50 1.830 ms | **p50 1.173 ms** |
+| WS LLM: từ chữ đầu tới audio đầu | ~3.780 ms | **~560 ms** |
+| WS LLM: chữ đầu (TTFT) | p50 22.623 ms | p50 22.405 ms (không đổi — Phase 5) |
+| Khởi động: câu đệm sẵn sàng | 21/23, có lỗi TTS | 28/28, 0 lỗi |
+
+**Bị chặn, chưa làm:** sửa `psutil.cpu_percent(interval=0.05)` chặn event loop trong `core/fast_command_router.py` (dòng ~257 và ~281). Thao tác đọc đoạn code đó bị bộ phân loại an toàn của Claude Code từ chối; chờ chủ dự án cho phép hoặc tự sửa (đề xuất: `await asyncio.to_thread(psutil.cpu_percent, 0.05)`).
+
+**Phát hiện mới (chưa sửa):** `tts_stream_engine.reset_tts_engine()` không được gọi ở đâu → đổi giọng/tốc độ trong cấu hình chỉ có hiệu lực sau khi khởi động lại server.

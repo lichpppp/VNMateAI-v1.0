@@ -43,7 +43,9 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 from fastapi import WebSocket, WebSocketDisconnect
 
 from core.audio_cache import check_cached_audio, get_cached_audio_bytes, save_to_cache
-from core.audio_processor import audio_engine, clean_text_for_tts
+from core.audio_processor import audio_engine
+from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
+from core.audio.tts_stream_engine import get_tts_engine
 from core.config_loader import settings
 
 logger = logging.getLogger("core.xiaozhi_gateway")
@@ -496,7 +498,7 @@ class XiaozhiGateway:
 
         # Build clean speech text
         spoken_text = f"{REFLEX_SENTINEL_PREFIX} {detail_message}"
-        clean_spoken = clean_text_for_tts(spoken_text)
+        clean_spoken = shorten_for_speech(sanitise_for_tts(spoken_text))
 
         for node in targets:
             # 1. Update LCD Screen immediately
@@ -507,7 +509,7 @@ class XiaozhiGateway:
                 async with node.stream_lock:
                     await self._stream_audio_smooth(
                         node,
-                        audio_engine.text_to_speech_stream(clean_spoken),
+                        get_tts_engine().stream(clean_spoken),
                         text_summary=clean_spoken,
                         sample_rate=24000,
                     )
@@ -567,7 +569,7 @@ class XiaozhiGateway:
                         logger.info("[Xiaozhi] Pipeline bị huỷ bởi ngắt lời trên [%s]", device_id)
                         return
 
-                    clean_sentence = clean_text_for_tts(sentence)
+                    clean_sentence = shorten_for_speech(sanitise_for_tts(sentence))
                     if not clean_sentence:
                         continue
 
@@ -631,7 +633,7 @@ class XiaozhiGateway:
                     # Phase 70: Chuyển đổi TTS audio sang PCM 16kHz mono thuần cho loa MAX98357A
                     try:
                         mp3_chunks = []
-                        async for mp3_chunk in audio_engine.text_to_speech_stream(clean_sentence):
+                        async for mp3_chunk in get_tts_engine().stream(clean_sentence):
                             if node.cancel_event.is_set():
                                 break
                             if mp3_chunk:
@@ -952,7 +954,7 @@ class XiaozhiGateway:
                         # Synthesize voice warning to node
                         edge_text = "Dạ, phía trước là mép bàn, em không đi được nữa đâu ạ."
                         try:
-                            edge_audio = await audio_engine.text_to_speech_bytes(edge_text)
+                            edge_audio = await get_tts_engine().synthesise(shorten_for_speech(sanitise_for_tts(edge_text)))
                             if edge_audio:
                                 asyncio.create_task(self._stream_audio_chunks(node, edge_audio))
                         except Exception as spk_err:

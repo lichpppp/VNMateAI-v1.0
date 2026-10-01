@@ -9,7 +9,6 @@ Các mục tiêu kiểm chứng:
 2. Backpressure Queue: Hàng đợi bị giới hạn không làm tràn RAM, theo dõi queue_depth_peak.
 3. Cancellation & Barge-In: Dọn sạch hàng đợi và hủy worker ngầm tức thì khi có yêu cầu cancel.
 4. Edge cases: Xử lý 0 câu (mark_complete(0)), 1 câu đơn lẻ.
-5. SentenceBoundaryStreamer: Tương thích ngược và hỗ trợ worker đa luồng gối đầu.
 """
 
 import asyncio
@@ -26,7 +25,6 @@ from core.audio.tts_queue_pipeline import (
     SentenceItem,
     AudioResultItem,
 )
-from core.audio.streaming_tts_pipeline import SentenceBoundaryStreamer
 
 
 # ---------------------------------------------------------------------------
@@ -206,36 +204,6 @@ async def test_backpressure_and_metrics():
     print(f"  ✅ Backpressure & Metrics: {metrics}")
 
 
-async def test_sentence_boundary_streamer_integration():
-    """
-    KIỂM THỬ TƯƠNG THÍCH NGƯỢC:
-    SentenceBoundaryStreamer sử dụng StreamingTTSWorkerPipeline gối đầu thành công.
-    """
-    print("\n▸ 5. Kiểm thử Tương thích ngược (SentenceBoundaryStreamer)")
-    streamer = SentenceBoundaryStreamer(num_workers=2)
-
-    async def token_gen():
-        tokens = [
-            "Hôm ", "nay ", "thời ", "tiết ", "rất ", "đẹp. ",
-            "Nhiệt ", "độ ", "khoảng ", "25 ", "độ ", "C. ",
-        ]
-        for t in tokens:
-            await asyncio.sleep(0.01)
-            yield t
-
-    chunks = []
-    try:
-        async for chunk in streamer.stream(token_gen()):
-            chunks.append(chunk)
-            if len(chunks) >= 2:
-                break
-    except Exception:
-        pass
-
-    assert streamer._sentence_streamer is not None
-    print("  ✅ SentenceBoundaryStreamer tương thích ngược hoàn hảo.")
-
-
 async def main():
     print("=" * 65)
     print("BẮT ĐẦU KIỂM THỬ GIAI ĐOẠN 4 (PHASE 4: STREAMING TTS PIPELINE)")
@@ -245,7 +213,6 @@ async def main():
     await test_barge_in_cancellation()
     await test_empty_and_single_sentence()
     await test_backpressure_and_metrics()
-    await test_sentence_boundary_streamer_integration()
 
     print("\n" + "=" * 65)
     print("🎉 TẤT CẢ 5/5 BÀI KIỂM THỬ PHASE 4 ĐÃ ĐẠT 100% THÀNH CÔNG!")

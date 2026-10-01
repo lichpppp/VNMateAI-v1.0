@@ -1,22 +1,24 @@
 """
 core/audio/tts_stream_engine.py
 ================================
-TTS Stream Engine đa nguồn — Race để đảm bảo âm thanh luôn có trong < 600ms.
+TTS Stream Engine — implementation TTS DUY NHẤT của hệ thống (mọi kênh voice).
 
-Thứ tự ưu tiên:
-  1. Cache RAM / Disk (0ms) — cho câu ACK và câu thường xuyên lặp lại
-  2. Microsoft Edge-TTS stream (150–300ms) — chất lượng cao, giọng Hoài My
-  3. ElevenLabs WebSocket Stream (nếu config) — giọng tự nhiên nhất
-  4. gTTS (Google Translate TTS) — fallback cuối, luôn hoạt động (~3s)
+Thứ tự nguồn (đo 2026-10-01 trên máy chủ, câu mới mỗi lần):
+  1. Cache RAM / Disk (0ms)
+  2. ElevenLabs WebSocket stream (chỉ khi đã cấu hình)
+  3. 9Router /v1/audio/speech — Hoài My qua proxy, p50 1,2 s cả câu
+  4. Microsoft Edge-TTS stream — Hoài My trực tiếp, chunk đầu p50 3,8 s;
+     dự phòng khi 9Router lỗi / chưa cấu hình (đo được 1/5 lần 502)
 
-Race strategy: Edge-TTS và gTTS chạy song song, ai về trước thắng.
+Không còn nhánh gTTS: thư viện chưa từng được khai báo nên nhánh đó chưa bao
+giờ chạy, và giọng khác Hoài My.
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
+import re
 import time
 from typing import AsyncGenerator, Optional
 
@@ -66,6 +68,27 @@ def _get_tts_rate() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Gợi ý phát âm — chỉ áp lên chữ GỬI ĐI tổng hợp, không lên chữ hiển thị
+# ---------------------------------------------------------------------------
+
+_PRONUNCIATION = [
+    (re.compile(r'\bVN-?MateAI\b', re.I), 'VN Mate AI'),
+    (re.compile(r'\bLyly\b', re.I), 'Ly Ly'),
+    (re.compile(r'\bAPI\b'), 'A P I'),
+    (re.compile(r'\bRAM\b'), 'Ram'),
+    (re.compile(r'\bCPU\b'), 'C P U'),
+    (re.compile(r'\bPC-([a-zA-Z0-9]+)\b'), r'PC \1'),
+]
+
+
+def apply_pronunciation(text: str) -> str:
+    """Đổi từ viết tắt / tên riêng sang cách Hoài My đọc tự nhiên."""
+    for pattern, repl in _PRONUNCIATION:
+        text = pattern.sub(repl, text)
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Cache helpers
 # ---------------------------------------------------------------------------
 
@@ -93,6 +116,7 @@ async def _stream_edge_tts(
     text: str,
     voice: str,
     rate: str,
+    cache_key: Optional[str] = None,
 ) -> AsyncGenerator[bytes, None]:
     """
     Stream raw MP3 bytes từ Edge-TTS Microsoft.
@@ -120,7 +144,7 @@ async def _stream_edge_tts(
                     "[TTS/edge-tts] OK: %d bytes, attempt=%d, voice=%s",
                     len(accumulated), attempt + 1, voice,
                 )
-                _cache_set(text, bytes(accumulated), voice)
+                _cache_set(cache_key or text, bytes(accumulated), voice)
                 return
 
             logger.warning("[TTS/edge-tts] 0 chunks trả về (attempt %d), retry...", attempt + 1)
@@ -138,29 +162,38 @@ async def _stream_edge_tts(
 
 
 # ---------------------------------------------------------------------------
-# Backend: gTTS fallback (không phụ thuộc mạng phương Tây)
+# Backend: 9Router /v1/audio/speech (Hoài My qua proxy)
 # ---------------------------------------------------------------------------
 
-async def _synthesise_gtts(text: str) -> Optional[bytes]:
-    """
-    Synthesise toàn bộ văn bản với gTTS trong executor (non-blocking).
-    Thường mất 2–4s nhưng luôn thành công khi có internet.
-    """
+#: Quá ngưỡng này thì bỏ 9Router, chuyển sang Edge (đo: p50 1,2 s, max 1,6 s).
+_ROUTER_TTS_TIMEOUT_S = 6.0
+
+
+async def _synthesise_9router(text: str, voice: str) -> Optional[bytes]:
+    """Tổng hợp cả câu qua 9Router (OpenAI-compatible /audio/speech)."""
     try:
-        from gtts import gTTS  # type: ignore
+        from core.config_loader import settings
+        from core.connection_pool import get_tts_http_client
 
-        def _synth() -> bytes:
-            buf = io.BytesIO()
-            gTTS(text=text, lang="vi", slow=False).write_to_fp(buf)
-            return buf.getvalue()
-
-        loop = asyncio.get_event_loop()
-        data = await asyncio.wait_for(loop.run_in_executor(None, _synth), timeout=12.0)
-        if data and len(data) > 100:
-            logger.debug("[TTS/gTTS] OK: %d bytes", len(data))
-            return data
+        base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1").rstrip("/")
+        api_key = getattr(settings.llm, "api_key", "")
+        model_id = voice if voice.startswith("edge-tts/") else f"edge-tts/{voice}"
+        client = await get_tts_http_client()
+        resp = await asyncio.wait_for(
+            client.post(
+                f"{base_url}/audio/speech",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model_id, "input": text},
+            ),
+            timeout=_ROUTER_TTS_TIMEOUT_S,
+        )
+        if resp.status_code == 200 and len(resp.content) > 100:
+            return resp.content
+        logger.warning("[TTS/9Router] HTTP %d: %s", resp.status_code, resp.text[:120])
+    except asyncio.TimeoutError:
+        logger.warning("[TTS/9Router] quá %.0fs — chuyển sang Edge-TTS", _ROUTER_TTS_TIMEOUT_S)
     except Exception as exc:
-        logger.debug("[TTS/gTTS] Lỗi: %s", exc)
+        logger.warning("[TTS/9Router] lỗi: %s", exc)
     return None
 
 
@@ -305,7 +338,7 @@ class TTSStreamEngine:
             yield cached
             return
 
-        t0 = time.monotonic()
+        t0 = time.perf_counter()
 
         # 2. ElevenLabs WS (nếu đã cấu hình)
         if self._elevenlabs_config:
@@ -318,46 +351,34 @@ class TTSStreamEngine:
                 yield chunk
 
             if chunks_buf:
-                elapsed = (time.monotonic() - t0) * 1000
+                elapsed = (time.perf_counter() - t0) * 1000
                 logger.info("[TTSStream] ElevenLabs: %d bytes / %.0fms", len(chunks_buf), elapsed)
                 _cache_set(text, bytes(chunks_buf), effective_voice)
                 return
 
-        # 3. Edge-TTS stream (chính)
+        # 3. 9Router Hoài My (nhanh nhất theo số đo)
+        spoken = apply_pronunciation(text)
+        router_bytes = await _synthesise_9router(spoken, effective_voice)
+        if router_bytes:
+            elapsed = (time.perf_counter() - t0) * 1000
+            logger.info("[TTSStream] 9Router: %d bytes / %.0fms", len(router_bytes), elapsed)
+            _cache_set(text, router_bytes, effective_voice)
+            yield router_bytes
+            return
+
+        # 4. Edge-TTS stream trực tiếp (dự phòng)
         edge_buf = bytearray()
-        async for chunk in _stream_edge_tts(text, effective_voice, effective_rate):
+        async for chunk in _stream_edge_tts(spoken, effective_voice, effective_rate, cache_key=text):
             edge_buf.extend(chunk)
             yield chunk
 
         if edge_buf:
-            elapsed = (time.monotonic() - t0) * 1000
+            elapsed = (time.perf_counter() - t0) * 1000
             logger.info("[TTSStream] Edge-TTS: %d bytes / %.0fms", len(edge_buf), elapsed)
             _cache_set(text, bytes(edge_buf), effective_voice)
             return
 
-        # 3.5 9Router Edge-TTS fallback (Bảo tồn 100% giọng Hoài My qua Proxy)
-        try:
-            from core.audio_processor import audio_engine
-            router_bytes = await audio_engine._tts_9router(text, voice=effective_voice)
-            if router_bytes and len(router_bytes) > 100:
-                elapsed = (time.monotonic() - t0) * 1000
-                logger.info("[TTSStream] 9Router Hoài My fallback: %d bytes / %.0fms", len(router_bytes), elapsed)
-                _cache_set(text, router_bytes, effective_voice)
-                yield router_bytes
-                return
-        except Exception as exc:
-            logger.debug("[TTSStream] 9Router fallback exception: %s", exc)
-
-        # 4. gTTS fallback (toàn bộ rồi yield một lần — cứu cánh cuối cùng)
-        logger.warning("[TTSStream] Edge-TTS & 9Router thất bại — chuyển sang gTTS fallback")
-        gtts_data = await _synthesise_gtts(text)
-        if gtts_data:
-            elapsed = (time.monotonic() - t0) * 1000
-            logger.info("[TTSStream] gTTS fallback: %d bytes / %.0fms", len(gtts_data), elapsed)
-            _cache_set(text, gtts_data, "gtts-vi")
-            yield gtts_data
-        else:
-            logger.error("[TTSStream] TẤT CẢ nguồn TTS thất bại cho: '%s'", text[:60])
+        logger.error("[TTSStream] TẤT CẢ nguồn TTS thất bại cho: '%s'", text[:60])
 
     # ------------------------------------------------------------------
     # synthesise() — collect tất cả chunks thành bytes (cho cache/base64)
@@ -382,49 +403,6 @@ class TTSStreamEngine:
             buf.extend(chunk)
 
         return bytes(buf) if buf else None
-
-    # ------------------------------------------------------------------
-    # Race: edge-tts || gTTS — ai về trước thắng (cho _safe_tts)
-    # ------------------------------------------------------------------
-
-    async def race_synthesise(self, text: str) -> Optional[bytes]:
-        """
-        Tổng hợp âm thanh ưu tiên Microsoft Hoài My (Edge-TTS -> 9Router),
-        chỉ dùng gTTS khi cả hai nguồn đều không phản hồi.
-        """
-        cached = _cache_get(text)
-        if cached and len(cached) > 100:
-            return cached
-
-        # Ưu tiên 1: Edge-TTS
-        try:
-            buf = bytearray()
-            async for chunk in _stream_edge_tts(text, self._voice, self._rate):
-                buf.extend(chunk)
-            if buf and len(buf) > 100:
-                res = bytes(buf)
-                _cache_set(text, res, self._voice)
-                return res
-        except Exception as exc:
-            logger.debug("[TTS/Synthesise] Edge-TTS lỗi: %s", exc)
-
-        # Ưu tiên 2: 9Router Hoài My
-        try:
-            from core.audio_processor import audio_engine
-            res = await audio_engine._tts_9router(text, voice=self._voice)
-            if res and len(res) > 100:
-                _cache_set(text, res, self._voice)
-                return res
-        except Exception as exc:
-            logger.debug("[TTS/Synthesise] 9Router lỗi: %s", exc)
-
-        # Cứu cánh cuối cùng: gTTS
-        gtts_data = await _synthesise_gtts(text)
-        if gtts_data and len(gtts_data) > 100:
-            _cache_set(text, gtts_data, "gtts-vi")
-            return gtts_data
-
-        return None
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,8 @@ Năm lối vào cùng làm một việc "nghe → hiểu → trả lời bằng 
 
 ## 2. TTS
 
+> **Phase 2 (2026-10-01):** đã gộp — chỉ còn `TTSStreamEngine` (thứ tự 9Router → Edge), `sanitise_for_tts` + `shorten_for_speech`, `SentenceBuffer`. Các dòng Active-dup / Facade / Test-only / Dead dưới đây và ở mục 3 đã xoá. Xem `docs/migration/production-refactor-plan.md` §7.
+
 | Feature | Implementation | Status | Caller | Replacement | Action | Confidence |
 |---|---|---|---|---|---|---|
 | Tổng hợp giọng | `core/audio/tts_stream_engine.py::TTSStreamEngine` (cache → Edge → ElevenLabs → 9Router → gTTS) | Canonical | P1, P2, `fast_command_router`, `streaming_tts_pipeline`, `tts_queue_pipeline` | — | KEEP | HIGH |

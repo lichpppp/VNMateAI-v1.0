@@ -7,8 +7,8 @@ Responsibilities:
   - ASR  : `transcribe_audio(audio_bytes)` — chuyển đổi luồng byte âm thanh → văn bản tiếng Việt.
            Backend priority: local_whisper (faster-whisper, ~0.3s) → google (2s).
            Không nhận dạng được thì trả chuỗi rỗng — không tự bịa nội dung lời nói.
-  - TTS  : `text_to_speech_stream(text)` — dùng edge-tts với giọng
-            'vi-VN-HoaiMyNeural', yield các chunk MP3 byte ngay khi engine tạo ra (streaming).
+  - VAD  : `SileroVADDetector` — cắt câu theo khoảng lặng.
+  - TTS  : KHÔNG ở đây — implementation duy nhất là `core/audio/tts_stream_engine.py`.
 
 Zero-Disk-I/O Contract:
   - Tất cả âm thanh đều xử lý qua `io.BytesIO` trong RAM.
@@ -25,7 +25,6 @@ byte âm thanh, khiến hệ thống hành xử như thể người dùng đã n
 
 Phase 23 Changes:
   - Local faster-whisper singleton (loaded once into RAM on first use).
-  - Edge-TTS timeout (2.5s) to avoid 3s+ network stalls, with fast fallback.
 """
 
 from __future__ import annotations
@@ -33,87 +32,18 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
-import re
 import threading
 import time
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Any, Dict
 
-import edge_tts                          # type: ignore[import]
-import httpx
 import numpy as np
 
 from core.config_loader import settings
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# TTS Configuration & Helpers
-# ---------------------------------------------------------------------------
-
-_DEFAULT_TTS_VOICE: str = "vi-VN-HoaiMyNeural"   # Microsoft Neural TTS — Vietnamese female
-_DEFAULT_TTS_RATE: str = "+50%"                  # Fast, crisp, consistent pace across all modules
-_EDGE_TTS_TIMEOUT: float = 3.5                   # Max seconds to wait for edge-tts
-
-# In-Memory Fast LRU Cache for TTS audio bytes (Zero-Disk-I/O, 0ms latency for repeated speech)
-_TTS_CACHE: Dict[str, bytes] = {}
-_TTS_CACHE_MAX_SIZE: int = 128
-_tts_cache_lock = threading.Lock()
-
-
-def _get_tts_voice() -> str:
-    return getattr(settings, "TTS_VOICE", _DEFAULT_TTS_VOICE) or _DEFAULT_TTS_VOICE
-
-
-def _get_tts_rate() -> str:
-    return getattr(settings, "TTS_RATE", _DEFAULT_TTS_RATE) or _DEFAULT_TTS_RATE
-
-
-def clean_text_for_tts(text: str) -> str:
-    """Clean markdown, symbols, emojis, URLs and format for natural Hoài My Vietnamese TTS."""
-    if not text:
-        return ""
-    # Strip URLs
-    text = re.sub(r'https?://\S+', '', text)
-    # Strip markdown links [label](url) -> label
-    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
-    # Strip markdown styling symbols (*, _, `, ~, #, >, |)
-    text = re.sub(r'[*_#`~>|]', ' ', text)
-    # Strip common emojis and bullet symbols that make TTS stutter
-    text = re.sub(r'[🔴🟢🟡🔵⚪⚫⚡⚠️✅❌★☆✨🎙️🔊📢💬🤖💡🛠️📦🔗]', ' ', text)
-    # Natural pronunciation hints for Vietnamese
-    text = re.sub(r'\bVN-?MateAI\b', 'VN Mate AI', text, flags=re.I)
-    text = re.sub(r'\bLyly\b', 'Ly Ly', text, flags=re.I)
-    text = re.sub(r'\bAPI\b', 'A P I', text)
-    text = re.sub(r'\bRAM\b', 'Ram', text)
-    text = re.sub(r'\bCPU\b', 'C P U', text)
-    text = re.sub(r'\bPC-([a-zA-Z0-9]+)\b', r'PC \1', text)
-    # Replace dashes/em-dashes between clauses with natural comma pause
-    text = re.sub(r'\s*[-–—]\s*', ', ', text)
-    # Collapse multiple whitespace
-    text = re.sub(r'\s+', ' ', text).strip()
-
-    # Guard: Spoken voice should be concise (<= 200 chars).
-    # If text is too long, extract first 1-2 clean sentences to prevent TTS latency/timeout.
-    if len(text) > 200:
-        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', text) if len(s.strip()) > 3]
-        short_parts = []
-        cur_len = 0
-        for s in sentences:
-            if cur_len + len(s) < 170:
-                short_parts.append(s)
-                cur_len += len(s)
-            else:
-                break
-        if short_parts:
-            text = " ".join(short_parts)
-            if not any(text.endswith(p) for p in ('.', '!', '?')):
-                text += "."
-            text += " Chi tiết cụ thể đã hiển thị trên màn hình."
-        else:
-            text = text[:160] + "... Chi tiết đã hiển thị trên màn hình."
-
-    return text
-
+# TTS không còn ở đây: implementation duy nhất là core/audio/tts_stream_engine.py
+# (Phase 2). Module này chỉ còn STT + VAD.
 
 # ---------------------------------------------------------------------------
 # ASR Configuration
@@ -385,7 +315,6 @@ class AudioEngine:
     All methods are coroutines; instances can be shared across WebSocket connections.
     """
 
-    clean_text_for_tts = staticmethod(clean_text_for_tts)
 
     # ------------------------------------------------------------------
     # ASR — Speech to Text
@@ -629,200 +558,9 @@ class AudioEngine:
     # TTS — Text to Speech với Fallback Chain (Phase 23: with timeout)
     # ------------------------------------------------------------------
 
-    async def text_to_speech_stream(
-        self,
-        text: str,
-        voice: Optional[str] = None,
-        rate: Optional[str] = None,
-    ) -> AsyncGenerator[bytes, None]:
-        """
-        Fallback chain TTS:
-          1. edge-tts  (primary — high quality Vietnamese Microsoft Neural with rate=+15%)
-          2. gTTS      (fallback — Google TTS Vietnamese)
-          3. pyttsx3   (last resort — offline)
 
-        Yields MP3/WAV bytes.
-        Uses asyncio.wait_for for Python 3.10+ compatibility.
-        """
-        if not text or not text.strip():
-            return
 
-        clean_text = clean_text_for_tts(text)
-        if not clean_text:
-            return
 
-        voice = voice or _get_tts_voice()
-        rate = rate or _get_tts_rate()
-
-        # --- Phase 36: Kiểm tra Dynamic Audio Cache (0ms local audio hit) ---
-        from core.audio_cache import get_cached_audio_bytes, save_to_cache
-        cached_bytes = get_cached_audio_bytes(clean_text)
-        if cached_bytes:
-            logger.info("[TTS Audio Cache HIT (0ms)] Phát file MP3 nội bộ cho: '%s'", clean_text[:50])
-            yield cached_bytes
-            return
-
-        logger.info(
-            "TTS synthesis starting: voice=%s, rate=%s, text_len=%d, text='%s...'",
-            voice, rate, len(clean_text), clean_text[:60],
-        )
-
-        # --- Try 1: edge-tts (Microsoft Neural — vi-VN-HoaiMyNeural) ---
-        # Phase 50 Step 4: True streaming via communicate.stream() — yield chunks immediately!
-        for attempt in range(2):
-            chunks_collected = []
-            try:
-                communicate = edge_tts.Communicate(text=clean_text, voice=voice, rate=rate)
-                async for item in communicate.stream():
-                    if item["type"] == "audio" and item["data"]:
-                        chunk_data = item["data"]
-                        chunks_collected.append(chunk_data)
-                        yield chunk_data
-
-                if chunks_collected:
-                    logger.info("TTS OK via edge-tts stream (%d chunks) [Giọng: %s].", len(chunks_collected), voice)
-                    full_bytes = b"".join(chunks_collected)
-                    # Phase 36: Lưu vào Local Audio Cache để tái sử dụng 0ms
-                    save_to_cache(clean_text, full_bytes, voice=voice)
-                    return
-
-                logger.warning("edge-tts returned 0 audio chunks. Retrying...")
-
-            except edge_tts.exceptions.NoAudioReceived:
-                if chunks_collected:
-                    return
-                if attempt == 0:
-                    logger.info("edge-tts NoAudioReceived, retrying once...")
-                    await asyncio.sleep(0.2)
-                    continue
-                logger.warning("edge-tts NoAudioReceived after retry.")
-            except (asyncio.TimeoutError, TimeoutError):
-                if chunks_collected:
-                    return
-                if attempt == 0:
-                    logger.info("edge-tts timed out on first attempt, retrying once...")
-                    await asyncio.sleep(0.15)
-                    continue
-                logger.warning("edge-tts timed out. Trying 9Router Hoài My fallback...")
-                break
-            except Exception as exc:
-                if chunks_collected:
-                    return
-                if attempt == 0:
-                    logger.info("edge-tts error (%s), retrying once...", exc)
-                    await asyncio.sleep(0.15)
-                    continue
-                logger.warning("edge-tts error: %s. Trying 9Router Hoài My fallback...", exc)
-                break
-
-        # --- Try 2: 9Router Audio/Speech API (Bảo tồn 100% giọng Hoài My qua Proxy) ---
-        router_bytes = await self._tts_9router(clean_text, voice=voice)
-        if router_bytes:
-            logger.info("TTS OK via 9Router Edge-TTS fallback (%d bytes) [Giọng: %s].", len(router_bytes), voice)
-            # Phase 36: Lưu vào Local Audio Cache
-            save_to_cache(clean_text, router_bytes, voice=voice)
-            yield router_bytes
-            return
-
-        # --- Try 3: gTTS (Google Translate TTS Vietnamese fallback - Không bao giờ lỗi) ---
-        gtts_bytes = await self._tts_gtts(clean_text)
-        if gtts_bytes:
-            logger.info("TTS OK via gTTS fallback (%d bytes).", len(gtts_bytes))
-            save_to_cache(clean_text, gtts_bytes, voice="gtts-vi")
-            yield gtts_bytes
-            return
-
-        logger.error("TTS: Không thể tổng hợp giọng đọc cho text: '%s'", text[:60])
-
-    @staticmethod
-    async def _tts_gtts(text: str, lang: str = "vi") -> bytes:
-        """Fallback to Google TTS (gTTS) if Edge-TTS / 9Router is temporarily unreachable."""
-        try:
-            from gtts import gTTS
-            buf = io.BytesIO()
-            def _synth() -> bytes:
-                tts = gTTS(text=text, lang=lang, slow=False)
-                tts.write_to_fp(buf)
-                return buf.getvalue()
-            loop = asyncio.get_event_loop()
-            res = await loop.run_in_executor(None, _synth)
-            return res
-        except Exception as exc:
-            logger.warning("gTTS fallback error: %s", exc)
-            return b""
-
-    @staticmethod
-    async def _tts_9router(text: str, voice: str = "vi-VN-HoaiMyNeural") -> bytes:
-        """9Router /v1/audio/speech proxy — giữ nguyên 100% giọng Hoài My (Nữ, miền Nam)."""
-        try:
-            base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1").rstrip("/")
-            api_key = getattr(settings.llm, "api_key", "")
-            # Chuẩn hóa mã model cho 9router
-            model_id = f"edge-tts/{voice}" if not voice.startswith("edge-tts/") else voice
-            headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": model_id,
-                "input": text,
-            }
-            from core.connection_pool import get_tts_http_client
-            client = await get_tts_http_client()
-            resp = await client.post(f"{base_url}/audio/speech", headers=headers, json=payload)
-            if resp.status_code == 200 and len(resp.content) > 100:
-                return resp.content
-            logger.warning("9Router TTS error status %d: %s", resp.status_code, resp.text[:120])
-        except Exception as exc:
-            logger.warning("9Router TTS exception: %s", exc)
-        return b""
-
-    async def text_to_speech_bytes(
-        self,
-        text: str,
-        voice: Optional[str] = None,
-        rate: Optional[str] = None,
-    ) -> bytes:
-        """
-        Collect all TTS chunks into a single bytes object with in-memory & on-disk caching.
-        Zero latency when cached.
-        """
-        if not text or not text.strip():
-            return b""
-
-        target_voice = voice or _get_tts_voice()
-        target_rate = rate or _get_tts_rate()
-        cache_key = f"{target_voice}|{target_rate}|{text.strip()}"
-
-        with _tts_cache_lock:
-            if cache_key in _TTS_CACHE:
-                logger.info("[TTS Memory Cache HIT (0ms)] Reusing cached audio for: '%s'", text[:50])
-                return _TTS_CACHE[cache_key]
-
-        # Phase 36: Kiểm tra on-disk audio cache
-        from core.audio_cache import get_cached_audio_bytes, save_to_cache
-        cached_disk = get_cached_audio_bytes(text)
-        if cached_disk:
-            with _tts_cache_lock:
-                _TTS_CACHE[cache_key] = cached_disk
-            logger.info("[TTS Disk Cache HIT (0ms)] Reusing disk cached audio for: '%s'", text[:50])
-            return cached_disk
-
-        buffer = io.BytesIO()
-        async for chunk in self.text_to_speech_stream(text, voice=target_voice, rate=target_rate):
-            buffer.write(chunk)
-        data = buffer.getvalue()
-
-        if data:
-            with _tts_cache_lock:
-                if len(_TTS_CACHE) >= _TTS_CACHE_MAX_SIZE:
-                    first_k = next(iter(_TTS_CACHE))
-                    _TTS_CACHE.pop(first_k, None)
-                _TTS_CACHE[cache_key] = data
-            # Phase 36: Đảm bảo lưu vào disk cache
-            save_to_cache(text, data, voice=target_voice)
-
-        return data
 
 
 # ---------------------------------------------------------------------------
@@ -844,38 +582,3 @@ def preload_whisper_model() -> None:
         t.start()
 
 
-def prewarm_tts_cache() -> None:
-    """
-    Pre-warm the in-memory TTS cache for common responses in a background thread.
-    Ensures the very first user interaction or greeting has 0ms synthesis delay.
-    """
-    ai_name = getattr(settings, "AI_NAME", None) or getattr(settings, "ASSISTANT_NAME", "Ly Ly")
-    COMMON_PROMPTS = [
-        f"Xin chào, em là {ai_name}. Tất cả các hệ thống phòng thủ và mạng lưới đang hoạt động tối ưu.",
-        "Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...",
-        "Em đã thực hiện xong yêu cầu của bạn.",
-        "Xin lỗi, em gặp lỗi xử lý nội bộ.",
-        "Tác vụ này yêu cầu phê duyệt bảo mật, vui lòng xác nhận trên màn hình.",
-    ]
-
-    async def _warm():
-        for phrase in COMMON_PROMPTS:
-            try:
-                await audio_engine.text_to_speech_bytes(phrase)
-                await asyncio.sleep(0.05)
-            except Exception:
-                pass
-        logger.info("[TTS Cache] Pre-warmed %d essential phrases into RAM.", len(COMMON_PROMPTS))
-
-    def _worker():
-        # Delay slightly so server startup port binding isn't contested
-        time.sleep(1.5)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(_warm())
-        finally:
-            loop.close()
-
-    t = threading.Thread(target=_worker, daemon=True, name="tts-cache-prewarm")
-    t.start()
