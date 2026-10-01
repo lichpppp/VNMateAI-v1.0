@@ -90,8 +90,10 @@ def can_synthesize_direct_response(
     if not isinstance(tool_result, dict):
         return None
 
-    # Trường hợp 1: Công cụ trả về lỗi
-    if tool_result.get("success") is False or "error" in tool_result:
+    # Trường hợp 1: Công cụ trả về lỗi. Xét GIÁ TRỊ của "error", không xét có
+    # khoá hay không: plugin_manager luôn trả {"success", "data", "error": None},
+    # nên điều kiện cũ (`"error" in tool_result`) coi mọi kết quả thành công là lỗi.
+    if tool_result.get("success") is False or tool_result.get("error"):
         err = tool_result.get("error") or "không xác định"
         # Bỏ qua lỗi kỹ thuật dài dòng
         clean_err = str(err).split("\n")[0][:120]
@@ -172,57 +174,172 @@ def prune_tool_payload_for_llm(data: Any, max_chars: int = 1500) -> str:
 # 4. Tool Execution Helper
 # ---------------------------------------------------------------------------
 
+async def run_tool_with_policy(
+    fn_name: str,
+    fn_args: Dict[str, Any],
+    *,
+    caller: str,
+    source_device: Optional[str],
+    query: str = "",
+    session_id: Optional[str] = None,
+    registry_names: Optional[Set[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Cổng DUY NHẤT thực thi một tool do LLM yêu cầu (mọi kênh voice + agent).
+
+    Zero-Trust (BLOCKED / NEED_CONFIRM -> HITL) -> RBAC -> thực thi (Plugin
+    Registry có HITL riêng / skill cục bộ / máy trạm) -> audit.
+
+    `caller`: danh tính cho RBAC + audit. `source_device`: kênh gọi, dùng cho
+    chính sách bỏ qua bước xác nhận của các kênh quản trị (commit f389bbe —
+    "full admin bypass", giữ nguyên) và nơi gửi yêu cầu phê duyệt.
+
+    Trước Phase 3 logic này nằm trong `LLMEngine.ask_async`; đường voice
+    realtime dùng một bản riêng import `zero_trust.evaluate_risk` (không tồn
+    tại) nên mọi tool chạy KHÔNG qua kiểm tra nào.
+
+    Trả về {"target_client", "args", "result"}.
+    """
+    from core.zero_trust import evaluate_action_risk
+    from core.plugin_manager import plugin_manager
+
+    fn_args = dict(fn_args or {})
+    target_client = str(
+        fn_args.pop("target_client_id", None)
+        or fn_args.pop("target_client", "master")
+        or "master"
+    ).strip()
+
+    risk_level = evaluate_action_risk(fn_name, fn_args)
+    _device = str(source_device or "anonymous")
+    _is_admin = (
+        any(k in _device.lower() for k in ["esp32", "xiaozhi", "telegram", "hud", "console", "portal", "admin"])
+        or fn_args.get("confirmed")
+    )
+
+    def _done(result: Dict[str, Any]) -> Dict[str, Any]:
+        return {"target_client": target_client, "args": fn_args, "result": result}
+
+    if risk_level == "BLOCKED":
+        logger.warning("Zero-Trust Security: Tác vụ '%s' bị CHẶN HOÀN TOÀN.", fn_name)
+        security_engine.log_audit(target_client, fn_name, "BLOCKED", "REJECTED", fn_args)
+        return _done({
+            "status": "error",
+            "message": f"Tác vụ '{fn_name}' bị từ chối do vi phạm chính sách bảo mật.",
+        })
+
+    if risk_level == "NEED_CONFIRM" and not _is_admin:
+        logger.warning("Zero-Trust Security: Tác vụ '%s' yêu cầu phê duyệt.", fn_name)
+        security_engine.log_audit(target_client, fn_name, "NEED_CONFIRM", "PENDING_CONFIRMATION", fn_args)
+        from core.state_manager import state_manager as _sm
+        _chat_id = None
+        if source_device and "telegram:" in str(source_device):
+            _parts = str(source_device).split(":")
+            if len(_parts) >= 2:
+                _chat_id = _parts[1]
+        _sm.save_pending_action(
+            user_id=caller, tool_name=fn_name, arguments=dict(fn_args),
+            target_client=target_client, query=query,
+            chat_id=_chat_id, source_device=source_device,
+        )
+        return _done({
+            "status": "need_confirm",
+            "message": f"Tác vụ '{fn_name}' yêu cầu phê duyệt. Nhắn 'Đồng ý' để em chạy tiếp.",
+            "skill": fn_name, "target_client": target_client,
+            "args": fn_args, "requires_confirmation": True,
+        })
+
+    try:
+        from core.security_guard import security_guard as _rbac_guard
+    except Exception:  # pragma: no cover
+        _rbac_guard = None
+    if _rbac_guard is not None:
+        _rbac_ok, _rbac_reason = _rbac_guard.check_permission(
+            tool_name=fn_name, employee_id=caller,
+            session_id=session_id, payload=fn_args,
+        )
+        if not _rbac_ok:
+            logger.warning("[RBAC] BLOCKED | tool=%s | caller=%s", fn_name, caller)
+            return _done({"status": "error", "error": _rbac_reason, "code": "RBAC_DENIED"})
+
+    if target_client.lower() in ("master", "local", "server", "chính", "cục bộ"):
+        _plugin_registry = None
+        if registry_names is None:
+            try:
+                from core.plugin_registry import plugin_registry as _plugin_registry
+                registry_names = set(_plugin_registry.get_tool_names())
+            except Exception:
+                registry_names = set()
+        if registry_names and fn_name in registry_names:
+            if _plugin_registry is None:
+                from core.plugin_registry import plugin_registry as _plugin_registry
+            logger.info("[Phase60] Thực thi tool Plugin Registry: '%s'", fn_name)
+            _result = await _plugin_registry.execute_tool(fn_name, fn_args, caller_id=caller)
+            if _result.get("awaiting_approval"):
+                _result = {
+                    "status": "awaiting_approval", "success": False,
+                    "approval_id": _result.get("approval_id"),
+                    "risk_level": _result.get("risk_level"),
+                    "message": "Tác vụ này đang chờ phê duyệt. CHƯA được thực thi.",
+                }
+        else:
+            logger.info("Thực thi kỹ năng cục bộ: '%s' tham số=%s", fn_name, fn_args)
+            _result = await plugin_manager.execute_skill(fn_name, fn_args)
+            _not_found = (
+                (not _result.get("success", True) or _result.get("status") == "error")
+                and ("not found" in str(_result.get("error", "")).lower()
+                     or "không tìm thấy" in str(_result.get("error", "")).lower())
+            )
+            if _not_found:
+                if fn_name in ("list_directory", "read_file", "write_file", "delete_item"):
+                    from core.skills import file_system
+                    _fs = getattr(file_system, fn_name, None)
+                    if _fs:
+                        _result = await asyncio.to_thread(_fs, **fn_args)
+                elif fn_name == "delegate_to_specialist":
+                    from core.skills import ai_delegation
+                    _result = await ai_delegation.delegate_to_specialist_async(**fn_args)
+                elif fn_name == "display_visual_data":
+                    from skills.visual_skills import display_visual_data
+                    _result = await asyncio.to_thread(display_visual_data, **fn_args)
+                elif fn_name == "query_organization_data":
+                    from core.database import erp_db
+                    _result = {"status": "success", "data": erp_db.query_organization(fn_args.get("query", ""))}
+    else:
+        logger.info("Diều phối kỹ năng '%s' → [%s]", fn_name, target_client)
+        from core.orchestrator import orchestrator
+        _result = await asyncio.to_thread(orchestrator.execute_on_client_sync, target_client, fn_name, fn_args)
+
+    _ok = _result.get("status") == "success" or _result.get("success") is True
+    security_engine.log_audit(target_client, fn_name, risk_level, "SUCCESS" if _ok else "FAILED", fn_args)
+    return _done(_result)
+
+
+#: Kết quả cần đọc nguyên văn cho người dùng, không để LLM diễn giải lại.
+_GATE_STATUSES = ("need_confirm", "awaiting_approval")
+
+
 async def execute_tool_call(
     tool_call: Dict[str, Any],
     user_info: Optional[Dict[str, Any]] = None,
+    source_device: str = "portal",
 ) -> ToolExecutionResult:
-    """Thực thi một tool call với đo lường thời gian và Zero-Trust."""
+    """Tool call của đường voice realtime — đi qua `run_tool_with_policy`."""
     fn_name = tool_call.get("name", "")
     call_id = tool_call.get("id", f"call_{int(time.time()*1000)}")
     raw_args = tool_call.get("arguments", "{}")
 
-    t0 = time.monotonic()
+    t0 = time.perf_counter()
     try:
         args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
     except Exception:
         args = {}
 
-    # Kiểm tra Zero-Trust
+    user_info = user_info or {}
+    caller = str(user_info.get("sub") or user_info.get("username") or "anonymous")
     try:
-        from core.zero_trust import evaluate_risk
-        risk = evaluate_risk(fn_name, args)
-        if risk == "BLOCKED":
-            return ToolExecutionResult(
-                tool_call_id=call_id,
-                tool_name=fn_name,
-                arguments=args,
-                success=False,
-                data=None,
-                error="Bị chặn bởi chính sách bảo mật Zero-Trust",
-                execution_time_ms=(time.monotonic() - t0) * 1000,
-            )
-    except Exception:
-        pass
-
-    # Thực thi qua Plugin Manager
-    try:
-        from core.plugin_manager import plugin_manager
-        res = await plugin_manager.execute_skill(fn_name, args)
-        exec_ms = (time.monotonic() - t0) * 1000
-
-        direct_text = can_synthesize_direct_response(fn_name, res)
-        return ToolExecutionResult(
-            tool_call_id=call_id,
-            tool_name=fn_name,
-            arguments=args,
-            success=res.get("success", False),
-            data=res.get("data"),
-            error=res.get("error"),
-            execution_time_ms=exec_ms,
-            direct_response=direct_text,
-        )
+        out = await run_tool_with_policy(fn_name, args, caller=caller, source_device=source_device)
     except Exception as exc:
-        exec_ms = (time.monotonic() - t0) * 1000
         return ToolExecutionResult(
             tool_call_id=call_id,
             tool_name=fn_name,
@@ -230,9 +347,31 @@ async def execute_tool_call(
             success=False,
             data=None,
             error=str(exc),
-            execution_time_ms=exec_ms,
+            execution_time_ms=(time.perf_counter() - t0) * 1000,
             direct_response=f"Dạ, lệnh {fn_name} gặp lỗi: {str(exc)[:100]} ạ.",
         )
+
+    res = out["result"] or {}
+    success = res.get("success") is True or res.get("status") == "success"
+    data = res.get("data", res) if success else None
+    error = None if success else (res.get("error") or res.get("message") or str(res))
+    gated = res.get("status") in _GATE_STATUSES or res.get("code") == "RBAC_DENIED" or (
+        res.get("status") == "error" and "chính sách bảo mật" in str(res.get("message", ""))
+    )
+    if gated:
+        direct_text = str(res.get("message") or res.get("error") or "")
+    else:
+        direct_text = can_synthesize_direct_response(fn_name, {"success": success, "data": data, "error": error})
+    return ToolExecutionResult(
+        tool_call_id=call_id,
+        tool_name=fn_name,
+        arguments=out["args"],
+        success=success,
+        data=data,
+        error=error,
+        execution_time_ms=(time.perf_counter() - t0) * 1000,
+        direct_response=direct_text or None,
+    )
 
 
 def _deaccent(text: str) -> str:

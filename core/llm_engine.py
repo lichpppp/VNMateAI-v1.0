@@ -28,13 +28,8 @@ from openai import AsyncOpenAI, APIError, APIConnectionError, APITimeoutError, R
 from core.config_loader import settings
 from core.audio.sentence_streamer import sanitise_for_tts
 
-# Phase 48: RBAC Middleware
-try:
-    from core.security_guard import security_guard as _rbac_guard
-except Exception as _rbac_import_err:  # pragma: no cover
-    _rbac_guard = None  # type: ignore
-    import logging as _lg
-    _lg.getLogger(__name__).warning("Phản biết RBAC chưa tải được: %s", _rbac_import_err)
+# RBAC (Phase 48) áp dụng trong cổng thực thi tool chung:
+# core.agent_voice_loop.run_tool_with_policy
 
 logger = logging.getLogger(__name__)
 
@@ -1387,108 +1382,18 @@ class LLMEngine:
 
                     _tc_id = tool_call.id
 
-                    target_client = str(
-                        fn_args.pop("target_client_id", None)
-                        or fn_args.pop("target_client", "master")
-                        or "master"
-                    ).strip()
-
-                    from core.zero_trust import evaluate_action_risk as zt_evaluate_risk
-                    risk_level = zt_evaluate_risk(fn_name, fn_args)
-
-                    _caller = str(source_device or "anonymous")
-                    _is_admin = (
-                        any(k in _caller.lower() for k in ["esp32", "xiaozhi", "telegram", "hud", "console", "portal", "admin"])
-                        or fn_args.get("confirmed")
+                    # Cổng thực thi tool dùng chung (Zero-Trust, HITL, RBAC, audit) —
+                    # cùng một implementation với đường voice realtime.
+                    from core.agent_voice_loop import run_tool_with_policy
+                    _gate = await run_tool_with_policy(
+                        fn_name, fn_args,
+                        caller=str(source_device or "anonymous"),
+                        source_device=source_device,
+                        query=query,
+                        session_id=getattr(assistant_msg, "id", None),
+                        registry_names=_registry_names,
                     )
-
-                    if risk_level == "BLOCKED":
-                        logger.warning("Zero-Trust Security: Tác vụ '%s' bị CHẶN HOÀN TOÀN.", fn_name)
-                        security_engine.log_audit(target_client, fn_name, "BLOCKED", "REJECTED", fn_args)
-                        _result = {
-                            "status": "error",
-                            "message": f"Tác vụ '{fn_name}' bị từ chối do vi phạm chính sách bảo mật.",
-                        }
-                    elif risk_level == "NEED_CONFIRM" and not _is_admin:
-                        logger.warning("Zero-Trust Security: Tác vụ '%s' yêu cầu phê duyệt.", fn_name)
-                        security_engine.log_audit(target_client, fn_name, "NEED_CONFIRM", "PENDING_CONFIRMATION", fn_args)
-                        from core.state_manager import state_manager as _sm
-                        _chat_id = None
-                        if source_device and "telegram:" in str(source_device):
-                            _parts = str(source_device).split(":")
-                            if len(_parts) >= 2:
-                                _chat_id = _parts[1]
-                        _sm.save_pending_action(
-                            user_id=_caller, tool_name=fn_name, arguments=dict(fn_args),
-                            target_client=target_client, query=query,
-                            chat_id=_chat_id, source_device=source_device,
-                        )
-                        _result = {
-                            "status": "need_confirm",
-                            "message": f"Tác vụ '{fn_name}' yêu cầu phê duyệt. Nhắn 'Đồng ý' để em chạy tiếp.",
-                            "skill": fn_name, "target_client": target_client,
-                            "args": fn_args, "requires_confirmation": True,
-                        }
-                    else:
-                        if _rbac_guard is not None:
-                            _rbac_ok, _rbac_reason = _rbac_guard.check_permission(
-                                tool_name=fn_name, employee_id=_caller,
-                                session_id=getattr(assistant_msg, "id", None), payload=fn_args,
-                            )
-                            if not _rbac_ok:
-                                logger.warning("[RBAC] BLOCKED | tool=%s | caller=%s", fn_name, _caller)
-                                return {
-                                    "tool_call_id": _tc_id, "fn_name": fn_name,
-                                    "target_client": target_client, "args": fn_args,
-                                    "result": {"status": "error", "error": _rbac_reason, "code": "RBAC_DENIED"},
-                                }
-
-                        if target_client.lower() in ("master", "local", "server", "chính", "cục bộ"):
-                            if _registry_names and fn_name in _registry_names:
-                                logger.info("[Phase60] Thực thi tool Plugin Registry: '%s'", fn_name)
-                                _result = await _plugin_registry.execute_tool(fn_name, fn_args, caller_id=_caller)
-                                if _result.get("awaiting_approval"):
-                                    _result = {
-                                        "status": "awaiting_approval", "success": False,
-                                        "approval_id": _result.get("approval_id"),
-                                        "risk_level": _result.get("risk_level"),
-                                        "message": "Tác vụ này đang chờ phê duyệt. CHƯA được thực thi.",
-                                    }
-                            else:
-                                logger.info("Thực thi kỹ năng cục bộ: '%s' tham số=%s", fn_name, fn_args)
-                                _result = await plugin_manager.execute_skill(fn_name, fn_args)
-                                _not_found = (
-                                    (not _result.get("success", True) or _result.get("status") == "error")
-                                    and ("not found" in str(_result.get("error", "")).lower()
-                                         or "không tìm thấy" in str(_result.get("error", "")).lower())
-                                )
-                                if _not_found:
-                                    if fn_name in ("list_directory", "read_file", "write_file", "delete_item"):
-                                        from core.skills import file_system
-                                        _fs = getattr(file_system, fn_name, None)
-                                        if _fs:
-                                            _result = await asyncio.to_thread(_fs, **fn_args)
-                                    elif fn_name == "delegate_to_specialist":
-                                        from core.skills import ai_delegation
-                                        _result = await ai_delegation.delegate_to_specialist_async(**fn_args)
-                                    elif fn_name == "display_visual_data":
-                                        from skills.visual_skills import display_visual_data
-                                        _result = await asyncio.to_thread(display_visual_data, **fn_args)
-                                    elif fn_name == "query_organization_data":
-                                        from core.database import erp_db
-                                        _result = {"status": "success", "data": erp_db.query_organization(fn_args.get("query", ""))}
-                        else:
-                            logger.info("Diều phối kỹ năng '%s' → [%s]", fn_name, target_client)
-                            from core.orchestrator import orchestrator
-                            _result = await asyncio.to_thread(orchestrator.execute_on_client_sync, target_client, fn_name, fn_args)
-
-                        _ok = _result.get("status") == "success" or _result.get("success") is True
-                        security_engine.log_audit(target_client, fn_name, risk_level, "SUCCESS" if _ok else "FAILED", fn_args)
-
-                    return {
-                        "tool_call_id": _tc_id, "fn_name": fn_name,
-                        "target_client": target_client, "args": fn_args, "result": _result,
-                    }
+                    return {"tool_call_id": _tc_id, "fn_name": fn_name, **_gate}
 
                 logger.info(
                     "[LLMEngine-Parallel] Chạy %d tool(s) song song: %s",

@@ -76,6 +76,11 @@ def test_direct_response_synthesis():
     assert "không thực hiện được" in direct_err and "Access Denied" in direct_err
     print(f"  ✅ Tool lỗi → Phản hồi trực tiếp câu báo lỗi: '{direct_err}'")
 
+    # 2.3b Envelope thật của plugin_manager luôn có khoá "error" (None khi thành công)
+    res_envelope = {"success": True, "data": {"status": "ok"}, "error": None}
+    direct_env = can_synthesize_direct_response("kill_process", res_envelope)
+    assert direct_env is not None and "không thực hiện được" not in direct_env, direct_env
+
     # 2.4 Dữ liệu phức tạp (Bảng danh sách, RAG) -> Không direct, cần LLM Round 2
     res_complex = {
         "success": True,
