@@ -284,15 +284,9 @@ class SecurityGuard:
         if not clean_id or clean_id in ("none", "null", "anon", "anonymous", "unknown"):
             return DEFAULT_ROLE
 
-        # Ưu tiên 0: Service principal khai báo tường minh
-        service_role = SERVICE_PRINCIPAL_ROLES.get(clean_id)
-        if service_role:
-            return service_role
-
-        # Ưu tiên 0.1: Thiết bị ESP32 Robot, Telegram Gateway, Standby HUD được cấp Full Admin
-        if clean_id.startswith(("esp32", "xiaozhi", "telegram", "hud", "robot")):
-            return "admin"
-
+        # Danh tính có trong DB (người dùng / nhân viên) luôn dùng role trong DB,
+        # xét TRƯỚC service principal. Trước đây thứ tự ngược lại: tài khoản
+        # viewer tên "hudson" (tiền tố "hud") hay "console" được cấp admin.
         try:
             # Ưu tiên 1: ERP employees
             from core.database import erp_db
@@ -312,6 +306,19 @@ class SecurityGuard:
                 "Không thể tra cứu role cho '%s': %s. Fail-closed về '%s'.",
                 employee_id, e, DEFAULT_ROLE,
             )
+            return DEFAULT_ROLE
+
+        # Service principal (danh tính máy do server tự gán: kênh Telegram đã
+        # lọc admin_chat_ids, thiết bị đã qua device secret) — khai báo tường minh.
+        service_role = SERVICE_PRINCIPAL_ROLES.get(clean_id)
+        if service_role:
+            return service_role
+
+        # Thiết bị ESP32 Robot, Telegram Gateway, Standby HUD được cấp Full Admin
+        # (f389bbe). Chỉ an toàn khi id do server gán — không kênh nào được
+        # truyền id do client tự đặt vào đây (xem plan §11).
+        if clean_id.startswith(("esp32", "xiaozhi", "telegram", "hud", "robot")):
+            return "admin"
 
         logger.info(
             "[RBAC] Không tra cứu được danh tính '%s' → cấp quyền tối thiểu '%s'. "

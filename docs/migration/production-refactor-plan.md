@@ -334,3 +334,17 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime:** 4 socket: không token → HTTP 403, có token → nhận gói chào. Lượt thoại thật qua `/ws/v1/voice-stream` (bench_voice, 1 lượt mỗi loại): fast path chữ đầu 280 ms, audio đầu 3,5 s; lượt LLM chữ đầu 22 s — lượt đầu sau khởi động, khớp hành vi 9Router đã ghi ở §9, không do thay đổi này.
 
 **Còn lại (Security):** cấp admin theo tiền tố id trong `_resolve_role`; gộp hai mô hình role.
+
+## 14. Báo cáo Security (tiếp) — thứ tự xác định role, Telegram fail-closed (2026-10-02)
+
+**STATUS:** XONG
+
+- `security_guard._resolve_role`: danh tính có trong DB (nhân viên ERP / user portal) dùng role trong DB, xét **trước** service principal và tiền tố thiết bị — đúng như chú thích thiết kế gốc ("bước 1 sẽ thắng bước 0"). Trước đây tài khoản viewer tên `hudson` (tiền tố `hud`) hay `console` (service principal) được admin. Lỗi tra cứu DB → `viewer` (fail-closed), kể cả id mang tiền tố thiết bị. Quy tắc admin cho id do server gán (Telegram, ESP32/xiaozhi; f389bbe) giữ nguyên.
+- Telegram: `admin_chat_ids` trống trước đây nghĩa là **ai nhắn bot cũng được** (và nhận admin qua tiền tố `telegram`); callback duyệt HITL còn bỏ qua kiểm tra khi thiếu cấu hình. Nay cả tin nhắn lẫn nút duyệt: không có trong danh sách → bỏ qua / từ chối. Chat lạ vẫn được ghi lại để admin chọn chat_id khi cấu hình. Cấu hình hiện tại có 1 chat_id nên hành vi thực tế không đổi.
+
+**Test:** 225 pass / 0 fail. Mới: `test_role_resolution_order.py` (4; 3 fail trên code cũ).
+**Runtime:** không kiểm được đường tool qua LLM — 9Router trả lời "Gemini 3.5 Flash is no longer available" (model hết hạn, đã ghi ở §9; cần cập nhật model trong cấu hình). Telegram đang `enabled: false` nên không chạy thật được.
+
+**Sự cố trong lúc làm:** chạy tay `python tests/test_phase60_sot_bao_mat.py` (không qua pytest → không có cô lập DB của conftest) đã ghi 14 dòng `HITL_*` vào `audit_logs` thật (id 55–68). Bảng là bất biến; chưa xoá — chờ chủ dự án quyết định.
+
+**Còn lại (Security):** gộp hai mô hình role (quyết định sản phẩm).

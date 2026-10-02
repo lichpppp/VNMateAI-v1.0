@@ -149,8 +149,11 @@ class TelegramBotService:
 
             admin_ids = [str(x) for x in (cfg.admin_chat_ids or [])]
 
-            if admin_ids and chat_id not in admin_ids:
-                logger.debug("[TelegramGateway] Ignored message from unauthorized chat_id=%s", chat_id)
+            # Fail-closed: danh sách trống nghĩa là CHƯA ai được phép (trước đây
+            # là ai cũng được — và lệnh chạy với quyền admin). Chat vẫn được ghi
+            # lại ở trên để admin chọn chat_id trong giao diện cấu hình.
+            if chat_id not in admin_ids:
+                logger.info("[TelegramGateway] Bỏ qua tin từ chat chưa được phép: %s", chat_id)
                 return
 
             text = (update.message.text or "").strip()
@@ -384,17 +387,17 @@ class TelegramBotService:
 
             data = query.data or ""
             cfg = self._get_config()
-            if cfg:
-                admin_ids = [str(x) for x in (cfg.admin_chat_ids or [])]
-                chat_id = str(query.message.chat.id) if query.message else ""
-                if admin_ids and chat_id not in admin_ids:
-                    logger.warning(
-                        "[TelegramGateway] Chặn callback HITL từ chat không được phép: %s", chat_id
-                    )
-                    await query.edit_message_text(
-                        "⛔ Bạn không có quyền duyệt tác vụ này."
-                    )
-                    return
+            admin_ids = [str(x) for x in ((cfg.admin_chat_ids if cfg else None) or [])]
+            chat_id = str(query.message.chat.id) if query.message else ""
+            # Fail-closed: thiếu cấu hình / danh sách trống → không ai duyệt được.
+            if chat_id not in admin_ids:
+                logger.warning(
+                    "[TelegramGateway] Chặn callback HITL từ chat không được phép: %s", chat_id
+                )
+                await query.edit_message_text(
+                    "⛔ Bạn không có quyền duyệt tác vụ này."
+                )
+                return
 
             if data.startswith(HITL_CB_APPROVE):
                 approval_id, ok = data[len(HITL_CB_APPROVE):], True
