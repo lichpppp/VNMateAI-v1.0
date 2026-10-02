@@ -63,7 +63,7 @@ def env(monkeypatch):
     monkeypatch.setattr(TTSStreamEngine, "stream", fake_stream)
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synth)
     monkeypatch.setattr(fcr.fast_command_router, "dispatch", fake_dispatch)
-    monkeypatch.setattr("core.audio_cache.get_cached_audio_bytes", lambda t: None)
+    monkeypatch.setattr("mateai.infrastructure.tts.audio_cache.get_cached_audio_bytes", lambda t: None)
     return st
 
 

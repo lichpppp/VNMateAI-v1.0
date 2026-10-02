@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core.config_loader import settings  # noqa: E402
 
 CASES = [
-    ("core.audio_cache", "PROJECT_ROOT"),
+    ("mateai.infrastructure.tts.audio_cache", "PROJECT_ROOT"),
     ("core.autonomous_sentinel", "_PROJECT_ROOT"),
     ("core.health_monitor", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.graph_rag", "_PROJECT_ROOT"),

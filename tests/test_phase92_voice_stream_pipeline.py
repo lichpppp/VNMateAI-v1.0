@@ -69,7 +69,7 @@ async def main():
 
     # 3. Audio Cache & 0ms Retrieval
     section("3. Pre-warmed Acoustic ACK Cache (0ms Retrieval)")
-    from core.audio_cache import get_cached_audio_bytes, check_cached_audio
+    from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes, check_cached_audio
 
     for phrase in ACOUSTIC_ACK_PHRASES[:3]:
         cached = get_cached_audio_bytes(phrase)

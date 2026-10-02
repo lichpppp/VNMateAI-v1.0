@@ -42,8 +42,8 @@ from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 
-from core.audio_cache import check_cached_audio, get_cached_audio_bytes, save_to_cache
-from core.audio_processor import audio_engine
+from mateai.infrastructure.tts.audio_cache import check_cached_audio, get_cached_audio_bytes, save_to_cache
+from mateai.infrastructure.audio.audio_processor import audio_engine
 from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
 from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 from core.config_loader import settings
@@ -199,7 +199,7 @@ class XiaozhiNode:
         self.stream_lock = asyncio.Lock()
 
         # Phase 50: Silero VAD detector for 500ms zero-wait silence cutoff
-        from core.audio_processor import SileroVADDetector
+        from mateai.infrastructure.audio.audio_processor import SileroVADDetector
         self.vad_detector = SileroVADDetector(
             threshold=0.5,
             min_silence_duration_ms=500,
@@ -866,7 +866,7 @@ class XiaozhiGateway:
                         node.vad_detector.reset()
 
                         # Fast reflex wake chime or voice filler
-                        from core.audio_cache import get_cached_audio_bytes
+                        from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
                         wake_filler = "Dạ, em nghe đây ạ."
                         cached_bytes = get_cached_audio_bytes(wake_filler)
                         if cached_bytes:

@@ -20,7 +20,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
-logger = logging.getLogger("core.ephemeral_cache")
+logger = logging.getLogger("mateai.infrastructure.cache.ephemeral_cache")
 
 DEFAULT_SLIDING_TTL_SEC = 900.0   # 15 phút
 DEFAULT_HARD_TIMEOUT_SEC = 1800.0 # 30 phút

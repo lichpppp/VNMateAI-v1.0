@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.connection_pool import ConnectionPoolManager  # noqa: E402
+from mateai.infrastructure.http.connection_pool import ConnectionPoolManager  # noqa: E402
 
 
 def test_each_event_loop_gets_its_own_client():

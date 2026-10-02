@@ -107,7 +107,7 @@ except ImportError:
 
 # Phase 23: Preload local Whisper ASR model into RAM in background thread
 try:
-    from core.audio_processor import preload_whisper_model
+    from mateai.infrastructure.audio.audio_processor import preload_whisper_model
     preload_whisper_model()
     # Làm nóng cache TTS chạy trong lúc server khởi động (warmup_acoustic_ack_cache).
 except Exception as _audio_preload_exc:

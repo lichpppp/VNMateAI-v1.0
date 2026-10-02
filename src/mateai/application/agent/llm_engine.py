@@ -45,7 +45,7 @@ _HTTP_CLIENT_LOCK = asyncio.Lock()
 async def _get_shared_http_client() -> httpx.AsyncClient:
     """Return the module-level singleton httpx.AsyncClient from Phase 10 ConnectionPoolManager."""
     global _SHARED_HTTP_CLIENT
-    from core.connection_pool import get_llm_http_client
+    from mateai.infrastructure.http.connection_pool import get_llm_http_client
     _SHARED_HTTP_CLIENT = await get_llm_http_client()
     return _SHARED_HTTP_CLIENT
 
@@ -342,7 +342,7 @@ def _make_client() -> AsyncOpenAI:
     activate once _get_shared_http_client() is called on first async use.
     """
     cfg = settings.llm
-    from core.connection_pool import connection_pool_manager
+    from mateai.infrastructure.http.connection_pool import connection_pool_manager
     pool = connection_pool_manager.get_sync_llm_client() or _SHARED_HTTP_CLIENT
     return AsyncOpenAI(
         base_url=cfg.base_url,

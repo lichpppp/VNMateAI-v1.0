@@ -470,7 +470,7 @@ class AudioEngine:
         audio_file = io.BytesIO(audio_bytes)
         audio_file.name = fname
 
-        from core.connection_pool import get_stt_http_client
+        from mateai.infrastructure.http.connection_pool import get_stt_http_client
         client = await get_stt_http_client()
         endpoint_url = groq_url.rstrip("/") + "/audio/transcriptions"
         response = await client.post(

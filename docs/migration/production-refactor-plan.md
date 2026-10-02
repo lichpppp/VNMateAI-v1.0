@@ -741,3 +741,20 @@ Xoá `core/knowledge/__init__.py`, `core/agents/__init__.py` (chỉ re-export; k
 
 **RULE-003 (test ranh giới bắt được, vi phạm thật):** `analytics_engine` (tầng ứng dụng) dùng thẳng `sqlite3` để chạy SQL do LLM sinh trong hộp cát (authorizer + `query_only`). Chuyển phần phụ thuộc SQLite vào `ERPDatabase.execute_readonly_select` (giữ nguyên ba lớp phòng vệ; lớp lọc văn bản vẫn ở tầng ứng dụng). Test: SELECT chạy; DELETE/UPDATE/CREATE/ATTACH bị engine chặn.
 **Test:** 267 pass. **Runtime:** biểu đồ phân tích 3,6 s (SQL do LLM, có biểu đồ); voice fast path 252 ms — log từ `mateai.application.commands.fast_command_router` khớp `get_current_time`; voice LLM 3,1 s.
+
+## 39. Phase 4 — lô hạ tầng (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/audio_processor.py` (STT/Whisper) | `mateai/infrastructure/audio/audio_processor.py` |
+| `core/audio_cache.py` | `mateai/infrastructure/tts/audio_cache.py` |
+| `core/ephemeral_cache.py` | `mateai/infrastructure/cache/ephemeral_cache.py` |
+| `core/download_queue.py` | `mateai/infrastructure/files/download_queue.py` |
+| `core/connection_pool.py` | `mateai/infrastructure/http/connection_pool.py` |
+| `core/worknodes/elastic_grid_manager.py` | `mateai/application/devices/elastic_grid_manager.py` |
+| `core/plugins/computer_use_plugin.py`, `core/schemas/computer_use_schema.py` | `mateai/application/skills/` |
+
+Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-export, không ai import dạng package). 32 file đổi import; danh sách miễn trừ RULE-011 cập nhật đường dẫn `audio_processor`.
+**Test:** 267 pass. **Runtime:** computer-use đăng ký 1 tool + status success; sweeper của ephemeral cache khởi động, API 200; heartbeat worker 200 và node lên grid; TTS engine chunk đầu 2,0 s; voice fast path 258 ms (audio 1,4 s), LLM 3,0 s.

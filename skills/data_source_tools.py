@@ -339,7 +339,7 @@ async def prepare_data_source_export(
             _rows_to_xlsx,
             _safe_filename,
         )
-        from core.download_queue import download_queue
+        from mateai.infrastructure.files.download_queue import download_queue
         from datetime import datetime
 
         record = custom_registry.get_source(source_id, include_secrets=True)

@@ -192,7 +192,7 @@ class BackgroundWorkerManager:
         """Phát câu filler TTS ngay lập tức qua Audio Cache / VoiceController."""
         try:
             from mateai.interfaces.desktop.voice_controller import voice_controller
-            from core.audio_cache import get_cached_audio_bytes
+            from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
 
             filler_key = task.metadata.get("tts_filler_key")
             filler_text = task.metadata.get("tts_filler")
@@ -369,7 +369,7 @@ class FastAPIBackgroundHelper:
         """
         # Play filler immediately
         if filler_key:
-            from core.audio_cache import get_cached_audio_bytes
+            from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
             from mateai.interfaces.desktop.voice_controller import voice_controller
             audio = get_cached_audio_bytes(filler_key)
             if audio:

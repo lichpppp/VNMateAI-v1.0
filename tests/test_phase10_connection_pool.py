@@ -21,7 +21,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.connection_pool import (
+from mateai.infrastructure.http.connection_pool import (
     connection_pool_manager,
     get_llm_http_client,
     get_stt_http_client,

@@ -24,7 +24,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from mateai.application.skills.plugin_registry import plugin_registry
-from core.schemas.computer_use_schema import GUITaskRequest
+from mateai.application.skills.computer_use_schema import GUITaskRequest
 from mateai.application.security.zero_trust import hitl_manager
 
 logger = logging.getLogger(__name__)

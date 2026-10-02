@@ -128,7 +128,7 @@ class MemoryManager:
 
         # Xóa sạch toàn bộ dữ liệu tạm trên RAM (Privacy Compliance)
         try:
-            from core.ephemeral_cache import ephemeral_cache
+            from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
             ephemeral_cache.flush_all(session_id)
         except Exception:
             pass
@@ -177,7 +177,7 @@ def detect_and_handle_context_lifecycle(session_id: str, query: str) -> Dict[str
       1. Nhận diện lệnh kết thúc ('cảm ơn', 'xong việc', 'tạm biệt') -> flush toàn bộ cache RAM.
       2. Nhận diện chuyển đổi chủ đề (Context Switch) -> tự hủy cache của domain cũ.
     """
-    from core.ephemeral_cache import ephemeral_cache
+    from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
 
     q_lower = query.strip().lower()
 

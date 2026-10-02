@@ -33,7 +33,7 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 
 import psutil
 
-from core.audio_cache import get_cached_audio_bytes, save_to_cache
+from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes, save_to_cache
 from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 
 logger = logging.getLogger(__name__)

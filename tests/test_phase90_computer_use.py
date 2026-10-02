@@ -13,7 +13,7 @@ import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from core.schemas.computer_use_schema import (
+from mateai.application.skills.computer_use_schema import (
     ActionType,
     GUIActionPayload,
     ActionResult,
@@ -28,7 +28,7 @@ from workers.self_healing_engine import (
     is_dynamic_class,
 )
 from workers.native_os_driver import NativeOSDriver
-from core.plugins.computer_use_plugin import (
+from mateai.application.skills.computer_use_plugin import (
     tool_execute_gui_task,
     evaluate_task_risk,
     register_computer_use_tool,
@@ -216,7 +216,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
         request_approval là hàm đồng bộ — patch bằng MagicMock (không phải
         AsyncMock, vì AsyncMock từng che lỗi `await` một dict → bỏ qua HITL).
         """
-        import core.plugins.computer_use_plugin as cup
+        import mateai.application.skills.computer_use_plugin as cup
 
         async def _run():
             enqueued = []
@@ -249,7 +249,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
 
     def test_high_risk_task_not_run_when_hitl_fails(self):
         """Không tạo được yêu cầu duyệt → fail-closed, không chạy thao tác."""
-        import core.plugins.computer_use_plugin as cup
+        import mateai.application.skills.computer_use_plugin as cup
 
         async def _run():
             enqueued = []
@@ -272,7 +272,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
 
     def test_real_hitl_manager_approval_releases_task(self):
         """Đi qua hitl_manager THẬT: tạo yêu cầu → approve_async → task mới vào hàng đợi."""
-        import core.plugins.computer_use_plugin as cup
+        import mateai.application.skills.computer_use_plugin as cup
         from mateai.application.security.zero_trust import hitl_manager
 
         async def _run():

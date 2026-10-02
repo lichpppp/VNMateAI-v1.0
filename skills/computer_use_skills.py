@@ -12,7 +12,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from core.plugin_manager import export_skill
-from core.plugins.computer_use_plugin import tool_execute_gui_task as _tool_execute_gui_task
+from mateai.application.skills.computer_use_plugin import tool_execute_gui_task as _tool_execute_gui_task
 from workers.native_os_driver import native_os_driver
 from workers.browser_session_vault import browser_session_vault
 from workers.self_healing_engine import self_healing_engine

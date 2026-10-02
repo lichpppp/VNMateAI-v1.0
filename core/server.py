@@ -1184,7 +1184,7 @@ async def _on_startup() -> None:
 
     # Ephemeral Data Lifecycle: Khởi động Background Sweeper tự hủy dữ liệu RAM mỗi 60s
     try:
-        from core.ephemeral_cache import ephemeral_cache
+        from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
         asyncio.create_task(ephemeral_cache.start_sweeper_loop())
     except Exception as _e_sweep:
         logger.warning("[Startup] Không thể khởi động Ephemeral Cache Sweeper: %s", _e_sweep)
@@ -1328,7 +1328,7 @@ async def _on_startup() -> None:
 
     # Phase 90: Register Computer-Use & RPA Worker Tool into Plugin Registry
     try:
-        from core.plugins.computer_use_plugin import register_computer_use_tool
+        from mateai.application.skills.computer_use_plugin import register_computer_use_tool
         cu_stats = register_computer_use_tool()
         logger.info(
             "Phase 90: Computer-Use Plugin registered (%d tool).",
@@ -8400,7 +8400,7 @@ async def api_downloads_pending(
     Chỉ trả metadata, KHÔNG kèm nội dung file: dữ liệu báo cáo phải đi qua
     endpoint tải có xác thực, không nằm lẫn trong phản hồi poll.
     """
-    from core.download_queue import download_queue
+    from mateai.infrastructure.files.download_queue import download_queue
 
     jobs = download_queue.pending()
     return {"status": "success", "jobs": jobs, "count": len(jobs)}
@@ -8421,7 +8421,7 @@ async def api_download_file(
     Xoá sớm là cố ý: job chỉ tải được một lần. Đổi lại không có dữ liệu báo
     cáo nào nằm lại trong RAM quá thời hạn.
     """
-    from core.download_queue import download_queue
+    from mateai.infrastructure.files.download_queue import download_queue
 
     job = download_queue.take(job_id)
     if job is None:
@@ -8457,7 +8457,7 @@ async def api_downloads_clear(
     current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Bỏ mọi job đang chờ. Chỉ admin — dùng khi đổi máy hoặc cần dọn."""
-    from core.download_queue import download_queue
+    from mateai.infrastructure.files.download_queue import download_queue
 
     n = download_queue.drop_all()
     return {"status": "success", "cleared": n}
@@ -8558,7 +8558,7 @@ async def api_computer_use_status() -> Dict[str, Any]:
     try:
         from workers.browser_session_vault import browser_session_vault
         from workers.self_healing_engine import self_healing_engine
-        from core.plugins.computer_use_plugin import _IN_MEMORY_TASK_QUEUE, REDIS_WORKER_QUEUE
+        from mateai.application.skills.computer_use_plugin import _IN_MEMORY_TASK_QUEUE, REDIS_WORKER_QUEUE
 
         # Đếm profile hiện có
         session_list = []
@@ -8621,7 +8621,7 @@ async def api_computer_use_dispatch(request: Request) -> Dict[str, Any]:
         if not task_goal:
             raise HTTPException(status_code=400, detail="task_goal không được để trống")
 
-        from core.plugins.computer_use_plugin import tool_execute_gui_task
+        from mateai.application.skills.computer_use_plugin import tool_execute_gui_task
         res = await tool_execute_gui_task(
             task_goal=task_goal,
             system_target=system_target,

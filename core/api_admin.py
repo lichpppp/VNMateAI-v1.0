@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from mateai.infrastructure.database.erp_database import erp_db
 from mateai.application.enterprise.department_engine import department_engine
-from core.worknodes.elastic_grid_manager import elastic_grid_manager
+from mateai.application.devices.elastic_grid_manager import elastic_grid_manager
 from mateai.application.agent.agent_orchestrator import multi_agent_system
 
 logger = logging.getLogger("core.api_admin")
@@ -340,7 +340,7 @@ async def generate_cross_report_api(req: CrossReportRequest) -> Dict[str, Any]:
 @router.get("/admin/ephemeral-cache")
 async def get_ephemeral_cache_stats() -> Dict[str, Any]:
     """Giám sát bộ đệm RAM tự hủy theo tiêu chuẩn GDPR / Nghị định 13."""
-    from core.ephemeral_cache import ephemeral_cache
+    from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
     return {
         "status": "success",
         "cache_stats": ephemeral_cache.get_stats(),
@@ -356,7 +356,7 @@ async def get_ephemeral_cache_stats() -> Dict[str, Any]:
 @router.post("/admin/ephemeral-cache/flush")
 async def flush_ephemeral_cache_all() -> Dict[str, Any]:
     """Tiêu hủy khẩn cấp toàn bộ dữ liệu tạm trên RAM (Emergency RAM Flush)."""
-    from core.ephemeral_cache import ephemeral_cache
+    from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
     flushed = ephemeral_cache.sweep_expired()
     # Hoặc xóa toàn bộ cửa sổ cache hiện tại
     with ephemeral_cache._lock:

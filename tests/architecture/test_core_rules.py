@@ -29,7 +29,7 @@ SCAN_GLOBS = ["core/**/*.py", "src/mateai/**/*.py", "skills/*.py", "workers/*.py
 #: Nơi duy nhất được phép làm việc đó (bản canonical).
 ALLOWED = {
     # audio_processor dùng SDK OpenAI cho Whisper (STT), không phải gọi LLM.
-    "RULE-011": {"src/mateai/infrastructure/llm/llm_provider.py", "core/audio_processor.py"},
+    "RULE-011": {"src/mateai/infrastructure/llm/llm_provider.py", "src/mateai/infrastructure/audio/audio_processor.py"},
     "RULE-012": {"src/mateai/infrastructure/tts/tts_stream_engine.py"},
     "RULE-013": {"core/config_loader.py"},
     "RULE-014": {"src/mateai/infrastructure/database/erp_database.py"},

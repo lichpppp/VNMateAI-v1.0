@@ -156,9 +156,9 @@ except Exception as exc:  # pragma: no cover
 # ──────────────────────────────────────────────────────────────────────
 section("Backend STT giả lập đã bị gỡ — không còn bịa lời nói")
 
-import core.audio_processor as ap  # noqa: E402
+import mateai.infrastructure.audio.audio_processor as ap  # noqa: E402
 
-src = (PROJECT_ROOT / "core" / "audio_processor.py").read_text(encoding="utf-8")
+src = (PROJECT_ROOT / "src" / "mateai" / "infrastructure" / "audio" / "audio_processor.py").read_text(encoding="utf-8")
 check("không còn hàm _transcribe_mock", "_transcribe_mock" not in src.replace('trả câu mẫu theo độ dài', ''))
 check("không còn nhánh backend == 'mock'", 'backend == "mock"' not in src)
 check(

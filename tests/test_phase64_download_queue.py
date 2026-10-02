@@ -40,7 +40,7 @@ def section(title: str) -> None:
 
 # ══ 1. Hàng đợi ═══════════════════════════════════════════════════════════
 section("Hàng đợi tải")
-from core.download_queue import DownloadQueue, TTL_SECONDS  # noqa: E402
+from mateai.infrastructure.files.download_queue import DownloadQueue, TTL_SECONDS  # noqa: E402
 
 q = DownloadQueue(ttl_seconds=60, max_pending=3)
 sample = b"\xef\xbb\xbfma_hang,ten\nSP001,Ghe xoay"
@@ -142,7 +142,7 @@ check("báo thời hạn còn lại", 0 < client["expires_in"] <= TTL_SECONDS, s
 # ══ 3. Tool AI ═══════════════════════════════════════════════════════════
 section("Tool prepare_data_source_export dựng file thật")
 from mateai.infrastructure.connectors import custom_registry  # noqa: E402
-from core.download_queue import download_queue  # noqa: E402
+from mateai.infrastructure.files.download_queue import download_queue  # noqa: E402
 
 import tempfile  # noqa: E402
 

@@ -87,7 +87,7 @@ async def process_voice_turn(
     """
     from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine, _get_tts_voice
     from mateai.application.voice.speech_text import shorten_for_speech
-    from core.audio_cache import get_cached_audio_bytes
+    from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
 
     result = VoiceTurnResult()
     t0 = time.perf_counter()

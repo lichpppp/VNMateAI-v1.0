@@ -47,7 +47,7 @@ async def get_acoustic_ack_audio(
     - Nếu có query: dùng select_acoustic_ack(query) để chọn câu đệm phù hợp ngữ cảnh.
     - Mặc định: luân phiên trong danh mục GENERAL_GENERIC.
     """
-    from core.audio_cache import get_cached_audio_bytes
+    from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
 
     if phrase is None:
         if query:
@@ -77,7 +77,7 @@ async def warmup_acoustic_ack_cache() -> None:
     Pre-warm TTS cache cho TOÀN BỘ câu ACK theo danh mục ngữ cảnh (Phase 6).
     Đảm bảo 100% câu đệm sẵn sàng trong RAM Cache (0ms TTFA) khi có tác vụ kỹ thuật.
     """
-    from core.audio_cache import get_cached_audio_bytes
+    from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
 
     # Câu hệ thống hay nói (trước đây làm nóng ở `audio_processor.prewarm_tts_cache`
     # bằng một thread + event loop riêng — trùng chức năng và dùng nhầm HTTP

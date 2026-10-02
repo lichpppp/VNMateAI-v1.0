@@ -31,7 +31,7 @@ from mateai.infrastructure.tts.acoustic_ack import (
     get_acoustic_ack_audio,
     ACOUSTIC_ACK_PHRASES,
 )
-from core.audio_cache import save_to_cache, get_cached_audio_bytes
+from mateai.infrastructure.tts.audio_cache import save_to_cache, get_cached_audio_bytes
 
 
 def test_catalog_integrity():

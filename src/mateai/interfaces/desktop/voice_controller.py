@@ -605,7 +605,7 @@ class VoiceController:
             return ""
 
     async def _transcribe_async(self, audio_bytes: bytes) -> str:
-        from core.audio_processor import audio_engine
+        from mateai.infrastructure.audio.audio_processor import audio_engine
         return await audio_engine.transcribe_audio(audio_bytes)
 
     # ------------------------------------------------------------------
@@ -729,7 +729,7 @@ class VoiceController:
 
     def _play_tts_sync(self, text: str) -> None:
         """Generate TTS and play locally using pydub/afplay with Audio Cache support."""
-        from core.audio_cache import get_cached_audio_bytes
+        from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
         cached = get_cached_audio_bytes(text)
         if cached:
             self._play_audio_bytes(cached)
@@ -764,7 +764,7 @@ class VoiceController:
 
     def _play_cached_phrase_instant(self, text: str) -> None:
         """Phase 36: Phát ngay lập tức câu từ Audio Cache cục bộ (0ms latency)."""
-        from core.audio_cache import get_cached_audio_bytes
+        from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
         data = get_cached_audio_bytes(text)
         if data:
             self._play_audio_bytes(data)

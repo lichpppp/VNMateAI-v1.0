@@ -94,7 +94,7 @@ def apply_pronunciation(text: str) -> str:
 
 def _cache_get(text: str) -> Optional[bytes]:
     try:
-        from core.audio_cache import get_cached_audio_bytes
+        from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
         return get_cached_audio_bytes(text)
     except Exception:
         return None
@@ -102,7 +102,7 @@ def _cache_get(text: str) -> Optional[bytes]:
 
 def _cache_set(text: str, data: bytes, voice: str = "") -> None:
     try:
-        from core.audio_cache import save_to_cache
+        from mateai.infrastructure.tts.audio_cache import save_to_cache
         save_to_cache(text, data, voice=voice or _get_tts_voice())
     except Exception:
         pass
@@ -173,7 +173,7 @@ async def _synthesise_9router(text: str, voice: str) -> Optional[bytes]:
     """Tổng hợp cả câu qua 9Router (OpenAI-compatible /audio/speech)."""
     try:
         from core.config_loader import settings
-        from core.connection_pool import get_tts_http_client
+        from mateai.infrastructure.http.connection_pool import get_tts_http_client
 
         base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1").rstrip("/")
         api_key = getattr(settings.llm, "api_key", "")

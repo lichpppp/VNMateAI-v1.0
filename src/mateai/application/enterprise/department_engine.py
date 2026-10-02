@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from mateai.infrastructure.database.erp_database import erp_db
-from core.ephemeral_cache import ephemeral_cache
+from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
 
 logger = logging.getLogger("mateai.application.enterprise.department_engine")
 
