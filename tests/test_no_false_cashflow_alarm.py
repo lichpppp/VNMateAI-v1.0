@@ -66,7 +66,7 @@ def make_db(rows):
 
 def evaluate(rows):
     """Chạy đúng hàm thật `evaluate_predictive_cashflow()` với DB tạm."""
-    import core.analytics_engine as ae
+    import mateai.application.analytics.analytics_engine as ae
 
     old = ae.erp_db
     ae.erp_db = make_db(rows)
@@ -157,6 +157,6 @@ sys.exit(1 if FAIL else 0)
 
 def test_truncated_sql_is_not_executed():
     """Câu trả lời LLM bị cắt giữa chừng (thiếu ngoặc) không được gắn ';' rồi chạy."""
-    from core.analytics_engine import _extract_sql
+    from mateai.application.analytics.analytics_engine import _extract_sql
     assert _extract_sql("SELECT d.name, COUNT(e.id") == ""
     assert _extract_sql("```sql\nSELECT COUNT(*) FROM employees;\n```") == "SELECT COUNT(*) FROM employees;"

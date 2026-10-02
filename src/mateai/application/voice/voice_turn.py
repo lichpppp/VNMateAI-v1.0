@@ -94,7 +94,7 @@ async def process_voice_turn(
 
     # ── 1. Lệnh nhanh tất định ───────────────────────────────────────────
     if fast_path:
-        from core.fast_command_router import fast_command_router
+        from mateai.application.commands.fast_command_router import fast_command_router
         fast_res = await fast_command_router.dispatch(query, synthesize_audio=False)
         if fast_res and fast_res.is_matched:
             reply = fast_res.reply_text

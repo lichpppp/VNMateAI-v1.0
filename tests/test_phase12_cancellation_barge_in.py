@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mateai.infrastructure.tts.tts_queue_pipeline import StreamingTTSWorkerPipeline
-from core.fast_command_router import fast_command_router
+from mateai.application.commands.fast_command_router import fast_command_router
 
 
 class MockWebSocket:

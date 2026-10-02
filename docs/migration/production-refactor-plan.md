@@ -722,3 +722,22 @@ Cả package `core/connectors/` (base, aws, oci, paperless, einvoice, m365, gene
 **Đã xoá:** `src/mateai/config/settings.py` — bộ nạp cấu hình viết lại, không caller, vi phạm RULE-013 cuối cùng (baseline RULE-013 → 0).
 **Test:** `test_project_root_single_source.py` (mọi module dùng `settings.PROJECT_ROOT`; không file nào trong `core/`, `src/mateai/` còn đi lên thư mục gốc bằng `Path(__file__).parent.parent`/`parents[n]`, trừ chính `config_loader`). Toàn bộ 270 pass.
 **Runtime:** `/admin/topology` + chunk JS 200, `/static/app.js` 200, API topology 200, audit đọc được, `/readyz` ok.
+
+## 38. Phase 4 — lô dịch vụ ứng dụng (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/analytics_engine.py` | `mateai/application/analytics/analytics_engine.py` |
+| `core/meta_architect.py` | `mateai/application/skills/meta_architect.py` |
+| `core/rag_engine.py`, `core/knowledge/{graph_rag,lexical}.py` | `mateai/application/knowledge/` |
+| `core/department_engine.py` | `mateai/application/enterprise/department_engine.py` |
+| `core/agents/agent_orchestrator.py` | `mateai/application/agent/agent_orchestrator.py` |
+| `core/history_pruner.py` | `mateai/application/conversation/history_pruner.py` |
+| `core/fast_command_router.py` | `mateai/application/commands/fast_command_router.py` |
+
+Xoá `core/knowledge/__init__.py`, `core/agents/__init__.py` (chỉ re-export; không ai import ở dạng package) và bản song song `application/commands/fast_command_router.py` + `tests/unit/test_fast_command_router.py`.
+
+**RULE-003 (test ranh giới bắt được, vi phạm thật):** `analytics_engine` (tầng ứng dụng) dùng thẳng `sqlite3` để chạy SQL do LLM sinh trong hộp cát (authorizer + `query_only`). Chuyển phần phụ thuộc SQLite vào `ERPDatabase.execute_readonly_select` (giữ nguyên ba lớp phòng vệ; lớp lọc văn bản vẫn ở tầng ứng dụng). Test: SELECT chạy; DELETE/UPDATE/CREATE/ATTACH bị engine chặn.
+**Test:** 267 pass. **Runtime:** biểu đồ phân tích 3,6 s (SQL do LLM, có biểu đồ); voice fast path 252 ms — log từ `mateai.application.commands.fast_command_router` khớp `get_current_time`; voice LLM 3,1 s.

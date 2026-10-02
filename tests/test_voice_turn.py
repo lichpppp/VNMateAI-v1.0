@@ -51,7 +51,7 @@ def env(monkeypatch):
     async def fake_synth(self, text, *a, **k):
         return b"F" * 200
 
-    import core.fast_command_router as fcr
+    import mateai.application.commands.fast_command_router as fcr
 
     async def fake_dispatch(query, synthesize_audio=True):
         return st["fast"]

@@ -25,7 +25,7 @@ from core.plugin_manager import export_skill
 # Cổng bằng chứng từ khoá dùng chung với GraphRAG / BM25. Xem
 # `core/knowledge/lexical.py` — tóm tắt: cosine của Chroma không dùng được
 # làm cổng chống ảo giác trên tiếng Việt vì mô hình nhúng mặc định là tiếng Anh.
-from core.knowledge.lexical import lexical_evidence_gate
+from mateai.application.knowledge.lexical import lexical_evidence_gate
 
 logger = logging.getLogger(__name__)
 
@@ -265,7 +265,7 @@ class EnterpriseRAGEngine:
         # vector, nên bọc try/except và báo cáo riêng.
         graph_result: Dict[str, Any] = {"status": "not_attempted"}
         try:
-            from core.knowledge.graph_rag import graph_rag
+            from mateai.application.knowledge.graph_rag import graph_rag
             graph_result = graph_rag.ingest_document(
                 text=text, doc_name=doc_name, category=category
             )

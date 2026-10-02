@@ -968,6 +968,33 @@ class ERPDatabase:
 
     # ── Phase 48: Task ORM Extensions ────────────────────────────────────────
 
+    def execute_readonly_select(self, sql: str, max_rows: int = 500) -> List[Dict[str, Any]]:
+        """
+        Chạy MỘT câu SELECT (vd. do LLM sinh) trong hộp cát chỉ-đọc của SQLite.
+
+        - `PRAGMA query_only = ON`: chặn mọi ghi ở mức transaction.
+        - Authorizer: chỉ cho SELECT/READ/FUNCTION/RECURSIVE; mọi thao tác khác
+          (ghi bảng, tạo index, ATTACH, hàm extension...) bị engine từ chối, kể cả
+          khi câu lệnh lách được lớp lọc văn bản ở tầng ứng dụng.
+        Authorizer luôn được gỡ sau khi chạy.
+        """
+        allowed = {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
+
+        def _authorizer(action: int, arg1: Any, arg2: Any, db_name: Any, trigger: Any) -> int:
+            if action in allowed:
+                return sqlite3.SQLITE_OK
+            logger.warning("[ERPDatabase] Hộp cát SQL chặn thao tác: action=%s arg1=%r arg2=%r", action, arg1, arg2)
+            return sqlite3.SQLITE_DENY
+
+        with self.get_connection() as conn:
+            conn.execute("PRAGMA query_only = ON;")
+            conn.set_authorizer(_authorizer)
+            try:
+                rows = conn.execute(sql).fetchmany(max_rows)
+            finally:
+                conn.set_authorizer(None)
+        return [dict(r) for r in rows]
+
     def find_department_id_by_name(self, name_fragments: List[str]) -> Optional[int]:
         """Id phòng ban đầu tiên có tên chứa một trong các đoạn (không phân biệt hoa thường)."""
         if not name_fragments:

@@ -28,3 +28,17 @@ def test_department_lookup_and_first_employee(tmp_path):
     assert db.find_department_id_by_name(["không tồn tại"]) is None
     assert db.first_employee_id_in_department(it) is not None
     assert db.first_employee_id_in_department(fin) is None
+
+
+def test_readonly_select_sandbox_blocks_writes(tmp_path):
+    """Hộp cát SQL chỉ-đọc ở tầng dữ liệu: SELECT chạy, mọi ghi bị engine chặn."""
+    import sqlite3
+    import pytest
+    db = ERPDatabase(db_path=tmp_path / "erp.db")
+    db.add_department("Phòng A")
+    assert db.execute_readonly_select("SELECT name FROM departments")[0]["name"] == "Phòng A"
+    for bad in ("DELETE FROM departments", "UPDATE departments SET name='x'",
+                "CREATE TABLE t(a)", "ATTACH DATABASE 'x.db' AS x"):
+        with pytest.raises(sqlite3.DatabaseError):
+            db.execute_readonly_select(bad)
+    assert db.execute_readonly_select("SELECT COUNT(*) AS n FROM departments")[0]["n"] == 1

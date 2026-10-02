@@ -42,7 +42,7 @@ def create_new_skill(intent_description: str, skill_name: Optional[str] = None) 
     """
     Sinh mã kỹ năng tự động bằng MetaArchitect, kiểm duyệt an toàn và nạp nóng vào hệ thống.
     """
-    from core.meta_architect import meta_architect
+    from mateai.application.skills.meta_architect import meta_architect
     from core.plugin_manager import plugin_manager
 
     desc = intent_description.strip()

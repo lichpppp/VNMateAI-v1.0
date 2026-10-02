@@ -659,7 +659,7 @@ class LLMEngine:
             session_id: Session/user identifier for conversational memory tracking (Phase 34).
         """
         from core.plugin_manager import plugin_manager
-        from core.meta_architect import meta_architect
+        from mateai.application.skills.meta_architect import meta_architect
         from mateai.application.security.safety_guard import security_engine
 
         raw_tools = plugin_manager.get_all_tools()
@@ -1255,7 +1255,7 @@ class LLMEngine:
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
         if history:
             # Phase 9: Cắt tỉa ngữ cảnh lịch sử cho giọng nói
-            from core.history_pruner import prune_history_for_voice
+            from mateai.application.conversation.history_pruner import prune_history_for_voice
             pruned_hist = prune_history_for_voice(history, max_turns=4, max_total_chars=1200)
             messages.extend(pruned_hist)
         messages.append({"role": "user", "content": sanitized_query})

@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 from mateai.infrastructure.database.erp_database import erp_db
 from core.ephemeral_cache import ephemeral_cache
 
-logger = logging.getLogger("core.department_engine")
+logger = logging.getLogger("mateai.application.enterprise.department_engine")
 
 # TTL bộ đệm ngữ nghĩa: 30 phút = 1800 giây
 SEMANTIC_CACHE_TTL_SEC = 1800

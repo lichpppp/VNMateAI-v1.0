@@ -6,7 +6,7 @@ Phase 56: Enterprise RAG skill export for plugin manager discovery.
 
 from __future__ import annotations
 
-from core.rag_engine import query_company_policy
+from mateai.application.knowledge.rag_engine import query_company_policy
 
 __all__ = [
     "query_company_policy",

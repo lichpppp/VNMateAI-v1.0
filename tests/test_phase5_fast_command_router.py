@@ -18,7 +18,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.fast_command_router import fast_command_router, FastCommandResult
+from mateai.application.commands.fast_command_router import fast_command_router, FastCommandResult
 
 
 async def test_time_and_date():

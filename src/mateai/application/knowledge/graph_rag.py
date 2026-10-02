@@ -19,7 +19,7 @@ from core.plugin_manager import export_skill
 # Ngưỡng bằng chứng từ khoá dùng chung cho CẢ BA lớp truy vết (đồ thị, BM25,
 # vector). Xem `core/knowledge/lexical.py` để hiểu vì sao không dùng cosine
 # làm cổng chống ảo giác.
-from core.knowledge.lexical import (
+from mateai.application.knowledge.lexical import (
     MIN_COVERAGE,
     MIN_HITS,
     content_tokens as _content_tokens,
@@ -360,7 +360,7 @@ class EnterpriseGraphRAG:
         keywords = re.findall(r"\b[A-Za-zÀ-ỹ0-9_]{2,}\b", question)
         graph_matches = self.traverse_graph(keywords)
         # 2. Vector Search từ ChromaDB (có ngưỡng similarity)
-        from core.rag_engine import rag_engine
+        from mateai.application.knowledge.rag_engine import rag_engine
         vector_res = rag_engine.query(question, top_k=5)
         vector_matches = vector_res.get("matches", [])
 

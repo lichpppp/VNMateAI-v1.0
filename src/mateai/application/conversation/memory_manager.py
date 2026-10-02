@@ -65,7 +65,7 @@ class MemoryManager:
         Phase 9: Lấy lịch sử hội thoại đã được cắt tỉa và nén tối ưu cho giọng nói Realtime.
         """
         raw_history = self.get_history(session_id, max_messages=max_turns * 3)
-        from core.history_pruner import prune_history_for_voice
+        from mateai.application.conversation.history_pruner import prune_history_for_voice
         return prune_history_for_voice(raw_history, max_turns=max_turns, max_total_chars=max_total_chars)
 
     def add_message(

@@ -237,7 +237,7 @@ class HRAgent(BaseAgent):
 
         # Hỏi về chính sách công ty -> Kích hoạt Enterprise RAG
         if any(w in text for w in ("nghỉ ốm", "nghỉ phép", "quy chế", "nội quy", "chính sách", "bảo hiểm", "thai sản", "thời gian làm việc")):
-            from core.rag_engine import rag_engine
+            from mateai.application.knowledge.rag_engine import rag_engine
             rag_res = rag_engine.answer_policy_question(query)
             return {
                 "status": "success",

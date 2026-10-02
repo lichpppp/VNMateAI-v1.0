@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
 from mateai.infrastructure.database.erp_database import erp_db
@@ -188,7 +187,7 @@ class AnalyticsEngine:
 
         1. `_is_safe_read_only_query()` — lọc theo token: phải bắt đầu bằng
            SELECT và không chứa từ khóa ghi/xóa.
-        2. `sqlite3.Connection.set_authorizer` — SQLite tự chặn ở mức engine,
+        2. Authorizer của SQLite (ERPDatabase.execute_readonly_select) — chặn ở mức engine,
            kể cả lệnh lách được qua lớp 1 (ví dụ `SELECT load_extension(...)`).
         3. `PRAGMA query_only = ON` — chặn mọi ghi vào DB ở mức transaction.
 
@@ -200,39 +199,8 @@ class AnalyticsEngine:
         if not is_safe:
             raise PermissionError(f"Cảnh báo bảo mật: {msg}")
 
-        with erp_db.get_connection() as conn:
-            conn.execute("PRAGMA query_only = ON;")
-
-            # Lớp 2: authorizer của SQLite. Danh sách action được phép; mọi
-            # thao tác khác (ghi bảng, tạo index, gọi hàm extension...) bị từ
-            # chối ở tầng engine, kể cả khi lớp 1 bị lách.
-            ALLOWED_ACTIONS = {
-                sqlite3.SQLITE_SELECT,
-                sqlite3.SQLITE_READ,
-                sqlite3.SQLITE_FUNCTION,
-                sqlite3.SQLITE_RECURSIVE,
-            }
-
-            def _authorizer(action: int, arg1: Any, arg2: Any, db_name: Any, trigger: Any) -> int:
-                if action in ALLOWED_ACTIONS:
-                    return sqlite3.SQLITE_OK
-                logger.warning(
-                    "[AnalyticsEngine] SQLite authorizer chặn thao tác: action=%s arg1=%r arg2=%r",
-                    action, arg1, arg2,
-                )
-                return sqlite3.SQLITE_DENY
-
-            conn.set_authorizer(_authorizer)
-            try:
-                cursor = conn.cursor()
-                cursor.execute(sql)
-                rows = cursor.fetchmany(MAX_SQL_ROWS)
-            finally:
-                # Luôn gỡ authorizer — nếu để lại, mọi truy vấn ghi của các
-                # module khác dùng chung connection cũng bị chặn.
-                conn.set_authorizer(None)
-
-        return [dict(r) for r in rows]
+        # Lớp 2 + 3 (authorizer của SQLite + query_only) nằm ở tầng dữ liệu.
+        return erp_db.execute_readonly_select(sql, max_rows=MAX_SQL_ROWS)
 
     def text_to_sql_and_chart(self, prompt: str) -> Dict[str, Any]:
         """

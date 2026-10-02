@@ -82,7 +82,7 @@ def hud(monkeypatch):
 
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synthesise)
     monkeypatch.setattr(TTSStreamEngine, "stream", fake_tts_stream)
-    import core.fast_command_router as fcr
+    import mateai.application.commands.fast_command_router as fcr
 
     async def no_fast(query, synthesize_audio=True):
         return None

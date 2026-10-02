@@ -65,7 +65,7 @@ def _stats(samples_ms: List[float]) -> Dict[str, Any]:
 # ── Phần A ───────────────────────────────────────────────────────────────
 
 async def bench_fast_path(iterations: int) -> Dict[str, Any]:
-    from core.fast_command_router import fast_command_router
+    from mateai.application.commands.fast_command_router import fast_command_router
 
     per_cmd: Dict[str, Any] = {}
     all_ms: List[float] = []

@@ -104,8 +104,8 @@ def test_sync_bridge_skips_retired_model_and_returns_text(monkeypatch):
 
 def test_analytics_and_meta_architect_use_the_shared_bridge(monkeypatch):
     import mateai.infrastructure.llm.llm_provider as lp
-    import core.analytics_engine as ae
-    from core.meta_architect import meta_architect
+    import mateai.application.analytics.analytics_engine as ae
+    from mateai.application.skills.meta_architect import meta_architect
 
     seen = []
 

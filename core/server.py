@@ -1268,7 +1268,7 @@ async def _on_startup() -> None:
 
     # Phase 56: Pre-warm Enterprise RAG Engine (load ChromaDB + seed knowledge base)
     try:
-        from core.rag_engine import rag_engine
+        from mateai.application.knowledge.rag_engine import rag_engine
         doc_count = rag_engine.collection.count()
         logger.info("Phase 56: Enterprise RAG Engine ready — %d document chunks indexed in ChromaDB.", doc_count)
     except Exception as rag_exc:
@@ -1276,9 +1276,9 @@ async def _on_startup() -> None:
 
     # Phase 57: Pre-warm Multi-Agent System & Analytics Engine
     try:
-        from core.agents.agent_orchestrator import multi_agent_system
-        from core.analytics_engine import analytics_engine
-        from core.knowledge.graph_rag import graph_rag
+        from mateai.application.agent.agent_orchestrator import multi_agent_system
+        from mateai.application.analytics.analytics_engine import analytics_engine
+        from mateai.application.knowledge.graph_rag import graph_rag
         logger.info("Phase 57: Multi-Agent System (CEO/CFO/HR/CTO) initialized. GraphRAG with %d entities, %d relations.", len(graph_rag.nodes), len(graph_rag.edges))
     except Exception as mas_exc:
         logger.warning("Phase 57: Could not warm up Multi-Agent System: %s", mas_exc)
@@ -1903,7 +1903,7 @@ async def get_system_topology() -> Dict[str, Any]:
     from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
 
     try:
-        from core.agents.agent_orchestrator import multi_agent_system
+        from mateai.application.agent.agent_orchestrator import multi_agent_system
         agents_dict = getattr(multi_agent_system, "agents", {})
     except Exception:
         agents_dict = {}
@@ -7213,7 +7213,7 @@ async def api_enterprise_standup(
 ) -> Dict[str, Any]:
     """Tạo báo cáo Giao Ban Tự Động tóm tắt tình hình toàn công ty 24h qua."""
     try:
-        from core.agents.agent_orchestrator import multi_agent_system
+        from mateai.application.agent.agent_orchestrator import multi_agent_system
         result = multi_agent_system.get_executive_briefing()
         return {"status": "success", "briefing": result}
     except Exception as e:
@@ -7235,7 +7235,7 @@ async def api_enterprise_rag_query(
         question = body.get("question", "")
         if not question:
             raise HTTPException(status_code=400, detail="Thiếu tham số: question")
-        from core.rag_engine import rag_engine
+        from mateai.application.knowledge.rag_engine import rag_engine
         result = rag_engine.answer_policy_question(question)
         return {
             "status": "success",
@@ -7306,7 +7306,7 @@ async def api_enterprise_rag_upload(
     stem = re.sub(r"[^A-Za-z0-9_\-\.]", "_", Path(original_name).stem)[:80] or "tai_lieu"
     safe_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{stem}{ext}"
 
-    from core.rag_engine import _DOCS_DIR
+    from mateai.application.knowledge.rag_engine import _DOCS_DIR
     _DOCS_DIR.mkdir(parents=True, exist_ok=True)
     dest = _DOCS_DIR / safe_name
     try:
@@ -7320,7 +7320,7 @@ async def api_enterprise_rag_upload(
     )
 
     try:
-        from core.rag_engine import rag_engine
+        from mateai.application.knowledge.rag_engine import rag_engine
         result = rag_engine.ingest_file(dest, category=category)
     except Exception as exc:
         logger.error("[RAG Upload] Lỗi nạp %s: %s", safe_name, exc)
@@ -7376,7 +7376,7 @@ async def api_enterprise_rag_ingest(
         body = await request.json()
         doc_path = body.get("file_path", "")
         category = body.get("category", "Tài liệu công ty")
-        from core.rag_engine import rag_engine
+        from mateai.application.knowledge.rag_engine import rag_engine
 
         safe_path, path_error = rag_engine.resolve_ingest_path(doc_path)
         if path_error:
@@ -7433,7 +7433,7 @@ async def api_enterprise_rag_docs(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy danh sách tài liệu đã được vector hóa trong ChromaDB."""
-    from core.rag_engine import rag_engine
+    from mateai.application.knowledge.rag_engine import rag_engine
     try:
         docs = rag_engine.list_documents()
         return {"status": "success", "total": len(docs), "documents": docs}
@@ -7468,7 +7468,7 @@ async def api_multi_agent_route(
             raise HTTPException(status_code=400, detail="Thiếu tham số: query")
 
         def _route():
-            from core.agents.agent_orchestrator import multi_agent_system
+            from mateai.application.agent.agent_orchestrator import multi_agent_system
             return multi_agent_system.route_and_execute(query=query)
 
         # `execute_with_hitl` là coroutine — xem giải thích ở
@@ -7513,7 +7513,7 @@ async def api_enterprise_generate_chart(
         prompt = body.get("prompt", "")
         if not prompt:
             return {"status": "error", "error": "Thiếu tham số: prompt"}
-        from core.analytics_engine import analytics_engine
+        from mateai.application.analytics.analytics_engine import analytics_engine
         # Gọi LLM đồng bộ (tới 60 s/model) + SQL — không được chạy trên event loop.
         result = await run_blocking(analytics_engine.text_to_sql_and_chart, prompt=prompt)
 
@@ -7555,7 +7555,7 @@ async def api_enterprise_cashflow_health(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Chạy thuật toán dự báo Burn Rate & Runway. Phát CẢNH BÁO ĐỎ nếu quỹ sắp cạn."""
-    from core.analytics_engine import analytics_engine
+    from mateai.application.analytics.analytics_engine import analytics_engine
     try:
         result = analytics_engine.evaluate_predictive_cashflow()
 
@@ -7596,7 +7596,7 @@ async def api_enterprise_graph_rag(
         question = body.get("question", "")
         if not question:
             return {"status": "error", "error": "Thiếu tham số: question"}
-        from core.knowledge.graph_rag import graph_rag
+        from mateai.application.knowledge.graph_rag import graph_rag
         result = graph_rag.hybrid_search(question=question)
         return {"status": "success", "result": result}
     except Exception as e:
