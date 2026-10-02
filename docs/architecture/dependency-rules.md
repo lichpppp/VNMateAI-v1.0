@@ -87,7 +87,7 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 
 | Quy tắc | Trạng thái | Bằng chứng |
 |---|---|---|
-| RULE-001/002 | Không áp dụng được — `core/` chưa tách tầng (Phase 4 chưa làm) | — |
+| RULE-001/002 | Một phần (Phase 4 đang làm) | Voice, LLM/Agent, Skills (nội bộ), Security, Data đã nằm trong `src/mateai` theo tầng; `test_architecture_boundaries` giữ ranh giới domain/application/interfaces. Còn trong `core/`: Devices, Connectors, Config, giao diện HTTP (`server.py`) |
 | RULE-005 | Một phần | mọi kênh thoại dùng chung `core.voice_turn.process_voice_turn`; handler WS vẫn nằm trong `server.py` |
 | RULE-007 | Đạt (một cổng) | mọi tool qua `agent_voice_loop.run_tool_with_policy` → `security_guard`; một HITL (`zero_trust`). Còn hai mô hình role (portal ↔ RBAC, ánh xạ cố định) |
 | RULE-008 | Một phần | `plugin_registry`: timeout + circuit breaker; client httpx riêng còn lại đã phân loại có lý do (plan §19) |

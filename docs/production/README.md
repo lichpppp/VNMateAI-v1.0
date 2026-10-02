@@ -20,7 +20,7 @@ Dành cho: quản trị viên IT triển khai và vận hành VN-MateAI trong do
 - Một kho tài khoản (SQLite), một kho audit bất biến, một cổng HITL; tác vụ rủi ro cao chỉ chạy sau khi được duyệt.
 - Skill đồng bộ chạy ngoài event loop (server không đứng khi tool chậm).
 - `config.json` ghi nguyên tử; health probe `/livez`, `/readyz`, `/startupz`.
-- 275 test tự động pass.
+- 265 test tự động pass.
 
 **Chưa có / chưa kiểm chứng:**
 - Chạy nhiều tiến trình / nhiều máy (state nằm trong bộ nhớ tiến trình: phiên thoại, hàng đợi HITL, trí nhớ model hỏng). **Chỉ chạy MỘT tiến trình.**
