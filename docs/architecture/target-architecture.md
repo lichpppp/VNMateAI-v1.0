@@ -27,7 +27,7 @@ VN-MateAI được chuẩn hóa theo mô hình **Modular Monolith & Clean Hexago
                  ▼                                                             ▼
      ┌───────────────────────┐                                     ┌───────────────────────┐
      │  API Control Plane    │                                     │   Realtime Gateway    │
-     │  (apps/api)           │                                     │   (apps/realtime)     │
+     │  (tiến trình API)     │                                     │ (tiến trình realtime) │
      └───────────┬───────────┘                                     └───────────┬───────────┘
                  │                                                             │
                  └──────────────────────────────┬──────────────────────────────┘

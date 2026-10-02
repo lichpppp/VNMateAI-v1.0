@@ -19,8 +19,6 @@ from mateai.config.loader import settings  # noqa: E402
 
 CASES = [
     ("mateai.infrastructure.tts.audio_cache", "PROJECT_ROOT"),
-    ("mateai.application.operations.autonomous_sentinel", "_PROJECT_ROOT"),
-    ("mateai.application.operations.health_monitor", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.graph_rag", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.rag_engine", "_PROJECT_ROOT"),
     ("mateai.interfaces.http.server", "_PROJECT_ROOT"),
@@ -57,3 +55,12 @@ def test_no_module_derives_root_from_its_own_location():
             if re.search(r"Path\(__file__\).*(\.parent\.parent|\.parents\[)", text):
                 offenders.append(str(p))
     assert not offenders, offenders
+
+
+def test_hr_db_path_has_one_owner():
+    """hr_kpi.db: domain_sync tính đường dẫn; giám sát dùng đúng hằng đó (trước tự tính ở 3 nơi)."""
+    from mateai.infrastructure.directory import domain_sync
+    import mateai.application.operations.autonomous_sentinel as sentinel
+    import mateai.application.operations.health_monitor as health
+    assert sentinel._DB_PATH is domain_sync.DEFAULT_DB_PATH
+    assert health._DB_PATH is domain_sync.DEFAULT_DB_PATH

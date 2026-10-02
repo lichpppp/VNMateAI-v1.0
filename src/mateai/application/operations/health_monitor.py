@@ -31,12 +31,9 @@ from mateai.config.loader import settings
 logger = logging.getLogger(__name__)
 
 # Resolve database path
-# Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
-# không suy từ vị trí file mã nguồn.
-from mateai.config.loader import settings as _settings  # noqa: E402
-_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
-_DB_PATH = Path(os.environ.get("VNMATEAI_HR_DB_PATH") or _PROJECT_ROOT / "hr_kpi.db")
+# CSDL đồng bộ AD: chủ là domain_sync (một nơi tính đường dẫn, kể cả VNMATEAI_HR_DB_PATH).
+from mateai.infrastructure.directory.domain_sync import DEFAULT_DB_PATH as _DB_PATH  # noqa: E402
 _START_TIME = time.time()
 
 # ═══════════════════════════════════════════════════════════════════════════
