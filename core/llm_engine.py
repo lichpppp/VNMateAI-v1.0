@@ -1048,8 +1048,10 @@ class LLMEngine:
                 ):
                     logger.info("LLM phản hồi chưa có công cụ phù hợp; kích hoạt MetaArchitect tự tạo kỹ năng mới...")
                     synthesised_this_turn = True
-                    new_skill_name = self._synthesise_and_install(
-                        query, meta_architect, plugin_manager
+                    from core.plugin_manager import run_blocking
+                    new_skill_name = await run_blocking(
+                        self._synthesise_and_install,
+                        query=query, meta_architect=meta_architect, plugin_manager=plugin_manager,
                     )
                     if new_skill_name:
                         raw_tools = plugin_manager.get_all_tools()

@@ -366,3 +366,26 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime:** trước khi sửa: REST trả nguyên câu "Gemini 3.5 Flash is no longer available", không chạy tool. Sau khi sửa: log ghi 3 model `ag/gemini-*` bị bỏ qua vì "đã ngừng", tool `get_system_info` chạy thật và có trong `audit_logs` (người gọi `admin`); lượt đó 88 s do các model khác timeout. Sau khi tăng cooldown: 2 lượt liên tiếp 9,1 s và 6,8 s — nhưng lần chạy này 9Router không trả câu "ngừng" nào, nên không quy được mức cải thiện cho thay đổi.
 
 **Cần làm ở cấu hình (không sửa thay chủ dự án):** danh sách model trong cấu hình còn các model `ag/gemini-3.5-*` / `ag/gemini-3-flash-agent` đã ngừng — cần thay bằng model đang chạy trong trang cấu hình LLM.
+
+## 16. Báo cáo Skills/Tools (tiếp) — skill đồng bộ chạy ngoài event loop (2026-10-02)
+
+**STATUS:** XONG
+
+**Lỗi:** `plugin_manager.execute_skill` gọi thẳng `func(**args)` trên event loop với mọi skill đồng bộ (đa số skill: file, PowerShell, WMI, LLM đồng bộ của `analytics_engine`/`meta_architect` tới 60 s/model, hộp thoại phê duyệt). Trong lúc đó mọi kênh voice/WebSocket/REST của mọi người dùng đứng. Hệ quả kèm theo:
+- `orchestrator.send_visual_to_client_sync` / `lean_hr` dùng `run_coroutine_threadsafe(...).result()` vào CHÍNH loop đang bị chặn → tự khoá tới hết timeout; overlay không tới được client.
+- WMI (COM) chưa khởi tạo trên thread loop → `check_peripherals` lỗi im lặng và trả danh sách dự phòng.
+
+**Một implementation:** `core.plugin_manager.run_blocking(func, **kw)` — `asyncio.to_thread` + `CoInitialize/CoUninitialize` theo cặp mỗi lần gọi (nếu có pywin32). Dùng bởi: `plugin_manager.execute_skill` (skill đồng bộ), `plugin_registry` (thay `run_in_executor` riêng), endpoint analytics REST, luồng MetaArchitect trong `ask_async`. Skill Excel bỏ `CoUninitialize` lẻ (runner sở hữu vòng đời COM).
+
+**Skill phải sửa để chạy được trong thread:** `computer_use` và `ai_delegation` (bỏ `get_event_loop()` → `asyncio.run` khi không có loop); `robotics_tools` (gửi WebSocket trên loop của server qua `orchestrator._loop`, không tạo loop mới); `visual_skills` (gọi `broadcast_portal_event` — hàm **không tồn tại**, lỗi bị nuốt → portal chưa bao giờ hiện visual; nay `broadcast_portal_ui` trên loop server).
+
+**Test:** 230 pass / 0 fail. Mới: `test_skills_run_off_loop.py` (loop vẫn chạy ≥10 tick trong lúc skill ngủ 0,4 s; skill chạy thread khác; COM init/uninit theo cặp kể cả khi lỗi) — fail trên code cũ. `tests/unit/test_connectors.py`: nới `recovery_timeout` 0,05 → 0,5 s (test chập chờn khi cả bộ chạy; assert giữ nguyên).
+
+**Runtime / hiệu năng (server thật, `/api/v1/skills/execute`, đo `/livez` mỗi 50 ms trong lúc skill chạy):**
+
+| | code cũ | code mới |
+|---|---|---|
+| `get_system_info` (~528 ms) | `/livez` chờ 528 ms (1 mẫu — loop đứng cả lượt) | max 15–17 ms, median 6–7 ms (9 mẫu) |
+| `check_peripherals` | 25 ms, **3** thiết bị (WMI lỗi, dự phòng) | ~2,1 s, **31** thiết bị (WMI thật); `/livez` median 2 ms, max ~260 ms (1 mẫu, lúc khởi tạo WMI) |
+
+**Còn lại:** `meta_architect`/`analytics_engine` vẫn tạo client OpenAI đồng bộ riêng (RULE-011) — không còn chặn loop, nhưng chưa đi qua provider chung (chưa có nhận diện model hỏng/đã ngừng).

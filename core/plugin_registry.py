@@ -541,10 +541,10 @@ class PluginRegistry:
                     timeout=tool.timeout_seconds,
                 )
             else:
-                # Run sync function in thread pool
-                loop = asyncio.get_event_loop()
+                # Hàm đồng bộ: chạy ngoài event loop (cùng một cách với plugin_manager).
+                from core.plugin_manager import run_blocking
                 result = await asyncio.wait_for(
-                    loop.run_in_executor(None, lambda: tool.function(**arguments)),
+                    run_blocking(tool.function, **arguments),
                     timeout=tool.timeout_seconds,
                 )
 

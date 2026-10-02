@@ -78,7 +78,14 @@ def _dispatch_robot_command(cmd_payload: Dict[str, Any]) -> int:
             # Return current known target count
             return len(ws_list)
         except RuntimeError:
-            asyncio.run(_send_all())
+            # Thread worker: WebSocket thuộc loop của server — phải gửi trên loop
+            # đó (asyncio.run tạo loop mới, gửi trên socket của loop khác sẽ hỏng).
+            from core.orchestrator import orchestrator
+            server_loop = orchestrator._loop
+            if server_loop is not None and server_loop.is_running():
+                asyncio.run_coroutine_threadsafe(_send_all(), server_loop).result(timeout=10.0)
+            else:
+                asyncio.run(_send_all())
             return dispatched_count
 
     except Exception as exc:

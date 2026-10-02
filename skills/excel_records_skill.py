@@ -229,9 +229,5 @@ def append_genealogy_record(
                 excel.Quit()
             except Exception:  # pylint: disable=broad-except
                 pass
-        # Release COM reference
-        try:
-            import pythoncom  # type: ignore[import]
-            pythoncom.CoUninitialize()
-        except Exception:  # pylint: disable=broad-except
-            pass
+        # COM của thread do core.plugin_manager.run_blocking khởi tạo/giải phóng
+        # theo cặp; gọi CoUninitialize ở đây sẽ làm lệch cặp đó.

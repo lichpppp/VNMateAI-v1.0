@@ -7514,7 +7514,9 @@ async def api_enterprise_generate_chart(
         if not prompt:
             return {"status": "error", "error": "Thiếu tham số: prompt"}
         from core.analytics_engine import analytics_engine
-        result = analytics_engine.text_to_sql_and_chart(prompt=prompt)
+        from core.plugin_manager import run_blocking
+        # Gọi LLM đồng bộ (tới 60 s/model) + SQL — không được chạy trên event loop.
+        result = await run_blocking(analytics_engine.text_to_sql_and_chart, prompt=prompt)
 
         # Chỉ phát sóng khi thực sự có biểu đồ. Không có client nào đang mở
         # thì `broadcast_portal_ui` tự thoát ngay, không tốn chi phí.

@@ -245,8 +245,12 @@ def delegate_to_specialist(
     Can be invoked from synchronous executor threads safely.
     """
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+        try:
+            asyncio.get_running_loop()
+            on_loop = True
+        except RuntimeError:  # thread worker: không có loop đang chạy
+            on_loop = False
+        if on_loop:
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 future = pool.submit(
@@ -260,7 +264,7 @@ def delegate_to_specialist(
                 )
                 return future.result(timeout=180.0)
         else:
-            return loop.run_until_complete(
+            return asyncio.run(
                 delegate_to_specialist_async(
                     task_description=task_description,
                     context_data=context_data,

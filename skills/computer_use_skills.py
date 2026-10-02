@@ -61,19 +61,18 @@ def tool_execute_gui_task(
 ) -> Dict[str, Any]:
     """Sync wrapper cho tool_execute_gui_task để tích hợp với Portal PluginManager."""
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    asyncio.run,
-                    _tool_execute_gui_task(task_goal, system_target, session_id),
-                )
-                return future.result(timeout=15.0)
-        else:
-            return loop.run_until_complete(
-                _tool_execute_gui_task(task_goal, system_target, session_id)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            # Thread worker (plugin_manager.run_blocking) — không có loop: tự chạy.
+            return asyncio.run(_tool_execute_gui_task(task_goal, system_target, session_id))
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                asyncio.run,
+                _tool_execute_gui_task(task_goal, system_target, session_id),
             )
+            return future.result(timeout=15.0)
     except Exception as e:
         logger.error("[ComputerUseSkill] Execution failed: %s", e)
         return {"success": False, "error": str(e)}

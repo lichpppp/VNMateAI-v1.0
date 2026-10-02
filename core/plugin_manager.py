@@ -33,6 +33,34 @@ from typing import Any, Callable, Dict, List, Optional
 
 from core.config_loader import settings
 
+
+def _call_with_com(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Any:
+    """Gọi func trong thread hiện tại, khởi tạo COM cho thread này nếu có (Windows).
+
+    Skill dùng Excel (win32com) hay WMI cần COM đã khởi tạo trên CHÍNH thread
+    gọi nó. Thread pool tái sử dụng thread, nên Init/Uninit theo cặp mỗi lần.
+    """
+    try:
+        import pythoncom  # type: ignore[import]
+    except ImportError:
+        return func(**kwargs)
+    pythoncom.CoInitialize()
+    try:
+        return func(**kwargs)
+    finally:
+        pythoncom.CoUninitialize()
+
+
+async def run_blocking(func: Callable[..., Any], **kwargs: Any) -> Any:
+    """
+    Chạy một hàm ĐỒNG BỘ (skill, LLM client đồng bộ, hộp thoại...) ngoài event loop.
+
+    Trước đây skill đồng bộ chạy thẳng trên event loop: một lệnh PowerShell
+    hay một lần gọi LLM đồng bộ 60 s làm đứng mọi kênh voice/WebSocket của
+    mọi người dùng trong lúc đó.
+    """
+    return await asyncio.to_thread(_call_with_com, func, kwargs)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -289,8 +317,8 @@ class PluginManager:
                     # No running loop, create new one
                     result = asyncio.run(func(**call_args))
             else:
-                result = func(**call_args)
-            
+                result = await run_blocking(func, **call_args)
+
             return {"success": True, "data": result, "error": None}
         except TypeError as exc:
             return {

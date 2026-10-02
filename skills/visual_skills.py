@@ -311,15 +311,24 @@ def display_visual_data(
     _spawn_local_overlay(visual_type, prepared_data, title, duration)
 
     # Broadcast to Web Portal In-Browser HUD
+    # Trước đây import `broadcast_portal_event` — hàm không tồn tại, lỗi bị nuốt,
+    # nên portal không bao giờ hiện visual. Skill chạy trong thread worker nên
+    # gửi trên loop của server.
     try:
-        from core.server import broadcast_portal_event
-        broadcast_portal_event("show_visual", {
+        import asyncio
+        from core.server import broadcast_portal_ui
+        coro = broadcast_portal_ui("show_visual", {
             "type": visual_type,
             "visual_type": visual_type,
             "data": prepared_data,
             "title": title,
             "duration": duration,
         })
+        server_loop = orchestrator._loop
+        if server_loop is not None and server_loop.is_running():
+            asyncio.run_coroutine_threadsafe(coro, server_loop).result(timeout=5.0)
+        else:
+            coro.close()
     except Exception as exc:
         logger.debug("Broadcast to portal UI non-fatal: %s", exc)
 

@@ -28,7 +28,7 @@ from src.mateai.infrastructure.connectors.erp_connector import ERPConnector
 
 async def test_circuit_breaker_trip_and_recover():
     print("\n▸ 1. Kiểm thử Circuit Breaker (Ngắt mạch tự động & Hồi phục)")
-    cb = CircuitBreaker("TestService", failure_threshold=3, recovery_timeout=0.05)
+    cb = CircuitBreaker("TestService", failure_threshold=3, recovery_timeout=0.5)  # đủ rộng cho máy đang tải (Windows tick ~15 ms)
     assert cb.state == CircuitState.CLOSED
 
     # Giả lập hàm luôn ném ngoại lệ
@@ -52,8 +52,8 @@ async def test_circuit_breaker_trip_and_recover():
     except CircuitBreakerOpenError as e:
         print(f"  ✅ Fail-Fast thành công khi OPEN: {e}")
 
-    # Chờ 0.06s để hết recovery_timeout -> chuyển sang HALF_OPEN
-    await asyncio.sleep(0.06)
+    # Chờ 0.6s để hết recovery_timeout -> chuyển sang HALF_OPEN
+    await asyncio.sleep(0.6)
     assert cb.state == CircuitState.HALF_OPEN
     print("  ✅ Hết thời gian chờ, Circuit Breaker tự động chuyển sang HALF_OPEN.")
 
