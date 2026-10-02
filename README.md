@@ -198,7 +198,7 @@ Sau khi khởi chạy thành công, mở trình duyệt và truy cập các liê
 
 ## 🔑 Tài Khoản Mặc Định (Default Credentials)
 
-Hệ thống tự động khởi tạo 3 tài khoản mẫu với các cấp quyền khác nhau khi `users.json` chưa tồn tại:
+Khi bảng `users` (trong `vnmateai.db`) còn rỗng — lần khởi động đầu với CSDL mới — hệ thống tạo 3 tài khoản mẫu:
 
 | Tên Đăng Nhập | Mật Khẩu Mặc Định | Vai Trò (Role) | Quyền Hạn |
 | :--- | :--- | :--- | :--- |
@@ -208,8 +208,8 @@ Hệ thống tự động khởi tạo 3 tài khoản mẫu với các cấp quy
 
 > ⚠️ **Cảnh báo bảo mật.** Ba mật khẩu trên là mật khẩu mặc định yếu, chỉ dùng cho
 > môi trường phát triển cục bộ. Trước khi triển khai thật, hãy đặt các biến môi
-> trường sau **trước lần khởi động đầu tiên** (chỉ có tác dụng khi `users.json`
-> chưa được tạo):
+> trường sau **trước lần khởi động đầu tiên** (chỉ có tác dụng khi bảng `users`
+> còn rỗng):
 >
 > ```bash
 > export VNMATEAI_DEFAULT_ADMIN_PASSWORD='mat-khau-nam-manh'
@@ -217,8 +217,9 @@ Hệ thống tự động khởi tạo 3 tài khoản mẫu với các cấp quy
 > export VNMATEAI_DEFAULT_VIEWER_PASSWORD='...'
 > ```
 >
-> Nếu `users.json` đã tồn tại, các biến trên không có tác dụng — hãy đổi mật khẩu
-> qua giao diện quản trị. File `users.json` lưu hash bcrypt và có quyền `0600`.
+> Khi bảng `users` đã có tài khoản, các biến trên không có tác dụng — hãy đổi mật
+> khẩu qua giao diện quản trị. Tài khoản lưu duy nhất trong bảng `users` (hash
+> bcrypt); `users.json` của bản cũ chỉ được di trú một lần rồi không còn dùng.
 
 ---
 
@@ -234,12 +235,12 @@ Ngoài `config.json`, các bí mật có thể nạp qua biến môi trường �
 | `VNMATEAI_TELEGRAM_BOT_TOKEN` | Token bot Telegram. |
 | `GROQ_API_KEY` | API key Groq (dự phòng cho STT). |
 | `VNMATEAI_CORS_ORIGINS` | Danh sách origin được phép gọi chéo, phân tách bằng dấu phẩy. Mặc định rỗng = cùng origin. |
-| `VNMATEAI_DEFAULT_ADMIN_PASSWORD` | Mật khẩu tài khoản `admin` khi `users.json` chưa tồn tại. |
+| `VNMATEAI_DEFAULT_ADMIN_PASSWORD` | Mật khẩu tài khoản `admin` khi bảng `users` còn rỗng. |
 | `VNMATEAI_DEFAULT_MANAGER_PASSWORD` | Mật khẩu tài khoản `manager`. |
 | `VNMATEAI_DEFAULT_VIEWER_PASSWORD` | Mật khẩu tài khoản `viewer`. |
 
-> Lưu ý: các biến mật khẩu mặc định chỉ có tác dụng **ở lần khởi tạo đầu tiên**.
-> Nếu `users.json` đã tồn tại, hãy đổi mật khẩu qua giao diện quản trị.
+> Lưu ý: các biến mật khẩu mặc định chỉ có tác dụng **ở lần khởi tạo đầu tiên**
+> (bảng `users` rỗng). Sau đó hãy đổi mật khẩu qua giao diện quản trị.
 
 ---
 
@@ -258,12 +259,15 @@ cat certs/device_secret.key
 Điền `DEFAULT_WIFI_SSID`, `DEFAULT_WIFI_PASS` và `DEFAULT_DEVICE_TOKEN` vào
 `secrets.h`, build và flash. File `secrets.h` đã được `.gitignore`.
 
-Device token cho phép thiết bị stream âm thanh vào máy chủ; thiếu token thì
-master từ chối kết nối (WebSocket close code `1008`).
+Device token cho phép thiết bị stream âm thanh vào máy chủ; thiếu hoặc sai token
+thì máy chủ từ chối kết nối (HTTP 403) — không có ngoại lệ cho mạng LAN. Thiết bị
+kết nối cổng 8000 (WS không TLS); cổng này chỉ phục vụ đường của thiết bị.
 
 ---
 
 ## 🔒 Mô Hình Bảo Mật (Security Model)
+
+> Tài liệu triển khai/vận hành đầy đủ: [`docs/production/`](docs/production/README.md).
 
 Hệ thống áp dụng nguyên tắc **Zero-Trust — không tin cậy mặc định**:
 
@@ -285,8 +289,10 @@ Hệ thống áp dụng nguyên tắc **Zero-Trust — không tin cậy mặc đ
   lỗi truy vấn → tất cả nhận role `viewer` (chỉ đọc). Không bao giờ tự nâng quyền.
 - Role: `admin` > `it_support` > `operator` > `viewer`. Ba role cuối được giới hạn
   theo danh sách tool cho phép.
-- Thiết bị/robot dùng *service principal* khai báo tường minh, so khớp **chính
-  xác** (không dùng prefix) và không bao giờ nhận `admin`.
+- Danh tính có trong CSDL luôn dùng role trong CSDL. Id kênh do **server** gán
+  (`telegram:…`, thiết bị `esp32*`/`xiaozhi*`, HUD) nhận `admin` theo tiền tố —
+  chỉ an toàn vì mọi kênh đó đều phải xác thực trước (xem
+  `docs/production/security.md` §2, §6).
 
 ### Thực thi mã
 - `auto_execute` mặc định là `false`. Chỉ khi được bật tường minh, mã do AI tự
@@ -295,7 +301,7 @@ Hệ thống áp dụng nguyên tắc **Zero-Trust — không tin cậy mặc đ
 - Một số tool bị cấm vĩnh viễn (`format_drive`, `wipe_all_data`) kể cả với admin.
 
 ### Xử lý secret
-- `config.json`, `users.json`, `certs/`, `*.key`, `*.pem` đều bị `.gitignore`.
+- `config.json`, `certs/`, `*.key`, `*.pem`, `secrets.h` đều bị `.gitignore`.
 - Access log của uvicorn được lọc để thay mọi tham số nhạy cảm trong query string
   (`token`, `access_token`, `api_key`, `password`, `secret`) bằng `[REDACTED]`.
 - Web portal và HUD được phục vụ từ chính máy chủ nên request là same-origin;

@@ -81,19 +81,21 @@ Yêu cầu ban đầu (giữ để đối chiếu):
 | RULE-015 | Không module nào trong lõi import `core.server` (hoặc `interfaces/*`) | đồ thị import |
 | RULE-016 | Mỗi tên tool chỉ được đăng ký ở một registry | so khớp tên từ `plugin_manager` và `plugin_registry` lúc khởi động |
 
-## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`core/`)
+## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`core/`) — cập nhật 2026-10-02
+
+Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo trên mã thật; baseline ở `tests/architecture/core_rules_baseline.json` chỉ được giảm (vi phạm mới = test fail).
 
 | Quy tắc | Trạng thái | Bằng chứng |
 |---|---|---|
-| RULE-001/002 | Không áp dụng được — `core/` chưa tách tầng | — |
-| RULE-005 | Vi phạm | các handler WS trong `server.py` gọi thẳng `llm_engine`, TTS, `memory_manager` |
-| RULE-007 | Một phần | `/api/v1/skills/execute` qua `security_guard`; đường agent qua `zero_trust`; hai mô hình vai trò |
-| RULE-008 | Một phần | `plugin_registry` có timeout + circuit breaker; 17 `httpx.AsyncClient` tự tạo với cấu hình riêng |
-| RULE-009 | Chỉ P1 | P1 có cancellation token; P2 hủy bằng task; P3/P4 chưa kiểm chứng |
-| RULE-010 | Chưa | chỉ có `/health` |
-| RULE-011 | Vi phạm | 5 module ngoài `llm_provider` tự tạo client OpenAI |
-| RULE-012 | Vi phạm | `audio_processor.py`, `server.py` cũng tổng hợp TTS |
-| RULE-013 | Vi phạm | 14 chỗ đọc `config.json` |
-| RULE-014 | Vi phạm | `autonomous_sentinel`, `health_monitor`, `domain_sync`, `db_manager` |
-| RULE-015 | Vi phạm | 10 module lõi import `core.server` (không tính `main.py`) |
-| RULE-016 | Chưa đo | log khởi động có cảnh báo `Tool 'tool_execute_gui_task' already registered` |
+| RULE-001/002 | Không áp dụng được — `core/` chưa tách tầng (Phase 4 chưa làm) | — |
+| RULE-005 | Một phần | mọi kênh thoại dùng chung `core.voice_turn.process_voice_turn`; handler WS vẫn nằm trong `server.py` |
+| RULE-007 | Đạt (một cổng) | mọi tool qua `agent_voice_loop.run_tool_with_policy` → `security_guard`; một HITL (`zero_trust`). Còn hai mô hình role (portal ↔ RBAC, ánh xạ cố định) |
+| RULE-008 | Một phần | `plugin_registry`: timeout + circuit breaker; client httpx riêng còn lại đã phân loại có lý do (plan §19) |
+| RULE-009 | Chỉ kênh portal/HUD | huỷ lượt khi có lệnh mới (barge-in) |
+| RULE-010 | Đạt | `/livez`, `/startupz`, `/readyz` (`test_health_probes`) |
+| RULE-011 | 7 chỗ, đều có lý do | `llm_engine` (3: tạo client cho chính provider), `server` (3: nút "thử kết nối" dùng URL/khoá người dùng nhập), `ai_delegation` (1: client async cho provider chuyên gia). `audio_processor` (Whisper) được miễn |
+| RULE-012 | 1 | `skills/ninerouter_skills.py` |
+| RULE-013 | **0** | `config_loader` là cổng duy nhất (plan §18) |
+| RULE-014 | **0** | `core.database.open_sqlite` là đường mở duy nhất (plan §23) |
+| RULE-015 | 16 import ở 10 module | module lõi còn import `core.server` (chủ yếu để phát sự kiện tới HUD/portal) |
+| RULE-016 | Đạt | danh mục tool duy nhất là `plugin_manager`; `plugin_registry` chỉ là chính sách thực thi (plan §10); log khởi động không còn cảnh báo đăng ký trùng |

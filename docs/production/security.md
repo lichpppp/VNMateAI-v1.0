@@ -1,0 +1,60 @@
+# Bảo mật VN-MateAI
+
+Dành cho: quản trị viên IT và người đánh giá an ninh. Mọi điểm dưới đây được giữ bằng test tự động (tên test trong ngoặc).
+
+## 1. Xác thực theo kênh
+
+| Kênh | Danh tính | Không hợp lệ thì |
+|---|---|---|
+| REST `/api/v1/*`, `/api/erp/*` | JWT người dùng (Bearer) | 401. Chỉ `login`, `config/assistant-name`, `health-dashboard` là công khai (`test_public_endpoints_locked`) |
+| `POST /api/v1/worknodes/heartbeat` | Enrollment secret của worker, hoặc JWT admin/manager — JWT người dùng thường KHÔNG đủ | 401 |
+| `/ws/portal-ui`, `/ws/voice`, `/ws/v1/voice-stream`, `/ws/topology` | JWT (`?token=`) | đóng 1008 / HTTP 403 (`test_websockets_require_login`) |
+| `/ws/hud` | JWT; không có thì chỉ xem telemetry, **không** nhận lệnh thoại | `auth_required` (`test_hud_requires_login`) |
+| `/ws/client` (client agent) | Enrollment secret (gói tải agent) hoặc JWT admin/manager | đóng 1008 |
+| `/api/v1/xiaozhi/ws`, `/ws/audio-stream` (ESP32) | Device enrollment secret (query hoặc Bearer) hoặc JWT admin/manager. **Không** có ngoại lệ theo IP LAN | HTTP 403 (`test_device_auth_requires_token`) |
+| Telegram | `chat_id` phải nằm trong `admin_chat_ids`; danh sách trống = không ai | tin nhắn bị bỏ qua, nút duyệt bị từ chối (`test_role_resolution_order`) |
+| Cổng 8000 (không TLS) | chỉ đường thiết bị + health probe | 404 / đóng 1008 (`test_iot_port_filter`) |
+
+Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài khoản có hiệu lực ngay, không sống lại khi khởi động lại (`test_single_user_store`).
+
+## 2. Phân quyền tool (RBAC)
+
+- Cổng duy nhất: `core.agent_voice_loop.run_tool_with_policy` → `security_guard.check_permission` (mọi kênh: chat, voice, REST, Telegram).
+- Danh tính dùng để xét quyền = **người đã đăng nhập** (không phải `source_device` do client gửi).
+- Thứ tự xác định role: (1) tài khoản/nhân viên trong CSDL → role trong CSDL; (2) service principal khai báo tường minh; (3) id do server gán có tiền tố `esp32`, `xiaozhi`, `telegram`, `hud`, `robot` → **admin** (quyết định của chủ dự án, f389bbe); (4) còn lại / lỗi tra cứu → `viewer` (fail-closed).
+- Role portal → role RBAC: `admin`→`admin`, `manager`→`it_support`, `viewer`→`operator`.
+- Tool cấm vĩnh viễn kể cả admin: `format_drive`, `wipe_all_data`.
+
+## 3. Phê duyệt (HITL)
+
+- Một hàng đợi duy nhất: `core.zero_trust.hitl_manager`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút.
+- Tác vụ chỉ chạy **sau khi** được duyệt (callback), kể cả computer-use mức 4 (`test_phase90_computer_use`). Không tạo được yêu cầu duyệt → không chạy.
+- Duyệt qua: portal/HUD (admin, manager), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý" trong hội thoại của chính người yêu cầu.
+
+## 4. Audit
+
+- Một kho: bảng `audit_logs` (chỉ INSERT; không có API sửa/xoá — `DELETE /api/v1/security/audit-logs` trả 405). Ghi cả quyết định RBAC lẫn sự kiện Zero-Trust/HITL (`test_audit_single_store`).
+- Xem: portal → Bảo mật, hoặc `GET /api/v1/security/audit-logs` (admin).
+
+## 5. Bí mật
+
+| Bí mật | Vị trí | Ghi chú |
+|---|---|---|
+| Khoá ký JWT | `VNMATEAI_JWT_SECRET` hoặc `certs/jwt_secret.key` | đổi = mọi phiên đăng nhập hết hiệu lực |
+| Secret worker / thiết bị | `certs/worker_secret.key`, `certs/device_secret.key` | đổi = phải phát lại gói agent / nạp lại firmware |
+| Khoá LLM, token Telegram | biến môi trường hoặc `config.json` | API cấu hình chỉ trả ký hiệu che, không trả giá trị thật |
+| Chứng chỉ TLS | `certs/server.crt`, `certs/server.key` | |
+
+`config.json`, `certs/`, `*.key`, `*.pem`, `secrets.h` bị `.gitignore`. Log được lọc: mọi giá trị sau `api.telegram.org/bot`, khoá dạng `sk-…`, và tham số `token`/`api_key`/`password` trong query bị thay bằng ký hiệu (`test_telegram_outbound_guard`, `test_phase80_secret_masking` — quét mọi route GET bằng 3 role trên máy chủ thật).
+
+## 6. Rủi ro còn lại đã biết (chưa xử lý)
+
+| Rủi ro | Mức | Ghi chú / giảm thiểu |
+|---|---|---|
+| Id kênh do server gán có tiền tố `esp32/xiaozhi/telegram/hud/robot` nhận admin | Trung bình | An toàn khi mọi kênh đều xác thực (đã làm). Kênh mới nào truyền id do client tự đặt sẽ thành admin — rà khi thêm kênh |
+| Mọi thiết bị dùng CHUNG một device secret; `device_id` vẫn do thiết bị tự đặt trên URL | Trung bình | Lộ secret của một robot = giả được mọi robot. Hướng sửa: secret theo từng thiết bị |
+| Cổng 8000 không TLS | Thấp–TB | Chỉ còn đường thiết bị; giới hạn bằng VLAN/tường lửa |
+| Hai mô hình role (portal ↔ RBAC) | Thấp | Ánh xạ cố định ở trên; gộp cần đổi role trong CSDL |
+| State trong bộ nhớ (HITL, phiên thoại, trí nhớ model) | Vận hành | Khởi động lại = mất yêu cầu duyệt đang chờ (pending action vẫn khôi phục từ audit) |
+| Connector M365/eInvoice/Paperless/OCI chưa chạy thật | Chưa kiểm chứng | Bật từng connector trong môi trường thử trước |
+| Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
