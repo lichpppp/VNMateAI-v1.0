@@ -14273,7 +14273,7 @@ async function loadElasticGridManager() {
           <div class="text-2xl">🍏</div>
           <p class="text-xs text-slate-500 dark:text-slate-400">
             Chưa có máy trạm Mac Mini nào gửi nhịp tim heartbeat.<br/>
-            Khởi động <code class="font-mono text-cyan-600 dark:text-cyan-400">workers/remote_worker_daemon.py</code> trên máy Mac Mini để node tự động hiển thị Online tức thì.
+            Khởi động <code class="font-mono text-cyan-600 dark:text-cyan-400">workers/remote_worker_daemon.py</code> trên máy Mac Mini (đặt biến môi trường <code class="font-mono">VNMATE_ENROLLMENT_TOKEN</code> = <code class="font-mono">enrollment_token</code> trong config.json của gói tải agent) để node tự động hiển thị Online.
           </p>
         </div>`;
       return;

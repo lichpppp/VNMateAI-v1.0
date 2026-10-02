@@ -771,10 +771,11 @@ async def auth_middleware(request: Request, call_next):
         "/api/v1/login/",
         "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập
         "/api/v1/health-dashboard",        # telemetry HUD chế độ xem
-        # Worker daemon (workers/remote_worker_daemon.py) chưa có cơ chế token —
-        # rủi ro đã ghi trong plan; gỡ khỏi đây khi worker có danh tính.
-        "/api/v1/worknodes/heartbeat",
     )
+    # Endpoint của máy worker (không có tài khoản người dùng): chỉ nhận
+    # enrollment secret của worker hoặc JWT admin/manager — cùng luật với
+    # /ws/client. JWT của người dùng thường KHÔNG đủ để giả làm worker.
+    worker_endpoints = ("/api/v1/worknodes/heartbeat",)
 
     # Mọi tiền tố path phải được bọc xác thực. /api/erp/ là router của
     # core/api_erp.py — trước đây nằm ngoài /api/v1/ nên KHÔNG endpoint nào của
@@ -806,6 +807,15 @@ async def auth_middleware(request: Request, call_next):
             token = auth_header[7:].strip()
         elif "token" in request.query_params:
             token = request.query_params.get("token")
+
+        if path in worker_endpoints:
+            if token and _is_valid_worker_token(token):
+                return await call_next(request)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Worker chưa xác thực (thiếu/sai enrollment token)."},
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         if not token:
             return JSONResponse(
@@ -1149,6 +1159,52 @@ class SentinelSimulateRequest(BaseModel):
 #: Cờ này chặn lần thứ hai — không sửa `main.py` vì phải giữ nguyên hành vi
 #: của luồng streaming/WebSocket hiện tại.
 _STARTUP_DONE = False
+#: Đặt ở CUỐI `_on_startup` (cờ trên đặt ở đầu để chặn lần chạy thứ hai).
+_STARTUP_COMPLETE = False
+
+
+# ── Health probes (Kubernetes-style) ─────────────────────────────────────────
+# Ngoài /api/v1/ nên middleware JWT không chặn; chỉ trả trạng thái, không lộ
+# cấu hình. /api/v1/health-dashboard là telemetry cho HUD, không phải probe.
+
+@app.get("/livez", include_in_schema=False)
+async def livez() -> Dict[str, str]:
+    """Tiến trình còn sống và event loop còn phục vụ request."""
+    return {"status": "ok"}
+
+
+@app.get("/startupz", include_in_schema=False)
+async def startupz() -> JSONResponse:
+    """200 khi lifecycle startup đã chạy xong."""
+    done = _STARTUP_COMPLETE
+    return JSONResponse(status_code=200 if done else 503,
+                        content={"status": "ok" if done else "starting"})
+
+
+def _check_database() -> None:
+    from core.database import erp_db
+    with erp_db.get_connection() as conn:
+        conn.execute("SELECT 1;").fetchone()
+
+
+@app.get("/readyz", include_in_schema=False)
+async def readyz() -> JSONResponse:
+    """Sẵn sàng nhận việc: startup xong, DB đọc được, đã nạp skill."""
+    checks: Dict[str, str] = {"startup": "ok" if _STARTUP_COMPLETE else "starting"}
+    try:
+        await asyncio.wait_for(asyncio.to_thread(_check_database), timeout=3.0)
+        checks["database"] = "ok"
+    except Exception as exc:  # pylint: disable=broad-except
+        checks["database"] = f"error: {type(exc).__name__}"
+    try:
+        from core.plugin_manager import plugin_manager
+        checks["skills"] = "ok" if plugin_manager.get_skill_count() > 0 else "none loaded"
+    except Exception as exc:  # pylint: disable=broad-except
+        checks["skills"] = f"error: {type(exc).__name__}"
+    ready = all(v == "ok" for v in checks.values())
+    return JSONResponse(status_code=200 if ready else 503,
+                        content={"status": "ok" if ready else "not_ready", "checks": checks})
+
 
 
 @app.on_event("startup")
@@ -1366,6 +1422,10 @@ async def _on_startup() -> None:
                 logger.info("Phase 57: Email Gateway is disabled or unconfigured in config.json.")
     except Exception as eg_exc:
         logger.warning("Phase 57: Could not start Email Gateway: %s", eg_exc)
+
+    global _STARTUP_COMPLETE
+    _STARTUP_COMPLETE = True
+    logger.info("Startup hoàn tất — /startupz và /readyz sẵn sàng.")
 
 
 def broadcast_tts_notification(announcement_text: str) -> None:
@@ -4282,7 +4342,11 @@ def _authenticate_worker(websocket: WebSocket) -> bool:
 
     Trả về True nếu hợp lệ.
     """
-    token = websocket.query_params.get("token")
+    return _is_valid_worker_token(websocket.query_params.get("token") or "")
+
+
+def _is_valid_worker_token(token: str) -> bool:
+    """Enrollment secret của worker, hoặc JWT của admin/manager."""
     if not token:
         return False
 

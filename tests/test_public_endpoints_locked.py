@@ -48,3 +48,28 @@ def test_requires_login(method, path):
 def test_pre_login_endpoints_still_public():
     client = TestClient(server.app)
     assert client.get("/api/v1/config/assistant-name").status_code == 200
+
+
+_HEARTBEAT = {"node_id": "test-node-hb", "ip": "10.0.0.9", "capabilities": ["LOCAL_OCR"],
+              "status": "idle", "cpu_percent": 1.0, "ram_percent": 2.0, "active_tasks": 0}
+
+
+def test_worker_heartbeat_needs_worker_identity(monkeypatch):
+    """Heartbeat giao task cho node — chỉ worker đã đăng ký mới được gửi."""
+    monkeypatch.setattr(server, "_get_worker_enrollment_secret", lambda: "worker-secret-xyz")
+    client = TestClient(server.app)
+    url = "/api/v1/worknodes/heartbeat"
+
+    assert client.post(url, json=_HEARTBEAT).status_code == 401
+    assert client.post(url, json=_HEARTBEAT,
+                       headers={"Authorization": "Bearer sai-secret"}).status_code == 401
+
+    # JWT của người dùng thường (viewer) không được giả làm worker.
+    from core.auth_manager import auth_manager
+    monkeypatch.setattr(auth_manager, "get_user", lambda u: {"username": u, "role": "viewer"})
+    viewer = auth_manager.create_access_token(data={"sub": "vera", "role": "viewer"})
+    assert client.post(url, json=_HEARTBEAT,
+                       headers={"Authorization": f"Bearer {viewer}"}).status_code == 401
+
+    ok = client.post(url, json=_HEARTBEAT, headers={"Authorization": "Bearer worker-secret-xyz"})
+    assert ok.status_code == 200, ok.text

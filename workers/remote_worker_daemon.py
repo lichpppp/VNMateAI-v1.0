@@ -10,6 +10,9 @@ Chức năng:
   3. Lắng nghe tác vụ được giao (GUI RPA, OCR, Browser Automation) và thực thi
      thông qua các driver bản địa (native_os_driver, browser_session_vault).
   4. Gửi kết quả thực thi callback về Master API.
+
+Biến môi trường bắt buộc: VNMATE_ENROLLMENT_TOKEN — giá trị `enrollment_token`
+trong config.json của gói /api/v1/download-agent. Thiếu thì Master trả 401.
 """
 
 from __future__ import annotations
@@ -37,6 +40,9 @@ MASTER_API_URL = os.getenv("MASTER_API_URL", "https://localhost:443").rstrip("/"
 NODE_ID = os.getenv("NODE_ID", socket.gethostname() or "mac-mini-worker")
 HEARTBEAT_INTERVAL_SEC = float(os.getenv("HEARTBEAT_INTERVAL_SEC", "5.0"))
 CAPABILITIES = os.getenv("CAPABILITIES", "GUI_OPENCLAW,LOCAL_OCR,BROWSER_RPA").split(",")
+# Enrollment secret do Master phát (cùng secret với client agent, lấy trong
+# config.json của gói /api/v1/download-agent). Thiếu thì Master trả 401.
+ENROLLMENT_TOKEN = os.getenv("VNMATE_ENROLLMENT_TOKEN", "").strip()
 
 
 def get_local_ip() -> str:
@@ -116,7 +122,10 @@ class RemoteWorkerDaemon:
         logger.info("Năng lực xử lý: %s", self.capabilities)
         logger.info("=====================================================")
 
-        async with httpx.AsyncClient(timeout=8.0, verify=False) as client:
+        if not ENROLLMENT_TOKEN:
+            logger.warning("Thiếu VNMATE_ENROLLMENT_TOKEN — Master sẽ từ chối heartbeat (401).")
+        auth = {"Authorization": f"Bearer {ENROLLMENT_TOKEN}"} if ENROLLMENT_TOKEN else {}
+        async with httpx.AsyncClient(timeout=8.0, verify=False, headers=auth) as client:
             while self.running:
                 telemetry = get_system_telemetry()
                 ping_payload = {

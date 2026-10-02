@@ -306,3 +306,15 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 - Hai mô hình role (portal admin/manager/viewer ↔ RBAC admin/it_support/operator/viewer qua `PORTAL_ROLE_MAP`) chưa gộp: cần đổi role trong DB, là quyết định sản phẩm.
 - `/ws/topology` và các WebSocket khác chưa được rà soát trong đợt này.
 - Health endpoints `/livez` `/readyz` `/startupz` chưa làm.
+
+## 12. Báo cáo Security (tiếp) — danh tính worker, health probes (2026-10-02)
+
+**STATUS:** XONG
+
+- **Heartbeat worker:** `POST /api/v1/worknodes/heartbeat` không còn public. Chỉ nhận enrollment secret của worker hoặc JWT admin/manager — cùng hàm `_is_valid_worker_token` với `/ws/client` (tách từ `_authenticate_worker`, không có cơ chế thứ hai). JWT người dùng thường KHÔNG giả được worker. `workers/remote_worker_daemon.py` gửi `VNMATE_ENROLLMENT_TOKEN` (giá trị `enrollment_token` trong gói tải agent).
+- **Probes:** `/livez` (tiến trình sống), `/startupz` (lifecycle startup chạy xong — cờ `_STARTUP_COMPLETE` đặt ở cuối `_on_startup`), `/readyz` (startup + `SELECT 1` DB có timeout 3 s + đã nạp skill; 503 kèm check hỏng). Nằm ngoài `/api/v1/`, không lộ cấu hình.
+
+**Test:** 216 pass / 0 fail. Mới: `test_health_probes.py` (3), heartbeat trong `test_public_endpoints_locked.py` (không token / sai secret / JWT viewer → 401; secret → 200).
+**Runtime:** 3 probe trả 200 trên server thật; chạy `remote_worker_daemon.py` thật: không token → 401 và node không lên grid; có token → node có trong `/api/v1/worknodes/status`.
+
+**Còn lại (Security):** cấp admin theo tiền tố id trong `_resolve_role`; gộp hai mô hình role; rà các WebSocket còn lại (`/ws/topology`, `/ws/portal-ui`, `/ws/voice`, `/ws/audio-stream`).
