@@ -44,9 +44,7 @@ def _get_local_ip() -> str:
 def _spawn_local_overlay(visual_type: str, data: Dict[str, Any], title: str, duration: int = 15) -> bool:
     """Spawn HUD overlay locally on the machine."""
     import tempfile
-    overlay_script = _PROJECT_ROOT / "client_template" / "overlay_ui.py"
-    if not overlay_script.exists():
-        overlay_script = _PROJECT_ROOT / "client_agent" / "overlay_ui.py"
+    overlay_script = _PROJECT_ROOT / "client_agent" / "overlay_ui.py"
     if not overlay_script.exists():
         logger.warning("overlay_ui.py not found at %s", overlay_script)
         return False

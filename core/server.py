@@ -88,7 +88,9 @@ else:
 _WEB_DIR    = _PROJECT_ROOT / "web"
 _CONFIG_PATH = _PROJECT_ROOT / "config.json"
 _REGISTRY_PATH = _PROJECT_ROOT / "skills" / "registry.json"
-_CLIENT_TEMPLATE_DIR = _PROJECT_ROOT / "client_template"
+# Gói "Tải Agent" đóng từ chính client_agent/ (Phase 6: gỡ bản fork client_template/,
+# hai bản đã lệch nhau — mỗi bên sửa một lỗi mà bên kia vẫn còn).
+_CLIENT_AGENT_DIR = _PROJECT_ROOT / "client_agent"
 
 # ---------------------------------------------------------------------------
 # Multi-Node Audio State (Phase 10) & Portal UI WebSockets (Phase 17)
@@ -6724,14 +6726,14 @@ async def download_agent(
     zip_buffer = io.BytesIO()
 
     with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        template_dir = _CLIENT_TEMPLATE_DIR
+        template_dir = _CLIENT_AGENT_DIR
 
         if template_dir.exists() and template_dir.is_dir():
             for file_path in sorted(template_dir.rglob("*")):
                 # Skip __pycache__ directories and compiled Python bytecode
                 if "__pycache__" in file_path.parts:
                     continue
-                if file_path.suffix in (".pyc", ".pyo"):
+                if file_path.suffix in (".pyc", ".pyo", ".log"):
                     continue
                 if file_path.is_file():
                     arc_name = file_path.relative_to(template_dir)
@@ -6743,10 +6745,10 @@ async def download_agent(
                     except Exception as write_err:
                         logger.warning("download-agent: Cannot add file %s: %s", file_path, write_err)
         else:
-            logger.error("client_template/ directory not found at %s", template_dir)
+            logger.error("client_agent/ directory not found at %s", template_dir)
             raise HTTPException(
                 status_code=500,
-                detail="Thư mục client_template/ không tồn tại trên máy chủ. Liên hệ Admin.",
+                detail="Thư mục client_agent/ không tồn tại trên máy chủ. Liên hệ Admin.",
             )
 
         # Phase 29: Read certs/server.crt on server and embed directly into Client Agent ZIP as server_cert.pem

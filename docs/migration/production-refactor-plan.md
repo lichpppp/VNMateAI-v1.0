@@ -251,3 +251,29 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 - `server.py` (3): nút "thử kết nối" kiểm tra endpoint/model/khoá DO NGƯỜI DÙNG NHẬP — cố ý không qua provider đã cấu hình; giữ.
 - `llm_engine` (3): nơi tạo client cho chính provider; đúng vai trò.
 - Chưa phát hiện được phản hồi kiểu "model X is no longer available" mà nhà cung cấp trả như câu trả lời bình thường — cần cập nhật model trong cấu hình.
+
+## 10. Báo cáo Phase 6 — Skills/Tools: một danh mục tool, một client agent (2026-10-02)
+
+**PHASE:** 6 — Skills/Tools
+**STATUS:** XONG (đã kiểm tra runtime)
+
+**Một implementation:**
+
+| Việc | Trước | Sau |
+|---|---|---|
+| Danh mục tool LLM thấy | `plugin_manager` + 4 danh sách viết tay trong `llm_engine` (6/7 tool trùng) + schema nạp từ `plugin_registry` | chỉ `plugin_manager` (@export_skill / `skills/registry.json`) |
+| `plugin_registry` | danh mục thứ hai + `select_relevant_skills` (không caller) | chỉ chính sách thực thi (timeout, circuit breaker, risk_level → HITL) qua `run_tool_with_policy` |
+| Tool không tìm thấy | cổng gọi thẳng hàm Python bằng tên (vượt danh mục) | bị từ chối như tool lạ |
+| Phê duyệt "Đồng ý" | `asyncio.to_thread(execute_skill)` trên hàm async → tác vụ đã duyệt **không bao giờ chạy** | `run_tool_with_policy(..., confirmed=True)` — có RBAC + audit |
+| Client agent | `client_agent/` + bản fork `client_template/` (zip download lấy từ fork) | chỉ `client_agent/`; zip bỏ `__pycache__`, log, `config.json`, cert cũ |
+
+**Đã xoá:** `client_template/` (13 file), `core/connectors/smart_comm_router.py` (không tham chiếu), `PluginRegistry.select_relevant_skills`, đăng ký hỏng trong `core/agents/agent_orchestrator.py`, đăng ký lúc import trong `computer_use_plugin`, nhánh native/registry trong `dynamic_skill_router`.
+**Đã đăng ký (thay vì xoá):** `query_organization_data` (A4), `get_enterprise_executive_summary`.
+
+**Test:** 192 pass / 0 fail. Mới: `test_confirm_pending_action.py` (fail trên code cũ). Cập nhật test phase 3/4/6/65/67/85/87/92, `test_tool_policy_gate`, `test_hud_*` theo danh mục mới.
+**Runtime:** tải `/api/v1/download-agent` (200, 18 file, có README/requirements, không pycache) → giải nén → chạy `agent.py` → kết nối WSS và xuất hiện trong `/api/v1/clients` (DESKTOP-M1875L9), nạp 25 kỹ năng.
+**Hiệu năng:** không đo — thay đổi không nằm trên đường nóng voice ngoài việc bớt dựng danh sách tool mỗi lượt.
+
+**Rủi ro:** tool trước đây chỉ có trong danh sách viết tay mà không có skill tương ứng sẽ biến mất khỏi LLM — đã đối chiếu 7/7 tool (6 trùng, 1 đăng ký mới). Connector Phase 59 phải tự `@export_skill` để LLM thấy.
+
+**Còn lại:** D4 (bản server của kỹ năng máy con), C6 `meta_architect`/`analytics_engine`, E2 alias `/ws/audio-stream`.

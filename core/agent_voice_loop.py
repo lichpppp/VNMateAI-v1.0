@@ -131,26 +131,6 @@ async def run_tool_with_policy(
         else:
             logger.info("Thực thi kỹ năng cục bộ: '%s' tham số=%s", fn_name, fn_args)
             _result = await plugin_manager.execute_skill(fn_name, fn_args)
-            _not_found = (
-                (not _result.get("success", True) or _result.get("status") == "error")
-                and ("not found" in str(_result.get("error", "")).lower()
-                     or "không tìm thấy" in str(_result.get("error", "")).lower())
-            )
-            if _not_found:
-                if fn_name in ("list_directory", "read_file", "write_file", "delete_item"):
-                    from core.skills import file_system
-                    _fs = getattr(file_system, fn_name, None)
-                    if _fs:
-                        _result = await asyncio.to_thread(_fs, **fn_args)
-                elif fn_name == "delegate_to_specialist":
-                    from core.skills import ai_delegation
-                    _result = await ai_delegation.delegate_to_specialist_async(**fn_args)
-                elif fn_name == "display_visual_data":
-                    from skills.visual_skills import display_visual_data
-                    _result = await asyncio.to_thread(display_visual_data, **fn_args)
-                elif fn_name == "query_organization_data":
-                    from core.database import erp_db
-                    _result = {"status": "success", "data": erp_db.query_organization(fn_args.get("query", ""))}
     else:
         logger.info("Diều phối kỹ năng '%s' → [%s]", fn_name, target_client)
         from core.orchestrator import orchestrator

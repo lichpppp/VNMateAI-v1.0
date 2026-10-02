@@ -382,7 +382,9 @@ class ClientAgent:
                 "task_id": task_id,
                 "client_id": self.client_id,
                 "pid": pid,
-                "success": result.get("status") == "success",
+                # Từ bản client_template (đã gộp, Phase 6): skill có thể trả
+                # {"success": True} thay vì {"status": "success"}.
+                "success": bool(result.get("status") == "success" or result.get("success") is True or not result.get("error")),
                 "result": result,
             }
             await ws.send(json.dumps(response, ensure_ascii=False))
@@ -566,10 +568,17 @@ def main() -> None:
         default=default_ws,
         help=f"WebSocket URL của Master Server (mặc định: {default_ws})",
     )
+    # client_id do Master cấp trong config.json lúc tải agent (từ bản
+    # client_template, đã gộp ở Phase 6); không có thì biến môi trường / hostname.
+    _cfg_id = str(_cfg.get("client_id", "") or "").strip()
+    if _cfg_id in ("", "auto_generate_on_first_run"):
+        _cfg_id = ""
+    default_id = _cfg_id or os.getenv("VNMATE_CLIENT_ID", socket.gethostname())
+
     parser.add_argument(
         "--id", "-i",
-        default=os.getenv("VNMATE_CLIENT_ID", socket.gethostname()),
-        help="Định danh Client ID cho máy con (mặc định: tên hostname)",
+        default=default_id,
+        help=f"Định danh Client ID cho máy con (mặc định: {default_id})",
     )
     args = parser.parse_args()
 

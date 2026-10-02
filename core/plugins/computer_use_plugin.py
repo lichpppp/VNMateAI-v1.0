@@ -222,5 +222,5 @@ def register_computer_use_tool(registry=None) -> Dict[str, Any]:
         return {"registered": 0, "error": str(e)}
 
 
-# Tự động đăng ký khi import
-register_computer_use_tool()
+# Đăng ký do server gọi lúc khởi động (core/server.py, Phase 90). Trước Phase 6
+# module còn tự đăng ký khi import -> tool bị đăng ký hai lần.

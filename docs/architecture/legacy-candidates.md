@@ -3,7 +3,7 @@
 > Phase 0 — chỉ phân loại, **chưa xóa gì**. Thay thế `docs/cleanup-candidates.md` (tài liệu đó tham chiếu các file đã không còn, ví dụ `core/api_voice_stream.py`, `scratch/`, `vnmateai.db.bak-*`).
 > Bằng chứng xem `duplication-matrix.md`. Điều kiện xóa (Phase C): thay thế đã có, caller đã chuyển, test pass, đã chạy thử runtime.
 
-## Trạng thái (cập nhật Phase 2, 2026-10-01)
+## Trạng thái (cập nhật Phase 6, 2026-10-02)
 
 | Mục | Trạng thái |
 |---|---|
@@ -17,7 +17,11 @@
 | Thêm: vòng tool 1 bước của portal (`execute_tool_call` và phụ trợ) | **ĐÃ XOÁ** (Phase 3) |
 | C5 `_call_llm_direct/_call_llm_router`, C6 phần `ai_delegation`, bộ tách câu `_extract_sentences` | **ĐÃ THAY** bằng provider chung / `SentenceBuffer` (Phase 5) |
 | C6 còn lại: `meta_architect`, `analytics_engine` (client đồng bộ) | chưa làm — xem plan §9 |
-| A2–A6, C9–C11, D1–D8, E1–E8 | chưa làm |
+| A2 `select_relevant_skills`, A3 `smart_comm_router` | **ĐÃ XOÁ** (Phase 6) |
+| A4 `erp_organization` | **ĐÃ ĐĂNG KÝ** làm skill (`skills/erp_organization.py`) thay vì xoá |
+| C9 `client_template/` | **ĐÃ THAY** — zip tải về sinh từ `client_agent/`, fork đã xoá (Phase 6) |
+| D7 `plugin_manager` + `plugin_registry` | **ĐÃ GỘP**: danh mục = `plugin_manager`; registry = chính sách thực thi (Phase 6) |
+| A5–A6, C10–C11, D1–D6, D8, E1–E8 | chưa làm |
 
 ## A. Xóa được ngay khi vào Phase C (không có caller)
 

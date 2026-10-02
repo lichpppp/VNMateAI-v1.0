@@ -20,6 +20,30 @@
     },
     "enabled": true
   },
+  "get_enterprise_executive_summary": {
+    "module": "skills.agent_orchestrator",
+    "attr": "get_enterprise_executive_summary",
+    "meta": {
+      "name": "get_enterprise_executive_summary",
+      "description": "Bộ não tổng hợp & Báo cáo điều hành tức thì (Executive Intelligence) cho giọng nói, Web và Telegram. Trả về voice_summary (<4 câu, siêu tốc) và rich_details định dạng Markdown.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target_scope": {
+            "type": "string",
+            "description": "Phạm vi báo cáo ('all', 'fin', 'hr', 'it').",
+            "default": "all"
+          },
+          "time_range": {
+            "type": "string",
+            "description": "Khoảng thời gian ('today', 'this_week', 'this_month').",
+            "default": "today"
+          }
+        }
+      }
+    },
+    "enabled": true
+  },
   "get_executive_standup_briefing": {
     "module": "skills.agent_orchestrator",
     "attr": "get_executive_standup_briefing",
@@ -510,6 +534,27 @@
         },
         "required": [
           "question"
+        ]
+      }
+    },
+    "enabled": true
+  },
+  "query_organization_data": {
+    "module": "skills.erp_organization",
+    "attr": "query_organization_data",
+    "meta": {
+      "name": "query_organization_data",
+      "description": "Tra cứu cơ sở dữ liệu tổ chức ERP của doanh nghiệp: tìm kiếm thông tin phòng ban, nhân sự (họ tên, email, SĐT, chức vụ), thiết bị/máy tính (hostname, địa chỉ IP, người sử dụng), công việc (task, hạn chót, trạng thái) và sổ sách/hồ sơ.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Từ khóa hoặc câu hỏi cần tra cứu (ví dụ: '192.168.1.10', 'Nguyễn Văn A', 'Phòng Nhân Sự', 'danh sách máy chủ')."
+          }
+        },
+        "required": [
+          "query"
         ]
       }
     },

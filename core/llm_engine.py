@@ -362,235 +362,11 @@ def _make_client() -> AsyncOpenAI:
         http_client=pool,
     )
 
+# Danh mục tool: CHỈ plugin_manager (@export_skill). Phase 6 đã gỡ các danh sách
+# viết tay FILE_SYSTEM_TOOLS / DELEGATION_TOOLS / VISUAL_OVERLAY_TOOLS /
+# ERP_ORGANIZATION_TOOLS — 6/7 tool trùng với plugin_manager, tool còn lại
+# (query_organization_data) nay là skill đã đăng ký.
 
-# ---------------------------------------------------------------------------
-# Phase 38: Native File System & OS Toolkit Tool Declarations (OpenAI Schema)
-# ---------------------------------------------------------------------------
-
-FILE_SYSTEM_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "list_directory",
-            "description": "Liệt kê cấu trúc thư mục bao gồm danh sách file/folder, kích thước và thời gian sửa đổi gần nhất.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Đường dẫn thư mục cần liệt kê (ví dụ: '.', './logs', 'C:\\Logs', '/var/log').",
-                    },
-                    "target_client": {
-                        "type": "string",
-                        "description": "ID hoặc tên máy trạm LAN cần thực thi lệnh (mặc định: 'master').",
-                    },
-                    "target_client_id": {
-                        "type": "string",
-                        "description": "Bí danh thay thế cho target_client nếu có.",
-                    },
-                },
-                "required": ["path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "read_file",
-            "description": "Đọc nội dung tệp tin văn bản hoặc file log hệ thống. Tự động đọc N dòng cuối nếu file quá lớn để tránh tràn bộ nhớ.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Đường dẫn tệp tin cần đọc (ví dụ: 'logs/security_audit.log', 'config.json').",
-                    },
-                    "lines": {
-                        "type": "integer",
-                        "description": "Số lượng dòng tối đa cần đọc từ cuối file (mặc định: 500 dòng).",
-                    },
-                    "target_client": {
-                        "type": "string",
-                        "description": "ID hoặc tên máy trạm LAN cần thực thi lệnh (mặc định: 'master').",
-                    },
-                    "target_client_id": {
-                        "type": "string",
-                        "description": "Bí danh thay thế cho target_client nếu có.",
-                    },
-                },
-                "required": ["file_path"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "write_file",
-            "description": "Tạo file mới hoặc ghi đè (mode='w'), hoặc ghi tiếp vào cuối file (mode='a'). Hỗ trợ tự động tạo thư mục cha.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "Đường dẫn tệp tin cần tạo mới hoặc ghi nội dung (ví dụ: 'scripts/clean.py', 'reports/daily.md').",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Nội dung văn bản cần ghi vào tệp tin.",
-                    },
-                    "mode": {
-                        "type": "string",
-                        "enum": ["w", "a"],
-                        "description": "Chế độ ghi: 'w' (ghi đè / tạo mới) hoặc 'a' (ghi nối tiếp vào cuối file). Mặc định: 'w'.",
-                    },
-                    "target_client": {
-                        "type": "string",
-                        "description": "ID hoặc tên máy trạm LAN cần thực thi lệnh (mặc định: 'master').",
-                    },
-                    "target_client_id": {
-                        "type": "string",
-                        "description": "Bí danh thay thế cho target_client nếu có.",
-                    },
-                },
-                "required": ["file_path", "content"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_item",
-            "description": "Xóa tệp tin đơn lẻ hoặc xóa toàn bộ thư mục trên hệ thống.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Đường dẫn tệp tin hoặc thư mục cần xóa.",
-                    },
-                    "is_folder": {
-                        "type": "boolean",
-                        "description": "Đặt thành true nếu đối tượng cần xóa là thư mục. Mặc định: false (xóa tệp đơn lẻ).",
-                    },
-                    "target_client": {
-                        "type": "string",
-                        "description": "ID hoặc tên máy trạm LAN cần thực thi lệnh (mặc định: 'master').",
-                    },
-                    "target_client_id": {
-                        "type": "string",
-                        "description": "Bí danh thay thế cho target_client nếu có.",
-                    },
-                },
-                "required": ["path"],
-            },
-        },
-    },
-]
-
-
-# ---------------------------------------------------------------------------
-# Phase 40: Dual-LLM Orchestration Tool Declarations (Gemini & Claude)
-# ---------------------------------------------------------------------------
-
-DELEGATION_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "delegate_to_specialist",
-            "description": "Ủy quyền (delegate) bài toán phức tạp cho Chuyên gia Hệ thống cấp cao (Claude) phân tích sâu, viết mã nguồn, chẩn đoán nguyên nhân gốc rễ (Root Cause) hoặc lập kế hoạch kiến trúc.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "task_description": {
-                        "type": "string",
-                        "description": "Mô tả chi tiết bài toán, lỗi hoặc yêu cầu kỹ thuật cần chuyên gia Claude xử lý.",
-                    },
-                    "context_data": {
-                        "type": "string",
-                        "description": "Ngữ cảnh chi tiết, file log, đoạn mã nguồn, cấu hình hoặc dữ liệu điều tra liên quan.",
-                    },
-                    "target_client": {
-                        "type": "string",
-                        "description": "ID hoặc tên máy trạm liên quan nếu có (mặc định: 'master').",
-                    },
-                },
-                "required": ["task_description"],
-            },
-        },
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Phase 32.1: Strict Visual Overlay & Text Board Tool Declarations
-# ---------------------------------------------------------------------------
-
-VISUAL_OVERLAY_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "display_visual_data",
-            "description": "Hiển thị một cửa sổ popup trên màn hình người dùng. CHÚ Ý: Chỉ dùng khi người dùng có nhu cầu xem dữ liệu trực quan hoặc đọc log dài.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "enum": ["text_board", "network_map", "metric_chart", "security_alert", "screenshot"],
-                        "description": (
-                            "BẮT BUỘC CHỌN 1 TRONG CÁC LOẠI SAU:\n"
-                            "- text_board: Dùng để hiển thị danh sách IP, đọc file log, hoặc đoạn text dài.\n"
-                            "- network_map: Chỉ dùng khi được yêu cầu xem sơ đồ/cấu trúc mạng.\n"
-                            "- metric_chart: Chỉ dùng để xem biểu đồ CPU/RAM.\n"
-                            "- security_alert: Chỉ dùng khi có tấn công hoặc rủi ro thực sự.\n"
-                            "- screenshot: TUYỆT ĐỐI CHỈ DÙNG khi người dùng có nhắc đến chữ 'chụp ảnh màn hình' hoặc 'xem màn hình'."
-                        ),
-                    },
-                    "context_data": {
-                        "type": "string",
-                        "description": "Dữ liệu truyền vào. Nếu type là text_board, đây là chuỗi văn bản hoặc log cần hiển thị.",
-                    },
-                    "target_client": {
-                        "type": "string",
-                        "description": "ID hoặc tên máy trạm LAN cần hiển thị giao diện (mặc định: 'master').",
-                    },
-                    "title": {
-                        "type": "string",
-                        "description": "Tiêu đề của cửa sổ HUD Cyberpunk.",
-                    },
-                    "duration": {
-                        "type": "integer",
-                        "description": "Thời gian hiển thị tự động trước khi mờ dần (giây, mặc định 15s).",
-                    },
-                },
-                "required": ["type", "context_data"],
-            },
-        },
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Phase 47: ERP Organization & Relational Data Query Tool
-# ---------------------------------------------------------------------------
-
-ERP_ORGANIZATION_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "query_organization_data",
-            "description": "Tra cứu cơ sở dữ liệu tổ chức ERP của doanh nghiệp: tìm kiếm thông tin phòng ban, nhân sự (họ tên, email, SĐT, chức vụ), thiết bị/máy tính (hostname, địa chỉ IP, người sử dụng), công việc (task, hạn chót, trạng thái) và sổ sách/hồ sơ.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Từ khóa hoặc câu hỏi cần tra cứu (ví dụ: '192.168.1.10', 'Nguyễn Văn A', 'Phòng Nhân Sự', 'danh sách máy chủ').",
-                    },
-                },
-                "required": ["query"],
-            },
-        },
-    },
-]
 
 
 class LLMEngine:
@@ -897,45 +673,20 @@ class LLMEngine:
         from core.safety_guard import security_engine
 
         raw_tools = plugin_manager.get_all_tools()
-        # Phase 38, 40, 32.1: Guarantee Native File System, Delegation & Strict Visual Overlay tools are in available_tools
-        raw_tools = [t for t in raw_tools if t.get("function", {}).get("name") != "display_visual_data"]
-        for extra_t in FILE_SYSTEM_TOOLS + DELEGATION_TOOLS + VISUAL_OVERLAY_TOOLS + ERP_ORGANIZATION_TOOLS:
-            raw_tools.append(extra_t)
 
-        # ═════════════════════════════════════════════════════════════════
-        # Phase 60: Plugin Registry tools (Universal Connector Hub)
-        # ═════════════════════════════════════════════════════════════════
-        # Trước đây registry tồn tại nhưng không hề được LLM nhìn thấy, nên
-        # 12 connector tool của Phase 59 chỉ gọi được bằng tay qua
-        # /skills/execute. Ở đây ta nối schema của chúng vào danh sách tool và
-        # chuyển tool_call tương ứng sang `plugin_registry.execute_tool()` để
-        # đi qua timeout + circuit breaker + cổng HITL theo risk_level.
-        #
-        # Ưu tiên: nếu một tool có mặt ở CẢ registry lẫn plugin_manager, giữ
-        # bản của registry và loại bản trùng của plugin_manager — registry bọc
-        # thêm timeout + circuit breaker, còn plugin_manager thì không. Giữ cả
-        # hai sẽ khiến LLM thấy trùng tên tool với hai mô tả khác nhau.
-        _registry_tools: List[Dict[str, Any]] = []
+        # Phase 60/6: Plugin Registry KHÔNG còn là danh mục tool thứ hai. Tool nào
+        # có trong registry (connector Phase 59, computer-use) vẫn được LLM thấy qua
+        # plugin_manager; registry chỉ quyết định đường THỰC THI có timeout +
+        # circuit breaker + cổng HITL theo risk_level (run_tool_with_policy).
         _registry_names: set = set()
-        _plugin_registry = None
         try:
             from core.plugin_registry import plugin_registry as _plugin_registry
-
-            for schema in _plugin_registry.get_all_tools_schema():
-                name = (schema.get("function") or {}).get("name")
-                if not name:
-                    continue
-                _registry_tools.append(schema)
-                _registry_names.add(name)
+            _registry_names = set(_plugin_registry.get_tool_names())
         except Exception as reg_err:  # pylint: disable=broad-except
             # Registry hỏng KHÔNG được làm sập toàn bộ hội thoại.
-            logger.warning("[Phase60] Không nạp được tool Plugin Registry: %s", reg_err)
+            logger.warning("[Phase60] Không đọc được Plugin Registry: %s", reg_err)
 
-        if _registry_names:
-            raw_tools = [t for t in raw_tools
-                         if t.get("function", {}).get("name") not in _registry_names]
-
-        tools = self._enrich_tools_with_target_client(raw_tools + _registry_tools)
+        tools = self._enrich_tools_with_target_client(raw_tools)
 
         # Zero-Trust Data Sanitizer
         sanitized_query = security_engine.mask_sensitive_data(query)
@@ -1008,32 +759,18 @@ class LLMEngine:
                 )
                 security_engine.log_audit(target_client, tool_name, "NEED_CONFIRM", "USER_APPROVED", args)
 
-                # Execute skill
-                if target_client.lower() in ("master", "local", "server", "chính", "cục bộ"):
-                    tool_res = await asyncio.to_thread(plugin_manager.execute_skill, tool_name, args)
-                    is_not_found = (
-                        (not tool_res.get("success", True) or tool_res.get("status") == "error")
-                        and ("not found in registry" in str(tool_res.get("error", "")).lower()
-                             or "không tìm thấy" in str(tool_res.get("error", "")).lower())
-                    )
-                    if is_not_found:
-                        if tool_name in ("list_directory", "read_file", "write_file", "delete_item"):
-                            from core.skills import file_system
-                            fs_fn = getattr(file_system, tool_name, None)
-                            if fs_fn:
-                                tool_res = await asyncio.to_thread(fs_fn, **args)
-                        elif tool_name == "delegate_to_specialist":
-                            from core.skills import ai_delegation
-                            tool_res = await ai_delegation.delegate_to_specialist_async(**args)
-                        elif tool_name == "display_visual_data":
-                            from skills.visual_skills import display_visual_data
-                            tool_res = await asyncio.to_thread(display_visual_data, **args)
-                        elif tool_name == "query_organization_data":
-                            from core.database import erp_db
-                            tool_res = {"status": "success", "data": erp_db.query_organization(args.get("query", ""))}
-                else:
-                    from core.orchestrator import orchestrator
-                    tool_res = await orchestrator.execute_on_client(target_client, tool_name, args)
+                # Thực thi qua cổng chung (RBAC + audit; confirmed=True nên không hỏi
+                # lại). Trước Phase 6: asyncio.to_thread(plugin_manager.execute_skill)
+                # — execute_skill là async nên tác vụ đã duyệt không bao giờ chạy.
+                from core.agent_voice_loop import run_tool_with_policy
+                _gate = await run_tool_with_policy(
+                    tool_name,
+                    {**args, "target_client": target_client},
+                    caller=caller_id,
+                    source_device=source_device,
+                    query=orig_query,
+                )
+                tool_res = _gate["result"]
 
                 tool_res_str = json.dumps(tool_res, ensure_ascii=False, default=str)
                 masked_res = security_engine.mask_sensitive_data(tool_res_str)
@@ -1314,9 +1051,6 @@ class LLMEngine:
                     )
                     if new_skill_name:
                         raw_tools = plugin_manager.get_all_tools()
-                        raw_tools = [t for t in raw_tools if t.get("function", {}).get("name") != "display_visual_data"]
-                        for extra_t in FILE_SYSTEM_TOOLS + DELEGATION_TOOLS + VISUAL_OVERLAY_TOOLS + ERP_ORGANIZATION_TOOLS:
-                            raw_tools.append(extra_t)
                         tools = self._enrich_tools_with_target_client(raw_tools)
                         messages.append(
                             {

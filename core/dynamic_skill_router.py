@@ -147,26 +147,9 @@ class DynamicSkillRouter:
             except Exception as exc:
                 logger.warning("[DynamicSkillRouter] Không thể nạp tools từ PluginManager: %s", exc)
 
-            # 2. Nạp Native Tools từ core/llm_engine
-            try:
-                from core.llm_engine import (
-                    FILE_SYSTEM_TOOLS,
-                    DELEGATION_TOOLS,
-                    VISUAL_OVERLAY_TOOLS,
-                    ERP_ORGANIZATION_TOOLS,
-                )
-                for extra in FILE_SYSTEM_TOOLS + DELEGATION_TOOLS + VISUAL_OVERLAY_TOOLS + ERP_ORGANIZATION_TOOLS:
-                    all_tools.append(extra)
-            except Exception as exc:
-                logger.warning("[DynamicSkillRouter] Không thể nạp Native Tools: %s", exc)
-
-            # 3. Nạp từ PluginRegistry (Phase 60)
-            try:
-                from core.plugin_registry import plugin_registry
-                for reg_schema in plugin_registry.get_all_tools_schema():
-                    all_tools.append(reg_schema)
-            except Exception as exc:
-                logger.warning("[DynamicSkillRouter] Không thể nạp tools từ PluginRegistry: %s", exc)
+            # Danh mục duy nhất là plugin_manager (Phase 6): đã gỡ danh sách tool
+            # viết tay trong llm_engine và việc nạp schema từ plugin_registry
+            # (registry chỉ là chính sách thực thi).
 
             # Khử trùng lặp tên tool (Ưu tiên tool từ registry hoặc native)
             unique_tools: Dict[str, Dict[str, Any]] = {}

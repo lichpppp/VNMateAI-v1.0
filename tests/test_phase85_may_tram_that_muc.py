@@ -247,7 +247,7 @@ def main() -> None:
         and "127.0.0.1:{port}" in server_src,
     )
 
-    for f in ("client_template/agent.py", "client_agent/agent.py"):
+    for f in ("client_agent/agent.py",):  # client_template/ đã gộp vào client_agent/ (Phase 6)
         agent = strip_comments((ROOT / f).read_text(encoding="utf-8"))
         check(
             f"{f} không còn fallback wss://127.0.0.1:443",

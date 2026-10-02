@@ -603,15 +603,3 @@ def get_enterprise_executive_summary(target_scope: str = "all", time_range: str 
     )
 
 
-# Đăng ký với Plugin Registry nếu có
-try:
-    from core.plugin_registry import plugin_registry
-    plugin_registry.register_tool(
-        tool_name="get_enterprise_executive_summary",
-        func=get_enterprise_executive_summary,
-        description="Tổng hợp báo cáo điều hành liên phòng ban tức thì, chuẩn giọng nói và rich markdown.",
-        category="executive",
-    )
-except Exception:
-    pass
-
