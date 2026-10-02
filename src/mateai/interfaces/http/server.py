@@ -839,14 +839,6 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1, description="Mật khẩu")
 
 
-class CreateUserRequest(BaseModel):
-    """Payload for POST /api/v1/users."""
-    username: str = Field(..., min_length=3, description="Tên đăng nhập")
-    password: str = Field(..., min_length=6, description="Mật khẩu (tối thiểu 6 ký tự)")
-    full_name: Optional[str] = Field(default="", description="Họ và tên người dùng")
-    role: Optional[str] = Field(default="viewer", description="Vai trò (admin, manager, viewer)")
-
-
 class TopologyTriggerRequest(BaseModel):
     """Payload for POST /api/v1/system/topology/trigger."""
     source: str = Field(default="core", description="Node phát nguồn (vd: 'core', 'agent_ceo')")
@@ -859,17 +851,6 @@ class TopologySaveRequest(BaseModel):
     nodes: List[Dict[str, Any]] = Field(default_factory=list, description="Danh sách nodes")
     edges: List[Dict[str, Any]] = Field(default_factory=list, description="Danh sách edges")
 
-
-
-class UpdateUserRequest(BaseModel):
-    """Payload for PUT /api/v1/users/{user_id}."""
-    full_name: Optional[str] = Field(default=None, description="Họ và tên người dùng")
-    role: Optional[str] = Field(default=None, description="Vai trò (admin, manager, viewer)")
-
-
-class ChangeUserPasswordRequest(BaseModel):
-    """Payload for PUT /api/v1/users/{user_id}/password."""
-    new_password: str = Field(..., min_length=6, description="Mật khẩu mới (tối thiểu 6 ký tự)")
 
 
 class VoiceCommandRequest(BaseModel):
@@ -1644,131 +1625,8 @@ async def get_me_endpoint(current_user: Dict[str, Any] = Depends(get_current_use
 # Quản trị Người Dùng (Admin User Management CRUD & Password Control)
 # ---------------------------------------------------------------------------
 
-@app.get(
-    "/api/v1/users",
-    summary="Lấy danh sách tất cả tài khoản người dùng (Yêu cầu quyền Admin)",
-    tags=["User Administration"],
-)
-async def list_users_endpoint(
-    admin_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Trả về danh sách tài khoản người dùng an toàn (không kèm password hash)."""
-    users = auth_manager.get_all_users()
-    return {
-        "status": "success",
-        "total": len(users),
-        "users": users,
-    }
-
-
-@app.post(
-    "/api/v1/users",
-    summary="Tạo tài khoản người dùng mới (Yêu cầu quyền Admin)",
-    tags=["User Administration"],
-)
-async def create_user_endpoint(
-    payload: CreateUserRequest,
-    admin_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Tạo người dùng mới với mật khẩu được mã hóa bcrypt an toàn."""
-    try:
-        user_data = payload.dict()
-        new_user = auth_manager.create_user(user_data)
-        return {
-            "status": "success",
-            "message": "Đã tạo tài khoản người dùng thành công.",
-            "user": new_user,
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception as exc:
-        logger.error("Lỗi không mong muốn khi tạo tài khoản: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Không thể tạo tài khoản do lỗi máy chủ.",
-        )
-
-
-@app.put(
-    "/api/v1/users/{user_id}",
-    summary="Cập nhật thông tin/vai trò người dùng (Yêu cầu quyền Admin)",
-    tags=["User Administration"],
-)
-async def update_user_endpoint(
-    user_id: str,
-    payload: UpdateUserRequest,
-    admin_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Cập nhật họ tên hoặc vai trò của tài khoản theo user_id."""
-    try:
-        update_data = payload.dict(exclude_unset=True)
-        updated_user = auth_manager.update_user(user_id, update_data)
-        return {
-            "status": "success",
-            "message": "Đã cập nhật thông tin tài khoản thành công.",
-            "user": updated_user,
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception as exc:
-        logger.error("Lỗi cập nhật tài khoản '%s': %s", user_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Không thể cập nhật tài khoản do lỗi máy chủ.",
-        )
-
-
-@app.delete(
-    "/api/v1/users/{user_id}",
-    summary="Xóa tài khoản người dùng (Yêu cầu quyền Admin)",
-    tags=["User Administration"],
-)
-async def delete_user_endpoint(
-    user_id: str,
-    admin_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Xóa hoàn toàn tài khoản khỏi hệ thống."""
-    try:
-        auth_manager.delete_user(user_id)
-        return {
-            "status": "success",
-            "message": f"Đã xóa tài khoản '{user_id}' thành công.",
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception as exc:
-        logger.error("Lỗi xóa tài khoản '%s': %s", user_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Không thể xóa tài khoản do lỗi máy chủ.",
-        )
-
-
-@app.put(
-    "/api/v1/users/{user_id}/password",
-    summary="Đặt lại mật khẩu cho tài khoản người dùng (Yêu cầu quyền Admin)",
-    tags=["User Administration"],
-)
-async def change_password_endpoint(
-    user_id: str,
-    payload: ChangeUserPasswordRequest,
-    admin_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Mã hóa và ghi đè mật khẩu mới cho người dùng."""
-    try:
-        auth_manager.change_user_password(user_id, payload.new_password)
-        return {
-            "status": "success",
-            "message": f"Đã đặt lại mật khẩu cho tài khoản '{user_id}' thành công.",
-        }
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
-    except Exception as exc:
-        logger.error("Lỗi đặt lại mật khẩu cho '%s': %s", user_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Không thể đặt lại mật khẩu do lỗi máy chủ.",
-        )
+from mateai.interfaces.http.routers import users as _r_users  # noqa: E402
+app.include_router(_r_users.router)
 
 
 @app.get(
