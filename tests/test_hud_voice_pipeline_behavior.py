@@ -68,7 +68,8 @@ def hud(monkeypatch):
 
     monkeypatch.setattr(llm_engine, "stream_voice_response", fake_stream)
     monkeypatch.setattr(llm_engine, "last_voice_display_text", None, raising=False)
-    monkeypatch.setattr(server, "_tts_bytes", fake_tts_bytes)
+    from mateai.interfaces.http import speech
+    monkeypatch.setattr(speech, "tts_bytes", fake_tts_bytes)
     # Thay engine canonical (hàng đợi TTS chung gọi .stream, lời đệm gọi .synthesise).
     from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine
 

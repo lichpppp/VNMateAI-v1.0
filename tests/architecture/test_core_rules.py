@@ -73,6 +73,12 @@ def scan() -> dict:
                     found["RULE-012"][rel] += 1
                 if name in ("sqlite3.connect",):
                     found["RULE-014"][rel] += 1
+                # `CONFIG_PATH.read_text/write_text/open` hay `open(CONFIG_PATH)` cũng là
+                # tự mở config.json — bỏ qua ghi nguyên tử + khoá của loader.
+                if name.endswith(("CONFIG_PATH.read_text", "CONFIG_PATH.write_text", "CONFIG_PATH.open")) or (
+                    name == "open" and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "CONFIG_PATH"
+                ):
+                    found["RULE-013"][rel] += 1
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if "/audio/speech" in node.value and not node.value.strip().startswith(("\n", "Tạo", "9Router")):
                     found["RULE-012"][rel] += 1

@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.infrastructure.database.db_manager as dbm  # noqa: E402
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import enrollment  # noqa: E402
 
 
 @pytest.fixture
@@ -27,7 +28,7 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(dbm, "USERS_JSON_PATH", tmp_path / "none.json")
     s = dbm.DatabaseManager(db_path=tmp_path / "t.db")
     monkeypatch.setattr(dbm, "db_manager", s)
-    monkeypatch.setattr(server, "_get_device_enrollment_secret", lambda: "shared-secret-xyz")
+    monkeypatch.setattr(enrollment, "get_device_enrollment_secret", lambda: "shared-secret-xyz")
     return s
 
 
@@ -70,14 +71,17 @@ def test_only_hash_is_stored(store):
 
 
 async def test_admin_api_issue_list_revoke(store):
+    import mateai.interfaces.http.routers.security as sec
+    from fastapi import HTTPException
+
     admin = {"username": "admin", "role": "admin"}
-    res = await server.issue_device_token_endpoint(server.DeviceTokenRequest(device_id="kitchen_bot"), user=admin)
+    res = await sec.issue_device_token_endpoint(sec.DeviceTokenRequest(device_id="kitchen_bot"), user=admin)
     assert res["ws_path"] == "/api/v1/xiaozhi/ws/kitchen_bot" and len(res["device_token"]) > 30
-    listed = await server.list_device_tokens_endpoint(user=admin)
+    listed = await sec.list_device_tokens_endpoint(user=admin)
     assert [d["device_id"] for d in listed["devices"]] == ["kitchen_bot"]
     assert res["device_token"] not in str(listed), "danh sách không được lộ token"
-    await server.revoke_device_token_endpoint("kitchen_bot", user=admin)
-    with pytest.raises(server.HTTPException):
-        await server.revoke_device_token_endpoint("kitchen_bot", user=admin)
-    with pytest.raises(server.HTTPException):
-        await server.issue_device_token_endpoint(server.DeviceTokenRequest(device_id="../etc"), user=admin)
+    await sec.revoke_device_token_endpoint("kitchen_bot", user=admin)
+    with pytest.raises(HTTPException):
+        await sec.revoke_device_token_endpoint("kitchen_bot", user=admin)
+    with pytest.raises(HTTPException):
+        await sec.issue_device_token_endpoint(sec.DeviceTokenRequest(device_id="../etc"), user=admin)

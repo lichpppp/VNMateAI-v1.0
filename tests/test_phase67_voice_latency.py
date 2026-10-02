@@ -150,26 +150,28 @@ section("TTS không chặn vòng lặp")
 check("TTS chạy ở worker riêng (hàng đợi gối đầu)", "StreamingTTSWorkerPipeline" in vt)
 check("TTS mỗi câu có timeout", "sentence_timeout_s" in tq and "wait_for(_collect()" in tq)
 check("không còn gọi TTS trực tiếp trong hàm HUD",
-      not any(k in fn_src for k in ("text_to_speech", ".synthesise(", "_tts_bytes(")),
+      not any(k in fn_src for k in ("text_to_speech", ".synthesise(", "tts_bytes(")),
       "HUD phải đi qua use case chung")
 check("có log tổng thời gian lượt nói", "Hoàn tất lượt nói sau" in fn_src)
 check("log có số câu đệm đã phát", "câu đệm" in fn_src)
 
 
 # ══ 3. Hàm bọc TTS ════════════════════════════════════════════════════════
-section("_tts_bytes chịu được lỗi")
+section("speech.tts_bytes chịu được lỗi")
 check("đã gỡ _safe_tts (bản base64 không còn ai gọi)",
       not any(isinstance(n, ast.AsyncFunctionDef) and n.name == "_safe_tts" for n in ast.walk(tree)))
 
-# Logic bắt lỗi nằm ở _tts_bytes sau khi tách ra dùng chung.
+# Logic bắt lỗi nằm ở `speech.tts_bytes` (interfaces/http/speech.py) — hàm bọc
+# dùng chung của tầng HTTP.
+sp_src = (srv.parent / "speech.py").read_text(encoding="utf-8")
 tb = None
-for node in ast.walk(tree):
-    if isinstance(node, ast.AsyncFunctionDef) and node.name == "_tts_bytes":
+for node in ast.walk(ast.parse(sp_src)):
+    if isinstance(node, ast.AsyncFunctionDef) and node.name == "tts_bytes":
         tb = node
         break
-check("tồn tại _tts_bytes", tb is not None)
+check("tồn tại speech.tts_bytes", tb is not None)
 if tb:
-    t_src = ast.get_source_segment(src, tb) or ""
+    t_src = ast.get_source_segment(sp_src, tb) or ""
     check("có wait_for (chặn trên)", "wait_for" in t_src)
     check("bắt TimeoutError", "TimeoutError" in t_src)
     check("bắt exception chung", "except Exception" in t_src)

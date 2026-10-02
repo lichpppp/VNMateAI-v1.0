@@ -16,6 +16,7 @@ from fastapi.testclient import TestClient
 
 import mateai.application.agent.tool_gate as tool_gate
 import mateai.interfaces.http.server as server
+from mateai.interfaces.http import speech
 from mateai.application.agent.llm_engine import llm_engine
 from mateai.application.agent.state_manager import state_manager
 from mateai.application.security.auth_manager import auth_manager
@@ -43,7 +44,7 @@ def env(monkeypatch):
     monkeypatch.setattr(llm_engine, "_call_llm", no_llm)
     monkeypatch.setattr(server, "broadcast_hud", noop)
     monkeypatch.setattr(server, "broadcast_portal_ui", noop)
-    monkeypatch.setattr(server, "_tts_bytes", no_tts)
+    monkeypatch.setattr(speech, "tts_bytes", no_tts)
     created = []
     yield calls, created
     for act_id in created:
@@ -119,3 +120,17 @@ def test_replayed_action_id_does_not_fall_back_to_another_pending_action(env):
     r = c.post("/api/v1/security/confirm-action", json={"approved": True, "action_id": act_id})
     assert r.status_code == 404
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("role", ["viewer", "manager"])
+def test_pending_list_is_admin_only(env, role):
+    """Tham số tác vụ đang chờ có thể chứa nội dung nhạy cảm (vd nội dung tệp sắp ghi)."""
+    assert _client(role).get("/api/v1/security/pending-action").status_code == 403
+    assert _client("admin").get("/api/v1/security/pending-action").status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/api/v1/audit-logs", "/api/v1/security/audit-logs"])
+@pytest.mark.parametrize("role", ["viewer", "manager"])
+def test_audit_logs_are_admin_only(env, path, role):
+    """Payload audit chứa tham số tác vụ (vd nội dung tệp ghi qua fs/write)."""
+    assert _client(role).get(path).status_code == 403

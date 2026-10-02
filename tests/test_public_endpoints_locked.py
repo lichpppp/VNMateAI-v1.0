@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient  # noqa: E402
 
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import enrollment  # noqa: E402
 
 LOCKED = [
     ("POST", "/api/v1/computer-use/dispatch"),
@@ -56,7 +57,7 @@ _HEARTBEAT = {"node_id": "test-node-hb", "ip": "10.0.0.9", "capabilities": ["LOC
 
 def test_worker_heartbeat_needs_worker_identity(monkeypatch):
     """Heartbeat giao task cho node — chỉ worker đã đăng ký mới được gửi."""
-    monkeypatch.setattr(server, "_get_worker_enrollment_secret", lambda: "worker-secret-xyz")
+    monkeypatch.setattr(enrollment, "get_worker_enrollment_secret", lambda: "worker-secret-xyz")
     client = TestClient(server.app)
     url = "/api/v1/worknodes/heartbeat"
 

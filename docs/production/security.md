@@ -29,7 +29,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 - Một hàng đợi duy nhất: `mateai.application.security.zero_trust.hitl_manager`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút.
 - Tác vụ chỉ chạy **sau khi** được duyệt (callback), kể cả computer-use mức 4 (`test_phase90_computer_use`). Không tạo được yêu cầu duyệt → không chạy.
-- Duyệt qua: portal/HUD (`POST /api/v1/security/confirm-action`, `/api/v1/enterprise/hitl/approve` — **chỉ admin**), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý"/"huỷ" trong hội thoại: tác vụ của chính người nói, hoặc của người khác nếu người nói có role admin.
+- Duyệt qua: portal/HUD (`POST /api/v1/security/confirm-action`, `/api/v1/enterprise/hitl/approve`, lệnh `confirm_action` trên `/ws/hud` — **chỉ admin**), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý"/"huỷ" trong hội thoại: tác vụ của chính người nói, hoặc của người khác nếu người nói có role admin.
 - Duyệt chỉ chạy **đúng** tác vụ trong hàng đợi (tên tool, tham số, máy đích lấy từ hàng đợi; body không thay được), qua cổng tool chung với `approved=True`. Cờ `confirmed` trong tham số tool/body bị bỏ qua — LLM và client tự đặt được nó (`test_confirm_action_endpoint`, `test_tool_policy_gate`).
 - "Đồng ý"/"huỷ" nhận theo ranh giới từ, ý phủ định thắng, chỉ câu ngắn ("hủy" từng bị hiểu là đồng ý — `test_approval_reply_classifier`).
 - `/api/v1/fs/*` chỉ admin; tool `read_file` từ chối tệp chứa bí mật (`config.json`, `.env*`, khoá, chứng chỉ, CSDL) cho mọi kênh (`test_fs_routes_policy`).
@@ -37,7 +37,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 ## 4. Audit
 
 - Một kho: bảng `audit_logs` (chỉ INSERT; không có API sửa/xoá — `DELETE /api/v1/security/audit-logs` trả 405). Ghi cả quyết định RBAC lẫn sự kiện Zero-Trust/HITL (`test_audit_single_store`).
-- Xem: portal → Bảo mật, hoặc `GET /api/v1/security/audit-logs` (admin).
+- Xem: portal → Bảo mật, hoặc `GET /api/v1/security/audit-logs` / `GET /api/v1/audit-logs` — **chỉ admin** (payload chứa tham số tác vụ, vd nội dung tệp ghi qua `fs/write`). Danh sách tác vụ chờ duyệt (`GET /api/v1/security/pending-action`) cũng chỉ admin.
 
 ## 5. Bí mật
 
@@ -63,4 +63,4 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
 | Hai hàng đợi chờ duyệt: `StateManager` (hội thoại, portal, `fs/*`) và `hitl_manager` (`/skills/execute`, Plugin Registry, Telegram) | Trung bình | Cả hai đều chỉ admin duyệt; gộp làm một ở phase Security tiếp theo |
 | `POST /api/v1/clients/{id}/execute` (admin) tự xác nhận bằng `args.confirmed`, gọi thẳng máy trạm không qua cổng tool | Thấp–TB | Chỉ admin; chuyển qua cổng tool khi tách router `clients` |
-| `GET /api/v1/security/pending-action` cho mọi người đã đăng nhập xem tham số tác vụ đang chờ (có thể chứa nội dung tệp sắp ghi) | Thấp–TB | Cân nhắc giới hạn admin khi tách router `security` |
+| Hai endpoint đọc cùng bảng audit (`/api/v1/audit-logs` và `/api/v1/security/audit-logs`), UI gọi cả hai | Thấp | Cả hai chỉ admin (§4); gộp làm một ở phase Security |

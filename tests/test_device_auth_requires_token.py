@@ -18,6 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import enrollment  # noqa: E402
 
 
 def _ws(ip, token=None, header=None):
@@ -32,7 +33,7 @@ def test_lan_device_without_token_is_rejected(ip):
 
 
 def test_device_secret_accepted_via_query_or_bearer(monkeypatch):
-    monkeypatch.setattr(server, "_get_device_enrollment_secret", lambda: "dev-secret-123")
+    monkeypatch.setattr(enrollment, "get_device_enrollment_secret", lambda: "dev-secret-123")
     assert server._authenticate_device(_ws("192.168.1.50", token="dev-secret-123")) is True
     assert server._authenticate_device(_ws("8.8.8.8", header="Bearer dev-secret-123")) is True
     assert server._authenticate_device(_ws("192.168.1.50", token="wrong")) is False

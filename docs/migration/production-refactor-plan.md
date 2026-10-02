@@ -829,3 +829,22 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RISKS / CÒN LẠI (ghi trong `docs/production/security.md` §6):** hai hàng đợi chờ duyệt (`StateManager` cho hội thoại/portal và `hitl_manager` cho `/skills/execute`, Plugin Registry, Telegram) — gộp ở phase Security sau; `/clients/{id}/execute` (admin) vẫn tự xác nhận bằng `args.confirmed` và gọi thẳng máy trạm; `GET /security/pending-action` cho mọi người đã đăng nhập xem tham số tác vụ đang chờ; khởi động lại có lúc khôi phục 2 bản cùng một tác vụ từ audit (quan sát 1 lần, chưa tái hiện).
 
 **NEXT STEP:** tách tiếp nhóm router còn lại (enterprise, security, xiaozhi, telegram, skills, clients, voice, system, config, computer-use, …).
+
+## 45. Router `enterprise` + `security`; module dùng chung `enrollment`, `speech` (2026-10-02)
+
+**STATUS:** XONG (tách router vẫn tiếp tục)
+
+**FILES CHANGED:** `interfaces/http/routers/enterprise.py` (34 route + helper riêng: `_CONNECTOR_DISPLAY`, `_CONNECTOR_SECRET_FIELDS`, `_build_connector_config_schema`, `_safe_int`, import `file_export`), `routers/security.py` (11 route + model), `interfaces/http/enrollment.py` (secret ghi danh worker/thiết bị — hai hàm gần giống nhau gộp thành `_load_or_create_secret`), `interfaces/http/speech.py` (`tts_bytes`, trước là `server._tts_bytes`). Nơi gọi dùng `module.ham()` nên test thay một chỗ là có hiệu lực mọi nơi; test trỏ tới module mới (không để lại bí danh trong server). `server.py`: 8.078 → ~6.200 dòng; 187 route không đổi, thứ tự route trùng mẫu giữ nguyên.
+
+**Sửa trong lúc tách:**
+- `POST /api/v1/security/blacklist` và `PUT /api/v1/report-templates` đọc/ghi `config.json` thẳng bằng `CONFIG_PATH.read_text/write_text` (qua bí danh `_json`, nên RULE-013 không thấy) → `read_raw_config(strict=True)` + `write_raw_config` (nguyên tử, có khoá). RULE-013 nay bắt cả `CONFIG_PATH.read_text/write_text/open` và `open(CONFIG_PATH)` (đã thử trên tệp mẫu: bắt đủ 3/3). Audit blacklist ghi đúng người thao tác thay vì chuỗi cứng `"admin"`.
+- `/ws/hud` lệnh `confirm_action` vẫn cho **manager** duyệt (gọi thẳng hàm endpoint nên `require_roles(["admin"])` không chạy) → chỉ admin.
+- `GET /api/v1/security/pending-action` và `GET /api/v1/audit-logs` mở cho mọi người đã đăng nhập (tham số tác vụ / payload audit có thể chứa nội dung tệp sắp ghi) → chỉ admin, cùng quy tắc với `/api/v1/security/audit-logs`. UI đã bỏ qua phản hồi lỗi nên người không phải admin chỉ không thấy banner/cột cảnh báo.
+
+**TESTS:** 345 pass. Test mới: HUD manager không duyệt được / admin duyệt tới được endpoint; danh sách chờ duyệt và hai endpoint audit chỉ admin.
+
+**RUNTIME:** ảnh chụp GET theo 4 vai (anon/viewer/manager/admin) trước–sau: `enterprise` 14/14 route giống hệt; `security` chỉ khác đúng các route cố ý siết. Token ghi danh thiết bị trả về khớp `certs/device_secret.key`; Xiaozhi WS không token → bị từ chối, có token → nhận. Blacklist thêm/xoá: `config.json` vẫn hợp lệ, cùng tập khoá, audit ghi `admin`. `speech.tts_bytes` gọi engine thật: 13.248 byte MP3, 1,5 s.
+
+**RISKS:** hai endpoint audit trùng (ghi ở security.md §6). `WS_APPROVER_ROLES` (admin, manager) thực ra là quyền JWT dự phòng cho kết nối thiết bị/worker, không phải quyền duyệt — tên gây hiểu nhầm, giữ nguyên hành vi.
+
+**NEXT STEP:** tách tiếp xiaozhi, telegram, skills, clients (chuyển `/clients/{id}/execute` qua cổng tool), voice, system, config, computer-use.
