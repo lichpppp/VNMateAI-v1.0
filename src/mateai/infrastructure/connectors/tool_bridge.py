@@ -36,7 +36,7 @@ import inspect
 import logging
 from typing import Any, Dict, List
 
-from core.connectors import CONNECTOR_RISK_LEVELS
+from mateai.infrastructure.connectors import CONNECTOR_RISK_LEVELS
 
 logger = logging.getLogger(__name__)
 

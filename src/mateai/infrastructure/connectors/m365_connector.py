@@ -18,7 +18,7 @@ import httpx
 
 from core.config_loader import settings
 
-logger = logging.getLogger("core.connectors.m365")
+logger = logging.getLogger("mateai.infrastructure.connectors.m365")
 
 
 class Microsoft365Connector:

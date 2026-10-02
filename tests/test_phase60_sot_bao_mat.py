@@ -591,7 +591,7 @@ def test_telegram_markdown_is_escaped() -> None:
 
 def test_connector_config_status_is_honest() -> None:
     section("── Connector: không được báo 'đã cấu hình' khi chưa có thông tin đăng nhập ──")
-    from core.connectors.base_connector import (
+    from mateai.infrastructure.connectors.base_connector import (
         CONNECTOR_DEFAULTS,
         CONNECTOR_REQUIRED_FIELDS,
         missing_required_fields,
@@ -784,7 +784,7 @@ def test_worker_manager() -> None:
 
 def test_connector_tools_registered() -> None:
     section("── Cầu nối connector -> Plugin Registry ──")
-    from core.connectors.tool_bridge import register_connector_tools
+    from mateai.infrastructure.connectors.tool_bridge import register_connector_tools
     from mateai.application.skills.plugin_registry import plugin_registry
 
     stats = register_connector_tools()
@@ -797,11 +797,11 @@ def test_connector_tools_registered() -> None:
         check(f"có tool '{expected}'", expected in names)
 
     # risk_level phải kế thừa từ CONNECTOR_RISK_LEVELS, không phải mặc định 1.
-    from core.connectors import CONNECTOR_RISK_LEVELS
+    from mateai.infrastructure.connectors import CONNECTOR_RISK_LEVELS
     risky = [k for k, v in CONNECTOR_RISK_LEVELS.items() if int(v) >= 2]
     if risky:
         key = risky[0]
-        from core.connectors.tool_bridge import _CONNECTOR_ACTIONS
+        from mateai.infrastructure.connectors.tool_bridge import _CONNECTOR_ACTIONS
         tool_name = _CONNECTOR_ACTIONS.get(key)
         tool = plugin_registry.get_tool(tool_name) if tool_name else None
         if tool:

@@ -48,7 +48,11 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 #: Thư mục config/ (không commit — chứa credential khách hàng).
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# Thư mục gốc dự án — không suy từ vị trí file mã nguồn (chuyển module mà lệch
+# đường dẫn là mọi nguồn dữ liệu đã cấu hình biến mất).
+from core.config_loader import settings as _settings  # noqa: E402
+
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 STORE_PATH = _PROJECT_ROOT / "config" / "data_sources.json"
 
 #: Khoá bí mật của một data source. Giá trị KHÔNG BAO GIỜ đọc lên UI.

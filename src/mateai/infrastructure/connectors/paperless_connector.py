@@ -24,7 +24,7 @@ import logging
 import os
 from typing import Any, Dict, List, Optional
 
-from core.connectors.base_connector import (
+from mateai.infrastructure.connectors.base_connector import (
     BaseConnector,
     ConnectorConfig,
     ConnectorResult,

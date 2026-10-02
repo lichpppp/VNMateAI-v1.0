@@ -1293,7 +1293,7 @@ async def _on_startup() -> None:
 
     # Phase 59: Pre-warm Enterprise Connectors (AWS, OCI, Paperless, eInvoice)
     try:
-        from core.connectors import (
+        from mateai.infrastructure.connectors import (
             aws_connector,
             oci_connector,
             paperless_connector,
@@ -1317,7 +1317,7 @@ async def _on_startup() -> None:
     # với LLM cho tới lượt sau — một kiểu lỗi "chạy thử thì thấy, chạy thật
     # thì không" rất khó chẩn đoán.
     try:
-        from core.connectors.tool_bridge import register_connector_tools
+        from mateai.infrastructure.connectors.tool_bridge import register_connector_tools
         reg_stats = register_connector_tools()
         logger.info(
             "Phase 60: Plugin Registry — %d connector tool(s) registered, %d skipped.",
@@ -1900,7 +1900,7 @@ async def get_system_topology() -> Dict[str, Any]:
             logger.warning("Không thể đọc custom_topology.json: %s, dùng cấu hình mặc định", e)
 
     from mateai.interfaces.websocket.client_orchestrator import orchestrator
-    from core.connectors import CONNECTOR_REGISTRY
+    from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
 
     try:
         from core.agents.agent_orchestrator import multi_agent_system
@@ -3611,12 +3611,9 @@ async def save_config(
         touched = [k for k in ("aws", "oci", "paperless", "einvoice") if k in payload]
         if touched:
             try:
-                from core.connectors import (
-                    CONNECTOR_REGISTRY,
-                    invalidate_config_cache,
-                )
+                from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
 
-                invalidate_config_cache()
+                # reload_config() đọc config.json MỚI qua config_loader (không còn cache).
                 for name in touched:
                     connector = CONNECTOR_REGISTRY.get(name)
                     if connector is not None:
@@ -7834,8 +7831,8 @@ async def api_connectors_health(
     `check_connector_health` (đi qua cổng HITL).
     """
     try:
-        from core.connectors import CONNECTOR_REGISTRY, CONNECTOR_RISK_LEVELS
-        from core.connectors.base_connector import missing_required_fields
+        from mateai.infrastructure.connectors import CONNECTOR_REGISTRY, CONNECTOR_RISK_LEVELS
+        from mateai.infrastructure.connectors.base_connector import missing_required_fields
 
         items: Dict[str, Any] = {}
         for name in ("aws", "oci", "paperless", "einvoice"):
@@ -7929,7 +7926,7 @@ def _build_connector_config_schema(name: str) -> Dict[str, Any]:
     cũng vậy. Nếu form đã lưu khoá rồi, người dùng thấy dấu "đã đặt" chứ không
     thấy khoá bí mật của họ.
     """
-    from core.connectors.base_connector import (
+    from mateai.infrastructure.connectors.base_connector import (
         CONNECTOR_DEFAULTS,
         CONNECTOR_REQUIRED_FIELDS,
         missing_required_fields,
@@ -7994,8 +7991,8 @@ async def api_connectors_catalog(
     không có.
     """
     try:
-        from core.connectors import CONNECTOR_REGISTRY
-        from core.connectors.base_connector import missing_required_fields
+        from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
+        from mateai.infrastructure.connectors.base_connector import missing_required_fields
 
         items: Dict[str, Any] = {}
         for name, connector in CONNECTOR_REGISTRY.items():
@@ -8004,7 +8001,7 @@ async def api_connectors_catalog(
             actions: List[str] = []
             max_risk: Optional[int] = None
             try:
-                from core.connectors import CONNECTOR_RISK_LEVELS
+                from mateai.infrastructure.connectors import CONNECTOR_RISK_LEVELS
 
                 actions = sorted(
                     k.split(":", 1)[1]
@@ -8061,8 +8058,8 @@ async def api_data_sources_list(
     Phase 59 để UI chỉ cần một lệnh gọi cho toàn bộ danh sách nguồn dữ liệu.
     """
     try:
-        from core.connectors import custom_registry
-        from core.connectors.base_connector import missing_required_fields
+        from mateai.infrastructure.connectors import custom_registry
+        from mateai.infrastructure.connectors.base_connector import missing_required_fields
 
         custom = custom_registry.list_sources(include_secrets=False)
 
@@ -8107,7 +8104,7 @@ async def api_data_sources_upsert(
     vận hành cần biết sửa ô nào chứ không phải một lỗi chung chung.
     """
     try:
-        from core.connectors import custom_registry
+        from mateai.infrastructure.connectors import custom_registry
 
         source_id = str(payload.get("id") or "").strip().lower()
         record = custom_registry.upsert_source(source_id, payload)
@@ -8130,7 +8127,7 @@ async def api_data_sources_delete(
 ) -> Dict[str, Any]:
     """Xoá một data source. Chỉ admin — xoá là mất cấu hình, không hoàn lại được."""
     try:
-        from core.connectors import custom_registry
+        from mateai.infrastructure.connectors import custom_registry
 
         if not custom_registry.delete_source(source_id):
             return {"status": "error", "error": f"Không tìm thấy nguồn '{source_id}'"}
@@ -8157,7 +8154,7 @@ async def api_data_sources_probe(
     `limit=1` nên không kéo nặng app của khách.
     """
     try:
-        from core.connectors import probe_data_source
+        from mateai.infrastructure.connectors import probe_data_source
 
         result = await probe_data_source(source_id)
         return {
@@ -8190,7 +8187,7 @@ async def api_data_sources_fetch(
     `default_path` của khai báo.
     """
     try:
-        from core.connectors import fetch_data_source
+        from mateai.infrastructure.connectors import fetch_data_source
 
         result = await fetch_data_source(source_id, payload or {})
         if not result.success:
@@ -8239,7 +8236,7 @@ async def api_data_sources_export(
         return {"status": "error", "error": "format chỉ nhận 'xlsx' hoặc 'csv'"}
 
     try:
-        from core.connectors import fetch_data_source
+        from mateai.infrastructure.connectors import fetch_data_source
 
         # Số dòng xuất mặc định cao hơn xem trước: xuất là để đưa đi xử lý,
         # nên lấy nhiều hơn con số 8 dòng hiện trên màn hình.

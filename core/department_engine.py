@@ -153,7 +153,7 @@ class DepartmentEngine:
         # A. Kế Toán / Tài Chính (FIN) hoặc có nguồn eInvoice
         if code in ("FIN", "ACC", "FINANCE") or any("INVOICE" in s.get("source_name", "").upper() for s in sources):
             try:
-                from core.connectors.einvoice_connector import EInvoiceConnector
+                from mateai.infrastructure.connectors.einvoice_connector import EInvoiceConnector
                 conn = EInvoiceConnector()
                 inv_res = await conn.get_daily_invoices()
                 if inv_res and inv_res.data:
@@ -186,8 +186,8 @@ class DepartmentEngine:
         if code in ("IT", "OPS", "TECH", "INFRA"):
             infra_metrics: Dict[str, Any] = {}
             try:
-                from core.connectors.aws_connector import AWSConnector
-                from core.connectors.oci_connector import OCIConnector
+                from mateai.infrastructure.connectors.aws_connector import AWSConnector
+                from mateai.infrastructure.connectors.oci_connector import OCIConnector
                 aws_conn = AWSConnector()
                 oci_conn = OCIConnector()
                 aws_cost = await aws_conn.get_cost_summary(30)
@@ -211,7 +211,7 @@ class DepartmentEngine:
         # D. Tài liệu / Pháp chế / Văn bản (LEGAL, DOCS, ADMIN)
         if code in ("LEGAL", "DOCS", "ADMIN") or any("PAPERLESS" in s.get("source_name", "").upper() for s in sources):
             try:
-                from core.connectors.paperless_connector import PaperlessConnector
+                from mateai.infrastructure.connectors.paperless_connector import PaperlessConnector
                 paperless = PaperlessConnector()
                 doc_stats = await paperless.get_statistics()
                 aggregated["metrics"]["documents"] = doc_stats.data if doc_stats else {"status": "connected"}

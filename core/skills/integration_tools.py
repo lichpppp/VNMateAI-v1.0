@@ -27,14 +27,14 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from core.config_loader import settings
-from core.connectors import (
+from mateai.infrastructure.connectors import (
     aws_connector,
     oci_connector,
     paperless_connector,
     einvoice_connector,
     CONNECTOR_RISK_LEVELS,
 )
-from core.connectors.base_connector import ConnectorResult
+from mateai.infrastructure.connectors.base_connector import ConnectorResult
 from core.plugin_manager import export_skill
 from mateai.application.security.zero_trust import hitl_manager, execute_with_hitl
 

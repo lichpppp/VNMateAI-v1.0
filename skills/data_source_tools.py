@@ -128,7 +128,7 @@ async def list_data_sources(category: Optional[str] = None) -> Dict[str, Any]:
     thu ở đâu không?".
     """
     try:
-        from core.connectors import custom_registry
+        from mateai.infrastructure.connectors import custom_registry
 
         wanted = (category or "").strip().lower() or None
         sources = custom_registry.list_sources(include_secrets=False)
@@ -208,7 +208,7 @@ async def fetch_data_source(
 
     Dùng khi user hỏi: "doanh thu tháng 3 bao nhiêu?", "tồn kho hiện tại ra sao?".
     """
-    from core.connectors import custom_registry
+    from mateai.infrastructure.connectors import custom_registry
 
     source = custom_registry.get_source(source_id, include_secrets=False)
     if not source:
@@ -224,7 +224,7 @@ async def fetch_data_source(
         params["path"] = report
 
     async def _executor() -> Dict[str, Any]:
-        from core.connectors import fetch_data_source as _fetch
+        from mateai.infrastructure.connectors import fetch_data_source as _fetch
         result = await _fetch(source_id, params)
         if not result.success:
             return {"success": False, "error": result.error}
@@ -313,7 +313,7 @@ async def prepare_data_source_export(
     Thay bằng `job_id` — mã ngẫu nhiên, không phải bí mật, vô dụng nếu không có
     phiên đăng nhập. Giao diện thấy job trong hàng đợi là tự tải về máy.
     """
-    from core.connectors import custom_registry
+    from mateai.infrastructure.connectors import custom_registry
 
     source = custom_registry.get_source(source_id, include_secrets=False)
     if not source:
@@ -332,7 +332,7 @@ async def prepare_data_source_export(
     title = source.get("title") or source_id
 
     async def _executor() -> Dict[str, Any]:
-        from core.connectors.generic_connector import GenericConnector
+        from mateai.infrastructure.connectors.generic_connector import GenericConnector
         from core.file_export import (
             _content_disposition,
             _rows_to_csv,

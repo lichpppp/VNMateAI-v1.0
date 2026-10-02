@@ -40,7 +40,7 @@ def section(title: str) -> None:
 
 
 # ── Chuẩn bị: trỏ sổ đăng ký vào file tạm ───────────────────────────────
-from core.connectors import custom_registry  # noqa: E402
+from mateai.infrastructure.connectors import custom_registry  # noqa: E402
 
 _TMP = tempfile.mkdtemp(prefix="vnmate-ds-")
 custom_registry.STORE_PATH = Path(_TMP) / "data_sources.json"
@@ -147,7 +147,7 @@ t2 = custom_registry.get_source("misa-amh", True)["timeout_seconds"]
 check("timeout sàn = 1s", t2 == 1.0, str(t2))
 
 section("Dựng URL / header")
-from core.connectors.generic_connector import GenericConnector  # noqa: E402
+from mateai.infrastructure.connectors.generic_connector import GenericConnector  # noqa: E402
 
 src = custom_registry.get_source("misa-amh", True)
 c = GenericConnector(src)
@@ -177,7 +177,7 @@ c_none = GenericConnector({**BASE, "auth_type": "none", "auth_value": ""})
 check("auth none -> không header Authorization", "Authorization" not in c_none._headers, str(c_none._headers))
 
 section("Tìm danh sách bản ghi trong payload lồng")
-from core.connectors.generic_connector import _find_rows, _find_total, _extract_error  # noqa: E402
+from mateai.infrastructure.connectors.generic_connector import _find_rows, _find_total, _extract_error  # noqa: E402
 
 payloads = [
     ([{"a": 1}], "danh sách trực tiếp"),
@@ -200,7 +200,7 @@ check("rút lỗi app", _extract_error({"error": "Token hết hạn"}) == "Token
 check("rút lỗi lồng", "hạn" in _extract_error({"data": {"error_message": "Token hết hạn"}}))
 
 section("Cắt bảng lớn")
-from core.connectors.generic_connector import _columns_of, _coerce_limit  # noqa: E402
+from mateai.infrastructure.connectors.generic_connector import _columns_of, _coerce_limit  # noqa: E402
 
 rows = [{"a": 1} for _ in range(1000)]
 check("row_limit mặc định 50", _coerce_limit(None, 50) == 50)
@@ -221,7 +221,7 @@ hc = asyncio.run(no_auth.health_check())
 check("health nói rõ thiếu gì", "khoá" in (hc.error or ""), str(hc.error))
 
 section("Tìm nguồn không tồn tại")
-from core.connectors import probe_data_source, fetch_data_source  # noqa: E402
+from mateai.infrastructure.connectors import probe_data_source, fetch_data_source  # noqa: E402
 
 check("probe nguồn thiếu -> False", asyncio.run(probe_data_source("khong-ton-tai")).success is False)
 check("fetch nguồn thiếu -> False", asyncio.run(fetch_data_source("khong-ton-tai")).success is False)

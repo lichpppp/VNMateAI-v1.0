@@ -25,7 +25,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-from core.connectors.base_connector import (
+from mateai.infrastructure.connectors.base_connector import (
     BaseConnector,
     ConnectorConfig,
     ConnectorResult,
@@ -309,6 +309,6 @@ class AWSConnector(BaseConnector):
 
 # ---------------------------------------------------------------------------
 # Module-level singleton — import từ bất kỳ đâu:
-#   from core.connectors.aws_connector import aws_connector
+#   from mateai.infrastructure.connectors.aws_connector import aws_connector
 # ---------------------------------------------------------------------------
 aws_connector = AWSConnector()

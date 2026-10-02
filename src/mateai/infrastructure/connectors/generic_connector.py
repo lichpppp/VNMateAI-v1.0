@@ -38,7 +38,7 @@ import logging
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.connectors.base_connector import BaseConnector, ConnectorConfig, ConnectorResult
+from mateai.infrastructure.connectors.base_connector import BaseConnector, ConnectorConfig, ConnectorResult
 
 logger = logging.getLogger(__name__)
 
@@ -458,7 +458,7 @@ async def probe_data_source(source_id: str) -> ConnectorResult:
     Trả `success=False` kèm lý do nếu id không tồn tại hoặc cấu hình hỏng —
     thông điệp này hiện thẳng lên UI nên phải cụ thể.
     """
-    from core.connectors import custom_registry
+    from mateai.infrastructure.connectors import custom_registry
 
     source = custom_registry.get_source(source_id, include_secrets=True)
     if not source:
@@ -479,7 +479,7 @@ async def probe_data_source(source_id: str) -> ConnectorResult:
 
 async def fetch_data_source(source_id: str, params: Optional[Dict[str, Any]] = None) -> ConnectorResult:
     """Kéo dữ liệu báo cáo từ một data source tùy chỉnh theo id."""
-    from core.connectors import custom_registry
+    from mateai.infrastructure.connectors import custom_registry
 
     source = custom_registry.get_source(source_id, include_secrets=True)
     if not source:

@@ -68,8 +68,8 @@ JS = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 HTML = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
 JS_CODE = re.sub(r"//.*$", "", JS, flags=re.M)
 
-from core.connectors import CONNECTOR_REGISTRY  # noqa: E402
-from core.connectors.base_connector import (  # noqa: E402
+from mateai.infrastructure.connectors import CONNECTOR_REGISTRY  # noqa: E402
+from mateai.infrastructure.connectors.base_connector import (  # noqa: E402
     CONNECTOR_DEFAULTS,
     CONNECTOR_REQUIRED_FIELDS,
 )

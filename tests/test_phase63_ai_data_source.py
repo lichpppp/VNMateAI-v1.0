@@ -39,7 +39,7 @@ def section(title: str) -> None:
 
 
 # ── Sổ đăng ký trỏ vào file tạm ──────────────────────────────────────────
-from core.connectors import custom_registry  # noqa: E402
+from mateai.infrastructure.connectors import custom_registry  # noqa: E402
 
 _TMP = tempfile.mkdtemp(prefix="vnmate-ai-ds-")
 custom_registry.STORE_PATH = Path(_TMP) / "data_sources.json"

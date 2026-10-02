@@ -684,3 +684,15 @@ Xoá package rỗng `core/security/` (còn lại sau khi gộp HITL). 32 file đ
 **Test:** 265 pass. **Runtime:** wake word nạp 46 cụm (đúng file mẫu); client agent tải gói → chạy → có trong `/api/v1/clients`; thiết bị Xiaozhi (token riêng) nhận gói `ui`; voice portal fast path 255 ms, LLM chữ đầu 2,9 s.
 
 **Bổ sung §34:** script đổi import đã sửa nhầm `client_agent/skills/visual_skills.py` (gói chạy trên MÁY TRẠM, nơi không có `mateai`) → đã hoàn nguyên; các script sau loại trừ `client_agent/`. **Lỗi có sẵn phát hiện kèm:** file này import `core.orchestrator` — module của máy chủ, không tồn tại trong `client_agent/core/` → skill `visual_skills` không nạp được trên máy trạm (trước và sau refactor như nhau). Thuộc mục D4 (bản sao skill máy chủ trong gói client) — chưa sửa.
+
+## 35. Phase 4 — Connectors vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+Cả package `core/connectors/` (base, aws, oci, paperless, einvoice, m365, generic, custom_registry, tool_bridge) → `mateai/infrastructure/connectors/` (git mv; 18 file đổi import; `client_agent/` không bị đụng).
+**Sửa trước khi chuyển:**
+- `base_connector._read_config_json_block` tự mở `config.json` (qua `CONFIG_PATH` — RULE-013 không đếm được vì không có chuỗi `"config.json"`) + cache riêng phải xoá sau khi lưu. Nay đọc qua `config_loader.get_config_section` (đọc mới mỗi lần); bỏ `invalidate_config_cache` và chỗ gọi trong `server.py`.
+- `custom_registry.STORE_PATH` (`config/data_sources.json` — chứa thông tin đăng nhập nguồn dữ liệu của khách) tính bằng `Path(__file__).parents[2]` → đổi sang `settings.PROJECT_ROOT`.
+- Test `test_connector_config_paths.py` (đọc mới qua config_loader; kho nguồn dữ liệu ở thư mục gốc).
+**Đã xoá (bản song song):** `infrastructure/connectors/{base_connector,circuit_breaker,erp_connector,telegram_connector,__init__}.py` (bản cũ), `tests/unit/test_connectors.py`.
+**Test:** 264 pass. **Runtime:** "Enterprise Connectors loaded", 11/11 connector tool đăng ký vào registry; `/enterprise/connectors/health`, `/catalog`, `/data-sources` 200 (4 connector dựng sẵn).
