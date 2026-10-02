@@ -122,9 +122,17 @@ async def tool_execute_gui_task(
     if risk_level >= 4:
         logger.info("[ComputerUsePlugin] Task %s requires HITL approval (risk_level=4)", task.task_id)
 
+        # Task chỉ vào hàng đợi worker KHI ĐÃ ĐƯỢC DUYỆT: worker không tự kiểm tra
+        # trạng thái duyệt, nên đẩy vào hàng đợi trước (như trước đây) nghĩa là
+        # thao tác tài chính chạy luôn, phê duyệt chỉ còn là hình thức.
+        async def _enqueue_after_approval() -> Dict[str, Any]:
+            await _enqueue_task_to_worker(task)
+            return {"task_id": task.task_id, "enqueued": True}
+
         try:
-            # Gửi yêu cầu duyệt qua HITL Manager
-            approval_res = await hitl_manager.request_approval(
+            # request_approval là hàm ĐỒNG BỘ (gửi Telegram ở thread nền). Trước
+            # đây bị `await` → TypeError bị nuốt → rơi xuống nhánh chạy thẳng.
+            approval_res = hitl_manager.request_approval(
                 action_name="tool_execute_gui_task",
                 params={
                     "task_goal": task_goal,
@@ -134,26 +142,36 @@ async def tool_execute_gui_task(
                 },
                 requested_by="VoiceUser",
                 description=f"Thao tác GUI nhạy cảm: '{task_goal}' trên hệ thống {system_target}",
+                action_callback=_enqueue_after_approval,
                 risk_level=risk_level,
             )
-
-            task.approval_id = approval_res.get("approval_id")
-
-            # Đẩy task vào hàng đợi với trạng thái chờ duyệt
-            await _enqueue_task_to_worker(task)
-
-            return {
-                "success": True,
-                "status": "awaiting_approval",
-                "task_id": task.task_id,
-                "approval_id": task.approval_id,
-                "risk_level": risk_level,
-                "voice_reply": "Em đã giao lệnh tự động hóa giao diện cho worker xử lý trong phiên làm việc an toàn.",
-                "message": "Em đã giao lệnh tự động hóa giao diện cho worker xử lý trong phiên làm việc an toàn.",
-                "detail": f"Tác vụ có rủi ro cấp {risk_level} (chứa thao tác tài chính/phê duyệt) và đã được gửi qua Telegram HITL để cấp quản lý phê chuẩn trước khi click.",
-            }
-        except Exception as hitl_err:
+        except Exception as hitl_err:  # pylint: disable=broad-except
+            # Fail-closed: không tạo được yêu cầu duyệt thì KHÔNG chạy thao tác rủi ro.
             logger.error("[ComputerUsePlugin] Failed to dispatch HITL request: %s", hitl_err)
+            return {
+                "success": False,
+                "status": "error",
+                "task_id": task.task_id,
+                "risk_level": risk_level,
+                "error": f"Không tạo được yêu cầu phê duyệt: {hitl_err}",
+                "voice_reply": "Em không gửi được yêu cầu phê duyệt nên chưa thực hiện thao tác này ạ.",
+                "message": "Em không gửi được yêu cầu phê duyệt nên chưa thực hiện thao tác này ạ.",
+            }
+
+        task.approval_id = approval_res.get("id")
+        reply = ("Thao tác này cần cấp quản lý phê duyệt. Em đã gửi yêu cầu, "
+                 "khi được duyệt em sẽ thực hiện ngay ạ.")
+        return {
+            "success": True,
+            "status": "awaiting_approval",
+            "task_id": task.task_id,
+            "approval_id": task.approval_id,
+            "risk_level": risk_level,
+            "voice_reply": reply,
+            "message": reply,
+            "detail": f"Tác vụ có rủi ro cấp {risk_level} (chứa thao tác tài chính/phê duyệt): "
+                      f"chưa chạy, chờ phê duyệt {task.approval_id}.",
+        }
 
     # Tác vụ thông thường hoặc đã qua kiểm duyệt: đưa trực tiếp vào worker queue
     await _enqueue_task_to_worker(task)

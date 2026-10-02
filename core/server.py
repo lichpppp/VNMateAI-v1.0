@@ -6567,7 +6567,10 @@ async def test_telegram_alert(
         incident_group_id = payload.incident_group_id if payload else None
         target_chat_id = payload.target_chat_id if payload else None
 
-        result = telegram_gateway.test_connection(
+        from core.plugin_manager import run_blocking
+        # Gọi Telegram API đồng bộ (timeout tới 20 s) — chạy ngoài event loop.
+        result = await run_blocking(
+            telegram_gateway.test_connection,
             bot_token=bot_token,
             admin_chat_ids=admin_chat_ids,
             incident_group_id=incident_group_id,
@@ -6601,7 +6604,8 @@ async def detect_telegram_chat(
     try:
         from core.telegram_gateway import telegram_gateway
         bot_token = payload.bot_token if payload else None
-        chats = telegram_gateway.get_recent_chats(bot_token=bot_token)
+        from core.plugin_manager import run_blocking
+        chats = await run_blocking(telegram_gateway.get_recent_chats, bot_token=bot_token)
         return {
             "status": "success",
             "count": len(chats),

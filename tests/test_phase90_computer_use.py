@@ -211,10 +211,23 @@ class TestPhase90ComputerUse(unittest.TestCase):
         asyncio.run(_run())
 
     def test_tool_execute_gui_task_high_risk_hitl(self):
-        """Kiểm tra task tài chính kích hoạt risk_level=4 và Telegram HITL."""
+        """Task tài chính (risk 4): CHƯA vào hàng đợi; chỉ vào khi callback duyệt chạy.
+
+        request_approval là hàm đồng bộ — patch bằng MagicMock (không phải
+        AsyncMock, vì AsyncMock từng che lỗi `await` một dict → bỏ qua HITL).
+        """
+        import core.plugins.computer_use_plugin as cup
+
         async def _run():
-            with patch("core.zero_trust.hitl_manager.request_approval", new_callable=AsyncMock) as mock_hitl:
-                mock_hitl.return_value = {"approval_id": "appr_test_123", "status": "pending"}
+            enqueued = []
+
+            async def fake_enqueue(task):
+                enqueued.append(task.task_id)
+                return True
+
+            with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue), \
+                 patch("core.zero_trust.hitl_manager.request_approval") as mock_hitl:
+                mock_hitl.return_value = {"id": "HITL-TEST123", "status": "pending"}
 
                 res = await tool_execute_gui_task(
                     task_goal="Chuyển tiền lương tháng cho nhân viên",
@@ -225,8 +238,61 @@ class TestPhase90ComputerUse(unittest.TestCase):
                 self.assertTrue(res["success"])
                 self.assertEqual(res["risk_level"], 4)
                 self.assertEqual(res["status"], "awaiting_approval")
-                self.assertEqual(res["voice_reply"], "Em đã giao lệnh tự động hóa giao diện cho worker xử lý trong phiên làm việc an toàn.")
-                mock_hitl.assert_called_once()
+                self.assertEqual(res["approval_id"], "HITL-TEST123")
+                self.assertEqual(enqueued, [], "task rủi ro cao không được vào hàng đợi trước khi duyệt")
+
+                callback = mock_hitl.call_args.kwargs["action_callback"]
+                await callback()
+                self.assertEqual(enqueued, [res["task_id"]], "duyệt xong thì task mới vào hàng đợi")
+
+        asyncio.run(_run())
+
+    def test_high_risk_task_not_run_when_hitl_fails(self):
+        """Không tạo được yêu cầu duyệt → fail-closed, không chạy thao tác."""
+        import core.plugins.computer_use_plugin as cup
+
+        async def _run():
+            enqueued = []
+
+            async def fake_enqueue(task):
+                enqueued.append(task.task_id)
+                return True
+
+            with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue), \
+                 patch("core.zero_trust.hitl_manager.request_approval", side_effect=RuntimeError("down")):
+                res = await tool_execute_gui_task(
+                    task_goal="Chuyển tiền lương tháng cho nhân viên",
+                    system_target="VCB Digibank",
+                    session_id="sess_finance_02",
+                )
+            self.assertFalse(res["success"])
+            self.assertEqual(enqueued, [])
+
+        asyncio.run(_run())
+
+    def test_real_hitl_manager_approval_releases_task(self):
+        """Đi qua hitl_manager THẬT: tạo yêu cầu → approve_async → task mới vào hàng đợi."""
+        import core.plugins.computer_use_plugin as cup
+        from core.zero_trust import hitl_manager
+
+        async def _run():
+            enqueued = []
+
+            async def fake_enqueue(task):
+                enqueued.append(task.task_id)
+                return True
+
+            with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue),                  patch("core.telegram_gateway.telegram_gateway.send_hitl_request", return_value=False),                  patch("core.telegram_gateway.telegram_gateway.send_incident_alert", return_value=False):
+                res = await tool_execute_gui_task(
+                    task_goal="Phê duyệt thanh toán hoá đơn nhà cung cấp",
+                    system_target="ERP",
+                    session_id="sess_real_hitl",
+                )
+                self.assertEqual(res["status"], "awaiting_approval")
+                self.assertEqual(enqueued, [])
+                approved = await hitl_manager.approve_async(res["approval_id"], approved_by="test-ceo")
+                self.assertTrue(approved.get("executed"), approved)
+                self.assertEqual(enqueued, [res["task_id"]])
 
         asyncio.run(_run())
 

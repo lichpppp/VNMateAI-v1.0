@@ -393,7 +393,10 @@ async def receive_webhook(
         # AWS SNS: verify signature nếu có cert URL
         if signing_cert_url:
             secret_configured = True
-            verified = _verifier.verify_aws_sns(body, x_signature or "", signing_cert_url)
+            # Tải chứng chỉ ký của SNS bằng HTTP đồng bộ (tới 10 s) — ngoài event loop.
+            from core.plugin_manager import run_blocking
+            verified = await run_blocking(_verifier.verify_aws_sns, payload=body,
+                                          signature=x_signature or "", signing_cert_url=signing_cert_url)
             if not verified:
                 logger.warning("[WebhookGateway] AWS SNS signature verification FAILED for %s", source)
     elif source in ("paperless", "einvoice", "custom"):

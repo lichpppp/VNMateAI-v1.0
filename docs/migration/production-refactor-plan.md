@@ -422,3 +422,26 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime:** qua endpoint thật: `domain/config`, `telegram/config` đọc đúng; `domain/toggle` ghi, đọc lại, hoàn nguyên; phần còn lại của config.json giống hệt (so sánh dict), không file tạm sót.
 
 **Còn lại:** `core/connectors/base_connector.py` (14 lần nhắc config.json) chưa quét — rule hiện chưa đo vì dùng đường dẫn khác; cần rà khi làm nhóm Connectors. `client_agent/` có config.json riêng của máy con (khác file này) — không thuộc phạm vi.
+
+## 19. Báo cáo Security/Connectors — HITL computer-use, HTTP đồng bộ trên loop, phân loại client httpx (2026-10-02)
+
+**STATUS:** XONG
+
+**Lỗ hổng (nghiêm trọng): tác vụ GUI rủi ro cấp 4 chạy không cần duyệt.** `computer_use_plugin` gọi `await hitl_manager.request_approval(...)` — hàm ĐỒNG BỘ trả dict → `TypeError` bị `except` nuốt → rơi xuống `_enqueue_task_to_worker(task)`: thao tác tài chính ("chuyển tiền lương", "phê duyệt thanh toán") vào hàng đợi worker ngay. Kể cả không có lỗi đó, thiết kế cũ cũng đẩy task vào hàng đợi trước khi duyệt và worker không kiểm tra trạng thái duyệt → HITL chỉ là hình thức. Test Phase 90 patch bằng `AsyncMock` nên che lỗi.
+**Sửa:** task cấp ≥4 chỉ vào hàng đợi trong `action_callback` chạy khi được duyệt (`approve_async` chạy callback coroutine); không tạo được yêu cầu duyệt → fail-closed, không chạy; câu trả lời giọng nói nói đúng là đang chờ duyệt.
+**Test:** `test_phase90_computer_use.py` 14 pass — mới: chưa vào hàng đợi trước duyệt / vào sau callback; HITL lỗi → không chạy; luồng thật qua `hitl_manager.approve_async`. 2 test fail trên code cũ.
+**Runtime:** dispatch "Chuyển tiền lương…" → `awaiting_approval`, risk 4, có trong `/enterprise/hitl/pending`; hàng đợi worker 0 trước và sau khi **từ chối** (không bấm duyệt trên server thật để tránh thao tác GUI tài chính thật).
+
+**HTTP đồng bộ trên event loop:** `telegram/test-alert` (`test_connection`, tới 20 s), `telegram/detect-chat` (`get_recent_chats`, 15 s), `receive_webhook` (`verify_aws_sns` tải chứng chỉ, 10 s) → nay qua `run_blocking`. Runtime: detect-chat với token sai trả sau 907 ms, `/livez` vẫn phản hồi (11 mẫu). `send_hitl_request`/`send_incident_alert` đã gửi ở thread nền — không đổi.
+
+**Phân loại 17 client httpx — quyết định KHÔNG gộp phần lớn (có lý do):**
+| Nhóm | Số | Quyết định |
+|---|---|---|
+| `connection_pool` (chính nó) | 2 | canonical |
+| Telegram (4), webhook SNS (1) | 5 | client ĐỒNG BỘ chạy trong thread — pool là async, không dùng chung được |
+| `server` nút "thử kết nối LLM" | 1 | cố ý tách: URL/khoá do người dùng nhập |
+| health probe (`autonomous_sentinel`, `health_monitor`) | 2 | cố ý kết nối mới: đo độ trễ/khả năng kết nối thật, không bị keep-alive che |
+| connector (m365 ×3, base, einvoice ×2, paperless) | 6 | mỗi connector TLS/auth/base_url riêng; gộp không kiểm chứng được (không có tài khoản M365/eInvoice để chạy thật) — để nhóm Connectors |
+| `workers/remote_worker_daemon` | 1 | tiến trình riêng |
+
+**Test toàn bộ:** 239 pass / 0 fail.
