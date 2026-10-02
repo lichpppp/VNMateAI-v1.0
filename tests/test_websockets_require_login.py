@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import core.server as server  # noqa: E402
+import mateai.interfaces.http.server as server  # noqa: E402
 
 
 @pytest.mark.parametrize("path", ["/ws/voice", "/ws/v1/voice-stream", "/ws/topology"])

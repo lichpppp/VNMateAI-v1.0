@@ -116,7 +116,7 @@ async def test_session_lifecycle_and_cancellation():
 
 def test_server_routes_registration():
     print("\n▸ 3. Kiểm thử Đăng ký Endpoint WebSocket trên FastAPI Server")
-    from core.server import app
+    from mateai.interfaces.http.server import app
 
     routes = [route.path for route in app.routes]
     assert "/ws/voice" in routes, "Thiếu endpoint /ws/voice trên FastAPI"

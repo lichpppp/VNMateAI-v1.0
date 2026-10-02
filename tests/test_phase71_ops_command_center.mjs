@@ -201,7 +201,7 @@ console.log('\n── 3. Lọc nhiễu nhật ký ──');
 {
   check('heartbeat httpx bị coi là nhiễu', M._isOpsNoise({ logger: 'httpx', message: 'GET /v1/models HTTP/1.1 200' }) === true);
   check('log khởi động KHÔNG bị coi là nhiễu',
-    M._isOpsNoise({ logger: 'core.server', message: 'FastAPI startup: loaded 76 skill(s).' }) === false);
+    M._isOpsNoise({ logger: 'mateai.interfaces.http.server', message: 'FastAPI startup: loaded 76 skill(s).' }) === false);
   check('cảnh báo nghiêm trọng KHÔNG bị coi là nhiễu',
     M._isOpsNoise({ logger: 'mateai.application.agent.llm_engine', message: 'All models failed' }) === false);
 }

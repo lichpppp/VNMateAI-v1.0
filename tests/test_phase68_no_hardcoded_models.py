@@ -94,7 +94,7 @@ section("Mã nguồn không còn tên model chết")
 
 TARGETS = [
     "src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
-    "src/mateai/config/loader.py", "core/server.py",
+    "src/mateai/config/loader.py", "src/mateai/interfaces/http/server.py",
     "src/mateai/application/operations/health_monitor.py", "src/mateai/application/skills/meta_architect.py",
     "web/app.js", "web/index.html",
     # Phase 82: template theo dõi bởi git — nếu nó chứa tên model chết thì
@@ -112,7 +112,7 @@ for rel in TARGETS:
 # ══ 2. Danh sách dự phòng lấy từ router ═════════════════════════════════
 section("Danh sách dự phòng lấy từ router")
 
-srv = (ROOT / "core" / "server.py").read_text(encoding="utf-8")
+srv = (ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
 check("có hàm _router_model_pool", "async def _router_model_pool()" in srv)
 check("hàm gọi /v1/models của router", "/v1/models" in srv)
 check("hàm lọc bỏ combo (tên không có '/')",

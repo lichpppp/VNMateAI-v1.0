@@ -56,7 +56,7 @@ def test_pending_action_is_restored_from_audit_logs():
 
 def test_audit_log_cannot_be_cleared_over_http():
     from fastapi.testclient import TestClient
-    import core.server as server
+    import mateai.interfaces.http.server as server
 
     from mateai.application.security.auth_manager import auth_manager
 

@@ -4,7 +4,7 @@ core/file_export.py
 Xuất bảng dữ liệu ra CSV / XLSX và đặt tên file tải về an toàn.
 
 Tách khỏi core/server.py (RULE-015) để skill (data_source_tools) dùng được mà
-không import core.server.
+không import mateai.interfaces.http.server.
 """
 from __future__ import annotations
 

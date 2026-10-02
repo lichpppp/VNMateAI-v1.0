@@ -5,7 +5,7 @@ Trạng thái kết nối thời gian thực (HUD, portal, topology, thiết b�
 các hàm phát sóng tới chúng.
 
 Tách khỏi core/server.py (RULE-015): module lõi (gateway, worker, skill) cần phát
-sự kiện tới giao diện nhưng KHÔNG được import core.server — server import chính
+sự kiện tới giao diện nhưng KHÔNG được import mateai.interfaces.http.server — server import chính
 các module đó, nên import ngược lại tạo vòng phụ thuộc.
 """
 from __future__ import annotations

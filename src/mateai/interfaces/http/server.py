@@ -1106,8 +1106,7 @@ async def startupz() -> JSONResponse:
 
 def _check_database() -> None:
     from mateai.infrastructure.database.erp_database import erp_db
-    with erp_db.get_connection() as conn:
-        conn.execute("SELECT 1;").fetchone()
+    erp_db.ping()
 
 
 # ── Listener IoT không TLS (cổng 8000) ─────────────────────────────────────
@@ -6944,7 +6943,7 @@ async def api_audit_logs(
     status: Optional[str] = None,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Truy vấn nhật ký kiểm toán. Chỉ SELECT — không thể sửa/xóa."""
+    """Truy vấn nhật ký kiểm toán. Chỉ đọc — không thể sửa/xoá."""
     from mateai.infrastructure.database.erp_database import erp_db
     logs = erp_db.get_audit_logs(
         limit=limit,
@@ -7023,32 +7022,7 @@ async def api_erp_employees(
     """Trả về danh sách nhân viên từ ERP, lọc theo phòng ban hoặc role."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        conn = erp_db.get_connection()
-        c = conn.cursor()
-        conditions = []
-        params: list = []
-        if dept_id:
-            conditions.append("e.dept_id = ?")
-            params.append(dept_id)
-        if role:
-            conditions.append("e.role = ?")
-            params.append(role)
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        params.append(max(1, min(limit, 500)))
-        c.execute(
-            f"""
-            SELECT e.id, e.name, e.position, e.email, e.phone, e.role,
-                   d.name AS dept_name
-            FROM employees e
-            LEFT JOIN departments d ON e.dept_id = d.id
-            {where}
-            ORDER BY e.name
-            LIMIT ?;
-            """,
-            params,
-        )
-        employees = [dict(r) for r in c.fetchall()]
-        conn.close()
+        employees = await run_blocking(erp_db.list_employees, dept_id=dept_id, role=role, limit=limit)
         return {"status": "success", "total": len(employees), "employees": employees}
     except Exception as e:
         return {"status": "error", "error": str(e)}

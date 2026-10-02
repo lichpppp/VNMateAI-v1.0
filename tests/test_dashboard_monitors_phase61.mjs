@@ -210,7 +210,7 @@ const LOGS = {
     { event: 'log_entry', level: 'INFO', color: 'text-emerald-400', logger: 'httpx',
       message: 'HTTP Request: GET http://localhost:20128/v1/models "HTTP/1.1 200 OK"',
       timestamp: '2026-09-28T06:18:57.177419' },
-    { event: 'log_entry', level: 'INFO', color: 'text-emerald-400', logger: 'core.server',
+    { event: 'log_entry', level: 'INFO', color: 'text-emerald-400', logger: 'mateai.interfaces.http.server',
       message: 'Portal UI WebSocket connected', timestamp: '2026-09-28T06:18:58.177419' },
   ],
 };
@@ -563,7 +563,7 @@ check('tầng nặng gom đủ 8 endpoint',
 
 // ── 10. Backend: nhóm counters phải là phần bổ sung thuần, không phá cũ ───
 results.push('▸ core/server.py — health-dashboard chỉ BỔ SUNG, không phá');
-const py = readFileSync(join(HERE, '..', 'core', 'server.py'), 'utf-8').replace(/\r\n/g, '\n');
+const py = readFileSync(join(HERE, '..', 'src', 'mateai', 'interfaces', 'http', 'server.py'), 'utf-8').replace(/\r\n/g, '\n');
 const ep = py.slice(py.indexOf('async def health_dashboard_endpoint()'), py.indexOf('@app.post(\n    "/api/v1/voice-command"'));
 check('giữ nguyên 4 dòng inject gốc',
   ep.includes('active_portal_websockets') && ep.includes('active_audio_hardware')

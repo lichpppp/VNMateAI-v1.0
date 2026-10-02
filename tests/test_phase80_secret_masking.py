@@ -63,7 +63,7 @@ def section(title: str) -> None:
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from core.server import (  # noqa: E402
+from mateai.interfaces.http.server import (  # noqa: E402
     _SECRET_FIELD_NAMES,
     _SECRET_MASK,
     _has_secret_value,
@@ -72,7 +72,7 @@ from core.server import (  # noqa: E402
     _restore_masked_secrets,
 )
 
-SRC = (ROOT / "core" / "server.py").read_text(encoding="utf-8")
+SRC = (ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
 SRC_CODE = re.sub(r"\"\"\"[\s\S]*?\"\"\"", "", SRC)
 SRC_CODE = re.sub(r"^\s*#.*$", "", SRC_CODE, flags=re.M)
 JS = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -263,7 +263,7 @@ section("Phạm vi: không endpoint nào rò (quét tự động)")
 
 # Liệt kê tay thì sót endpoint thứ ba. Lấy từ chính app.routes.
 try:
-    from core.server import app
+    from mateai.interfaces.http.server import app
 
     get_routes = sorted(
         {
@@ -333,7 +333,7 @@ if not SERVER_UP:
     # Không giả vờ pass. Ghi rõ là CHƯA kiểm tra — đúng nguyên tắc của dự án:
     # trạng thái chưa biết thì nói chưa biết, đừng đoán là an toàn.
     print("  ⏭  CHƯA kiểm tra: server không chạy ở 127.0.0.1:8000")
-    print("      (chạy `python3 -m uvicorn core.server:app --port 8000` rồi chạy lại)")
+    print("      (chạy `python3 -m uvicorn mateai.interfaces.http.server:app --port 8000` rồi chạy lại)")
 else:
 
     def _login(user: str, pwd: str) -> str:
@@ -456,7 +456,7 @@ root.handlers = [handler]
 root.setLevel(logging.DEBUG)
 
 try:
-    from core.server import _install_secret_redaction
+    from mateai.interfaces.http.server import _install_secret_redaction
 
     _install_secret_redaction()
     # Ghi từ LOGGER CON — đúng trường hợp của httpx. Bộ lọc gắn lên logger
@@ -489,7 +489,7 @@ section("Ghép sâu: không mất trường mà form không gửi")
 # Lỗi đã xảy ra thật: `{**existing, **payload}` ghép nông, `payload["telegram"]`
 # thay trọn khối telegram — bấm "Lưu" ở tab Cấu Hình xoá token bot VÀ tắt
 # cờ `enabled`, trong khi người dùng chỉ định sửa một trường khác.
-from core.server import _deep_merge  # noqa: E402
+from mateai.interfaces.http.server import _deep_merge  # noqa: E402
 
 base = {
     "telegram": {"bot_token": REAL_TG, "enabled": True, "admin_chat_ids": ["1"]},
@@ -534,7 +534,7 @@ section("Tập bí mật không trùng với tập trường của connector")
 
 # Trùng lặp danh sách tên bí mật ở hai nơi thì sớm trôi lệch. Test này
 # chỉ khẳng định quan hệ lập phương (subset), không thay đổi hành vi.
-from core.server import _CONNECTOR_SECRET_FIELDS  # noqa: E402
+from mateai.interfaces.http.server import _CONNECTOR_SECRET_FIELDS  # noqa: E402
 
 check(
     "mọi trường bí mật của connector đều nằm trong tập che chung",
@@ -599,7 +599,7 @@ for marker in ("YOUR_9ROUTER_KEY_HERE", "YOUR_GROQ_API_KEY_HERE", "YOUR_TELEGRAM
 # core" — đổi khoá phải sửa code. `sk-dummy` là mặc định rõ ràng, được phép.
 hardcoded: list[tuple[str, list[str]]] = []
 for _rel in ("src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
-             "src/mateai/config/loader.py", "core/server.py",
+             "src/mateai/config/loader.py", "src/mateai/interfaces/http/server.py",
              "src/mateai/infrastructure/audio/audio_processor.py", "src/mateai/application/skills/meta_architect.py",
              "src/mateai/application/operations/health_monitor.py", "src/mateai/application/skills/builtin/integration_tools.py",
              "src/mateai/application/skills/builtin/ai_delegation.py", "web/app.js", "web/index.html"):

@@ -794,3 +794,13 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **Runtime:** chỉ một `config.json` (ở gốc), không file mặc định mới; dấu vân tay khoá JWT không đổi, JWT cũ hợp lệ; model LLM đọc đúng; ghi cấu hình qua API vào đúng file và hoàn nguyên; Telegram polling chạy; CSDL đúng file (3 user).
 
 **`core/` còn lại:** `plugin_manager.py` (API plugin công khai — giữ có chủ đích), `server.py`.
+
+## 43. Phase 4 — `server.py` vào `src/mateai` — PHASE 4 HOÀN TẤT (2026-10-02)
+
+**STATUS:** XONG
+
+`core/server.py` (8.700 dòng, 187 route) → `mateai/interfaces/http/server.py`; `main.py` và 34 file import theo; 2 test JS đọc mã nguồn theo `join(..., 'core', 'server.py')` sửa tay. Dọn thư mục `core/security/` còn sót.
+**RULE-004 (test ranh giới bắt được):** server (tầng giao diện) tự chạy SQL ở probe `/readyz` và `/api/v1/erp/employees` → `ERPDatabase.ping()`, `ERPDatabase.list_employees()` (cùng câu truy vấn); 1 dương tính giả là chữ "SELECT" trong docstring → đổi chữ. RULE-011: 3 vi phạm có lý do (nút "thử kết nối LLM") chỉ đổi đường dẫn.
+**Test:** 271 pass. **Runtime:** hai listener khởi động; cổng 8000 vẫn lọc (login 404, livez 200); `/readyz` ok; danh sách nhân viên, portal, `/admin` 200; voice fast path 267 ms, LLM 8,4 s (lượt đầu sau khởi động).
+
+**Tổng kết Phase 4:** mọi code chạy thật nằm trong `src/mateai` (domain / application / infrastructure / interfaces / config). `core/` chỉ còn `plugin_manager.py` — API plugin công khai (`from core.plugin_manager import export_skill`), giữ chỗ có chủ đích cho skill của người dùng và skill do AI sinh trên các bản cài khác. Các bản viết lại song song không dùng trong `src/mateai` đã xoá theo từng context. Việc tiếp theo hợp lý: tách `server.py` thành các router theo nhóm (HTTP routes vẫn nằm chung một file 8.700 dòng).

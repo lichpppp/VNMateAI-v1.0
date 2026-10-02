@@ -41,7 +41,7 @@ DESCRIPTIONS = {
     "RULE-012": "tổng hợp TTS (edge_tts.Communicate, gTTS, /audio/speech) ngoài TTS engine",
     "RULE-013": "tự mở config.json ngoài config_loader",
     "RULE-014": "sqlite3.connect ngoài tầng persistence",
-    "RULE-015": "module lõi import ngược core.server",
+    "RULE-015": "module lõi import ngược mateai.interfaces.http.server",
 }
 
 
@@ -81,8 +81,8 @@ def scan() -> dict:
                     found["RULE-013"][rel] += 1
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
                 mods = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
-                if any(m == "core.server" or m.startswith("core.server.") for m in mods):
-                    if rel != "core/server.py" and rel != "main.py":
+                if any(m == "mateai.interfaces.http.server" or m.startswith("mateai.interfaces.http.server.") for m in mods):
+                    if rel != "src/mateai/interfaces/http/server.py" and rel != "main.py":
                         found["RULE-015"][rel] += 1
     for rule, allowed in ALLOWED.items():
         for rel in allowed:

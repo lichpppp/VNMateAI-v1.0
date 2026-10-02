@@ -98,13 +98,13 @@ class _FakeRequest:
 
 
 def main() -> None:
-    from core.server import (
+    from mateai.interfaces.http.server import (
         _local_worker_ws_url,
         _master_ws_url,
         _resolve_master_endpoint,
     )
 
-    server_src = strip_comments((ROOT / "core" / "server.py").read_text(encoding="utf-8"))
+    server_src = strip_comments((ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8"))
     app_js = strip_comments((ROOT / "web" / "app.js").read_text(encoding="utf-8"))
     index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     # Các kiểm tra "đã bị gỡ" phải quét bản ĐÃ BỎ COMMENT — nếu không thì chính
@@ -182,7 +182,7 @@ def main() -> None:
     # cũ không liên quan (import trong `try`, `global`, hàm lồng nhau).
     import ast
 
-    tree = ast.parse((ROOT / "core" / "server.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8"))
     module_names: set[str] = set(dir(__builtins__)) | set(globals())
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):

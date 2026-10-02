@@ -107,7 +107,7 @@ async def main():
 
     # 6. WebSocket Route Registration
     section("6. Server WebSocket Route Registration")
-    from core.server import app
+    from mateai.interfaces.http.server import app
 
     routes = [r.path for r in app.routes]
     check("WebSocket /ws/v1/voice-stream đã được đăng ký", "/ws/v1/voice-stream" in routes)

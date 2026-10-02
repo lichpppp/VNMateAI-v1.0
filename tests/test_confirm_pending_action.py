@@ -87,7 +87,7 @@ async def test_confirm_finds_action_saved_under_logged_in_caller(monkeypatch):
 
 async def test_rest_voice_command_uses_logged_in_user_not_source_device(monkeypatch):
     """source_device do client tự khai ("hud") không được quyết định RBAC."""
-    import core.server as server
+    import mateai.interfaces.http.server as server
 
     seen = {}
 

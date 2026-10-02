@@ -19,7 +19,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 ## 2. Phân quyền tool (RBAC)
 
-- Cổng duy nhất: `core.agent_voice_loop.run_tool_with_policy` → `security_guard.check_permission` (mọi kênh: chat, voice, REST, Telegram).
+- Cổng duy nhất: `mateai.application.agent.tool_gate.run_tool_with_policy` → `security_guard.check_permission` (mọi kênh: chat, voice, REST, Telegram).
 - Danh tính dùng để xét quyền = **người đã đăng nhập** (không phải `source_device` do client gửi).
 - Thứ tự xác định role: (1) tài khoản/nhân viên trong CSDL → role trong CSDL; (2) service principal khai báo tường minh; (3) id do server gán có tiền tố `esp32`, `xiaozhi`, `telegram`, `hud`, `robot` → **admin** (quyết định của chủ dự án, f389bbe); (4) còn lại / lỗi tra cứu → `viewer` (fail-closed).
 - Role portal → role RBAC: `admin`→`admin`, `manager`→`it_support`, `viewer`→`operator`.
@@ -27,7 +27,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 ## 3. Phê duyệt (HITL)
 
-- Một hàng đợi duy nhất: `core.zero_trust.hitl_manager`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút.
+- Một hàng đợi duy nhất: `mateai.application.security.zero_trust.hitl_manager`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút.
 - Tác vụ chỉ chạy **sau khi** được duyệt (callback), kể cả computer-use mức 4 (`test_phase90_computer_use`). Không tạo được yêu cầu duyệt → không chạy.
 - Duyệt qua: portal/HUD (admin, manager), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý" trong hội thoại của chính người yêu cầu.
 

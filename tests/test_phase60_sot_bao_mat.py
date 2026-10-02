@@ -326,7 +326,7 @@ def test_database_lock_is_reentrant() -> None:
 def test_every_hitl_call_site_awaits() -> None:
     section("── Mọi call site execute_with_hitl đều phải await ──")
     targets = [
-        "core/server.py",
+        "src/mateai/interfaces/http/server.py",
         "src/mateai/application/skills/plugin_registry.py",
         "src/mateai/application/skills/builtin/integration_tools.py",
     ]
@@ -373,7 +373,7 @@ def test_every_hitl_call_site_awaits() -> None:
     # một lần tự khoá chết trong `add_finance_record` đã treo CẢ SERVER
     # (`/health` cũng không trả lời). Nó phải đi qua `approve_async()`, vốn
     # tự đẩy callback đồng bộ sang thread.
-    srv = Path("core/server.py").read_text(encoding="utf-8")
+    srv = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
     check(
         "endpoint hitl/approve dùng approve_async (tự đẩy việc sync sang thread)",
         "await hitl_manager.approve_async(" in srv,
@@ -508,7 +508,7 @@ def test_hitl_async_executor_really_runs() -> None:
     check("approve() đồng bộ từ chối coroutine tường minh", out["sync_refuses"])
 
     # Cả hai nơi gọi thật đều phải dùng bản async
-    srv = Path("core/server.py").read_text(encoding="utf-8")
+    srv = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
     tg = Path("src/mateai/interfaces/telegram/telegram_gateway.py").read_text(encoding="utf-8")
     check("endpoint web gọi approve_async", "await hitl_manager.approve_async(" in srv,
           "đang gọi bản đồng bộ — tác vụ async sẽ không chạy")
@@ -648,11 +648,11 @@ def test_connector_config_status_is_honest() -> None:
           all(k in CONNECTOR_REQUIRED_FIELDS["aws"] + CONNECTOR_REQUIRED_FIELDS["einvoice"]
               for k in missing_required_fields("aws", {})),
           str(missing_required_fields("aws", {})))
-    srv_txt = Path("core/server.py").read_text(encoding="utf-8")
+    srv_txt = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
     check("endpoint chỉ nêu tên khoá, không đính kèm giá trị",
           '"missing_fields": missing' in srv_txt)
 
-    srv = Path("core/server.py").read_text(encoding="utf-8")
+    srv = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
     check("endpoint health dùng missing_required_fields",
           "missing = missing_required_fields(name)" in srv)
     check("endpoint health không còn phép kiểm tra 'có trường nào khác rỗng'",
@@ -812,7 +812,7 @@ def test_connector_tools_registered() -> None:
 
 def test_startup_guarded_once() -> None:
     section("── Vòng đời: startup chỉ chạy 1 lần ──")
-    src = Path("core/server.py").read_text(encoding="utf-8")
+    src = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
     check("có cờ chặn chạy lần hai", "_STARTUP_DONE" in src)
     check(
         "cờ được kiểm tra TRƯỚC khi làm việc nặng",

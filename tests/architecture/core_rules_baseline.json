@@ -1,8 +1,8 @@
 {
   "RULE-011": {
-    "core/server.py": 3,
     "src/mateai/application/agent/llm_engine.py": 3,
-    "src/mateai/application/skills/builtin/ai_delegation.py": 1
+    "src/mateai/application/skills/builtin/ai_delegation.py": 1,
+    "src/mateai/interfaces/http/server.py": 3
   },
   "RULE-012": {
     "skills/ninerouter_skills.py": 1

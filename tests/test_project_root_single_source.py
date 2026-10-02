@@ -23,7 +23,7 @@ CASES = [
     ("mateai.application.operations.health_monitor", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.graph_rag", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.rag_engine", "_PROJECT_ROOT"),
-    ("core.server", "_PROJECT_ROOT"),
+    ("mateai.interfaces.http.server", "_PROJECT_ROOT"),
     ("mateai.application.skills.builtin.file_system", "_PROJECT_ROOT"),
     ("mateai.application.skills.builtin.onboarding_workflow", "_PROJECT_ROOT"),
 ]
@@ -36,7 +36,7 @@ def test_modules_use_settings_project_root():
 
 
 def test_server_paths_derive_from_root():
-    import core.server as s
+    import mateai.interfaces.http.server as s
     root = Path(settings.PROJECT_ROOT).resolve()
     assert Path(s._ADMIN_OUT_DIR).resolve() == root / "admin" / "out"
     assert Path(s._CUSTOM_TOPOLOGY_PATH).resolve() == root / "storage" / "custom_topology.json"

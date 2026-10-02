@@ -74,21 +74,21 @@ Yêu cầu ban đầu (giữ để đối chiếu):
 
 | Mã | Quy tắc | Kiểm tra tự động |
 |---|---|---|
-| RULE-011 | Chỉ `infrastructure/llm` (hôm nay: `core/llm_provider.py`) được tạo client `OpenAI`/`AsyncOpenAI` hoặc gọi `chat.completions.create` | grep AST `OpenAI(`, `AsyncOpenAI(`, `.chat.completions.create` |
-| RULE-012 | Chỉ `infrastructure/tts` (hôm nay: `core/audio/tts_stream_engine.py`) được gọi `edge_tts.Communicate`, `gTTS`, `/audio/speech` | grep AST |
+| RULE-011 | Chỉ `infrastructure/llm` (`mateai/infrastructure/llm/llm_provider.py`) được tạo client `OpenAI`/`AsyncOpenAI` hoặc gọi `chat.completions.create` | grep AST `OpenAI(`, `AsyncOpenAI(`, `.chat.completions.create` |
+| RULE-012 | Chỉ `infrastructure/tts` (`mateai/infrastructure/tts/tts_stream_engine.py`) được gọi `edge_tts.Communicate`, `gTTS`, `/audio/speech` | grep AST |
 | RULE-013 | Chỉ loader cấu hình được mở `config.json` | grep chuỗi `"config.json"` kèm `open`/`read_text`/`json.load` |
 | RULE-014 | Chỉ tầng persistence được gọi `sqlite3.connect` | grep AST |
 | RULE-015 | Không module nào trong lõi import `core.server` (hoặc `interfaces/*`) | đồ thị import |
 | RULE-016 | Mỗi tên tool chỉ được đăng ký ở một registry | so khớp tên từ `plugin_manager` và `plugin_registry` lúc khởi động |
 
-## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`core/`) — cập nhật 2026-10-02
+## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`src/mateai/`, `core/`) — cập nhật 2026-10-02 (sau Phase 4)
 
 Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo trên mã thật; baseline ở `tests/architecture/core_rules_baseline.json` chỉ được giảm (vi phạm mới = test fail).
 
 | Quy tắc | Trạng thái | Bằng chứng |
 |---|---|---|
-| RULE-001/002 | Một phần (Phase 4 đang làm) | Voice, LLM/Agent, Skills (nội bộ), Security, Data đã nằm trong `src/mateai` theo tầng; `test_architecture_boundaries` giữ ranh giới domain/application/interfaces. Còn trong `core/`: Devices, Connectors, Config, giao diện HTTP (`server.py`) |
-| RULE-005 | Một phần | mọi kênh thoại dùng chung `core.voice_turn.process_voice_turn`; handler WS vẫn nằm trong `server.py` |
+| RULE-001/002 | Đạt (Phase 4 xong) | toàn bộ code chạy thật nằm trong `src/mateai` theo tầng domain/application/infrastructure/interfaces; `test_architecture_boundaries` giữ ranh giới (RULE-003: application không import web framework/sqlite; RULE-004: interfaces không chạy SQL). `core/` chỉ còn `plugin_manager` (API plugin công khai) |
+| RULE-005 | Một phần | mọi kênh thoại dùng chung `mateai.application.voice.voice_turn.process_voice_turn`; handler WS vẫn nằm trong `server.py` |
 | RULE-007 | Đạt (một cổng) | mọi tool qua `agent_voice_loop.run_tool_with_policy` → `security_guard`; một HITL (`zero_trust`). Còn hai mô hình role (portal ↔ RBAC, ánh xạ cố định) |
 | RULE-008 | Một phần | `plugin_registry`: timeout + circuit breaker; client httpx riêng còn lại đã phân loại có lý do (plan §19) |
 | RULE-009 | Chỉ kênh portal/HUD | huỷ lượt khi có lệnh mới (barge-in) |
@@ -96,6 +96,6 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 | RULE-011 | 7 chỗ, đều có lý do | `llm_engine` (3: tạo client cho chính provider), `server` (3: nút "thử kết nối" dùng URL/khoá người dùng nhập), `ai_delegation` (1: client async cho provider chuyên gia). `audio_processor` (Whisper) được miễn |
 | RULE-012 | 1 | `skills/ninerouter_skills.py` |
 | RULE-013 | **0** | `config_loader` là cổng duy nhất (plan §18) |
-| RULE-014 | **0** | `core.database.open_sqlite` là đường mở duy nhất (plan §23) |
-| RULE-015 | **0** | trạng thái kết nối + phát sóng ở `core/realtime_hub.py`, helper xuất file ở `core/file_export.py` (plan §27) |
+| RULE-014 | **0** | `mateai.infrastructure.database.erp_database.open_sqlite` là đường mở duy nhất (plan §23) |
+| RULE-015 | **0** | trạng thái kết nối + phát sóng ở `mateai/interfaces/websocket/realtime_hub.py`, helper xuất file ở `mateai/infrastructure/files/file_export.py` (plan §27) |
 | RULE-016 | Đạt | danh mục tool duy nhất là `plugin_manager`; `plugin_registry` chỉ là chính sách thực thi (plan §10); log khởi động không còn cảnh báo đăng ký trùng |

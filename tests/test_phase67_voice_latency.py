@@ -111,7 +111,7 @@ check("'bật' ra câu của action_execute",
 
 # ══ 2. Nguồn trong server.py ═════════════════════════════════════════════
 section("Lời đệm trong đường HUD")
-srv = Path(__file__).resolve().parents[1] / "core" / "server.py"
+srv = Path(__file__).resolve().parents[1] / "src" / "mateai" / "interfaces" / "http" / "server.py"
 src = srv.read_text(encoding="utf-8")
 tree = ast.parse(src)
 

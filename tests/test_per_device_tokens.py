@@ -19,7 +19,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.infrastructure.database.db_manager as dbm  # noqa: E402
-import core.server as server  # noqa: E402
+import mateai.interfaces.http.server as server  # noqa: E402
 
 
 @pytest.fixture

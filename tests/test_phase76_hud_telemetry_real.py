@@ -51,7 +51,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # ──────────────────────────────────────────────────────────────────────
 section("Payload không còn trường quyền hạn bịa")
 
-from core.server import _get_hud_metrics_payload  # noqa: E402
+from mateai.interfaces.http.server import _get_hud_metrics_payload  # noqa: E402
 
 payload = _get_hud_metrics_payload()
 
@@ -64,7 +64,7 @@ for gone in ("security_role", "security_status", "permission_level"):
 
 # Vai trò thật chỉ được đi trong gói `hud_welcome` riêng của từng kết nối,
 # nơi máy chủ biết người xem là ai (JWT qua ?token=).
-server_src = (PROJECT_ROOT / "core" / "server.py").read_text(encoding="utf-8")
+server_src = (PROJECT_ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
 check(
     "gói hud_welcome có mang vai trò thật của phiên đó",
     '"type": "hud_welcome"' in server_src

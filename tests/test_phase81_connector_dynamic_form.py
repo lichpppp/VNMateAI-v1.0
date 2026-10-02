@@ -73,7 +73,7 @@ from mateai.infrastructure.connectors.base_connector import (  # noqa: E402
     CONNECTOR_DEFAULTS,
     CONNECTOR_REQUIRED_FIELDS,
 )
-from core.server import (  # noqa: E402
+from mateai.interfaces.http.server import (  # noqa: E402
     _CONNECTOR_SECRET_FIELDS,
     _build_connector_config_schema,
     _is_secret_field,
@@ -109,8 +109,8 @@ check(
 )
 check(
     "server không còn phục vụ /admin",
-    "_ADMIN_DIST" not in (ROOT / "core" / "server.py").read_text(encoding="utf-8")
-    or "/admin/{rel:path}" not in (ROOT / "core" / "server.py").read_text(encoding="utf-8"),
+    "_ADMIN_DIST" not in (ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
+    or "/admin/{rel:path}" not in (ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8"),
     "route còn treo thì /admin trả 404 chứ không nói rõ là đã gỡ",
 )
 

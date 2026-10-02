@@ -320,7 +320,7 @@ def test_hud_panel() -> None:
 def test_server_wiring() -> None:
     section("server.py: mọi đường voice đều bắn gói thinking")
 
-    src = Path("core/server.py").read_text(encoding="utf-8")
+    src = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
 
     check("có hàm _broadcast_thinking", "async def _broadcast_thinking(" in src)
     check("gói có type thinking", '"type": "thinking"' in src)

@@ -283,7 +283,7 @@ Hệ thống áp dụng nguyên tắc **Zero-Trust — không tin cậy mặc đ
   lệnh thực thi skill, thiết bị chỉ được stream âm thanh.
 
 ### Phân quyền (RBAC)
-- `core/security_guard.py` là cổng kiểm tra duy nhất, dùng chung cho cả luồng
+- `mateai/application/security/security_guard.py` là cổng kiểm tra duy nhất, dùng chung cho cả luồng
   chat/LLM và REST API.
 - **Fail-closed**: danh tính không tra cứu được, id rỗng, role lạ trong DB, hoặc
   lỗi truy vấn → tất cả nhận role `viewer` (chỉ đọc). Không bao giờ tự nâng quyền.
@@ -313,23 +313,19 @@ Hệ thống áp dụng nguyên tắc **Zero-Trust — không tin cậy mặc đ
 
 ```text
 VN-MateAi/
-├── core/                       # Nhân xử lý trung tâm hệ thống
-│   ├── audio_processor.py      # Silero VAD, Faster-Whisper, Edge-TTS Streaming
-│   ├── auth_manager.py         # Xác thực JWT & phân quyền RBAC
-│   ├── autonomous_sentinel.py  # Giám sát sự cố & tự động cảnh báo
-│   ├── cognitive_memory.py     # Bộ nhớ nhận thức Vector DB
-│   ├── domain_sync.py          # Đồng bộ Active Directory & LDAP
-│   ├── health_monitor.py       # Thu thập metrics CPU, RAM, NVMe thời gian thực
-│   ├── llm_engine.py           # Bộ định tuyến đa mô hình LLM & Router
-│   ├── orchestrator.py         # Điều phối lệnh & quản lý luồng hội thoại
-│   ├── security_guard.py       # Bộ lọc an toàn Zero-Trust & Sandbox
-│   ├── server.py               # FastAPI Server, REST APIs, WebSocket Gateways
-│   ├── telegram_gateway.py     # Cổng giao tiếp & thông báo Telegram Bot
-│   ├── voice_controller.py     # Bộ điều khiển thu âm & Wake Word
-│   └── xiaozhi_gateway.py      # Cổng giao tiếp WebSocket cho Robot ESP32
+├── core/
+│   └── plugin_manager.py       # API plugin công khai: `from core.plugin_manager import export_skill`
+├── src/mateai/                 # Mã nguồn chính (gói `mateai`, cài bằng `pip install -e .`)
+│   ├── config/loader.py        # Cấu hình (cổng duy nhất vào config.json) + thư mục gốc dự án
+│   ├── domain/                 # Thực thể nghiệp vụ
+│   ├── application/            # Use case: voice, agent (LLM + cổng tool), skills, security,
+│   │                           #   conversation, knowledge (RAG), analytics, operations, devices
+│   ├── infrastructure/         # LLM provider, TTS/STT, CSDL, connectors, cache, TLS, file
+│   └── interfaces/             # HTTP (server.py, API, webhook), WebSocket (portal, HUD,
+│                               #   thiết bị Xiaozhi, máy trạm), Telegram, email, desktop
 ├── esp32_firmware/             # Mã nguồn C++ cho Robot để bàn ESP32
 │   └── vnmate_robot/           # Firmware điều khiển phần cứng & âm thanh I2S
-├── skills/                     # 45+ Kỹ năng tự động hóa hệ thống (RPA)
+├── skills/                     # Skill được nạp động (shim + skill người dùng)
 ├── web/                        # Giao diện Web hiện đại (HTML5, Vanilla CSS, JS)
 │   ├── index.html              # Web Portal chính
 │   ├── hud.html                # Standby Ambient HUD chuyên dụng

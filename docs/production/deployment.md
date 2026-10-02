@@ -21,7 +21,7 @@ Trang quản trị Next.js được phục vụ từ `admin/out` tại `/admin`.
 
 ## 3. Cấu hình bắt buộc (`config.json`)
 
-`config.json` chỉ được đọc/ghi qua `core.config_loader` (ghi nguyên tử). Sửa khi máy chủ đang chạy thì dùng trang Cấu hình của portal; sửa tay thì khởi động lại.
+`config.json` chỉ được đọc/ghi qua `mateai.config.loader` (ghi nguyên tử). Sửa khi máy chủ đang chạy thì dùng trang Cấu hình của portal; sửa tay thì khởi động lại.
 
 | Khối | Bắt buộc | Ghi chú |
 |---|---|---|

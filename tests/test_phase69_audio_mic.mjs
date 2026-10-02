@@ -233,7 +233,7 @@ check('hudStopListeningForTurn cũng giữ cảnh báo',
 section('Bản nạp vào trình duyệt phải là bản mới');
 // Hai lỗi trước đều do trình duyệt chạy bản cache cũ mà không ai biết:
 // StaticFiles không gửi Cache-Control, và thẻ script ghi số phiên bản cứng.
-const srv = readFileSync(join(ROOT, 'core', 'server.py'), 'utf8').replace(/\r\n/g, '\n');
+const srv = readFileSync(join(ROOT, 'src', 'mateai', 'interfaces', 'http', 'server.py'), 'utf8').replace(/\r\n/g, '\n');
 check('static buộc kiểm tra lại bản mới',
   srv.includes('no-cache, must-revalidate'));
 check('có lớp static tuỳ chỉnh cache',

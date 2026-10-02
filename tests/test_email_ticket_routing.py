@@ -42,3 +42,18 @@ def test_readonly_select_sandbox_blocks_writes(tmp_path):
         with pytest.raises(sqlite3.DatabaseError):
             db.execute_readonly_select(bad)
     assert db.execute_readonly_select("SELECT COUNT(*) AS n FROM departments")[0]["n"] == 1
+
+
+def test_list_employees_filters(tmp_path):
+    db = ERPDatabase(db_path=tmp_path / "erp.db")
+    a = db.add_department("Phòng A")["id"]
+    b = db.add_department("Phòng B")["id"]
+    with db.get_connection() as conn:
+        conn.execute("INSERT INTO employees (dept_id, name, position, email, phone) VALUES (?, 'An', 'NV', 'a@x', '1')", (a,))
+        conn.execute("INSERT INTO employees (dept_id, name, position, email, phone) VALUES (?, 'Bình', 'NV', 'b@x', '2')", (b,))
+        conn.commit()
+    assert [e["name"] for e in db.list_employees()] == ["An", "Bình"]
+    only_b = db.list_employees(dept_id=b)
+    assert [e["name"] for e in only_b] == ["Bình"] and only_b[0]["dept_name"] == "Phòng B"
+    assert len(db.list_employees(limit=1)) == 1
+    db.ping()

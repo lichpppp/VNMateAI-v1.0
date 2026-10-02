@@ -246,7 +246,7 @@ def _start_uvicorn() -> None:
     """
     import asyncio
     import uvicorn  # type: ignore[import]
-    from core.server import app  # noqa: F401
+    from mateai.interfaces.http.server import app  # noqa: F401
     from mateai.infrastructure.security.tls import ensure_ssl_certs
 
     cert_path, key_path = ensure_ssl_certs()
@@ -263,7 +263,7 @@ def _start_uvicorn() -> None:
         loop="asyncio",
         reload=False,
     )
-    from core.server import iot_listener_app
+    from mateai.interfaces.http.server import iot_listener_app
 
     config_iot = uvicorn.Config(
         # Cổng không TLS: chỉ đường WS của thiết bị + health probe (xem server.iot_listener_app).

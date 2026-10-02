@@ -1021,6 +1021,39 @@ class ERPDatabase:
                 conn.set_authorizer(None)
         return [dict(r) for r in rows]
 
+    def ping(self) -> None:
+        """Kiểm tra CSDL đọc được (probe /readyz). Ném lỗi nếu không."""
+        with self.get_connection() as conn:
+            conn.execute("SELECT 1;").fetchone()
+
+    def list_employees(self, dept_id: Optional[int] = None, role: Optional[str] = None,
+                       limit: int = 100) -> List[Dict[str, Any]]:
+        """Danh sách nhân viên (kèm tên phòng ban), lọc theo phòng ban / role."""
+        conditions: List[str] = []
+        params: List[Any] = []
+        if dept_id:
+            conditions.append("e.dept_id = ?")
+            params.append(dept_id)
+        if role:
+            conditions.append("e.role = ?")
+            params.append(role)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        params.append(max(1, min(limit, 500)))
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT e.id, e.name, e.position, e.email, e.phone, e.role,
+                       d.name AS dept_name
+                FROM employees e
+                LEFT JOIN departments d ON e.dept_id = d.id
+                {where}
+                ORDER BY e.name
+                LIMIT ?;
+                """,
+                params,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def find_department_id_by_name(self, name_fragments: List[str]) -> Optional[int]:
         """Id phòng ban đầu tiên có tên chứa một trong các đoạn (không phân biệt hoa thường)."""
         if not name_fragments:

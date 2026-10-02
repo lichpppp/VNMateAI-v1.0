@@ -105,7 +105,7 @@ check("câu cuối giữ nguyên", out[-1].strip().startswith("Xong rồi"), out
 
 # ══ 4. Ngắt lời phía máy chủ ═════════════════════════════════════════════
 print("\n▸ Máy chủ huỷ lượt thoại cũ khi có lệnh mới")
-server_py = (Path(__file__).resolve().parent.parent / "core" / "server.py").read_text(encoding="utf-8")
+server_py = (Path(__file__).resolve().parent.parent / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
 check("có sổ theo dõi task theo phiên", "_hud_voice_tasks" in server_py)
 check("có hàm huỷ lượt đang chạy", "def _cancel_hud_voice_task" in server_py)
 check("lệnh mới gọi huỷ trước khi tạo task mới",
