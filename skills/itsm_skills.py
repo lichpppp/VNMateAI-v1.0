@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_erp_db():
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     return erp_db
 
 
@@ -137,7 +137,7 @@ def create_system_ticket(
     dept_id: Optional[int] = None
     if dept_name:
         try:
-            from core.database import ERPDatabase
+            from mateai.infrastructure.database.erp_database import ERPDatabase
             conn = erp_db.get_connection()
             c = conn.cursor()
             c.execute(
@@ -514,7 +514,7 @@ def generate_daily_report(
         # Giả định kinh doanh (1 phiếu AI = 15 phút), KHÔNG phải số đo — xem
         # hằng số trong core/database.py. Trả kèm hệ số để UI dán nhãn "ước tính"
         # thay vì bán nó như một con số đo được.
-        from core.database import HOURS_SAVED_PER_AI_TASK
+        from mateai.infrastructure.database.erp_database import HOURS_SAVED_PER_AI_TASK
         hours_saved = round(ai_tasks * HOURS_SAVED_PER_AI_TASK, 2)
         completion_rate = 0.0
         if task_row.get("total", 0) > 0:

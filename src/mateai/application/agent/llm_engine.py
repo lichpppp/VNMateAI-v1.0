@@ -792,7 +792,7 @@ class LLMEngine:
 
                 display_text, speech_text = self._extract_dual_channel(reply_text)
                 state_manager.record_completed_action(pending, tool_res, display_text)
-                from core.memory_manager import memory_manager
+                from mateai.application.conversation.memory_manager import memory_manager
                 memory_manager.add_turn(active_session, query, display_text)
 
                 return {
@@ -836,7 +836,7 @@ class LLMEngine:
                 except Exception:
                     reply_text = c_reply or f"Tác vụ '{c_tool}' đã được phê duyệt và hoàn tất thành công."
                 display_text, speech_text = self._extract_dual_channel(reply_text)
-                from core.memory_manager import memory_manager
+                from mateai.application.conversation.memory_manager import memory_manager
                 memory_manager.add_turn(active_session, query, display_text)
                 return {
                     "reply": display_text,
@@ -864,7 +864,7 @@ class LLMEngine:
                 security_engine.log_audit(target_client, tool_name, "NEED_CONFIRM", "USER_REJECTED", pending.get("arguments", {}))
                 logger.info("[Phase 25] Người dùng '%s' hủy bỏ tác vụ '%s'", caller_id, tool_name)
                 rej_msg = f"Dạ, em đã hủy bỏ tác vụ '{tool_name}' theo yêu cầu của bạn."
-                from core.memory_manager import memory_manager
+                from mateai.application.conversation.memory_manager import memory_manager
                 memory_manager.add_turn(active_session, query, rej_msg)
                 return {
                     "reply": rej_msg,
@@ -897,7 +897,7 @@ class LLMEngine:
                 )
 
         # Build messages: system → history (prior turns from memory_manager) → current user
-        from core.memory_manager import memory_manager
+        from mateai.application.conversation.memory_manager import memory_manager
         effective_history = history if history is not None else memory_manager.get_history(active_session)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
@@ -1063,7 +1063,7 @@ class LLMEngine:
                 )
                 # Phase 34: Dual-Channel Output Separation & Sliding Memory Storage
                 display_text, speech_text = self._extract_dual_channel(reply_text)
-                from core.memory_manager import memory_manager
+                from mateai.application.conversation.memory_manager import memory_manager
                 memory_manager.add_turn(active_session, query, display_text)
 
                 return {
@@ -1247,7 +1247,7 @@ class LLMEngine:
             turn = {}
         _session = str(session_id or source_device or "voice")
         if history is None:
-            from core.memory_manager import memory_manager as _mm_hist
+            from mateai.application.conversation.memory_manager import memory_manager as _mm_hist
             history = _mm_hist.get_history(_session)
         sanitized_query = security_engine.mask_sensitive_data(query)
         system_content = build_system_prompt(source_device=source_device)
@@ -1402,7 +1402,7 @@ class LLMEngine:
             self.last_voice_display_text = raw_reply.strip()
             turn["display_text"] = raw_reply.strip()
             try:
-                from core.memory_manager import memory_manager as _mm
+                from mateai.application.conversation.memory_manager import memory_manager as _mm
                 _mm.add_turn(_session, query, sanitise_for_tts(raw_reply))
             except Exception:
                 pass

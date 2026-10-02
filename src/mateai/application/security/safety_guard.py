@@ -132,7 +132,7 @@ class SecurityEngine:
     Enterprise Zero-Trust Defense Engine for VN-MateAI.
     """
 
-    # Không giữ trạng thái: audit nằm trong audit_logs (core.database).
+    # Không giữ trạng thái: audit nằm trong audit_logs (mateai.infrastructure.database.erp_database).
 
     # -----------------------------------------------------------------------
     # 1. Khử Nhiễm Dữ Liệu Đầu Vào (Data Sanitizer / Masking)
@@ -290,7 +290,7 @@ class SecurityEngine:
         """
         event = str(status or "").upper()
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             erp_db.write_audit_log(
                 action_type=action,
                 status=_EVENT_TO_DB_STATUS.get(event, "failed"),
@@ -304,7 +304,7 @@ class SecurityEngine:
     def get_recent_audit_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
         """Sự kiện audit mới nhất trước (đọc từ audit_logs)."""
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             rows = erp_db.get_audit_logs(limit=limit)
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("Không đọc được audit_logs: %s", exc)

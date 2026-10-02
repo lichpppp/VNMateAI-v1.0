@@ -32,7 +32,7 @@ ALLOWED = {
     "RULE-011": {"src/mateai/infrastructure/llm/llm_provider.py", "core/audio_processor.py"},
     "RULE-012": {"src/mateai/infrastructure/tts/tts_stream_engine.py"},
     "RULE-013": {"core/config_loader.py"},
-    "RULE-014": {"core/database.py"},
+    "RULE-014": {"src/mateai/infrastructure/database/erp_database.py"},
     "RULE-015": set(),
 }
 

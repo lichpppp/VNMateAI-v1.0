@@ -14,7 +14,7 @@ import re
 import sqlite3
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)

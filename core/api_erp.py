@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from fastapi import Depends
 
 from mateai.interfaces.http.auth_dependencies import get_current_user
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 
 logger = logging.getLogger("core.api_erp")
 

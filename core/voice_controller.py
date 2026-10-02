@@ -614,7 +614,7 @@ class VoiceController:
 
     def _clear_history(self) -> None:
         try:
-            from core.memory_manager import memory_manager
+            from mateai.application.conversation.memory_manager import memory_manager
             memory_manager.clear_history(MIC_SESSION_ID)
         except Exception as exc:  # pragma: no cover
             logger.debug("VoiceController: clear history error: %s", exc)
@@ -696,7 +696,7 @@ class VoiceController:
         """
         from mateai.application.agent.llm_engine import llm_engine
         try:
-            from core.memory_manager import memory_manager
+            from mateai.application.conversation.memory_manager import memory_manager
             return llm_engine.process_voice_command_sync(
                 text,
                 history=memory_manager.get_history(MIC_SESSION_ID),

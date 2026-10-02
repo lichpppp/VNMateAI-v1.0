@@ -48,7 +48,7 @@ from mateai.application.voice.voice_session import (  # noqa: E402
 # ══ 1. Lịch sử hội thoại ═════════════════════════════════════════════════
 # Phase 3: một kho lịch sử cho mọi kênh — memory_manager, khoá phiên "hud".
 section("Lịch sử hội thoại (chống lặp lệnh) — memory_manager")
-from core.memory_manager import memory_manager  # noqa: E402
+from mateai.application.conversation.memory_manager import memory_manager  # noqa: E402
 
 _sid = "test-phase65-hud"
 memory_manager.clear_history(_sid)

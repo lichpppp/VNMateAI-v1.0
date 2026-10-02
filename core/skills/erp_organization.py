@@ -11,7 +11,7 @@ gọi thẳng erp_db. Nay đăng ký bằng @export_skill như mọi skill khác
 
 from typing import Any, Dict
 
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 
 try:
     from core.plugin_manager import export_skill

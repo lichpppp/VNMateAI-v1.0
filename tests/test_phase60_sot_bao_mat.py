@@ -269,7 +269,7 @@ def test_database_lock_is_reentrant() -> None:
     section("── database.py: khoá phải là RLock, nếu không server treo ──")
     import threading as _threading
 
-    from core.database import ERPDatabase
+    from mateai.infrastructure.database.erp_database import ERPDatabase
 
     # Phase 73: mọi thao tác ở test này dùng DB TẠM. Trước đây gọn
     # ERPDatabase() không tham số nên ghi thẳng vào vnmateai.db — mỗi lần

@@ -229,7 +229,7 @@ def test_agentic_reasoning() -> None:
 
     import core.plugin_manager as pm
     import mateai.application.skills.plugin_registry as pr
-    import core.memory_manager as mm
+    import mateai.application.conversation.memory_manager as mm
 
     pm.plugin_manager.get_all_tools = lambda: []  # type: ignore[assignment]
     pr.plugin_registry.get_all_tools_schema = lambda: []  # type: ignore[assignment]

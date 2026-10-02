@@ -55,7 +55,7 @@ def count_rows(db, table: str) -> int:
 # ──────────────────────────────────────────────────────────────────────
 section("CSDL mới khởi tạo phải TRỐNG, không tự sinh dữ liệu mẫu")
 
-from core.database import ERPDatabase  # noqa: E402
+from mateai.infrastructure.database.erp_database import ERPDatabase  # noqa: E402
 
 # Bảng ERP từng bị nạp dữ liệu mẫu
 ERP_TABLES = ("finances", "attendance", "departments", "employees", "devices", "records")
@@ -74,7 +74,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
 # ──────────────────────────────────────────────────────────────────────
 section("purge_sample_data() xóa sạch dữ liệu mẫu và chạy lại được")
 
-from core.database import erp_db  # noqa: E402
+from mateai.infrastructure.database.erp_database import erp_db  # noqa: E402
 
 with tempfile.TemporaryDirectory() as tmpdir:
     polluted = ERPDatabase(Path(tmpdir) / "polluted.db")
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     # Thứ tự khoá ngoại: bảng `tasks` ở DB thật tham chiếu `employees` với
     # on_delete=NO ACTION, nên phải xóa trước. Xóa sai thứ tự sẽ bị chặn và
     # dữ liệu mẫu còn sót lại — hãy khẳng định thứ tự trên mã nguồn.
-    db_src = (PROJECT_ROOT / "core" / "database.py").read_text(encoding="utf-8")
+    db_src = (PROJECT_ROOT / "src" / "mateai" / "infrastructure" / "database" / "erp_database.py").read_text(encoding="utf-8")
     order_line = next(
         (ln for ln in db_src.splitlines() if ln.strip().startswith("tables = (")),
         "",

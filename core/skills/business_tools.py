@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)

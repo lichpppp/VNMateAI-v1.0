@@ -16,7 +16,7 @@ import threading
 import time
 from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger("core.memory_manager")
+logger = logging.getLogger("mateai.application.conversation.memory_manager")
 
 # Default sliding window capacity: 14 messages (approx. 7 user-assistant conversational turns)
 DEFAULT_MAX_WINDOW_SIZE: int = 14

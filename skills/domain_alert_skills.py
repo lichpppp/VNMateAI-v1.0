@@ -57,7 +57,7 @@ def lookup_domain_info(query_string: str) -> Dict[str, Any]:
         }
 
     try:
-        from core.domain_sync import domain_manager
+        from mateai.infrastructure.directory.domain_sync import domain_manager
         result = domain_manager.lookup_domain_info(query_string.strip())
 
         total = result.get("total_found", 0)

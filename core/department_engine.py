@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 from core.ephemeral_cache import ephemeral_cache
 
 logger = logging.getLogger("core.department_engine")

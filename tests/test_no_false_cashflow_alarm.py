@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.database import ERPDatabase  # noqa: E402
+from mateai.infrastructure.database.erp_database import ERPDatabase  # noqa: E402
 
 PASS = 0
 FAIL = 0

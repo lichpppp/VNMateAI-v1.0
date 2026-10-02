@@ -495,7 +495,7 @@ class TelegramBotService:
     async def _handle_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /status command."""
         try:
-            from core.domain_sync import domain_manager
+            from mateai.infrastructure.directory.domain_sync import domain_manager
             stats = domain_manager.get_stats()
             await update.message.reply_text(
                 f"📊 VN-MateAI System Status\n"

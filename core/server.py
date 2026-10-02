@@ -253,7 +253,7 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
     chờ trả lời, lời đệm sau 1s, trạng thái chờ admin trả lời, về idle.
     """
     from mateai.application.voice.voice_session import voice_sessions, is_stop_reply, looks_like_question
-    from core.memory_manager import detect_and_handle_context_lifecycle
+    from mateai.application.conversation.memory_manager import detect_and_handle_context_lifecycle
     from mateai.application.voice.voice_turn import process_voice_turn
 
     # Ephemeral Data Lifecycle
@@ -1105,7 +1105,7 @@ async def startupz() -> JSONResponse:
 
 
 def _check_database() -> None:
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     with erp_db.get_connection() as conn:
         conn.execute("SELECT 1;").fetchone()
 
@@ -1838,7 +1838,7 @@ async def health_check() -> HealthResponse:
 )
 async def get_system_stats(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
     """Trả về 100% dữ liệu telemetry thực tế từ phần cứng (CPU, RAM, Uptime) và SQLite (Zero Mock)."""
-    from core.db_manager import db_manager
+    from mateai.infrastructure.database.db_manager import db_manager
     from core.orchestrator import orchestrator
     from core.plugin_manager import plugin_manager
 
@@ -2773,7 +2773,7 @@ async def get_memory_history(
     user: dict = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
     """Retrieve sliding window conversation history for session_id."""
-    from core.memory_manager import memory_manager
+    from mateai.application.conversation.memory_manager import memory_manager
     history = memory_manager.get_history(session_id)
     return {
         "status": "success",
@@ -2794,7 +2794,7 @@ async def clear_memory_history(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Reset conversational memory for session_id."""
-    from core.memory_manager import memory_manager
+    from mateai.application.conversation.memory_manager import memory_manager
     memory_manager.clear_history(session_id)
     return {
         "status": "success",
@@ -4243,7 +4243,7 @@ def _authenticate_device(websocket: WebSocket, device_id: str = "esp32-default")
             token = auth_hdr[7:].strip()
 
     if token:
-        from core.db_manager import db_manager
+        from mateai.infrastructure.database.db_manager import db_manager
         try:
             if db_manager.verify_device_token(device_id, token):
                 return True
@@ -5484,7 +5484,7 @@ async def issue_device_token_endpoint(
     device_id = payload.device_id.strip()
     if not _DEVICE_ID_RE.match(device_id):
         raise HTTPException(status_code=422, detail="device_id chỉ gồm chữ, số, '_', '-', '.', tối đa 64 ký tự.")
-    from core.db_manager import db_manager
+    from mateai.infrastructure.database.db_manager import db_manager
     token = await run_blocking(db_manager.issue_device_token, device_id=device_id, created_by=str(user.get("username", "")))
     try:
         from mateai.application.security.safety_guard import security_engine
@@ -5506,7 +5506,7 @@ async def issue_device_token_endpoint(
 
 @app.get("/api/v1/security/devices", summary="Danh sách thiết bị có token riêng", tags=["Security"])
 async def list_device_tokens_endpoint(user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
-    from core.db_manager import db_manager
+    from mateai.infrastructure.database.db_manager import db_manager
     from core.config_loader import get_config_section
     return {
         "status": "success",
@@ -5517,7 +5517,7 @@ async def list_device_tokens_endpoint(user: dict = Depends(require_roles(["admin
 
 @app.delete("/api/v1/security/devices/{device_id}", summary="Thu hồi token của một thiết bị", tags=["Security"])
 async def revoke_device_token_endpoint(device_id: str, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
-    from core.db_manager import db_manager
+    from mateai.infrastructure.database.db_manager import db_manager
     if not await run_blocking(db_manager.revoke_device_token, device_id=device_id):
         raise HTTPException(status_code=404, detail=f"Không có token cho thiết bị '{device_id}'.")
     try:
@@ -5833,7 +5833,7 @@ class MemorySearchRequest(BaseModel):
 async def get_memory_stats_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.cognitive_memory import get_memory_stats
+    from mateai.infrastructure.memory.cognitive_memory import get_memory_stats
     return get_memory_stats()
 
 
@@ -5846,7 +5846,7 @@ async def memorize_solution_endpoint(
     payload: MemorizeRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.cognitive_memory import memorize_solution
+    from mateai.infrastructure.memory.cognitive_memory import memorize_solution
     doc_id = memorize_solution(
         error_signature=payload.error_signature,
         root_cause=payload.root_cause,
@@ -5866,7 +5866,7 @@ async def search_memory_endpoint(
     payload: MemorySearchRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.cognitive_memory import search_past_incidents
+    from mateai.infrastructure.memory.cognitive_memory import search_past_incidents
     results = search_past_incidents(error_log_snippet=payload.query, n_results=payload.n_results)
     return {"status": "success", "query": payload.query, "results": results}
 
@@ -5879,7 +5879,7 @@ async def search_memory_endpoint(
 async def backup_memory_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.cognitive_memory import backup_vector_db
+    from mateai.infrastructure.memory.cognitive_memory import backup_vector_db
     zip_path = backup_vector_db()
     zip_file = Path(zip_path)
     filename = zip_file.name
@@ -5902,7 +5902,7 @@ async def download_backup_endpoint(
     filename: str = Query(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    from core.cognitive_memory import BACKUPS_DIR
+    from mateai.infrastructure.memory.cognitive_memory import BACKUPS_DIR
     target = BACKUPS_DIR / filename
     if not target.is_file():
         raise HTTPException(status_code=404, detail="Backup file not found.")
@@ -6377,7 +6377,7 @@ async def sync_domain(
         raise HTTPException(status_code=403, detail="Chỉ Admin hoặc Manager mới có quyền đồng bộ AD.")
 
     try:
-        from core.domain_sync import domain_manager
+        from mateai.infrastructure.directory.domain_sync import domain_manager
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, domain_manager.sync_all)
         logger.info(
@@ -6402,7 +6402,7 @@ async def domain_stats(
 ) -> Dict[str, Any]:
     """Return employee and computer counts from local SQLite AD cache."""
     try:
-        from core.domain_sync import domain_manager
+        from mateai.infrastructure.directory.domain_sync import domain_manager
         stats = domain_manager.get_stats()
         return {"status": "success", **stats}
     except Exception as exc:
@@ -6420,7 +6420,7 @@ async def list_employees(
 ) -> Dict[str, Any]:
     """Return a list of employees from the local SQLite AD cache."""
     try:
-        from core.domain_sync import domain_manager
+        from mateai.infrastructure.directory.domain_sync import domain_manager
         employees = domain_manager.get_employees(limit=limit)
         return {"status": "success", "count": len(employees), "data": employees}
     except Exception as exc:
@@ -6438,7 +6438,7 @@ async def list_computers(
 ) -> Dict[str, Any]:
     """Return a list of computers from the local SQLite AD cache."""
     try:
-        from core.domain_sync import domain_manager
+        from mateai.infrastructure.directory.domain_sync import domain_manager
         computers = domain_manager.get_computers(limit=limit)
         return {"status": "success", "count": len(computers), "data": computers}
     except Exception as exc:
@@ -6928,7 +6928,7 @@ async def api_audit_logs(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Truy vấn nhật ký kiểm toán. Chỉ SELECT — không thể sửa/xóa."""
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     logs = erp_db.get_audit_logs(
         limit=limit,
         employee_id=employee_id,
@@ -6955,7 +6955,7 @@ async def api_roi_dashboard(
     - Thống kê tổ chức (nhân viên, phòng ban)
     """
     from skills.itsm_skills import generate_daily_report
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
 
     # Báo cáo ngày
     report = await run_blocking(generate_daily_report,
@@ -7004,7 +7004,7 @@ async def api_erp_employees(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Trả về danh sách nhân viên từ ERP, lọc theo phòng ban hoặc role."""
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     try:
         conn = erp_db.get_connection()
         c = conn.cursor()
@@ -7050,7 +7050,7 @@ async def api_enterprise_kpi_overview(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy toàn bộ chỉ số KPI: Tasks, Nhân sự, Tài chính, Cashflow, Burn Rate, Runway."""
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     try:
         overview = erp_db.get_company_kpi_overview()
         leaderboard = erp_db.get_task_leaderboard(5)
@@ -7072,7 +7072,7 @@ async def api_enterprise_finances(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy danh sách giao dịch tài chính (lọc theo loại: income/expense)."""
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     try:
         records = erp_db.get_finances(finance_type=finance_type, limit=limit)
         summary = erp_db.get_financial_summary()
@@ -7098,7 +7098,7 @@ async def api_enterprise_record_finance(
     Việc đội tên tác vụ vào đúng tên trong RISK_LEVEL_MAP là bắt buộc — nếu dùng
     tên chung chung thì ngưỡng 50 triệu sẽ không kích hoạt.
     """
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     from mateai.application.security.zero_trust import execute_with_hitl
 
     try:
@@ -7160,7 +7160,7 @@ async def api_enterprise_attendance(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy danh sách chấm công theo ngày."""
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     try:
         records = erp_db.get_attendance(date_str=date_str, limit=limit)
         return {"status": "success", "date": date_str or "Hôm nay", "total": len(records), "records": records}
@@ -7178,7 +7178,7 @@ async def api_enterprise_leaderboard(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy bảng xếp hạng hoàn thành công việc (Employee Leaderboard)."""
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
     try:
         leaderboard = erp_db.get_task_leaderboard(limit=limit)
         return {"status": "success", "leaderboard": leaderboard}

@@ -149,7 +149,7 @@ def _check_db_and_ad() -> Tuple[bool, Dict[str, Any]]:
     }
 
     try:
-        from core.database import open_sqlite
+        from mateai.infrastructure.database.erp_database import open_sqlite
         with open_sqlite(_DB_PATH, timeout=1.5, wal=False) as conn:
             # Test query
             res = conn.execute("SELECT 1").fetchone()

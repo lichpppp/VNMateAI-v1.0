@@ -30,7 +30,11 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 # Base paths
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án (đúng cả bản đóng gói) — KHÔNG suy từ vị trí file mã nguồn:
+# chuyển module mà đường dẫn lệch là máy chủ mở một CSDL rỗng mới.
+from core.config_loader import settings as _settings  # noqa: E402
+
+PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 DEFAULT_LOCAL_PATH = PROJECT_ROOT / "storage" / "vector_db"
 BACKUPS_DIR = PROJECT_ROOT / "storage" / "backups"
 COLLECTION_NAME = "incident_knowledge_base"

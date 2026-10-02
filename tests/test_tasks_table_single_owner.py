@@ -1,7 +1,7 @@
 """
 tests/test_tasks_table_single_owner.py
 ======================================
-Bảng `tasks` có MỘT định nghĩa schema (core.database.ensure_tasks_table).
+Bảng `tasks` có MỘT định nghĩa schema (mateai.infrastructure.database.erp_database.ensure_tasks_table).
 
 Trước đây db_manager và ERPDatabase mỗi bên tự CREATE bản riêng; schema thật
 phụ thuộc bên nào khởi tạo trước. ERP trước → title NOT NULL → lệnh giao việc
@@ -18,8 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.database as database  # noqa: E402
-import core.db_manager as dbm  # noqa: E402
+import mateai.infrastructure.database.erp_database as database  # noqa: E402
+import mateai.infrastructure.database.db_manager as dbm  # noqa: E402
 
 
 @pytest.mark.parametrize("erp_first", [True, False])

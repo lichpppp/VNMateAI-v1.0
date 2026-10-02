@@ -640,3 +640,20 @@ Xoá package rỗng `core/security/` (còn lại sau khi gộp HITL). 32 file đ
 **Ranh giới tầng:** `test_architecture_boundaries` (RULE-003) bắt `auth_manager` ở tầng application import FastAPI → tách phần dependency HTTP sang `interfaces/http`.
 **Test:** 267 pass.
 **Runtime:** dấu vân tay `certs/jwt_secret.key` (`e4c652ed…`) và `certs/server.crt` (`81f798f1…`) KHÔNG đổi; JWT cấp trước khi chuyển vẫn hợp lệ (200); audit-logs và HITL pending 200; viewer vào route admin 403; thiết bị không token 403.
+
+## 32. Phase 4 — Data vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/database.py` (`ERPDatabase`, `open_sqlite`, `ensure_tasks_table`, audit) | `mateai/infrastructure/database/erp_database.py` |
+| `core/db_manager.py` (users, tasks LAN, device_tokens) | `mateai/infrastructure/database/db_manager.py` |
+| `core/domain_sync.py` (đồng bộ AD, `hr_kpi.db`) | `mateai/infrastructure/directory/domain_sync.py` |
+| `core/memory_manager.py` (lịch sử hội thoại) | `mateai/application/conversation/memory_manager.py` |
+| `core/cognitive_memory.py` (ChromaDB) | `mateai/infrastructure/memory/cognitive_memory.py` |
+
+**Bẫy nguy hiểm nhất của Phase 4, xử lý TRƯỚC khi chuyển:** cả 4 module tính thư mục gốc bằng `Path(__file__).parent.parent` → sau khi chuyển, máy chủ sẽ mở `src/mateai/vnmateai.db` RỖNG (mất dữ liệu ERP/audit khỏi tầm nhìn, tạo lại tài khoản `admin123`). Đổi sang `settings.PROJECT_ROOT`; test bảo vệ `test_data_paths_stable.py` (đạt trước và sau khi chuyển).
+**Đã xoá (bản song song không có caller):** `infrastructure/database/{sqlite_repository,factory}.py`, `domain/repository_ports.py`, `tests/unit/test_repositories.py`. RULE-014 baseline: vi phạm của `sqlite_repository` mất theo.
+**Test:** 265 pass.
+**Runtime (CSDL thật):** chỉ có `vnmateai.db`, `hr_kpi.db` ở thư mục gốc, không file CSDL mới; số dòng trước/sau: users 3/3, tasks 0/0, device_tokens 0/0, audit_logs 31/32 (+1 = sự kiện thật `PROACTIVE_TASK_AUDIT` lúc khởi động, ghi vào đúng CSDL cũ); JWT cũ hợp lệ, danh sách user đúng; `/readyz`, ROI, domain 200.

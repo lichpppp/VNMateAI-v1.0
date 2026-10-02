@@ -55,7 +55,7 @@ def main() -> None:
     from mateai.application.security import zero_trust
     from mateai.application.security.zero_trust import HITL_NOTIFY_RESULT, hitl_manager
     from core.telegram_gateway import telegram_gateway as tg
-    from core.database import erp_db
+    from mateai.infrastructure.database.erp_database import erp_db
 
     # ── Đếm, không gửi thật ────────────────────────────────────────────────
     sent = {"request": 0, "alert": 0}

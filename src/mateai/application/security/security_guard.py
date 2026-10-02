@@ -233,7 +233,7 @@ class SecurityGuard:
     ) -> List[Dict[str, Any]]:
         """Lấy nhật ký kiểm toán từ DB. Chỉ SELECT."""
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             return erp_db.get_audit_logs(
                 limit=limit,
                 employee_id=employee_id,
@@ -247,7 +247,7 @@ class SecurityGuard:
     def get_audit_stats(self) -> Dict[str, Any]:
         """Thống kê nhật ký kiểm toán cho ROI Dashboard."""
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             return erp_db.get_audit_stats()
         except Exception as e:
             logger.error("Không thể thống kê audit_logs: %s", e)
@@ -289,13 +289,13 @@ class SecurityGuard:
         # viewer tên "hudson" (tiền tố "hud") hay "console" được cấp admin.
         try:
             # Ưu tiên 1: ERP employees
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             emp = erp_db.get_employee_by_identifier(employee_id)
             if emp and emp.get("role"):
                 return self._normalize_role(emp["role"])
 
             # Ưu tiên 2: Portal users (auth system)
-            from core.db_manager import db_manager
+            from mateai.infrastructure.database.db_manager import db_manager
             user = db_manager.get_user_by_username_or_id(employee_id)
             if user and user.get("role"):
                 return PORTAL_ROLE_MAP.get(str(user["role"]).strip().lower(), DEFAULT_ROLE)
@@ -390,7 +390,7 @@ class SecurityGuard:
         if not self._audit_enabled:
             return
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             payload_str: Optional[str] = None
             if payload is not None:
                 try:

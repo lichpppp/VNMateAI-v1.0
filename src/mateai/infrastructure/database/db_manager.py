@@ -24,11 +24,15 @@ from typing import Any, Dict, List, Optional, Tuple
 import bcrypt
 import psutil
 
-from core.database import ensure_tasks_table, open_sqlite
+from mateai.infrastructure.database.erp_database import ensure_tasks_table, open_sqlite
 
-logger = logging.getLogger("core.db_manager")
+logger = logging.getLogger("mateai.infrastructure.database.db_manager")
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án (đúng cả bản đóng gói) — KHÔNG suy từ vị trí file mã nguồn:
+# chuyển module mà đường dẫn lệch là máy chủ mở một CSDL rỗng mới.
+from core.config_loader import settings as _settings  # noqa: E402
+
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 DB_PATH = Path(os.environ.get("VNMATEAI_DB_PATH") or _PROJECT_ROOT / "vnmateai.db")
 USERS_JSON_PATH = _PROJECT_ROOT / "users.json"
 KPI_CSV_PATH = _PROJECT_ROOT / "logs" / "kpi_logs.csv"
@@ -72,7 +76,7 @@ class DatabaseManager:
                         "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);"
                     )
 
-                    # 2. Bảng tasks — schema chung, định nghĩa ở core.database.
+                    # 2. Bảng tasks — schema chung, định nghĩa ở mateai.infrastructure.database.erp_database.
                     ensure_tasks_table(cursor)
 
                     # 3. Token riêng của từng thiết bị IoT — chỉ lưu SHA-256.

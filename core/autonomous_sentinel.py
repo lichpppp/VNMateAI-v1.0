@@ -114,7 +114,7 @@ class AutonomousSentinel:
             return None
 
         try:
-            from core.database import open_sqlite
+            from mateai.infrastructure.database.erp_database import open_sqlite
             with open_sqlite(_DB_PATH, timeout=2.0, wal=False) as conn:
                 try:
                     row = conn.execute(
@@ -155,7 +155,7 @@ class AutonomousSentinel:
 
         try:
             # Attempt immediate transaction lock test with short timeout
-            from core.database import open_sqlite
+            from mateai.infrastructure.database.erp_database import open_sqlite
             with open_sqlite(_DB_PATH, timeout=0.8, wal=False) as conn:
                 # quick_check KHÔNG ném lỗi khi file hỏng — nó trả các dòng mô tả
                 # lỗi ("ok" nếu lành). Trước đây kết quả bị bỏ qua nên CSDL hỏng

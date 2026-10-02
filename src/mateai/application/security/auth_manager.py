@@ -22,7 +22,7 @@ import bcrypt
 import jwt
 from passlib.context import CryptContext
 
-from core.db_manager import db_manager
+from mateai.infrastructure.database.db_manager import db_manager
 
 logger = logging.getLogger("mateai.application.security.auth_manager")
 
@@ -92,7 +92,7 @@ pwd_context = CryptContext(schemes=["bcrypt", "pbkdf2_sha256"], deprecated="auto
 class AuthManager:
     """Quản trị danh tính, xác thực và lưu trữ người dùng."""
 
-    """Tài khoản nằm DUY NHẤT trong bảng users của SQLite (core.db_manager)."""
+    """Tài khoản nằm DUY NHẤT trong bảng users của SQLite (mateai.infrastructure.database.db_manager)."""
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:

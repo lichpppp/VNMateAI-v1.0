@@ -22,7 +22,7 @@ from typing import Any, Dict, List
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.history_pruner import clean_voice_content, prune_history_for_voice, rolling_context_manager
-from core.memory_manager import memory_manager
+from mateai.application.conversation.memory_manager import memory_manager
 
 
 def test_markdown_and_voice_tag_cleaning():

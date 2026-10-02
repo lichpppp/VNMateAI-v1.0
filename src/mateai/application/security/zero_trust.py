@@ -281,7 +281,7 @@ class HumanInTheLoopManager:
 
         # Ghi log bất biến vào audit_logs với trạng thái pending
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             erp_db.log_audit_action(
                 employee_id=requested_by,
                 action_type=f"HITL_APPROVAL_REQUEST_{action_name.upper()}",
@@ -417,7 +417,7 @@ class HumanInTheLoopManager:
 
         # Ghi log Audit Log bất biến
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             erp_db.log_audit_action(
                 employee_id=approved_by,
                 action_type=f"HITL_APPROVED_{item['action_name'].upper()}",
@@ -616,7 +616,7 @@ class HumanInTheLoopManager:
 
         # Ghi log Audit Log bất biến
         try:
-            from core.database import erp_db
+            from mateai.infrastructure.database.erp_database import erp_db
             erp_db.log_audit_action(
                 employee_id=rejected_by,
                 action_type=f"HITL_REJECTED_{item['action_name'].upper()}",

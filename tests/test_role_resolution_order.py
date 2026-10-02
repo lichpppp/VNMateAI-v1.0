@@ -20,8 +20,8 @@ from mateai.application.security.security_guard import security_guard  # noqa: E
 
 
 def _fake_db(monkeypatch, users):
-    import core.database as database
-    import core.db_manager as db_manager_mod
+    import mateai.infrastructure.database.erp_database as database
+    import mateai.infrastructure.database.db_manager as db_manager_mod
     monkeypatch.setattr(database.erp_db, "get_employee_by_identifier", lambda _i: None)
     monkeypatch.setattr(db_manager_mod.db_manager, "get_user_by_username_or_id",
                         lambda i: users.get(str(i)))
@@ -41,7 +41,7 @@ def test_server_assigned_channel_ids_still_admin(monkeypatch):
 
 
 def test_lookup_error_fails_closed_even_for_device_prefix(monkeypatch):
-    import core.database as database
+    import mateai.infrastructure.database.erp_database as database
 
     def boom(_i):
         raise RuntimeError("db down")

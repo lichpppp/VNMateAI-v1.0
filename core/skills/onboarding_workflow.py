@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)

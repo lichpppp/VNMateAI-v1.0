@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from core.db_manager import db_manager
+from mateai.infrastructure.database.db_manager import db_manager
 
 logger = logging.getLogger(__name__)
 

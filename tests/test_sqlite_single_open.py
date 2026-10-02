@@ -1,7 +1,7 @@
 """
 tests/test_sqlite_single_open.py
 ================================
-core.database.open_sqlite là nơi duy nhất mở SQLite trong core/ (RULE-014).
+mateai.infrastructure.database.erp_database.open_sqlite là nơi duy nhất mở SQLite trong core/ (RULE-014).
 
 Kèm lỗi tìm thấy khi gom: autonomous_sentinel.check_sql_health gọi
 `PRAGMA quick_check` nhưng bỏ qua kết quả — quick_check KHÔNG ném lỗi khi file
@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core.autonomous_sentinel as sentinel  # noqa: E402
-from core.database import open_sqlite  # noqa: E402
+from mateai.infrastructure.database.erp_database import open_sqlite  # noqa: E402
 
 
 def test_open_sqlite_options_and_closes_on_exit(tmp_path):
@@ -51,7 +51,7 @@ def test_sentinel_reports_quick_check_problems(tmp_path, monkeypatch):
     sqlite3.connect(db).execute("CREATE TABLE t(a)").connection.close()
     monkeypatch.setattr(sentinel, "_DB_PATH", db)
 
-    import core.database as database
+    import mateai.infrastructure.database.erp_database as database
     real = database.open_sqlite
 
     class Wrapped:

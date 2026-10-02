@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from core.database import erp_db
+from mateai.infrastructure.database.erp_database import erp_db
 from core.department_engine import department_engine
 from core.worknodes.elastic_grid_manager import elastic_grid_manager
 from core.agents.agent_orchestrator import multi_agent_system

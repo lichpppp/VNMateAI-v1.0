@@ -58,11 +58,11 @@ def section(title: str) -> None:
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-import core.database as cdb  # noqa: E402
-from core.database import HOURS_SAVED_PER_AI_TASK, ERPDatabase  # noqa: E402
+import mateai.infrastructure.database.erp_database as cdb  # noqa: E402
+from mateai.infrastructure.database.erp_database import HOURS_SAVED_PER_AI_TASK, ERPDatabase  # noqa: E402
 import skills.itsm_skills as itsm  # noqa: E402
 
-# `generate_daily_report` lấy DB qua `core.database.erp_db` (biến module), nên
+# `generate_daily_report` lấy DB qua `mateai.infrastructure.database.erp_database.erp_db` (biến module), nên
 # phải trỏ tạm sang CSDL trong tempdir rồi trả lại — tuyệt đối không để test
 # ghi vào vnmateai.db thật.
 _REAL_ERP_DB = cdb.erp_db
@@ -75,7 +75,7 @@ def use_temp_db(tmp: str) -> ERPDatabase:
 
 
 ITSM_SRC = (PROJECT_ROOT / "skills" / "itsm_skills.py").read_text(encoding="utf-8")
-DB_SRC = (PROJECT_ROOT / "core" / "database.py").read_text(encoding="utf-8")
+DB_SRC = (PROJECT_ROOT / "src" / "mateai" / "infrastructure" / "database" / "erp_database.py").read_text(encoding="utf-8")
 
 
 def strip_comments(src: str) -> str:

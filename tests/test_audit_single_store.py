@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.database import erp_db  # noqa: E402
+from mateai.infrastructure.database.erp_database import erp_db  # noqa: E402
 from mateai.application.security.safety_guard import security_engine  # noqa: E402
 
 

@@ -106,7 +106,7 @@ async def process_voice_turn(
             audio = get_cached_audio_bytes(reply) or await get_tts_engine().synthesise(reply)
             if audio:
                 await sink.on_audio(1, audio, reply, "speech", fast_path=True)
-            from core.memory_manager import memory_manager
+            from mateai.application.conversation.memory_manager import memory_manager
             memory_manager.add_turn(session_id, query, reply)
             await sink.on_status("done", fast_path=True)
             logger.info("[VoiceTurn] Lệnh nhanh '%s' xong sau %.0fms", fast_res.command_name,

@@ -10,8 +10,6 @@
   "RULE-013": {
     "src/mateai/config/settings.py": 1
   },
-  "RULE-014": {
-    "src/mateai/infrastructure/database/sqlite_repository.py": 1
-  },
+  "RULE-014": {},
   "RULE-015": {}
 }

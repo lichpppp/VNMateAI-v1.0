@@ -58,7 +58,7 @@ def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
     """
     Tạo / di trú bảng `tasks` — nơi DUY NHẤT định nghĩa schema của bảng này.
 
-    Bảng do hai luồng dùng chung: giao việc cho máy trạm (core.db_manager:
+    Bảng do hai luồng dùng chung: giao việc cho máy trạm (mateai.infrastructure.database.db_manager:
     client_id, task_message, sender) và công việc ERP (dept_id, title,
     due_date...). Trước đây mỗi module tự CREATE bản của mình, nên schema thật
     phụ thuộc module nào khởi tạo trước: ERP trước → title NOT NULL → lệnh giao
@@ -150,9 +150,13 @@ class ClosingConnection(sqlite3.Connection):
         finally:
             self.close()
 
-logger = logging.getLogger("core.database")
+logger = logging.getLogger("mateai.infrastructure.database.erp_database")
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án (đúng cả bản đóng gói) — KHÔNG suy từ vị trí file mã nguồn:
+# chuyển module mà đường dẫn lệch là máy chủ mở một CSDL rỗng mới.
+from core.config_loader import settings as _settings  # noqa: E402
+
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 DB_PATH = Path(os.environ.get("VNMATEAI_DB_PATH") or _PROJECT_ROOT / "vnmateai.db")
 
 # Số giờ tiết kiệm ước tính cho mỗi phiếu do AI tự xử lý.
