@@ -4124,7 +4124,7 @@ async def _handle_audio_stream(websocket: WebSocket, device_id: str) -> None:
     """
     from core.xiaozhi_gateway import xiaozhi_gateway
 
-    if not _authenticate_device(websocket):
+    if not _authenticate_device(websocket, device_id):
         logger.warning(
             "Từ chối thiết bị '%s' kết nối từ %s: thiếu hoặc sai enrollment token.",
             device_id,
@@ -4299,12 +4299,15 @@ def _get_device_enrollment_secret() -> str:
         return ""
 
 
-def _authenticate_device(websocket: WebSocket) -> bool:
+def _authenticate_device(websocket: WebSocket, device_id: str = "esp32-default") -> bool:
     """
     Xác thực thiết bị ESP32 trước khi cho stream âm thanh.
 
-    Chấp nhận (một trong hai):
-      1. Device enrollment secret — header `Authorization: Bearer <token>` (chuẩn
+    Chấp nhận (một trong ba):
+      0. Token RIÊNG của đúng `device_id` này (bảng device_tokens, cấp ở
+         POST /api/v1/security/devices). Lộ token của robot A không giả được robot B.
+      1. Device enrollment secret DÙNG CHUNG (tương thích firmware cũ) — trừ khi
+         `security.require_per_device_token` = true trong config.json. — header `Authorization: Bearer <token>` (chuẩn
          firmware xiaozhi-esp32) hoặc `?token=`. Lấy ở /api/v1/security/device-enrollment-token,
          dán vào DEFAULT_DEVICE_TOKEN của firmware.
       2. JWT của tài khoản admin/manager (debug thủ công).
@@ -4319,10 +4322,23 @@ def _authenticate_device(websocket: WebSocket) -> bool:
         if auth_hdr.lower().startswith("bearer "):
             token = auth_hdr[7:].strip()
 
-    # 1. Kiểm tra enrollment secret hoặc JWT token nếu có
     if token:
+        from core.db_manager import db_manager
+        try:
+            if db_manager.verify_device_token(device_id, token):
+                return True
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("[Xiaozhi] Lỗi kiểm token thiết bị '%s': %s", device_id, exc)
+
         expected = _get_device_enrollment_secret()
         if expected and secrets.compare_digest(token, expected):
+            from core.config_loader import get_config_section
+            if get_config_section("security").get("require_per_device_token", False):
+                logger.warning("[Xiaozhi] Từ chối '%s': token dùng chung đã bị tắt "
+                               "(security.require_per_device_token).", device_id)
+                return False
+            logger.warning("[Xiaozhi] Thiết bị '%s' dùng token CHUNG — hãy cấp token riêng "
+                           "(POST /api/v1/security/devices).", device_id)
             return True
 
         try:
@@ -5530,6 +5546,67 @@ async def inspect_security_sandbox(
         "has_sensitive_data": has_sensitive,
         "masked_content": masked,
     }
+
+
+_DEVICE_ID_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,64}$")
+
+
+class DeviceTokenRequest(BaseModel):
+    device_id: str
+
+
+@app.post("/api/v1/security/devices", summary="Cấp / xoay token riêng cho một thiết bị IoT", tags=["Security"])
+async def issue_device_token_endpoint(
+    payload: DeviceTokenRequest,
+    user: dict = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    """Token gốc chỉ trả về MỘT lần (máy chủ chỉ lưu hash). Cấp lại = token cũ hết hiệu lực."""
+    device_id = payload.device_id.strip()
+    if not _DEVICE_ID_RE.match(device_id):
+        raise HTTPException(status_code=422, detail="device_id chỉ gồm chữ, số, '_', '-', '.', tối đa 64 ký tự.")
+    from core.db_manager import db_manager
+    token = await run_blocking(db_manager.issue_device_token, device_id=device_id, created_by=str(user.get("username", "")))
+    try:
+        from core.safety_guard import security_engine
+        security_engine.log_audit(str(user.get("username", "")), "issue_device_token", "SAFE", "SUCCESS",
+                                  {"device_id": device_id})
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return {
+        "status": "success",
+        "device_id": device_id,
+        "device_token": token,
+        "ws_path": f"/api/v1/xiaozhi/ws/{device_id}",
+        "instructions": (
+            "Dán token vào DEFAULT_DEVICE_TOKEN và đặt DEFAULT_DEVICE_ID = device_id trong "
+            "esp32_firmware/src/secrets.h, build và nạp lại. Token chỉ hiện một lần."
+        ),
+    }
+
+
+@app.get("/api/v1/security/devices", summary="Danh sách thiết bị có token riêng", tags=["Security"])
+async def list_device_tokens_endpoint(user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    from core.db_manager import db_manager
+    from core.config_loader import get_config_section
+    return {
+        "status": "success",
+        "devices": await run_blocking(db_manager.list_device_tokens),
+        "require_per_device_token": bool(get_config_section("security").get("require_per_device_token", False)),
+    }
+
+
+@app.delete("/api/v1/security/devices/{device_id}", summary="Thu hồi token của một thiết bị", tags=["Security"])
+async def revoke_device_token_endpoint(device_id: str, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    from core.db_manager import db_manager
+    if not await run_blocking(db_manager.revoke_device_token, device_id=device_id):
+        raise HTTPException(status_code=404, detail=f"Không có token cho thiết bị '{device_id}'.")
+    try:
+        from core.safety_guard import security_engine
+        security_engine.log_audit(str(user.get("username", "")), "revoke_device_token", "SAFE", "SUCCESS",
+                                  {"device_id": device_id})
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return {"status": "success", "device_id": device_id}
 
 
 @app.get(

@@ -669,7 +669,8 @@ void setupWiFi() {
 
 void setupWebSocket() {
     Serial.printf("[WebSocket] → %s:%d%s\n", cfg_server_host.c_str(), cfg_server_port, DEFAULT_WS_PATH);
-    String wsPath = String(DEFAULT_WS_PATH);
+    // Gắn id thiết bị vào đường dẫn: máy chủ ràng buộc token riêng với ĐÚNG id này.
+    String wsPath = String(DEFAULT_WS_PATH) + "/" + DEFAULT_DEVICE_ID;
     if (cfg_device_token.length() > 0) {
         wsPath += (wsPath.indexOf('?') >= 0) ? "&token=" : "?token=";
         wsPath += cfg_device_token;

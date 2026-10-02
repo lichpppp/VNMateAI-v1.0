@@ -75,6 +75,19 @@ class DatabaseManager:
                     # 2. Bảng tasks — schema chung, định nghĩa ở core.database.
                     ensure_tasks_table(cursor)
 
+                    # 3. Token riêng của từng thiết bị IoT — chỉ lưu SHA-256.
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS device_tokens (
+                            device_id TEXT PRIMARY KEY,
+                            token_sha256 TEXT NOT NULL,
+                            created_at TEXT NOT NULL,
+                            created_by TEXT,
+                            last_seen_at TEXT
+                        );
+                        """
+                    )
+
                     conn.commit()
 
                 # Bảng users là kho tài khoản DUY NHẤT. Chỉ khi bảng rỗng (lần
@@ -341,6 +354,65 @@ class DatabaseManager:
     # -----------------------------------------------------------------------
     # Task Operations
     # -----------------------------------------------------------------------
+
+    # -----------------------------------------------------------------------
+    # Device tokens (một token cho MỘT thiết bị)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _sha256(token: str) -> str:
+        import hashlib
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def issue_device_token(self, device_id: str, created_by: str = "") -> str:
+        """Cấp (hoặc xoay) token cho device_id. Trả token GỐC — chỉ hiện một lần."""
+        import secrets as _secrets
+        token = _secrets.token_urlsafe(32)
+        now = datetime.utcnow().isoformat()
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO device_tokens (device_id, token_sha256, created_at, created_by, last_seen_at)
+                    VALUES (?, ?, ?, ?, NULL)
+                    ON CONFLICT(device_id) DO UPDATE SET
+                        token_sha256 = excluded.token_sha256,
+                        created_at = excluded.created_at,
+                        created_by = excluded.created_by,
+                        last_seen_at = NULL;
+                    """,
+                    (device_id, self._sha256(token), now, created_by),
+                )
+                conn.commit()
+        return token
+
+    def verify_device_token(self, device_id: str, token: str) -> bool:
+        """Token khớp với ĐÚNG device_id này (so sánh hằng thời gian trên hash)."""
+        import hmac
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT token_sha256 FROM device_tokens WHERE device_id = ?;", (device_id,)
+            ).fetchone()
+            if not row or not hmac.compare_digest(row["token_sha256"], self._sha256(token)):
+                return False
+            conn.execute("UPDATE device_tokens SET last_seen_at = ? WHERE device_id = ?;",
+                         (datetime.utcnow().isoformat(), device_id))
+            conn.commit()
+            return True
+
+    def list_device_tokens(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT device_id, created_at, created_by, last_seen_at FROM device_tokens ORDER BY device_id;"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def revoke_device_token(self, device_id: str) -> bool:
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute("DELETE FROM device_tokens WHERE device_id = ?;", (device_id,))
+                conn.commit()
+                return cur.rowcount > 0
 
     def add_or_update_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
         """Lưu hoặc cập nhật tác vụ vào bảng tasks."""

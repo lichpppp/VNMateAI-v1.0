@@ -530,3 +530,17 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Sửa:** chỉ nhận device enrollment secret (query `?token=` hoặc header `Authorization: Bearer`) hoặc JWT admin/manager.
 **Test:** `test_device_auth_requires_token.py` (5 — fail trên code cũ). **Runtime (cả cổng 8000 và 443):** không token / token sai → HTTP 403; device token (query hoặc Bearer) → nhận, thiết bị nhận gói `ui`. Toàn bộ: 270 pass.
 **Ảnh hưởng vận hành:** robot/ESP32 nạp firmware với `DEFAULT_DEVICE_TOKEN ""` sẽ bị từ chối cho tới khi nạp token (lấy ở `GET /api/v1/security/device-enrollment-token`, quyền admin).
+
+## 26. Token riêng cho từng thiết bị IoT (2026-10-02)
+
+**STATUS:** XONG phía máy chủ; firmware đã sửa mã, chưa build/nạp trên chip thật.
+
+**Rủi ro:** mọi robot dùng CHUNG một device secret; `device_id` lấy từ URL → lộ secret của một robot = giả được mọi robot. Firmware còn kết nối không kèm id (mọi robot là `esp32-default`), và `DEFAULT_DEVICE_ID` bị `#define` cứng (không ghi đè được trong `secrets.h`).
+**Sửa:**
+- Bảng `device_tokens` (`db_manager`, chỉ lưu SHA-256). `issue/verify/list/revoke_device_token`. So sánh hằng thời gian.
+- `_authenticate_device(websocket, device_id)`: token riêng chỉ mở đúng `device_id` của nó; token chung vẫn được nhận (cảnh báo log) trừ khi `security.require_per_device_token` = true.
+- API admin: `POST /api/v1/security/devices` (cấp/xoay — token hiện một lần), `GET` (danh sách, không lộ token), `DELETE /{id}` (thu hồi); ghi audit.
+- Firmware: `wsPath = DEFAULT_WS_PATH + "/" + DEFAULT_DEVICE_ID`; `DEFAULT_DEVICE_ID` bọc `#ifndef`; `secrets.example.h` hướng dẫn id + token riêng.
+**Test:** `test_per_device_tokens.py` (5). Toàn bộ 275 pass.
+**Runtime (cổng 8000):** cấp token cho `smoke_robot` → kết nối đúng id: nhận; cùng token cho `esp32_kitchen` hoặc đường không id: 403; thu hồi → 403. Token thử đã thu hồi.
+**Việc của chủ dự án:** `docs/production/owner-todo.md`.

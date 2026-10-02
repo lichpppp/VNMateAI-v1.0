@@ -83,11 +83,14 @@ Chạy hai listener (443 và 8000) trong một tiến trình. Dùng dịch vụ 
 
 ## 8. Thiết bị ESP32 / Xiaozhi
 
-Thiết bị **bắt buộc** có device token (không còn chế độ cắm-là-chạy trong LAN):
+Thiết bị **bắt buộc** có token (không còn chế độ cắm-là-chạy trong LAN). Khuyến nghị: **token riêng cho từng robot**, ràng buộc với id của robot.
 
-1. Lấy token: `GET /api/v1/security/device-enrollment-token` (tài khoản admin) — giá trị trong `certs/device_secret.key`.
-2. Dán vào `DEFAULT_DEVICE_TOKEN` (`esp32_firmware/src/secrets.h`, không commit), build, nạp firmware.
-3. Thiết bị kết nối `ws://<máy chủ>:8000/api/v1/xiaozhi/ws` với `?token=` hoặc header `Authorization: Bearer`. Thiếu/sai token → HTTP 403.
+1. Chọn id riêng (chữ, số, `_ - .`, ≤ 64 ký tự).
+2. Cấp token (admin): `POST /api/v1/security/devices` `{"device_id": "<id>"}` — trả `device_token` **một lần** (máy chủ chỉ lưu hash) và `ws_path`. Gọi lại = xoay token (token cũ hết hiệu lực). Xem danh sách: `GET /api/v1/security/devices`; thu hồi: `DELETE /api/v1/security/devices/<id>`.
+3. `esp32_firmware/src/secrets.h` (không commit): `DEFAULT_DEVICE_ID` = id, `DEFAULT_DEVICE_TOKEN` = token; build, nạp.
+4. Robot kết nối `ws://<máy chủ>:8000/api/v1/xiaozhi/ws/<id>` với `?token=` hoặc `Authorization: Bearer`. Token của robot A dùng cho id khác → HTTP 403.
+
+Tương thích: token **chung** (`certs/device_secret.key`, `GET /api/v1/security/device-enrollment-token`) vẫn được nhận, kèm cảnh báo trong log, cho tới khi đặt `"security": {"require_per_device_token": true}` trong `config.json`.
 
 ## 9. Máy trạm (client agent) và worker
 

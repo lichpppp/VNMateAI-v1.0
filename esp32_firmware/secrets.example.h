@@ -25,11 +25,16 @@
 #define DEFAULT_WIFI_SSID "TEN_WIFI_CUA_BAN"
 #define DEFAULT_WIFI_PASS "MAT_KHAU_WIFI_CUA_BAN"
 
-// ─── Device Enrollment Token ────────────────────────────────────────────────
-// Zero-Trust: master server từ chối kết nối /api/v1/xiaozhi/ws nếu thiếu token
-// này (WebSocket close code 1008). Lấy giá trị từ file `certs/device_secret.key`
-// trên máy chủ VN-MateAI — file đó tự sinh ở lần chạy đầu tiên.
+// ─── Danh tính + token của RIÊNG robot này ──────────────────────────────────
+// Máy chủ từ chối kết nối nếu thiếu/sai token (HTTP 403). Mỗi robot một id và
+// một token riêng — lộ token của robot này không giả được robot khác.
 //
-// Khởi động server một lần, rồi:  cat certs/device_secret.key
+// Cấp token (tài khoản admin), token chỉ hiện MỘT lần:
+//   POST https://<máy chủ>/api/v1/security/devices   {"device_id": "robot_phong_hop"}
+// Robot kết nối ws://<máy chủ>:8000/api/v1/xiaozhi/ws/<DEFAULT_DEVICE_ID>?token=...
+//
+// (Tương thích cũ: token chung trong certs/device_secret.key vẫn được nhận cho
+//  tới khi admin bật security.require_per_device_token trong config.json.)
+#define DEFAULT_DEVICE_ID    "robot_phong_hop"
 #define DEFAULT_DEVICE_TOKEN ""
 

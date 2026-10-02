@@ -11,7 +11,7 @@ Dành cho: quản trị viên IT và người đánh giá an ninh. Mọi điểm
 | `/ws/portal-ui`, `/ws/voice`, `/ws/v1/voice-stream`, `/ws/topology` | JWT (`?token=`) | đóng 1008 / HTTP 403 (`test_websockets_require_login`) |
 | `/ws/hud` | JWT; không có thì chỉ xem telemetry, **không** nhận lệnh thoại | `auth_required` (`test_hud_requires_login`) |
 | `/ws/client` (client agent) | Enrollment secret (gói tải agent) hoặc JWT admin/manager | đóng 1008 |
-| `/api/v1/xiaozhi/ws`, `/ws/audio-stream` (ESP32) | Device enrollment secret (query hoặc Bearer) hoặc JWT admin/manager. **Không** có ngoại lệ theo IP LAN | HTTP 403 (`test_device_auth_requires_token`) |
+| `/api/v1/xiaozhi/ws/<id>`, `/ws/audio-stream/<id>` (ESP32) | Token riêng của đúng `<id>` (khuyến nghị), hoặc token chung (tắt được bằng `security.require_per_device_token`), hoặc JWT admin/manager. **Không** có ngoại lệ theo IP LAN | HTTP 403 (`test_device_auth_requires_token`, `test_per_device_tokens`) |
 | Telegram | `chat_id` phải nằm trong `admin_chat_ids`; danh sách trống = không ai | tin nhắn bị bỏ qua, nút duyệt bị từ chối (`test_role_resolution_order`) |
 | Cổng 8000 (không TLS) | chỉ đường thiết bị + health probe | 404 / đóng 1008 (`test_iot_port_filter`) |
 
@@ -52,7 +52,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | Rủi ro | Mức | Ghi chú / giảm thiểu |
 |---|---|---|
 | Id kênh do server gán có tiền tố `esp32/xiaozhi/telegram/hud/robot` nhận admin | Trung bình | An toàn khi mọi kênh đều xác thực (đã làm). Kênh mới nào truyền id do client tự đặt sẽ thành admin — rà khi thêm kênh |
-| Mọi thiết bị dùng CHUNG một device secret; `device_id` vẫn do thiết bị tự đặt trên URL | Trung bình | Lộ secret của một robot = giả được mọi robot. Hướng sửa: secret theo từng thiết bị |
+| Token CHUNG cho thiết bị vẫn được nhận (tương thích firmware cũ) | Trung bình → Thấp khi tắt | Đã có token riêng theo từng thiết bị. Sau khi nạp token riêng cho mọi robot, bật `security.require_per_device_token` (xem owner-todo.md) |
 | Cổng 8000 không TLS | Thấp–TB | Chỉ còn đường thiết bị; giới hạn bằng VLAN/tường lửa |
 | Hai mô hình role (portal ↔ RBAC) | Thấp | Ánh xạ cố định ở trên; gộp cần đổi role trong CSDL |
 | State trong bộ nhớ (HITL, phiên thoại, trí nhớ model) | Vận hành | Khởi động lại = mất yêu cầu duyệt đang chờ (pending action vẫn khôi phục từ audit) |
