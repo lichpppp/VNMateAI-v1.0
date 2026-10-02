@@ -164,6 +164,12 @@ logging.basicConfig(
 logger = logging.getLogger("client_agent")
 
 
+def _redact_url(url: str) -> str:
+    """URL để ghi log / in ra: che giá trị `token=` (enrollment secret)."""
+    import re as _re
+    return _re.sub(r"(token=)[^&]+", lambda m: m.group(1) + "***", str(url or ""))
+
+
 def get_local_ip() -> str:
     """Detect LAN IP address of this machine."""
     try:
@@ -209,11 +215,11 @@ class ClientAgent:
         logger.info("=== VN-MateAI Client Agent khởi động ===")
         logger.info("Client ID    : %s", self.client_id)
         logger.info("IP Máy Con   : %s", self.ip_address)
-        logger.info("Máy Chủ Đích : %s", self.server_url)
+        logger.info("Máy Chủ Đích : %s", _redact_url(self.server_url))
 
         while self._running:
             try:
-                logger.info("Đang kết nối tới Máy Chủ Master: %s ...", self.server_url)
+                logger.info("Đang kết nối tới Máy Chủ Master: %s ...", _redact_url(self.server_url))
                 ws_connect_kwargs: Dict[str, Any] = {
                     "ping_interval": 20,
                     "ping_timeout": 15,
@@ -271,9 +277,18 @@ class ClientAgent:
             args = data.get("args") or data.get("parameters") or {}
             logger.info("Nhận lệnh thực thi: skill='%s', args=%s, task_id=%s", skill_name, args, task_id)
 
-            # Chạy skill trong threadpool để không block asyncio loop
+            # Chạy skill trong threadpool để không block asyncio loop.
+            # Worker chạy NGAY TRÊN máy chủ (MASTER_LOCAL_WORKER) nạp được
+            # `core.plugin_manager` của server, nơi `execute_skill` là coroutine;
+            # trên máy trạm thật là bản đồng bộ trong client_agent/core. Trước đây
+            # luôn đẩy vào executor → nhận về coroutine chưa chạy → `.get` lỗi và
+            # agent rớt kết nối ở MỌI lệnh.
             loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(None, client_plugin_manager.execute_skill, skill_name, args)
+            _exec = client_plugin_manager.execute_skill
+            if asyncio.iscoroutinefunction(_exec):
+                result = await _exec(skill_name, args)
+            else:
+                result = await loop.run_in_executor(None, _exec, skill_name, args)
             if result.get("status") == "error" and "Không tìm thấy kỹ năng" in str(result.get("error", "")):
                 if skill_name in ("list_directory", "read_file", "write_file", "delete_item"):
                     try:
@@ -566,7 +581,7 @@ def main() -> None:
     parser.add_argument(
         "--server", "-s",
         default=default_ws,
-        help=f"WebSocket URL của Master Server (mặc định: {default_ws})",
+        help=f"WebSocket URL của Master Server (mặc định: {_redact_url(default_ws)})",
     )
     # client_id do Master cấp trong config.json lúc tải agent (từ bản
     # client_template, đã gộp ở Phase 6); không có thì biến môi trường / hostname.

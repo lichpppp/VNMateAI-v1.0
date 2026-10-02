@@ -30,6 +30,7 @@ async def run_tool_with_policy(
     session_id: Optional[str] = None,
     registry_names: Optional[Set[str]] = None,
     approved: bool = False,
+    client_timeout: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Cổng DUY NHẤT thực thi một tool do LLM yêu cầu (mọi kênh voice + agent).
@@ -49,6 +50,9 @@ async def run_tool_with_policy(
     sau "Đồng ý"). Cờ `confirmed` trong `fn_args` bị bỏ đi và không có hiệu
     lực: tham số tool do LLM hoặc client gửi lên, nên ai cũng tự đặt được —
     trước đây `{"confirmed": true}` trong tham số là đủ để bỏ qua HITL.
+
+    `client_timeout`: thời gian chờ máy trạm (giây) khi tool chạy trên máy trạm;
+    bỏ trống = mặc định của orchestrator.
 
     Trả về {"target_client", "args", "result"}.
     """
@@ -141,7 +145,9 @@ async def run_tool_with_policy(
     else:
         logger.info("Diều phối kỹ năng '%s' → [%s]", fn_name, target_client)
         from mateai.interfaces.websocket.client_orchestrator import orchestrator
-        _result = await asyncio.to_thread(orchestrator.execute_on_client_sync, target_client, fn_name, fn_args)
+        _sync_kw = {"timeout": client_timeout} if client_timeout else {}
+        _result = await asyncio.to_thread(
+            orchestrator.execute_on_client_sync, target_client, fn_name, fn_args, **_sync_kw)
 
     _ok = _result.get("status") == "success" or _result.get("success") is True
     security_engine.log_audit(target_client, fn_name, risk_level, "SUCCESS" if _ok else "FAILED", fn_args)

@@ -62,5 +62,5 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | Connector M365/eInvoice/Paperless/OCI chưa chạy thật | Chưa kiểm chứng | Bật từng connector trong môi trường thử trước |
 | Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
 | Hai hàng đợi chờ duyệt: `StateManager` (hội thoại, portal, `fs/*`) và `hitl_manager` (`/skills/execute`, Plugin Registry, Telegram) | Trung bình | Cả hai đều chỉ admin duyệt; gộp làm một ở phase Security tiếp theo |
-| `POST /api/v1/clients/{id}/execute` (admin) tự xác nhận bằng `args.confirmed`, gọi thẳng máy trạm không qua cổng tool | Thấp–TB | Chỉ admin; chuyển qua cổng tool khi tách router `clients` |
+| `POST /api/v1/clients/{id}/kill-process` và `/deploy-skill` (admin) chạy thẳng trên máy trạm, không qua HITL | Thấp–TB | Chỉ admin, nay có audit (deploy ghi tên tệp + SHA-256 mã). Đưa qua HITL nếu cần duyệt hai người |
 | Hai endpoint đọc cùng bảng audit (`/api/v1/audit-logs` và `/api/v1/security/audit-logs`), UI gọi cả hai | Thấp | Cả hai chỉ admin (§4); gộp làm một ở phase Security |

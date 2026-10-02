@@ -113,3 +113,17 @@ async def test_approved_resume_runs_need_confirm_tool(gate):
     await avl.run_tool_with_policy("kill_process", {"pid": 1}, caller="admin",
                                    source_device="web-widget", approved=True)
     assert calls["executed"] == [("kill_process", {"pid": 1})]
+
+
+async def test_client_timeout_reaches_workstation_call(gate, monkeypatch):
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
+    seen = {}
+
+    def fake_sync(client_id, skill, args, timeout=35.0):
+        seen.update(client=client_id, timeout=timeout)
+        return {"status": "success"}
+
+    monkeypatch.setattr(orchestrator, "execute_on_client_sync", fake_sync)
+    await avl.run_tool_with_policy("get_cpu", {"target_client": "pc-01"}, caller="admin",
+                                   source_device="portal", client_timeout=20)
+    assert seen == {"client": "pc-01", "timeout": 20}

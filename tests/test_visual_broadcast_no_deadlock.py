@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import mateai.interfaces.http.server as server  # noqa: E402
+import mateai.interfaces.http.routers.clients as clients  # noqa: E402
 import skills.visual_skills as vs  # noqa: E402
 from mateai.interfaces.websocket.client_orchestrator import orchestrator  # noqa: E402
 
@@ -34,9 +34,9 @@ async def test_broadcast_reaches_online_client_without_blocking(monkeypatch):
     monkeypatch.setattr(orchestrator, "_loop", asyncio.get_running_loop())
     monkeypatch.setattr(vs, "_spawn_local_overlay", lambda *a, **k: None)
 
-    payload = server.ClientVisualRequest(type="alert", data={"message": "test"}, title="T", duration=3)
+    payload = clients.ClientVisualRequest(type="alert", data={"message": "test"}, title="T", duration=3)
     t0 = time.perf_counter()
     res = await asyncio.wait_for(
-        server.broadcast_visual_endpoint(payload, user={"username": "u", "role": "admin"}), timeout=8)
+        clients.broadcast_visual_endpoint(payload, user={"username": "u", "role": "admin"}), timeout=8)
     assert time.perf_counter() - t0 < 3, "endpoint bị khoá chờ chính event loop"
     assert sent == ["pc-01"], res

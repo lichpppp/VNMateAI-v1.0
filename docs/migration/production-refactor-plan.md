@@ -848,3 +848,21 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RISKS:** hai endpoint audit trùng (ghi ở security.md §6). `WS_APPROVER_ROLES` (admin, manager) thực ra là quyền JWT dự phòng cho kết nối thiết bị/worker, không phải quyền duyệt — tên gây hiểu nhầm, giữ nguyên hành vi.
 
 **NEXT STEP:** tách tiếp xiaozhi, telegram, skills, clients (chuyển `/clients/{id}/execute` qua cổng tool), voice, system, config, computer-use.
+
+## 46. Router `clients` + `skills`; worker cục bộ chạy được lệnh (2026-10-02)
+
+**STATUS:** XONG
+
+**FILES CHANGED:** `interfaces/http/routers/clients.py` (6 route `/api/v1/clients/*` + `/api/v1/visual/broadcast`, 4 model), `routers/skills.py` (6 route, `_REGISTRY_PATH` lấy từ `settings.PROJECT_ROOT`); `application/agent/tool_gate.py` (`client_timeout`); `client_agent/agent.py` (chỉ sửa logic, không đổi import); test: `test_client_execute_gate`, `test_client_agent_dispatch`, `test_tool_policy_gate` (+1), `test_visual_broadcast_no_deadlock` trỏ router mới.
+
+**Thay đổi hành vi / sửa lỗi:**
+- `POST /api/v1/clients/{id}/execute` đi qua `run_tool_with_policy` (Zero-Trust, HITL, RBAC theo người gọi, audit); `args.confirmed` không còn tự xác nhận; `timeout` của request truyền tới máy trạm qua `client_timeout`. Tác vụ chờ lưu theo tên người gọi nên modal duyệt của portal (gọi `confirm-action` không kèm `action_id`) vẫn tìm thấy.
+- `deploy-skill` và `kill-process` (admin) trước đây không để lại audit → ghi audit (deploy: tên tệp, SHA-256 và độ dài mã, người thao tác; không ghi nguyên mã).
+- **Worker cục bộ (`MASTER_LOCAL_WORKER`) không chạy được lệnh nào** (có từ trước): chạy trên máy chủ, agent nạp `core.plugin_manager` của server — `execute_skill` là coroutine — nhưng luôn đẩy vào executor, nhận về coroutine chưa chạy, `.get` lỗi và rớt kết nối ở mọi lệnh. Nay gọi đúng kiểu (async hoặc đồng bộ). Máy trạm thật dùng bản đồng bộ trong `client_agent/core` nên không bị.
+- **Agent ghi enrollment token nguyên văn ra log** (URL `?token=…`) và in ra `--help` → che bằng `_redact_url`.
+
+**TESTS:** 353 pass. Test `client_agent` cô lập `sys.modules` (agent.py tự đặt bí danh `core` khi import — lần chạy đầu làm hỏng test khác, đã sửa).
+
+**RUNTIME:** ảnh chụp GET `clients`/`skills` 4 vai trước–sau giống hệt; 80 skill; `skills/execute get_system_info` thành công. Bật worker cục bộ: trước khi sửa `execute` → "máy trạm đã ngắt kết nối trong khi thực thi"; sau khi sửa → `success` 530 ms, worker vẫn online; `delete_item` kèm `confirmed:true` → `need_confirm` (đích đúng máy trạm), từ chối được. Log worker: `token=***`. Đã tắt worker và xoá log thử.
+
+**NEXT STEP:** tách xiaozhi, telegram, voice, system, config, computer-use, pairing, …
