@@ -6,7 +6,7 @@ Phase 57: Re-export Zero-Touch Onboarding skill for dynamic plugin discovery.
 
 from __future__ import annotations
 
-from core.skills.onboarding_workflow import zero_touch_onboard_employee
+from mateai.application.skills.builtin.onboarding_workflow import zero_touch_onboard_employee
 
 __all__ = [
     "zero_touch_onboard_employee",

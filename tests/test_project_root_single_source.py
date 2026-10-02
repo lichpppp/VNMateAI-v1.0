@@ -24,8 +24,8 @@ CASES = [
     ("mateai.application.knowledge.graph_rag", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.rag_engine", "_PROJECT_ROOT"),
     ("core.server", "_PROJECT_ROOT"),
-    ("core.skills.file_system", "_PROJECT_ROOT"),
-    ("core.skills.onboarding_workflow", "_PROJECT_ROOT"),
+    ("mateai.application.skills.builtin.file_system", "_PROJECT_ROOT"),
+    ("mateai.application.skills.builtin.onboarding_workflow", "_PROJECT_ROOT"),
 ]
 
 

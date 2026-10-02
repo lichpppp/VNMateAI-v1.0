@@ -68,7 +68,7 @@ def _ask_llm_for_sql(question: str) -> Tuple[str, str, str]:
     thành công" mà Phase 57 cấm.
     """
     try:
-        from core.skills.ai_delegation import _get_llm_config
+        from mateai.application.skills.builtin.ai_delegation import _get_llm_config
         from mateai.infrastructure.llm.llm_provider import complete_text_blocking
     except Exception as exc:
         return "", "", f"không import được LLM provider: {exc}"

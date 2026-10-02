@@ -33,7 +33,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from pydantic import BaseModel, Field
 
 from core.config_loader import settings
-from core.skills.proactive_manager import proactive_manager
+from mateai.application.skills.builtin.proactive_manager import proactive_manager
 from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 from mateai.application.security.zero_trust import log_security_audit
 

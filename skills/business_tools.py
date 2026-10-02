@@ -6,7 +6,7 @@ Phase 56: Re-export business tools into skills directory for dynamic plugin disc
 
 from __future__ import annotations
 
-from core.skills.business_tools import (
+from mateai.application.skills.builtin.business_tools import (
     get_attendance_report,
     get_executive_leaderboard,
     get_financial_summary,

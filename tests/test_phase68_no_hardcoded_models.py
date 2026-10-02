@@ -241,7 +241,7 @@ check("model chính không phải model chết",
 
 # ══ 5. Chuyển giao chuyên gia không còn trỏ chết ════════════════════════
 section("Chuyển giao chuyên gia")
-deleg = (ROOT / "core" / "skills" / "ai_delegation.py").read_text(encoding="utf-8")
+deleg = (ROOT / "src" / "mateai" / "application" / "skills" / "builtin" / "ai_delegation.py").read_text(encoding="utf-8")
 check("ai_delegation dùng specialist_models", "specialist_models" in deleg)
 check("không ghi cứng model chết trong ai_delegation", not dead_hits(deleg), str(dead_hits(deleg)))
 

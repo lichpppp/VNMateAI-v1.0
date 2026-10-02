@@ -249,7 +249,7 @@ class HRAgent(BaseAgent):
 
         # Tra cứu chấm công
         if "chấm công" in text or "điểm danh" in text:
-            from core.skills.business_tools import get_attendance_report
+            from mateai.application.skills.builtin.business_tools import get_attendance_report
             att = get_attendance_report()
             return {
                 "status": "success",
@@ -261,7 +261,7 @@ class HRAgent(BaseAgent):
 
         # Giao việc thông minh
         if any(w in text for w in ("giao việc", "phân việc", "lên kế hoạch", "tổ chức")):
-            from core.skills.proactive_manager import assign_task_intelligently
+            from mateai.application.skills.builtin.proactive_manager import assign_task_intelligently
             task_res = assign_task_intelligently(description=query)
             return {
                 "status": "success",

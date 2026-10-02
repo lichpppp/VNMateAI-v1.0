@@ -1,7 +1,7 @@
 """
 tests/test_ai_delegation_provider.py
 ====================================
-Ủy quyền chuyên gia (core.skills.ai_delegation) dùng provider LLM chung từ Phase 5:
+Ủy quyền chuyên gia (mateai.application.skills.builtin.ai_delegation) dùng provider LLM chung từ Phase 5:
 thử lần lượt specialist_models, nhớ model hỏng, timeout dài cho phân tích sâu.
 Không gọi mạng.
 """
@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.infrastructure.llm.llm_provider as lp  # noqa: E402
-import core.skills.ai_delegation as deleg  # noqa: E402
+import mateai.application.skills.builtin.ai_delegation as deleg  # noqa: E402
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ def test_analytics_and_meta_architect_use_the_shared_bridge(monkeypatch):
         return "```python\nfrom core.plugin_manager import export_skill\n```", models[0]
 
     monkeypatch.setattr(lp, "complete_text_blocking", fake_bridge)
-    monkeypatch.setattr("core.skills.ai_delegation._get_llm_config", lambda: {
+    monkeypatch.setattr("mateai.application.skills.builtin.ai_delegation._get_llm_config", lambda: {
         "base_url": "http://x/v1", "api_key": "k", "specialist_model": "m1",
         "specialist_models": ["m1", "m2"]})
     sql, model, err = ae._ask_llm_for_sql("danh sách nhân viên")

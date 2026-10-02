@@ -8,7 +8,7 @@ Single Source of Truth: core/skills/integration_tools.py
 
 from __future__ import annotations
 
-from core.skills.integration_tools import (
+from mateai.application.skills.builtin.integration_tools import (
     check_aws_cost,
     check_aws_instances,
     check_connector_health,

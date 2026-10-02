@@ -9,7 +9,7 @@ từ core/skills/ai_delegation.py.
 
 from __future__ import annotations
 
-from core.skills.ai_delegation import delegate_to_specialist
+from mateai.application.skills.builtin.ai_delegation import delegate_to_specialist
 
 __all__ = [
     "delegate_to_specialist",

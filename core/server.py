@@ -1260,7 +1260,7 @@ async def _on_startup() -> None:
 
     # Phase 56: Start Proactive Manager (Virtual C.O.O Agentic Engine — Cron 08:00 & 16:00)
     try:
-        from core.skills.proactive_manager import proactive_manager
+        from mateai.application.skills.builtin.proactive_manager import proactive_manager
         proactive_manager.start()
         logger.info("Phase 56: Proactive Manager (Virtual C.O.O) started — will auto-nudge tasks at 08:00 & 16:00 daily.")
     except Exception as pm_exc:
@@ -5973,7 +5973,7 @@ async def fs_list_endpoint(
     req: FsListRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.skills.file_system import list_directory
+    from mateai.application.skills.builtin.file_system import list_directory
     from mateai.application.security.safety_guard import security_engine
 
     target = req.target_client_id or req.target_client or "master"
@@ -5995,7 +5995,7 @@ async def fs_read_endpoint(
     req: FsReadRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.skills.file_system import read_file
+    from mateai.application.skills.builtin.file_system import read_file
     from mateai.application.security.safety_guard import security_engine
 
     target = req.target_client_id or req.target_client or "master"
@@ -6017,7 +6017,7 @@ async def fs_write_endpoint(
     req: FsWriteRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.skills.file_system import write_file
+    from mateai.application.skills.builtin.file_system import write_file
     from mateai.application.security.safety_guard import security_engine
     from mateai.application.security.zero_trust import evaluate_action_risk
     from mateai.application.agent.state_manager import state_manager
@@ -6060,7 +6060,7 @@ async def fs_delete_endpoint(
     req: FsDeleteRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.skills.file_system import delete_item
+    from mateai.application.skills.builtin.file_system import delete_item
     from mateai.application.security.safety_guard import security_engine
     from mateai.application.security.zero_trust import evaluate_action_risk
     from mateai.application.agent.state_manager import state_manager
@@ -7652,7 +7652,7 @@ async def api_enterprise_onboarding(
         phone = body.get("phone", "")
 
         def _onboard():
-            from core.skills.onboarding_workflow import onboarding_workflow
+            from mateai.application.skills.builtin.onboarding_workflow import onboarding_workflow
             return onboarding_workflow.onboard_new_employee(
                 name=name,
                 position=position,
@@ -7798,7 +7798,7 @@ async def api_enterprise_proactive_audit(
 ) -> Dict[str, Any]:
     """Kích hoạt Virtual C.O.O rà soát ngay tất cả task quá hạn và sắp đến hạn."""
     try:
-        from core.skills.proactive_manager import proactive_manager
+        from mateai.application.skills.builtin.proactive_manager import proactive_manager
         result = await run_blocking(proactive_manager.execute_task_audit_sync, trigger_source="api_manual")
         return {"status": "success", "result": result}
     except Exception as e:
@@ -8534,7 +8534,7 @@ async def api_recent_webhooks(
     lọc và đảo chiều để UI hiển thị mới nhất trước.
     """
     try:
-        from core.skills.proactive_manager import proactive_manager
+        from mateai.application.skills.builtin.proactive_manager import proactive_manager
 
         history = list(getattr(proactive_manager, "_audit_history", []))
         hooks = [h for h in history if str(h.get("source", "")).startswith("webhook:")]

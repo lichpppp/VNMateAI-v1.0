@@ -774,3 +774,12 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 
 **Còn trong `core/`:** `config_loader` (nơi định nghĩa PROJECT_ROOT, hơn 100 nơi import), `plugin_manager` (API plugin công khai — giữ nguyên chỗ có chủ đích), `core/skills/*` (cài đặt skill, được shim trong `skills/` import), `server.py` (8.700 dòng route HTTP/WS).
 **Test:** 268 pass. **Runtime:** sentinel chạy từ module mới; health cache: `active_directory` OK (chưa đồng bộ), `database_sqlite` OK; `/admin/departments/overview`, `/api/erp/structure`, `/system/topology` 200.
+
+## 41. Phase 4 — skill dựng sẵn (`core/skills`) vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+`core/skills/*.py` (8 file: ai_delegation, business_tools, erp_organization, file_system, integration_tools, onboarding_workflow, proactive_manager, robotics_tools) → `mateai/application/skills/builtin/`. Được nạp qua shim trong `skills/` (registry.json chỉ ghi `skills.*`, không ghi `core.skills`) nên danh mục skill không đổi. 17 file đổi import; 1 dạng `from core.skills import integration_tools` sửa tay. RULE-011: vi phạm có lý do của `ai_delegation` chỉ đổi đường dẫn (vẫn 1).
+**Test:** 268 pass. **Runtime:** 80/80 skill nạp (= số mục registry); 11/11 connector tool; `fs/list` 200; `/enterprise/proactive/run-audit` 200.
+
+**`core/` còn lại:** `config_loader.py`, `plugin_manager.py` (API công khai — giữ), `server.py`, `__init__.py`.

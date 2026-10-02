@@ -8,7 +8,7 @@ Khai báo và liên kết các kỹ năng điều khiển Robot vật lý từ c
 
 from __future__ import annotations
 
-from core.skills.robotics_tools import (
+from mateai.application.skills.builtin.robotics_tools import (
     move_robot,
     animate_robot,
 )

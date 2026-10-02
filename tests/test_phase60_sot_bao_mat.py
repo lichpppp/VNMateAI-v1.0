@@ -328,7 +328,7 @@ def test_every_hitl_call_site_awaits() -> None:
     targets = [
         "core/server.py",
         "src/mateai/application/skills/plugin_registry.py",
-        "core/skills/integration_tools.py",
+        "src/mateai/application/skills/builtin/integration_tools.py",
     ]
     for rel in targets:
         p = Path(rel)

@@ -96,7 +96,7 @@ def register_connector_tools(registry=None) -> Dict[str, int]:
     registry = registry or _default
 
     try:
-        from core.skills import integration_tools
+        from mateai.application.skills.builtin import integration_tools
     except Exception as exc:  # pragma: no cover
         logger.error("[Phase60] Không import được integration_tools: %s", exc)
         return {"registered": 0, "skipped": 0}

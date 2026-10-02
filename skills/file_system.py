@@ -8,7 +8,7 @@ Khai báo và liên kết các kỹ năng thao tác File System gốc từ core/
 
 from __future__ import annotations
 
-from core.skills.file_system import (
+from mateai.application.skills.builtin.file_system import (
     list_directory,
     read_file,
     write_file,
