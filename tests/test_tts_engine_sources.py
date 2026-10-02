@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.audio.tts_stream_engine as tse  # noqa: E402
+import mateai.infrastructure.tts.tts_stream_engine as tse  # noqa: E402
 
 
 @pytest.fixture

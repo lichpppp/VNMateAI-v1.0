@@ -49,7 +49,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from core.auth_manager import auth_manager, get_current_user, require_roles
-from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
+from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
 from core.plugin_manager import run_blocking
 import sys
 
@@ -136,11 +136,11 @@ async def _tts_bytes(text: str, timeout_s: float = 14.0) -> Optional[bytes]:
     """Đọc NGUYÊN một đoạn lời nói thành MP3, có chặn trên thời gian.
 
     Hàm bọc duy nhất của server quanh engine TTS canonical
-    (`core.audio.tts_stream_engine`): làm sạch + rút gọn lời nói như
+    (`mateai.infrastructure.tts.tts_stream_engine`): làm sạch + rút gọn lời nói như
     `AudioEngine` cũ, rồi tổng hợp. Trả None khi lỗi/timeout — HUD vẫn gửi chữ
     của câu đó, chỉ không có tiếng.
     """
-    from core.audio.tts_stream_engine import get_tts_engine
+    from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 
     spoken = shorten_for_speech(sanitise_for_tts(text or ""))
     if not spoken:
@@ -247,13 +247,13 @@ class _HudVoiceSink:
 
 async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud", *, caller: str) -> None:
     """
-    Một lượt nói của HUD. Nghiệp vụ ở core.voice_turn.process_voice_turn (dùng
+    Một lượt nói của HUD. Nghiệp vụ ở mateai.application.voice.voice_turn.process_voice_turn (dùng
     chung mọi kênh); ở đây chỉ còn phần riêng của HUD: câu "thôi/dừng" khi đang
     chờ trả lời, lời đệm sau 1s, trạng thái chờ admin trả lời, về idle.
     """
-    from core.voice_session import voice_sessions, is_stop_reply, looks_like_question
+    from mateai.application.voice.voice_session import voice_sessions, is_stop_reply, looks_like_question
     from core.memory_manager import detect_and_handle_context_lifecycle
-    from core.voice_turn import process_voice_turn
+    from mateai.application.voice.voice_turn import process_voice_turn
 
     # Ephemeral Data Lifecycle
     detect_and_handle_context_lifecycle(session_id, cmd_query)
@@ -1304,7 +1304,7 @@ async def _on_startup() -> None:
 
     # Phase 92: Pre-warm Voice Streaming Acoustic ACK cache (TTFA < 150ms for tools)
     try:
-        from core.audio.streaming_tts_pipeline import warmup_acoustic_ack_cache
+        from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
         asyncio.create_task(warmup_acoustic_ack_cache())
         logger.info("Phase 92: Voice streaming acoustic ACK cache warmup initiated.")
     except Exception as _v_exc:
@@ -1379,7 +1379,7 @@ def broadcast_tts_notification(announcement_text: str) -> None:
         logger.info("Phát thanh TTS thông báo tới %d mạch Xiaozhi: '%s'", len(active_audio_nodes), announcement_text)
         try:
             chunks = []
-            from core.audio.tts_stream_engine import get_tts_engine
+            from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
             async for chunk in get_tts_engine().stream(
                 shorten_for_speech(sanitise_for_tts(announcement_text))
             ):
@@ -2819,7 +2819,7 @@ async def tts_endpoint(
     """
 
     try:
-        from core.audio.tts_stream_engine import get_tts_engine
+        from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
         audio_bytes = await get_tts_engine().synthesise(
             shorten_for_speech(sanitise_for_tts(payload.text)), voice=payload.voice, rate=payload.rate
         )
@@ -8302,7 +8302,7 @@ async def api_voice_session(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """HUD gọi để đồng bộ trạng thái sau khi trang bị mất kết nối rồi mở lại."""
-    from core.voice_session import voice_sessions
+    from mateai.application.voice.voice_session import voice_sessions
 
     return {"status": "success", "session": voice_sessions.get(session_id).to_client()}
 
@@ -8322,7 +8322,7 @@ async def api_voice_reask(
     Số lần hỏi lại do HUD quyết định giới hạn (mặc định 2) — máy chủ chỉ đếm và
     báo lại. Đặt ngưỡng ở đây thì muốn đổi cấu hình phải sửa cả hai đầu.
     """
-    from core.voice_session import voice_sessions
+    from mateai.application.voice.voice_session import voice_sessions
 
     session = voice_sessions.get(session_id)
     if not session.expecting_reply:
@@ -8353,7 +8353,7 @@ async def api_voice_session_close(
     Xoá hẳn phiên thì Ly Ly quên mất hết và lại hỏi lại từ đầu — đúng cái
     lỗi đang sửa. Nên chỉ tắt trạng thái chờ, không xoá lịch sử.
     """
-    from core.voice_session import voice_sessions
+    from mateai.application.voice.voice_session import voice_sessions
 
     session = voice_sessions.get(session_id)
     session.clear_expecting_reply()

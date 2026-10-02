@@ -107,8 +107,8 @@ async def prewarm_all(force: bool = False, voice: str = "vi-VN-HoaiMyNeural") ->
     """
     Sinh file âm thanh cho toàn bộ danh sách REFLEX_PHRASES và lưu vào storage/audio_cache/.
     """
-    from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
-    from core.audio.tts_stream_engine import get_tts_engine
+    from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
+    from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 
     print("=" * 70)
     print("🚀 [VN-MateAI] KHỞI TẠO VỐN TỪ PHẢN XẠ - DYNAMIC AUDIO CACHE PREWARM")

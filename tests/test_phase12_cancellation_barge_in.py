@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.audio.tts_queue_pipeline import StreamingTTSWorkerPipeline
+from mateai.infrastructure.tts.tts_queue_pipeline import StreamingTTSWorkerPipeline
 from core.fast_command_router import fast_command_router
 
 

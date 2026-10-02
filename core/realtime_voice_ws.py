@@ -328,7 +328,7 @@ class _RealtimeWsSink:
         if info.get("tts_latency_ms") is not None:
             event["tts_latency_ms"] = info["tts_latency_ms"]
         await self.session.send_event("audio_start", event)
-        from core.audio.binary_transport import dispatch_binary_audio
+        from mateai.infrastructure.websocket.binary_transport import dispatch_binary_audio
         await dispatch_binary_audio(
             session=self.session,
             audio_bytes=audio,
@@ -345,10 +345,10 @@ async def _execute_voice_turn(
     trace: VoiceRequestTrace,
 ) -> None:
     """
-    Một lượt nói của portal. Nghiệp vụ ở core.voice_turn.process_voice_turn
+    Một lượt nói của portal. Nghiệp vụ ở mateai.application.voice.voice_turn.process_voice_turn
     (dùng chung mọi kênh); hàm này chỉ là transport + đo latency.
     """
-    from core.voice_turn import process_voice_turn
+    from mateai.application.voice.voice_turn import process_voice_turn
 
     request_id = trace.request_id
     sink = _RealtimeWsSink(session, trace)

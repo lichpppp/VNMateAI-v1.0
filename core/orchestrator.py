@@ -216,7 +216,7 @@ class Orchestrator:
         để người dùng không có cảm giác bị 'im lặng chết'.
         """
         try:
-            from core.audio.streaming_tts_pipeline import get_acoustic_ack_audio
+            from mateai.infrastructure.tts.acoustic_ack import get_acoustic_ack_audio
             ack_audio = await get_acoustic_ack_audio()
             if ack_audio:
                 from core.realtime_hub import broadcast_hud_binary

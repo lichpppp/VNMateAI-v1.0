@@ -22,7 +22,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.audio.sentence_buffer import SentenceBuffer
+from mateai.application.voice.sentence_buffer import SentenceBuffer
 
 
 def split_into_sentences(text: str) -> list[str]:

@@ -557,3 +557,32 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Lỗi bắt được trong lúc chuyển (trước khi commit):** `_content_disposition` dùng `quote` không được import ở module mới — lỗi bị `try/except` nuốt, sẽ âm thầm mất tên file UTF-8; thiếu `json` và `BOM_UTF8`. Tìm bằng quét AST tên chưa định nghĩa.
 **Test:** 275 pass. `test_phase63_export` import helper từ module chuẩn mới.
 **Runtime:** thiết bị kết nối qua `xiaozhi_gateway` hiện trong `/api/v1/audio-nodes` (server đọc cùng đối tượng); heartbeat worker (`api_admin`) phát `tool_executed` tới viewer `/ws/topology`. Token thử đã thu hồi.
+
+## 28. Phase 4 — gói `mateai` + Voice vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG cho Voice; các context khác chưa chuyển.
+
+**Đóng gói (D1):** `pyproject.toml` đóng gói `src/mateai` thành `mateai` (cài editable; `-e .` trong `requirements.txt` để `pip install -r requirements.txt` cũng cài). Mọi `src.mateai.*` → `mateai.*`. `*.egg-info/` vào `.gitignore`.
+
+**Voice — code THẬT chuyển từ core/ (git mv, giữ lịch sử):**
+| Từ | Đến |
+|---|---|
+| `core/voice_turn.py` | `mateai/application/voice/voice_turn.py` |
+| `core/voice_session.py` | `mateai/application/voice/voice_session.py` |
+| `core/audio/sentence_buffer.py` | `mateai/application/voice/sentence_buffer.py` |
+| `core/audio/sentence_streamer.py` | `mateai/application/voice/speech_text.py` |
+| `core/audio/tts_stream_engine.py` | `mateai/infrastructure/tts/tts_stream_engine.py` |
+| `core/audio/tts_queue_pipeline.py` | `mateai/infrastructure/tts/tts_queue_pipeline.py` |
+| `core/audio/streaming_tts_pipeline.py` | `mateai/infrastructure/tts/acoustic_ack.py` |
+| `core/audio/acoustic_ack_catalog.py` | `mateai/infrastructure/tts/acoustic_ack_catalog.py` |
+| `core/audio/binary_transport.py` | `mateai/infrastructure/websocket/binary_transport.py` |
+
+28 file đổi import (không để lại shim ở đường cũ); 2 test đọc mã nguồn theo đường dẫn được sửa đường dẫn. Không module nào tính đường dẫn từ `__file__` nên không đổi hành vi đọc/ghi file.
+
+**Đã xoá (bản viết lại song song, không có caller production, bản thật có test):** `application/voice/use_cases.py`, `application/voice/sentence_buffer.py` (bản cũ), `infrastructure/tts/edge_tts_adapter.py`, `tests/unit/test_voice_pipeline.py`. Giữ tạm `application/voice/barge_in_controller.py` + `domain/voice/entities.py` vì `application/devices/xiaozhi_service.py` (bản song song của Devices) còn dùng — xoá khi chuyển Devices.
+
+**Test kiến trúc** quét thêm `src/mateai/**`: lộ 2 vi phạm có sẵn trong bản song song chưa chuyển (`config/settings.py` RULE-013, `database/sqlite_repository.py` RULE-014) — ghi vào baseline (chỉ được giảm).
+**Test:** 271 pass (bớt 4 test của bản song song đã xoá).
+**Runtime:** khởi động không lỗi import, `/readyz` ok; bench thật qua `/ws/v1/voice-stream`: fast path chữ đầu 258 ms, audio đầu 3,0 s; TTS engine chunk đầu 1,96 s. Lượt LLM 88,9 s chữ đầu — do danh sách model 9Router (hỏng/hết quota, xem owner-todo.md), không liên quan việc chuyển code.
+
+**Còn lại của Phase 4 (theo thứ tự D1):** LLM/Agent (`llm_provider`, `llm_engine`, `agent_voice_loop`), Skills (`plugin_manager`, `plugin_registry`), Security (`security_guard`, `zero_trust`, `safety_guard`, `auth_manager`), Data (`database`, `db_manager`), Connectors, rồi interfaces (`server.py`).

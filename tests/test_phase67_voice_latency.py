@@ -131,8 +131,8 @@ check("tìm thấy phần thân xử lý lệnh thoại HUD", fn is not None)
 fn_src = ast.get_source_segment(src, fn) or ""
 # Phase 3: lời đệm + hàng đợi TTS nằm ở use case chung core/voice_turn.py;
 # HUD chỉ đặt ngưỡng (filler_after_s). Hành vi thật: test_hud_voice_pipeline_behavior.py
-vt = (Path(__file__).resolve().parents[1] / "core" / "voice_turn.py").read_text(encoding="utf-8")
-tq = (Path(__file__).resolve().parents[1] / "core" / "audio" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
+vt = (Path(__file__).resolve().parents[1] / "src" / "mateai" / "application" / "voice" / "voice_turn.py").read_text(encoding="utf-8")
+tq = (Path(__file__).resolve().parents[1] / "src" / "mateai" / "infrastructure" / "tts" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
 check("KHÔNG phát filler ngay trước khi gọi LLM",
       "get_contextual_filler" not in fn_src and "await asyncio.sleep(filler_after_s" in vt,
       "vẫn còn filler đồng bộ trước LLM")

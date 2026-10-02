@@ -20,7 +20,7 @@ from typing import AsyncGenerator, List
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.audio.tts_queue_pipeline import (
+from mateai.infrastructure.tts.tts_queue_pipeline import (
     StreamingTTSWorkerPipeline,
     SentenceItem,
     AudioResultItem,

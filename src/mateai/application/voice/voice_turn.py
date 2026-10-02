@@ -85,8 +85,8 @@ async def process_voice_turn(
     (HUD 1s, mic máy chủ 18s); filler_text(query) chọn câu, mặc định câu đệm
     theo ngữ cảnh.
     """
-    from core.audio.tts_stream_engine import get_tts_engine, _get_tts_voice
-    from core.audio.sentence_streamer import shorten_for_speech
+    from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine, _get_tts_voice
+    from mateai.application.voice.speech_text import shorten_for_speech
     from core.audio_cache import get_cached_audio_bytes
 
     result = VoiceTurnResult()
@@ -121,8 +121,8 @@ async def process_voice_turn(
     if pre_ack:
         intent = llm_engine.classify_intent(query)
         if intent.get("ack_needed"):
-            from core.audio.acoustic_ack_catalog import select_acoustic_ack
-            from core.audio.streaming_tts_pipeline import get_acoustic_ack_audio
+            from mateai.infrastructure.tts.acoustic_ack_catalog import select_acoustic_ack
+            from mateai.infrastructure.tts.acoustic_ack import get_acoustic_ack_audio
             ack_phrase = select_acoustic_ack(query, domain=intent.get("target_brain"))
             ack_audio = await get_acoustic_ack_audio(phrase=ack_phrase)
             if ack_audio:
@@ -152,7 +152,7 @@ async def process_voice_turn(
         filler_task = asyncio.create_task(_filler())
 
     # ── 4. LLM (stream / agent) → TTS gối đầu → sink ─────────────────────
-    from core.audio.tts_queue_pipeline import StreamingTTSWorkerPipeline
+    from mateai.infrastructure.tts.tts_queue_pipeline import StreamingTTSWorkerPipeline
     pipeline = StreamingTTSWorkerPipeline(voice=_get_tts_voice(), num_workers=2)
     pipeline.start()
     turn: Dict[str, Any] = {}

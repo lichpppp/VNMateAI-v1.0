@@ -38,7 +38,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 
-from core.audio.tts_stream_engine import TTSStreamEngine, get_tts_engine
+from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine, get_tts_engine
 
 logger = logging.getLogger(__name__)
 

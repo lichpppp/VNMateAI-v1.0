@@ -45,10 +45,10 @@ async def main():
 
     # 1. Kiểm tra cấu hình và câu ACK tiếng Việt chuẩn
     section("1. Acoustic ACK Phrases & Vietnamese Diacritics")
-    from core.audio.streaming_tts_pipeline import ACOUSTIC_ACK_PHRASES, get_acoustic_ack_audio
-    from core.audio.tts_stream_engine import _get_tts_voice, get_tts_engine
-    from core.audio.sentence_streamer import sanitise_for_tts as _sanitise_for_tts
-    from core.audio.sentence_buffer import SentenceBuffer
+    from mateai.infrastructure.tts.acoustic_ack import ACOUSTIC_ACK_PHRASES, get_acoustic_ack_audio
+    from mateai.infrastructure.tts.tts_stream_engine import _get_tts_voice, get_tts_engine
+    from mateai.application.voice.speech_text import sanitise_for_tts as _sanitise_for_tts
+    from mateai.application.voice.sentence_buffer import SentenceBuffer
 
     check("Có ít nhất 5 câu đệm ACK", len(ACOUSTIC_ACK_PHRASES) >= 5, str(len(ACOUSTIC_ACK_PHRASES)))
     has_diacritics = any(

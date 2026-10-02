@@ -26,7 +26,7 @@ import openai
 from openai import AsyncOpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
 
 from core.config_loader import settings
-from core.audio.sentence_streamer import sanitise_for_tts
+from mateai.application.voice.speech_text import sanitise_for_tts
 
 # RBAC (Phase 48) áp dụng trong cổng thực thi tool chung:
 # core.agent_voice_loop.run_tool_with_policy
@@ -1286,7 +1286,7 @@ class LLMEngine:
         first_token_logged = False
 
         # Câu để ĐỌC: ranh giới an toàn + gộp câu ngắn / tách câu dài (Phase 5).
-        from core.audio.sentence_buffer import SentenceBuffer
+        from mateai.application.voice.sentence_buffer import SentenceBuffer
         speech_buf = SentenceBuffer(min_chars=1, min_words=8, max_words=30)
         # Toàn bộ chữ gốc của lượt.
         raw_reply = ""

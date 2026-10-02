@@ -21,7 +21,7 @@ from typing import Any, Dict, List
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.audio.binary_transport import (
+from mateai.infrastructure.websocket.binary_transport import (
     DEFAULT_BINARY_CHUNK_SIZE,
     calculate_savings,
     decode_framed_binary_packet,

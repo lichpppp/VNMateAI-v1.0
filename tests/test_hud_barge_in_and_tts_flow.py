@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.audio.sentence_buffer import SentenceBuffer  # noqa: E402
+from mateai.application.voice.sentence_buffer import SentenceBuffer  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -165,8 +165,8 @@ print("\n▸ Máy chủ không chờ TTS trong vòng lặp LLM")
 # core/audio/tts_queue_pipeline.py (hành vi được kiểm tra thật trong
 # tests/test_hud_voice_pipeline_behavior.py).
 _root = Path(__file__).resolve().parents[1]
-voice_turn = (_root / "core" / "voice_turn.py").read_text(encoding="utf-8")
-tts_queue = (_root / "core" / "audio" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
+voice_turn = (_root / "src" / "mateai" / "application" / "voice" / "voice_turn.py").read_text(encoding="utf-8")
+tts_queue = (_root / "src" / "mateai" / "infrastructure" / "tts" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
 body = server_py.split("async def _process_hud_voice_command_body", 1)[-1].split("def _get_hud_metrics_payload", 1)[0]
 check("HUD đi qua use case chung", "process_voice_turn(" in body)
 check("có hàng đợi task TTS", "StreamingTTSWorkerPipeline" in voice_turn)

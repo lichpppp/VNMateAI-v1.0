@@ -84,7 +84,7 @@ async def bench_fast_path(iterations: int) -> Dict[str, Any]:
 
 
 def bench_sentence_buffer(iterations: int) -> Dict[str, Any]:
-    from core.audio.sentence_buffer import SentenceBuffer
+    from mateai.application.voice.sentence_buffer import SentenceBuffer
 
     text = (
         "Dạ, em đã kiểm tra máy chủ 192.168.1.27 lúc 10.30 sáng. CPU đang ở mức 32,5%. "
@@ -106,7 +106,7 @@ def bench_sentence_buffer(iterations: int) -> Dict[str, Any]:
 
 
 async def bench_tts_first_chunk(rounds: int) -> Dict[str, Any]:
-    from core.audio.tts_stream_engine import TTSStreamEngine
+    from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine
 
     engine = TTSStreamEngine()
     samples, errors = [], []

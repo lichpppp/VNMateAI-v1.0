@@ -2,7 +2,7 @@
 tests/test_tts_text_sanitiser.py
 ================================
 Một hàm làm sạch văn bản cho TTS dùng chung cho mọi kênh voice
-(`core.audio.sentence_streamer.sanitise_for_tts`) + một hàm rút gọn lời nói
+(`mateai.application.voice.speech_text.sanitise_for_tts`) + một hàm rút gọn lời nói
 (`shorten_for_speech`).
 
 Trước Phase 2 có ba hàm khác nhau (portal / HUD / ESP32 + mic), nên cùng một câu
@@ -18,8 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech  # noqa: E402
-from core.audio.tts_stream_engine import apply_pronunciation  # noqa: E402
+from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech  # noqa: E402
+from mateai.infrastructure.tts.tts_stream_engine import apply_pronunciation  # noqa: E402
 
 
 @pytest.mark.parametrize("raw, expected", [

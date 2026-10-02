@@ -36,7 +36,7 @@ def section(title: str) -> None:
     print(f"\n▸ {title}")
 
 
-from core.voice_session import (  # noqa: E402
+from mateai.application.voice.voice_session import (  # noqa: E402
     SESSION_TTL,
     VoiceSession,
     VoiceSessionStore,

@@ -21,13 +21,13 @@ from typing import List
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.audio.acoustic_ack_catalog import (
+from mateai.infrastructure.tts.acoustic_ack_catalog import (
     ACOUSTIC_ACK_CATALOG,
     ALL_ACOUSTIC_ACK_PHRASES,
     select_acoustic_ack,
     get_all_ack_phrases,
 )
-from core.audio.streaming_tts_pipeline import (
+from mateai.infrastructure.tts.acoustic_ack import (
     get_acoustic_ack_audio,
     ACOUSTIC_ACK_PHRASES,
 )

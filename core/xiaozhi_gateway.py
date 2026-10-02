@@ -44,8 +44,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from core.audio_cache import check_cached_audio, get_cached_audio_bytes, save_to_cache
 from core.audio_processor import audio_engine
-from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
-from core.audio.tts_stream_engine import get_tts_engine
+from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
+from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 from core.config_loader import settings
 
 logger = logging.getLogger("core.xiaozhi_gateway")
@@ -524,13 +524,13 @@ class XiaozhiGateway:
 
     async def _execute_pipeline(self, node: XiaozhiNode, text_query: str) -> None:
         """
-        Một lượt nói của robot ESP32. Nghiệp vụ ở core.voice_turn.process_voice_turn
+        Một lượt nói của robot ESP32. Nghiệp vụ ở mateai.application.voice.voice_turn.process_voice_turn
         (dùng chung mọi kênh); ở đây chỉ còn phần thiết bị: biểu cảm LCD, gói tts
         của firmware xiaozhi-esp32, PCM 16 kHz cho loa MAX98357A, phản chiếu chữ
         lên HUD/portal (không phát tiếng ở đó), giữ mic mở khi robot vừa hỏi.
         """
-        from core.voice_turn import process_voice_turn
-        from core.voice_session import looks_like_question
+        from mateai.application.voice.voice_turn import process_voice_turn
+        from mateai.application.voice.voice_session import looks_like_question
 
         device_id = node.device_id
         node.last_active = datetime.utcnow().isoformat()
@@ -1017,7 +1017,7 @@ xiaozhi_gateway = XiaozhiGateway()
 
 
 class _XiaozhiSink:
-    """Đầu ra của robot ESP32 cho core.voice_turn: chữ trên LCD + PCM ra loa."""
+    """Đầu ra của robot ESP32 cho mateai.application.voice.voice_turn: chữ trên LCD + PCM ra loa."""
 
     def __init__(self, gateway: "XiaozhiGateway", node: "XiaozhiNode", query: str) -> None:
         self.gateway = gateway

@@ -36,8 +36,8 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
-from core.audio.tts_stream_engine import get_tts_engine
+from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
+from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 
 logger = logging.getLogger(__name__)
 
@@ -621,13 +621,13 @@ class VoiceController:
 
     def _stream_response_and_play(self, text: str) -> str:
         """
-        Một lượt nói của mic máy chủ: core.voice_turn.process_voice_turn (dùng
+        Một lượt nói của mic máy chủ: mateai.application.voice.voice_turn.process_voice_turn (dùng
         chung mọi kênh) chạy trên event loop riêng của luồng mic; ở đây chỉ còn
         phần riêng: cập nhật widget, phát loa cục bộ, câu chờ sau 18s.
 
         Returns: toàn bộ câu đã đọc (để log / hiển thị).
         """
-        from core.voice_turn import VoiceSink, process_voice_turn
+        from mateai.application.voice.voice_turn import VoiceSink, process_voice_turn
 
         controller = self
         parts: list = []

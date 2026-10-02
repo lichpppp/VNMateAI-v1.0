@@ -19,8 +19,8 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from core.audio.tts_stream_engine import get_tts_engine
-from core.audio.acoustic_ack_catalog import (
+from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
+from mateai.infrastructure.tts.acoustic_ack_catalog import (
     ACOUSTIC_ACK_CATALOG,
     ALL_ACOUSTIC_ACK_PHRASES,
     select_acoustic_ack,

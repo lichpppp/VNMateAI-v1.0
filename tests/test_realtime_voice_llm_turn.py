@@ -2,7 +2,7 @@
 tests/test_realtime_voice_llm_turn.py
 =====================================
 Chạy THẬT một lượt qua LLM của portal (`core.realtime_voice_ws._execute_voice_turn`
-→ `core.voice_turn.process_voice_turn` → `LLMEngine.stream_voice_response`).
+→ `mateai.application.voice.voice_turn.process_voice_turn` → `LLMEngine.stream_voice_response`).
 Chỉ giả lập client OpenAI (stream token), TTS và WebSocket — không gọi mạng.
 
 Bắt các lỗi đã từng xảy ra:
@@ -82,7 +82,7 @@ def turn(monkeypatch):
     async def fake_synthesise(self, text, *a, **k):
         return ("MP3:" + text).encode("utf-8") * 20
 
-    from core.audio.tts_stream_engine import TTSStreamEngine
+    from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine
     monkeypatch.setattr(TTSStreamEngine, "stream", fake_tts_stream)
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synthesise)
 

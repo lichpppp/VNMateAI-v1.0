@@ -70,7 +70,7 @@ def hud(monkeypatch):
     monkeypatch.setattr(llm_engine, "last_voice_display_text", None, raising=False)
     monkeypatch.setattr(server, "_tts_bytes", fake_tts_bytes)
     # Thay engine canonical (hàng đợi TTS chung gọi .stream, lời đệm gọi .synthesise).
-    from core.audio.tts_stream_engine import TTSStreamEngine
+    from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine
 
     async def fake_synthesise(self, text, *a, **k):
         return await fake_tts_bytes(text)
@@ -95,7 +95,7 @@ def hud(monkeypatch):
     monkeypatch.setattr(server, "broadcast_portal_ui", fake_portal)
     monkeypatch.setattr(server, "_broadcast_thinking", fake_thinking)
 
-    from core.voice_session import voice_sessions
+    from mateai.application.voice.voice_session import voice_sessions
     session_id = "test-hud-behavior"
     voice_sessions.get(session_id).clear_expecting_reply()
 

@@ -24,13 +24,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_PATH = Path(__file__).with_name("core_rules_baseline.json")
 
-SCAN_GLOBS = ["core/**/*.py", "skills/*.py", "workers/*.py", "main.py"]
+SCAN_GLOBS = ["core/**/*.py", "src/mateai/**/*.py", "skills/*.py", "workers/*.py", "main.py"]
 
 #: Nơi duy nhất được phép làm việc đó (bản canonical).
 ALLOWED = {
     # audio_processor dùng SDK OpenAI cho Whisper (STT), không phải gọi LLM.
     "RULE-011": {"core/llm_provider.py", "core/audio_processor.py"},
-    "RULE-012": {"core/audio/tts_stream_engine.py"},
+    "RULE-012": {"src/mateai/infrastructure/tts/tts_stream_engine.py"},
     "RULE-013": {"core/config_loader.py"},
     "RULE-014": {"core/database.py"},
     "RULE-015": set(),

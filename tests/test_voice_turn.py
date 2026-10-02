@@ -1,7 +1,7 @@
 """
 tests/test_voice_turn.py
 ========================
-Use case chung `core.voice_turn.process_voice_turn` — mọi kênh voice (portal,
+Use case chung `mateai.application.voice.voice_turn.process_voice_turn` — mọi kênh voice (portal,
 HUD, ESP32, mic máy chủ) đi qua đây từ Phase 3. LLM / TTS / lệnh nhanh giả lập.
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.voice_turn as vt  # noqa: E402
+import mateai.application.voice.voice_turn as vt  # noqa: E402
 from core.llm_engine import llm_engine  # noqa: E402
 
 
@@ -56,7 +56,7 @@ def env(monkeypatch):
     async def fake_dispatch(query, synthesize_audio=True):
         return st["fast"]
 
-    from core.audio.tts_stream_engine import TTSStreamEngine
+    from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine
     monkeypatch.setattr(llm_engine, "stream_voice_response", fake_svr)
     monkeypatch.setattr(llm_engine, "classify_intent",
                         staticmethod(lambda q: {"type": "conversation", "target_brain": "voice", "ack_needed": False}))
@@ -122,7 +122,7 @@ async def test_long_sentence_shortened_for_speech_only(env):
 
 
 async def test_hung_tts_sentence_does_not_block_the_rest(env, monkeypatch):
-    from core.audio.tts_queue_pipeline import StreamingTTSWorkerPipeline
+    from mateai.infrastructure.tts.tts_queue_pipeline import StreamingTTSWorkerPipeline
     orig = StreamingTTSWorkerPipeline.__init__
 
     def short_timeout(self, *a, **k):
