@@ -321,8 +321,12 @@ VN-MateAi/
 │   ├── application/            # Use case: voice, agent (LLM + cổng tool), skills, security,
 │   │                           #   conversation, knowledge (RAG), analytics, operations, devices
 │   ├── infrastructure/         # LLM provider, TTS/STT, CSDL, connectors, cache, TLS, file
-│   └── interfaces/             # HTTP (server.py, API, webhook), WebSocket (portal, HUD,
-│                               #   thiết bị Xiaozhi, máy trạm), Telegram, email, desktop
+│   └── interfaces/
+│       ├── http/server.py      # Dựng app: CORS, middleware xác thực, mount tĩnh, probe, startup
+│       ├── http/routers/       # 30 router theo nhóm (security, enterprise, voice, websockets, ...)
+│       ├── http/*.py           # Dùng chung: ws_auth, hud_voice, speech, enrollment,
+│       │                       #   secret_masking, log_stream
+│       └── websocket/, telegram/, email/, desktop/
 ├── esp32_firmware/             # Mã nguồn C++ cho Robot để bàn ESP32
 │   └── vnmate_robot/           # Firmware điều khiển phần cứng & âm thanh I2S
 ├── skills/                     # Skill được nạp động (shim + skill người dùng)

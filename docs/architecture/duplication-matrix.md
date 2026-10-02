@@ -1,5 +1,7 @@
 # Ma trận trùng lặp (Duplication Matrix)
 
+> **Ảnh chụp lịch sử (trước refactor).** Đa số dòng đã được xử lý ở các phase sau; trạng thái hiện tại và những gì còn lại (kèm lý do) ở `docs/migration/final-audit.md`.
+
 > Phase 0 / Phase A — chỉ đọc. Không file code nào bị sửa hay xóa để lập tài liệu này.
 > Ngày audit: 2026-10-01 · Commit gốc: `4f6464a`
 > Cách lấy bằng chứng: đồ thị import AST (gồm import trong hàm, `importlib`, chuỗi tên module),
