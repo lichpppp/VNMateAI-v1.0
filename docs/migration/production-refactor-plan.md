@@ -464,3 +464,23 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 - Test mới `test_telegram_outbound_guard.py` (5; 3 fail trên code cũ). Runtime: tạo yêu cầu HITL → 0 request Telegram trong log, không giá trị token trong log; yêu cầu đã bị từ chối sau kiểm tra.
 
 **Test toàn bộ:** 245 pass / 0 fail.
+
+## 21. Báo cáo Data — một kho tài khoản (2026-10-02)
+
+**PHASE:** Data (kho user)
+**STATUS:** XONG
+
+**Một implementation:** bảng `users` (SQLite, `core.db_manager`) là kho tài khoản duy nhất. `auth_manager` bỏ hẳn `users.json`: không còn đọc dự phòng, không còn ghi đồng bộ khi tạo/sửa/xoá/đổi mật khẩu (bỏ `_ensure_users_file`, `_load_users`, `_save_users`, `_find_user_entry`, `USERS_FILE`). `users.json` chỉ còn là nguồn **di trú một lần** khi bảng users rỗng; file KHÔNG bị sửa hay xoá (còn hash cũ, cần chủ dự án quyết định — xem dưới).
+
+**Lỗi đã loại bỏ:**
+1. Tài khoản đã xoá vẫn đăng nhập được: xoá ở SQLite, bước xoá trong users.json lỗi bị nuốt → `get_user` tìm thấy ở users.json. Và mỗi lần khởi động `_sync_from_users_json` nạp lại → tài khoản sống lại.
+2. DB mới + users.json có mật khẩu riêng: tạo `admin/admin123` TRƯỚC rồi mới nhập users.json (bỏ qua vì trùng) → mật khẩu người dùng đặt bị thay bằng mặc định.
+3. `VNMATEAI_DEFAULT_<ROLE>_PASSWORD` không có tác dụng: SQLite gán cứng `admin123/manager123/viewer123`. Nay đọc biến môi trường (thiếu thì giá trị dev + cảnh báo).
+4. User trong users.json thiếu hash được gán mật khẩu `123456`. Nay bị bỏ qua (có log).
+
+**Kiểm tra dữ liệu trước khi gộp:** 3 tài khoản có mặt ở cả hai kho, cùng role; hash khác nhau nhưng cùng xác thực đúng mật khẩu (chỉ khác salt bcrypt) → không mất dữ liệu.
+
+**Test:** 249 pass / 0 fail. Mới: `test_single_user_store.py` (4 tình huống trên — cả 4 fail trên code cũ).
+**Runtime:** đăng nhập admin/manager/viewer 200; tạo user qua `/api/v1/users` → đăng nhập 200 → xoá → đăng nhập 401.
+
+**Cần chủ dự án quyết định:** `users.json` nay không còn được dùng nhưng vẫn chứa hash mật khẩu (cũ dần theo thời gian). Có thể xoá hoặc chuyển ra ngoài thư mục dự án; chưa làm vì là dữ liệu bí mật.

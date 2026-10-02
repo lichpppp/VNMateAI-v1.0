@@ -34,7 +34,6 @@ logger = logging.getLogger("core.auth_manager")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 giờ
 
-USERS_FILE = Path(__file__).resolve().parent.parent / "users.json"
 JWT_SECRET_FILE = Path(__file__).resolve().parent.parent / "certs" / "jwt_secret.key"
 
 
@@ -93,128 +92,7 @@ http_bearer = HTTPBearer(auto_error=False)
 class AuthManager:
     """Quản trị danh tính, xác thực và lưu trữ người dùng."""
 
-    def __init__(self, users_path: Path = USERS_FILE) -> None:
-        self.users_path = users_path
-        self._ensure_users_file()
-
-    def _ensure_users_file(self) -> None:
-        """
-        Tự động tạo file users.json với 3 tài khoản mặc định nếu chưa tồn tại.
-
-        Zero-Trust: mật khẩu mặc định chỉ dùng cho môi trường dev. Đặt biến môi
-        trường sau để tự chọn mật khẩu khi triển khai thật:
-          VNMATEAI_DEFAULT_ADMIN_PASSWORD
-          VNMATEAI_DEFAULT_MANAGER_PASSWORD
-          VNMATEAI_DEFAULT_VIEWER_PASSWORD
-        """
-        if not self.users_path.exists():
-            # Mật khẩu mặc định: ưu tiên biến môi trường, không thì dùng giá trị dev.
-            fallback_passwords = {
-                "admin": "admin123",
-                "manager": "manager123",
-                "viewer": "viewer123",
-            }
-            passwords: Dict[str, str] = {}
-            used_fallback: List[str] = []
-            for username, fallback in fallback_passwords.items():
-                env_value = os.getenv(f"VNMATEAI_DEFAULT_{username.upper()}_PASSWORD", "").strip()
-                if env_value:
-                    passwords[username] = env_value
-                else:
-                    passwords[username] = fallback
-                    used_fallback.append(username)
-
-            if used_fallback:
-                logger.warning(
-                    "⚠️  Đang khởi tạo %d tài khoản với mật khẩu MẶC ĐỊNH yếu "
-                    "(%s). Chỉ chấp nhận được cho môi trường dev. Trước khi triển khai, "
-                    "hãy đặt VNMATEAI_DEFAULT_<ROLE>__PASSWORD hoặc đổi mật khẩu qua "
-                    "giao diện quản trị.",
-                    len(used_fallback), ", ".join(used_fallback),
-                )
-
-            default_users = {
-                "admin": {
-                    "id": "usr_admin",
-                    "username": "admin",
-                    "full_name": "Quản Trị Viên Hệ Thống",
-                    "role": "admin",
-                    "hashed_password": self.get_password_hash(passwords["admin"]),
-                    "password_hash": self.get_password_hash(passwords["admin"]),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                },
-                "manager": {
-                    "id": "usr_manager",
-                    "username": "manager",
-                    "full_name": "Quản Lý Vận Hành",
-                    "role": "manager",
-                    "hashed_password": self.get_password_hash(passwords["manager"]),
-                    "password_hash": self.get_password_hash(passwords["manager"]),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                },
-                "viewer": {
-                    "id": "usr_viewer",
-                    "username": "viewer",
-                    "full_name": "Nhân Viên Giám Sát",
-                    "role": "viewer",
-                    "hashed_password": self.get_password_hash(passwords["viewer"]),
-                    "password_hash": self.get_password_hash(passwords["viewer"]),
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat(),
-                },
-            }
-            try:
-                self.users_path.write_text(
-                    json.dumps(default_users, indent=2, ensure_ascii=False),
-                    encoding="utf-8",
-                )
-                # users.json chứa hash mật khẩu — chỉ owner được đọc.
-                try:
-                    os.chmod(self.users_path, 0o600)
-                except OSError:
-                    pass
-                logger.info("Đã khởi tạo file users.json với các tài khoản mặc định (admin, manager, viewer).")
-            except Exception as exc:
-                logger.error("Không thể ghi file users.json: %s", exc)
-
-    def _load_users(self) -> Dict[str, Dict[str, Any]]:
-        """Đọc danh sách người dùng từ file users.json và tự động chuẩn hóa schema."""
-        if not self.users_path.exists():
-            self._ensure_users_file()
-        try:
-            users = json.loads(self.users_path.read_text(encoding="utf-8"))
-            dirty = False
-            for uname, udata in users.items():
-                if "id" not in udata:
-                    udata["id"] = f"usr_{uname}"
-                    dirty = True
-                if "hashed_password" not in udata and "password_hash" in udata:
-                    udata["hashed_password"] = udata["password_hash"]
-                    dirty = True
-                if "password_hash" not in udata and "hashed_password" in udata:
-                    udata["password_hash"] = udata["hashed_password"]
-                    dirty = True
-                if "role" not in udata:
-                    udata["role"] = "viewer"
-                    dirty = True
-            if dirty:
-                self._save_users(users)
-            return users
-        except Exception as exc:
-            logger.error("Lỗi đọc users.json: %s", exc)
-            return {}
-
-    def _save_users(self, users: Dict[str, Dict[str, Any]]) -> None:
-        """Lưu danh sách người dùng vào file users.json."""
-        try:
-            self.users_path.write_text(
-                json.dumps(users, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-        except Exception as exc:
-            logger.error("Lỗi lưu users.json: %s", exc)
+    """Tài khoản nằm DUY NHẤT trong bảng users của SQLite (core.db_manager)."""
 
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -237,26 +115,9 @@ class AuthManager:
         salt = bcrypt.gensalt()
         return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
-    def _find_user_entry(self, user_identifier: str) -> Optional[Tuple[str, Dict[str, Any]]]:
-        """Tìm user theo ID hoặc Username."""
-        users = self._load_users()
-        identifier_clean = user_identifier.strip().lower()
-        for key, udata in users.items():
-            if (
-                str(udata.get("id", "")).lower() == identifier_clean
-                or str(udata.get("username", "")).lower() == identifier_clean
-                or key.lower() == identifier_clean
-            ):
-                return key, udata
-        return None
-
     def get_user(self, username: str) -> Optional[Dict[str, Any]]:
-        """Tìm người dùng theo tên đăng nhập hoặc ID từ SQLite (hoặc users.json)."""
-        db_user = db_manager.get_user_by_username_or_id(username)
-        if db_user:
-            return db_user
-        found = self._find_user_entry(username)
-        return found[1] if found else None
+        """Tìm người dùng theo tên đăng nhập hoặc ID (SQLite — kho duy nhất)."""
+        return db_manager.get_user_by_username_or_id(username)
 
     def authenticate_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
         """Xác thực người dùng và mật khẩu."""
@@ -269,106 +130,30 @@ class AuthManager:
         return user
 
     def get_all_users(self) -> List[Dict[str, Any]]:
-        """Trả về danh sách người dùng từ SQLite (KHÔNG bao gồm password hash)."""
-        users = db_manager.get_all_users()
-        if users:
-            return users
-        # Fallback to users.json if SQLite has no rows yet
-        raw_users = self._load_users()
-        result = []
-        for uname, udata in raw_users.items():
-            result.append({
-                "id": udata.get("id", f"usr_{uname}"),
-                "username": udata.get("username", uname),
-                "full_name": udata.get("full_name", uname),
-                "role": udata.get("role", "viewer"),
-                "created_at": udata.get("created_at", ""),
-                "updated_at": udata.get("updated_at", ""),
-            })
-        return result
+        """Danh sách người dùng (KHÔNG kèm password hash)."""
+        return db_manager.get_all_users()
 
     def create_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Mã hóa mật khẩu bằng bcrypt và lưu user mới vào SQLite và users.json.
-        Phát sinh lỗi nếu username đã tồn tại hoặc mật khẩu không hợp lệ.
-        """
+        """Mã hoá mật khẩu bằng bcrypt và lưu user mới. Lỗi nếu trùng username / mật khẩu không hợp lệ."""
         created = db_manager.create_user(data)
-        # Đồng bộ vào users.json
-        try:
-            users = self._load_users()
-            u_entry = db_manager.get_user_by_username_or_id(created["username"])
-            if u_entry:
-                users[created["username"]] = {
-                    "id": u_entry["id"],
-                    "username": u_entry["username"],
-                    "full_name": u_entry["full_name"],
-                    "role": u_entry["role"],
-                    "hashed_password": u_entry["password_hash"],
-                    "password_hash": u_entry["password_hash"],
-                    "created_at": u_entry["created_at"],
-                    "updated_at": u_entry["updated_at"],
-                }
-                self._save_users(users)
-        except Exception as exc:
-            logger.warning("Không thể đồng bộ user mới vào users.json: %s", exc)
-
         logger.info("Đã tạo người dùng mới: %s (role: %s, id: %s)", created["username"], created["role"], created["id"])
         return created
 
     def update_user(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Cập nhật full_name và role của user theo user_id trong SQLite và users.json."""
+        """Cập nhật full_name và role của user."""
         updated = db_manager.update_user(user_id, data)
-        # Đồng bộ vào users.json
-        try:
-            found = self._find_user_entry(user_id)
-            if found:
-                key, _ = found
-                users = self._load_users()
-                users[key]["full_name"] = updated.get("full_name", users[key].get("full_name"))
-                users[key]["role"] = updated.get("role", users[key].get("role"))
-                users[key]["updated_at"] = updated.get("updated_at", datetime.utcnow().isoformat())
-                self._save_users(users)
-        except Exception as exc:
-            logger.warning("Không thể đồng bộ cập nhật user vào users.json: %s", exc)
-
         logger.info("Đã cập nhật người dùng: %s (id: %s)", updated.get("username"), user_id)
         return updated
 
     def delete_user(self, user_id: str) -> bool:
-        """Xóa user theo user_id hoặc username khỏi SQLite và users.json."""
+        """Xoá user theo user_id hoặc username."""
         db_manager.delete_user(user_id)
-        # Đồng bộ xóa trong users.json
-        try:
-            found = self._find_user_entry(user_id)
-            if found:
-                key, _ = found
-                users = self._load_users()
-                if key in users:
-                    del users[key]
-                    self._save_users(users)
-        except Exception as exc:
-            logger.warning("Không thể đồng bộ xóa user trong users.json: %s", exc)
-
         logger.info("Đã xóa người dùng khỏi hệ thống: %s", user_id)
         return True
 
     def change_user_password(self, user_id: str, new_password: str) -> bool:
-        """Mã hóa mật khẩu mới và lưu vào SQLite và users.json."""
+        """Mã hoá và lưu mật khẩu mới."""
         db_manager.change_user_password(user_id, new_password)
-        # Đồng bộ vào users.json
-        try:
-            found = self._find_user_entry(user_id)
-            if found:
-                key, _ = found
-                users = self._load_users()
-                hashed = self.get_password_hash(new_password)
-                users[key]["hashed_password"] = hashed
-                users[key]["password_hash"] = hashed
-                users[key]["updated_at"] = datetime.utcnow().isoformat()
-                self._save_users(users)
-        except Exception as exc:
-            logger.warning("Không thể đồng bộ đổi mật khẩu vào users.json: %s", exc)
-
         logger.info("Đã đổi mật khẩu cho người dùng: %s", user_id)
         return True
 

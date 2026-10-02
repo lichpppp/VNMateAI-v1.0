@@ -102,10 +102,16 @@ class DatabaseManager:
 
                     conn.commit()
 
-                # Tự động seed tài khoản admin nếu chưa có
-                self._seed_default_users()
-                # Đồng bộ thêm các user từ users.json nếu có
-                self._sync_from_users_json()
+                # Bảng users là kho tài khoản DUY NHẤT. Chỉ khi bảng rỗng (lần
+                # đầu): nhập từ users.json cũ trước — giữ mật khẩu người dùng đã
+                # đặt — rồi mới tạo tài khoản mặc định nếu vẫn rỗng. Thứ tự cũ
+                # (tạo mặc định trước) làm mật khẩu riêng trong users.json bị
+                # thay bằng admin123; nhập lại MỖI lần khởi động thì tài khoản đã
+                # xoá sống lại.
+                if self._user_count() == 0:
+                    self._import_users_json_once()
+                if self._user_count() == 0:
+                    self._seed_default_users()
                 logger.info("Khởi tạo cơ sở dữ liệu SQLite thành công tại: %s", self.db_path)
             except Exception as exc:
                 logger.error("Lỗi khởi tạo SQLite database: %s", exc)
@@ -117,83 +123,86 @@ class DatabaseManager:
         salt = bcrypt.gensalt()
         return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
-    def _seed_default_users(self) -> None:
-        """Tạo 3 tài khoản mặc định (admin, manager, viewer) nếu bảng users rỗng."""
+    def _user_count(self) -> int:
         with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM users;")
-            count = cursor.fetchone()[0]
-            if count == 0:
-                now_str = datetime.utcnow().isoformat()
-                default_users = [
-                    (
-                        "usr_admin",
-                        "admin",
-                        "Quản Trị Viên Hệ Thống",
-                        "admin",
-                        self.hash_password("admin123"),
-                        now_str,
-                        now_str,
-                    ),
-                    (
-                        "usr_manager",
-                        "manager",
-                        "Quản Lý Vận Hành",
-                        "manager",
-                        self.hash_password("manager123"),
-                        now_str,
-                        now_str,
-                    ),
-                    (
-                        "usr_viewer",
-                        "viewer",
-                        "Nhân Viên Giám Sát",
-                        "viewer",
-                        self.hash_password("viewer123"),
-                        now_str,
-                        now_str,
-                    ),
-                ]
-                cursor.executemany(
-                    """
-                    INSERT INTO users (id, username, full_name, role, password_hash, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?);
-                    """,
-                    default_users,
-                )
-                conn.commit()
-                logger.info("Đã tự động khởi tạo 3 tài khoản mẫu trong SQLite: admin, manager, viewer.")
+            return conn.execute("SELECT COUNT(*) FROM users;").fetchone()[0]
 
-    def _sync_from_users_json(self) -> None:
-        """Nhập các tài khoản từ users.json vào SQLite nếu chưa tồn tại."""
+    def _seed_default_users(self) -> None:
+        """
+        Tạo 3 tài khoản mặc định khi bảng users rỗng.
+
+        Mật khẩu: biến môi trường VNMATEAI_DEFAULT_<ROLE>_PASSWORD, không có thì
+        giá trị dev (kèm cảnh báo). Trước đây gán cứng admin123/... nên đặt biến
+        môi trường khi triển khai không có tác dụng.
+        """
+        fallback = {"admin": "admin123", "manager": "manager123", "viewer": "viewer123"}
+        names = {"admin": "Quản Trị Viên Hệ Thống", "manager": "Quản Lý Vận Hành",
+                 "viewer": "Nhân Viên Giám Sát"}
+        used_fallback = []
+        now_str = datetime.utcnow().isoformat()
+        rows = []
+        for role, dev_pwd in fallback.items():
+            pwd = os.getenv(f"VNMATEAI_DEFAULT_{role.upper()}_PASSWORD", "").strip()
+            if not pwd:
+                pwd = dev_pwd
+                used_fallback.append(role)
+            rows.append((f"usr_{role}", role, names[role], role, self.hash_password(pwd), now_str, now_str))
+        with self._get_connection() as conn:
+            conn.executemany(
+                """
+                INSERT INTO users (id, username, full_name, role, password_hash, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                rows,
+            )
+            conn.commit()
+        if used_fallback:
+            logger.warning(
+                "Đã tạo tài khoản với mật khẩu MẶC ĐỊNH yếu (%s) — chỉ dùng cho dev. Đặt "
+                "VNMATEAI_DEFAULT_<ROLE>_PASSWORD trước lần khởi động đầu, hoặc đổi mật "
+                "khẩu ngay trong trang quản trị.", ", ".join(used_fallback),
+            )
+        logger.info("Đã khởi tạo 3 tài khoản mặc định trong SQLite: admin, manager, viewer.")
+
+    def _import_users_json_once(self) -> None:
+        """
+        Di trú một lần từ users.json (kho cũ) khi bảng users còn rỗng. File không
+        bị sửa hay xoá. Tài khoản không có hash mật khẩu bị BỎ QUA — trước đây
+        được gán mật khẩu "123456".
+        """
         if not USERS_JSON_PATH.exists():
             return
         try:
             import json
             data = json.loads(USERS_JSON_PATH.read_text(encoding="utf-8"))
-            with self._get_connection() as conn:
-                cursor = conn.cursor()
-                now_str = datetime.utcnow().isoformat()
-                for uname, uinfo in data.items():
-                    username = (uinfo.get("username") or uname).strip().lower()
-                    cursor.execute("SELECT id FROM users WHERE username = ?;", (username,))
-                    if not cursor.fetchone():
-                        uid = uinfo.get("id") or f"usr_{username}"
-                        fname = uinfo.get("full_name") or username
-                        role = uinfo.get("role") or "viewer"
-                        pwd_hash = uinfo.get("password_hash") or uinfo.get("hashed_password") or self.hash_password("123456")
-                        created = uinfo.get("created_at") or now_str
-                        updated = uinfo.get("updated_at") or now_str
-                        cursor.execute(
-                            """
-                            INSERT INTO users (id, username, full_name, role, password_hash, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?);
-                            """,
-                            (uid, username, fname, role, pwd_hash, created, updated),
-                        )
-                conn.commit()
-        except Exception as exc:
-            logger.warning("Không thể đồng bộ từ users.json vào SQLite: %s", exc)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("Không đọc được users.json để di trú: %s", exc)
+            return
+        now_str = datetime.utcnow().isoformat()
+        imported, skipped = [], []
+        with self._get_connection() as conn:
+            for uname, uinfo in (data or {}).items():
+                if not isinstance(uinfo, dict):
+                    continue
+                username = (uinfo.get("username") or uname).strip().lower()
+                pwd_hash = uinfo.get("password_hash") or uinfo.get("hashed_password")
+                if not username or not pwd_hash:
+                    skipped.append(username or uname)
+                    continue
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO users (id, username, full_name, role, password_hash, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?);
+                    """,
+                    (uinfo.get("id") or f"usr_{username}", username, uinfo.get("full_name") or username,
+                     uinfo.get("role") or "viewer", pwd_hash,
+                     uinfo.get("created_at") or now_str, uinfo.get("updated_at") or now_str),
+                )
+                imported.append(username)
+            conn.commit()
+        logger.info("Đã di trú %d tài khoản từ users.json vào SQLite.", len(imported))
+        if skipped:
+            logger.warning("Bỏ qua tài khoản không có hash mật khẩu trong users.json: %s", ", ".join(skipped))
 
     # -----------------------------------------------------------------------
     # User CRUD Operations
