@@ -55,8 +55,8 @@ def section(title: str) -> None:
 
 
 def main() -> None:
-    from core.zero_trust import HITL_APPROVAL_THRESHOLD, hitl_manager
-    from core.zero_trust import _APPROVAL_TTL_SECONDS
+    from mateai.application.security.zero_trust import HITL_APPROVAL_THRESHOLD, hitl_manager
+    from mateai.application.security.zero_trust import _APPROVAL_TTL_SECONDS
 
     # ── "Tường lửa gửi Telegram": đếm số tin, không gửi thật ────────────────
     from core.telegram_gateway import telegram_gateway as _tg

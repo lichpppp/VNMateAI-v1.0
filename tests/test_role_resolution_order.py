@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.security_guard import security_guard  # noqa: E402
+from mateai.application.security.security_guard import security_guard  # noqa: E402
 
 
 def _fake_db(monkeypatch, users):

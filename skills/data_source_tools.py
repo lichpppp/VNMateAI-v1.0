@@ -72,7 +72,7 @@ async def _run_with_hitl(
 
     Cùng cách `_execute_connector_action` trong `integration_tools.py` làm.
     """
-    from core.zero_trust import execute_with_hitl
+    from mateai.application.security.zero_trust import execute_with_hitl
 
     result = await execute_with_hitl(
         action_name=action_name,

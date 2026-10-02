@@ -36,7 +36,7 @@ from core.connectors import (
 )
 from core.connectors.base_connector import ConnectorResult
 from core.plugin_manager import export_skill
-from core.zero_trust import hitl_manager, execute_with_hitl
+from mateai.application.security.zero_trust import hitl_manager, execute_with_hitl
 
 logger = logging.getLogger(__name__)
 

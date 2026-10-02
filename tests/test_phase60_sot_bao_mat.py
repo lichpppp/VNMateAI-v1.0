@@ -190,7 +190,7 @@ def test_hitl_executor_runs_once() -> None:
     asyncio.run(main())
 
     # Duyệt thật: nối vào hàng đợi HITL của zero_trust rồi approve.
-    from core.zero_trust import hitl_manager
+    from mateai.application.security.zero_trust import hitl_manager
 
     plugin_registry.register_tool(
         "t_sync_side_effect", counted, "test", {"type": "object", "properties": {}},
@@ -211,7 +211,7 @@ def test_hitl_executor_runs_once() -> None:
 # ══════════════════════════════════════════════════════════════════════════
 def test_declared_risk_level_is_authoritative() -> None:
     section("── risk_level khai trên tool là căn cứ thật, không bị bỏ qua ──")
-    from core.zero_trust import HITL_APPROVAL_THRESHOLD, hitl_manager
+    from mateai.application.security.zero_trust import HITL_APPROVAL_THRESHOLD, hitl_manager
 
     # Tên trung tính: không chứa từ khoá nguy hiểm nào, nên nếu cổng chỉ tra
     # bảng theo tên thì ra mức mặc định 2 và KHÔNG cần duyệt.
@@ -413,7 +413,7 @@ def test_webhook_secret_not_required_still_honest() -> None:
 
 def test_hitl_async_executor_really_runs() -> None:
     section("── HITL: executor coroutine phải THỰC SỰ chạy khi CEO duyệt ──")
-    from core.zero_trust import hitl_manager
+    from mateai.application.security.zero_trust import hitl_manager
 
     ran: list = []
 
@@ -435,7 +435,7 @@ def test_hitl_async_executor_really_runs() -> None:
         out["coro_result"] = res1.get("execution_result")
 
         # 2) Executor treo -> phải báo lỗi sau thời hạn, không treo vô hạn
-        import core.zero_trust as zt
+        import mateai.application.security.zero_trust as zt
         old = zt._APPROVAL_EXEC_TIMEOUT
         zt._APPROVAL_EXEC_TIMEOUT = 1.0
         try:
@@ -583,7 +583,7 @@ def test_telegram_markdown_is_escaped() -> None:
           not stray_amp, f"còn {stray_amp} trong {esc!r}")
     check("bản chưa escape thì vỡ (chứng minh test có tác dụng)",
           bool(_re.search(r"[<>]", bad)))
-    zt_src = Path("core/zero_trust.py").read_text(encoding="utf-8")
+    zt_src = Path("src/mateai/application/security/zero_trust.py").read_text(encoding="utf-8")
     check("tin nhắn kết quả duyệt escape tên tác vụ + lỗi",
           "html.escape(str(item['action_name']))" in zt_src
           and "html.escape(outcome_msg)" in zt_src)

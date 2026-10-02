@@ -52,8 +52,8 @@ def section(title: str) -> None:
 
 
 def main() -> None:
-    from core import zero_trust
-    from core.zero_trust import HITL_NOTIFY_RESULT, hitl_manager
+    from mateai.application.security import zero_trust
+    from mateai.application.security.zero_trust import HITL_NOTIFY_RESULT, hitl_manager
     from core.telegram_gateway import telegram_gateway as tg
     from core.database import erp_db
 
@@ -164,7 +164,7 @@ def main() -> None:
     # ═══ 5. Bật lại được mà không phải sửa lại escape ═════════════════════
     section("Đường dẫn bật lại vẫn an toàn")
 
-    src = Path("core/zero_trust.py").read_text(encoding="utf-8")
+    src = Path("src/mateai/application/security/zero_trust.py").read_text(encoding="utf-8")
     check("cả hai nhánh duyệt/từ chối đều nằm sau cùng một cờ",
           src.count("if HITL_NOTIFY_RESULT:") == 1, str(src.count("if HITL_NOTIFY_RESULT:")))
     check("phần escape HTML của tin kết quả còn nguyên",

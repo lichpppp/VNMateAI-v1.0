@@ -20,9 +20,12 @@ import socket
 from pathlib import Path
 from typing import Tuple
 
-logger = logging.getLogger("core.security_tls")
+logger = logging.getLogger("mateai.infrastructure.security.tls")
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 CERTS_DIR = _PROJECT_ROOT / "certs"
 CERT_FILE = CERTS_DIR / "server.crt"
 KEY_FILE = CERTS_DIR / "server.key"

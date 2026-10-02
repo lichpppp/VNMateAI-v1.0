@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core.db_manager as dbm  # noqa: E402
-from core.auth_manager import AuthManager  # noqa: E402
+from mateai.application.security.auth_manager import AuthManager  # noqa: E402
 
 
 @pytest.fixture
@@ -80,7 +80,7 @@ def test_deleted_user_stays_deleted_and_cannot_log_in(fresh, monkeypatch):
     assert _ok(store, "bob", "b-123456789")
     store.delete_user("bob")
 
-    import core.auth_manager as am
+    import mateai.application.security.auth_manager as am
     monkeypatch.setattr(am, "db_manager", store)
     assert AuthManager().authenticate_user("bob", "b-123456789") is None, "users.json không được là kho dự phòng"
     store2 = make()  # khởi động lại: users.json vẫn còn bob

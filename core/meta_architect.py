@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.config_loader import settings
-from core.safety_guard import safety_guard
+from mateai.application.security.safety_guard import safety_guard
 
 logger = logging.getLogger(__name__)
 
@@ -165,7 +165,7 @@ class MetaArchitect:
             return False
 
         # --- Step 2: Zero-Trust Deep AST Code Inspection ---
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
         is_safe, sec_reason = security_engine.inspect_generated_code(code_str)
         if not is_safe:
             logger.error("MetaArchitect: Mã kỹ năng '%s' bị SecurityEngine từ chối: %s", skill_filename, sec_reason)

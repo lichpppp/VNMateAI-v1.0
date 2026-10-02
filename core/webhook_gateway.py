@@ -35,7 +35,7 @@ from pydantic import BaseModel, Field
 from core.config_loader import settings
 from core.skills.proactive_manager import proactive_manager
 from core.telegram_gateway import telegram_gateway
-from core.zero_trust import log_security_audit
+from mateai.application.security.zero_trust import log_security_audit
 
 logger = logging.getLogger(__name__)
 

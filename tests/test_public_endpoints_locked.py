@@ -65,7 +65,7 @@ def test_worker_heartbeat_needs_worker_identity(monkeypatch):
                        headers={"Authorization": "Bearer sai-secret"}).status_code == 401
 
     # JWT của người dùng thường (viewer) không được giả làm worker.
-    from core.auth_manager import auth_manager
+    from mateai.application.security.auth_manager import auth_manager
     monkeypatch.setattr(auth_manager, "get_user", lambda u: {"username": u, "role": "viewer"})
     viewer = auth_manager.create_access_token(data={"sub": "vera", "role": "viewer"})
     assert client.post(url, json=_HEARTBEAT,

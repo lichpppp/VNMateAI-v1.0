@@ -18,7 +18,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
-from core.state_manager import state_manager  # noqa: E402
+from mateai.application.agent.state_manager import state_manager  # noqa: E402
 
 
 async def test_confirm_runs_the_approved_tool_through_the_gate(monkeypatch):

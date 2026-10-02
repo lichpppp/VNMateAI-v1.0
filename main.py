@@ -247,7 +247,7 @@ def _start_uvicorn() -> None:
     import asyncio
     import uvicorn  # type: ignore[import]
     from core.server import app  # noqa: F401
-    from core.security_tls import ensure_ssl_certs
+    from mateai.infrastructure.security.tls import ensure_ssl_certs
 
     cert_path, key_path = ensure_ssl_certs()
 
@@ -485,7 +485,7 @@ def main() -> None:
     """
     global _server_thread, _tray_icon
 
-    from core.security_tls import ensure_ssl_certs
+    from mateai.infrastructure.security.tls import ensure_ssl_certs
     ensure_ssl_certs()
 
     logger.info(

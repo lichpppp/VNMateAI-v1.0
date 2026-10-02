@@ -438,7 +438,7 @@ class PluginRegistry:
 
         # Check HITL requirement (risk_level >= 3)
         if tool.risk_level >= 3:
-            from core.zero_trust import hitl_manager, execute_with_hitl
+            from mateai.application.security.zero_trust import hitl_manager, execute_with_hitl
 
             def _sync_executor() -> Dict[str, Any]:
                 """

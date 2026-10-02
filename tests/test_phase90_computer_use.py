@@ -226,7 +226,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
                 return True
 
             with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue), \
-                 patch("core.zero_trust.hitl_manager.request_approval") as mock_hitl:
+                 patch("mateai.application.security.zero_trust.hitl_manager.request_approval") as mock_hitl:
                 mock_hitl.return_value = {"id": "HITL-TEST123", "status": "pending"}
 
                 res = await tool_execute_gui_task(
@@ -259,7 +259,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
                 return True
 
             with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue), \
-                 patch("core.zero_trust.hitl_manager.request_approval", side_effect=RuntimeError("down")):
+                 patch("mateai.application.security.zero_trust.hitl_manager.request_approval", side_effect=RuntimeError("down")):
                 res = await tool_execute_gui_task(
                     task_goal="Chuyển tiền lương tháng cho nhân viên",
                     system_target="VCB Digibank",
@@ -273,7 +273,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
     def test_real_hitl_manager_approval_releases_task(self):
         """Đi qua hitl_manager THẬT: tạo yêu cầu → approve_async → task mới vào hàng đợi."""
         import core.plugins.computer_use_plugin as cup
-        from core.zero_trust import hitl_manager
+        from mateai.application.security.zero_trust import hitl_manager
 
         async def _run():
             enqueued = []

@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.server import app
-from core.auth_manager import auth_manager
+from mateai.application.security.auth_manager import auth_manager
 
 # Topology API không còn public (ghi/đọc sơ đồ hệ thống cần đăng nhập).
 _admin = next(u for u in auth_manager.get_all_users() if u.get("role") == "admin")

@@ -619,3 +619,24 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 
 **Đã xoá (bản song song, chỉ test dùng):** `application/skills/skill_resolver.py`, `application/skills/tool_executor.py`, `domain/skills/registry.py`, `tests/unit/test_skills_taxonomy.py`. Giữ `domain/skills/entities.py` (mô hình domain, `domain/__init__` export).
 **Test:** 266 pass. **Runtime:** khởi động không lỗi import, log "Computer-Use Plugin registered (1 tool)" (đăng ký qua registry ở vị trí mới), `/readyz` ok, skill `get_system_info` chạy, `/computer-use/status` success.
+
+## 31. Phase 4 — Security vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/security_guard.py` (RBAC) | `mateai/application/security/security_guard.py` |
+| `core/zero_trust.py` (HITL) | `mateai/application/security/zero_trust.py` |
+| `core/safety_guard.py` (audit, che dữ liệu, AST) | `mateai/application/security/safety_guard.py` |
+| `core/auth_manager.py` — lớp `AuthManager` (mật khẩu, JWT) | `mateai/application/security/auth_manager.py` |
+| `core/auth_manager.py` — `get_current_user`, `require_roles`, `http_bearer` (FastAPI) | `mateai/interfaces/http/auth_dependencies.py` |
+| `core/security_tls.py` | `mateai/infrastructure/security/tls.py` |
+| `core/state_manager.py` (pending action) | `mateai/application/agent/state_manager.py` |
+
+Xoá package rỗng `core/security/` (còn lại sau khi gộp HITL). 32 file đổi import; 1 dạng `from core import zero_trust` bắt riêng.
+
+**Bẫy đường dẫn xử lý trước khi chuyển:** `JWT_SECRET_FILE` và thư mục `certs/` của TLS tính từ `Path(__file__)` → đổi sang `settings.PROJECT_ROOT` (cũng sửa lỗi tiềm ẩn ở bản đóng gói, nơi `__file__` trỏ thư mục giải nén tạm → sinh khoá/chứng chỉ mới mỗi lần chạy). Test bảo vệ `test_secret_paths_stable.py`.
+**Ranh giới tầng:** `test_architecture_boundaries` (RULE-003) bắt `auth_manager` ở tầng application import FastAPI → tách phần dependency HTTP sang `interfaces/http`.
+**Test:** 267 pass.
+**Runtime:** dấu vân tay `certs/jwt_secret.key` (`e4c652ed…`) và `certs/server.crt` (`81f798f1…`) KHÔNG đổi; JWT cấp trước khi chuyển vẫn hợp lệ (200); audit-logs và HITL pending 200; viewer vào route admin 403; thiết bị không token 403.

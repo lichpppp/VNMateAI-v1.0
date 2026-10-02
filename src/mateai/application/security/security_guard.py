@@ -33,7 +33,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-logger = logging.getLogger("core.security_guard")
+logger = logging.getLogger("mateai.application.security.security_guard")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # RBAC Permission Matrix
@@ -165,7 +165,7 @@ SERVICE_PRINCIPAL_ROLES: Dict[str, str] = {
 class SecurityGuard:
     """
     RBAC Middleware & Audit Logging Interceptor cho VN-MateAI Phase 48.
-    Singleton — sử dụng qua: from core.security_guard import security_guard
+    Singleton — sử dụng qua: from mateai.application.security.security_guard import security_guard
     """
 
     def __init__(self) -> None:

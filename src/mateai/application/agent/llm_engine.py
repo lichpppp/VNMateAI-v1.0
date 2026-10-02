@@ -660,7 +660,7 @@ class LLMEngine:
         """
         from core.plugin_manager import plugin_manager
         from core.meta_architect import meta_architect
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
 
         raw_tools = plugin_manager.get_all_tools()
 
@@ -686,7 +686,7 @@ class LLMEngine:
         # ═════════════════════════════════════════════════════════════════════
         # Phase 25: Resumption of Pending Actions on User Confirmation / Rejection
         # ═════════════════════════════════════════════════════════════════════
-        from core.state_manager import state_manager
+        from mateai.application.agent.state_manager import state_manager
         # Zero-Trust: caller_id là danh tính dùng cho RBAC + hàng đợi pending action.
         # KHÔNG được mặc định thành "admin" — mặc định đó biến mọi request không khai
         # báo nguồn thành full quyền. Dùng "anonymous" để _resolve_role() fail-closed
@@ -1242,7 +1242,7 @@ class LLMEngine:
         #                used_agent. Thuộc tính last_voice_* trên singleton vẫn được
         #                ghi để tương thích, nhưng bị ghi đè khi nhiều phiên chạy song song.
         #   tool_ack   — False khi bên gọi đã phát câu đệm trước khi gọi LLM.
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
         if turn is None:
             turn = {}
         _session = str(session_id or source_device or "voice")

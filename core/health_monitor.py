@@ -201,7 +201,7 @@ def _get_recent_audit_events(limit: int = 8) -> List[Dict[str, Any]]:
     """Synchronous retrieval of recent audit events for live event log."""
     events: List[Dict[str, Any]] = []
     try:
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
         raw_logs = security_engine.get_recent_audit_logs(limit=limit)
         for item in raw_logs:
             tier = item.get("tier", "SAFE")

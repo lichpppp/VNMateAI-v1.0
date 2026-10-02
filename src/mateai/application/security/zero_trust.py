@@ -817,7 +817,7 @@ def log_security_audit(
     details: Optional[Dict[str, Any]] = None,
 ) -> None:
     try:
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
         security_engine.log_audit(client_id, action, risk, status, details)
     except Exception as exc:
         logger.error("[ZeroTrust] Lỗi ghi log kiểm toán: %s", exc)

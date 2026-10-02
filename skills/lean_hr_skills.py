@@ -62,7 +62,7 @@ def send_task_to_client(
         try:
             import urllib.request
             import json
-            from core.auth_manager import auth_manager
+            from mateai.application.security.auth_manager import auth_manager
             from core.config_loader import settings
             token = auth_manager.create_access_token({"sub": "admin", "role": "admin"})
             req = urllib.request.Request(

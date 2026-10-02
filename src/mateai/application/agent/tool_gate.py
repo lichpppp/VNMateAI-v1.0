@@ -15,7 +15,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional, Set
 
-from core.safety_guard import security_engine
+from mateai.application.security.safety_guard import security_engine
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ async def run_tool_with_policy(
 
     Trả về {"target_client", "args", "result"}.
     """
-    from core.zero_trust import evaluate_action_risk
+    from mateai.application.security.zero_trust import evaluate_action_risk
     from core.plugin_manager import plugin_manager
 
     fn_args = dict(fn_args or {})
@@ -77,7 +77,7 @@ async def run_tool_with_policy(
     if risk_level == "NEED_CONFIRM" and not _is_admin:
         logger.warning("Zero-Trust Security: Tác vụ '%s' yêu cầu phê duyệt.", fn_name)
         security_engine.log_audit(target_client, fn_name, "NEED_CONFIRM", "PENDING_CONFIRMATION", fn_args)
-        from core.state_manager import state_manager as _sm
+        from mateai.application.agent.state_manager import state_manager as _sm
         _chat_id = None
         if source_device and "telegram:" in str(source_device):
             _parts = str(source_device).split(":")
@@ -96,7 +96,7 @@ async def run_tool_with_policy(
         })
 
     try:
-        from core.security_guard import security_guard as _rbac_guard
+        from mateai.application.security.security_guard import security_guard as _rbac_guard
     except Exception:  # pragma: no cover
         _rbac_guard = None
     if _rbac_guard is not None:

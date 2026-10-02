@@ -48,7 +48,8 @@ from fastapi.responses import FileResponse, JSONResponse, HTMLResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from core.auth_manager import auth_manager, get_current_user, require_roles
+from mateai.application.security.auth_manager import auth_manager
+from mateai.interfaces.http.auth_dependencies import get_current_user, require_roles
 from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
 from core.plugin_manager import run_blocking
 import sys
@@ -2576,7 +2577,7 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
 
     # Hàng đợi phê duyệt Zero-Trust (Phase 57)
     try:
-        from core.zero_trust import hitl_manager as zt_hitl
+        from mateai.application.security.zero_trust import hitl_manager as zt_hitl
         counters["zt_pending"] = len(zt_hitl.get_pending_list())
     except Exception:
         counters.setdefault("zt_pending", 0)
@@ -3830,8 +3831,8 @@ async def execute_skill_endpoint(
     RBAC của SecurityGuard — cùng cổng kiểm tra mà luồng chat/LLM dùng.
     """
     from core.plugin_manager import plugin_manager
-    from core.security_guard import security_guard
-    from core.zero_trust import execute_with_hitl
+    from mateai.application.security.security_guard import security_guard
+    from mateai.application.security.zero_trust import execute_with_hitl
 
     source_ip = request.client.host if request.client else None
     allowed, reason = security_guard.check_permission(
@@ -4854,7 +4855,7 @@ async def execute_skill_on_client(
 ) -> Dict[str, Any]:
     """Dispatch a skill execution request to a target worker node with Zero-Trust check."""
     from core.orchestrator import orchestrator
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
 
     if not orchestrator.is_client_online(client_id):
         raise HTTPException(
@@ -4873,7 +4874,7 @@ async def execute_skill_on_client(
 
     if risk_level == "NEED_CONFIRM" and not payload.args.get("confirmed"):
         security_engine.log_audit(client_id, payload.skill_name, "NEED_CONFIRM", "PENDING_CONFIRMATION", payload.args)
-        from core.state_manager import state_manager
+        from mateai.application.agent.state_manager import state_manager
         saved = state_manager.save_pending_action(
             user_id="admin",
             tool_name=payload.skill_name,
@@ -5349,7 +5350,7 @@ async def update_blacklist(
 ) -> Dict[str, Any]:
     """Add or remove an item from the active security policy (blacklist, confirm_actions, protected_dirs)."""
     from core.config_loader import settings, CONFIG_PATH, reload_settings
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
 
     category = payload.category or "blacklist"
     kw = payload.keyword.strip()
@@ -5413,7 +5414,7 @@ async def inspect_security_sandbox(
     """
     Test and analyze Python code, shell commands, or user queries against Zero-Trust AST & Blacklist rules.
     """
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
     from core.config_loader import settings
 
     inspect_type = (payload.type or "code").lower()
@@ -5486,7 +5487,7 @@ async def issue_device_token_endpoint(
     from core.db_manager import db_manager
     token = await run_blocking(db_manager.issue_device_token, device_id=device_id, created_by=str(user.get("username", "")))
     try:
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
         security_engine.log_audit(str(user.get("username", "")), "issue_device_token", "SAFE", "SUCCESS",
                                   {"device_id": device_id})
     except Exception:  # pylint: disable=broad-except
@@ -5520,7 +5521,7 @@ async def revoke_device_token_endpoint(device_id: str, user: dict = Depends(requ
     if not await run_blocking(db_manager.revoke_device_token, device_id=device_id):
         raise HTTPException(status_code=404, detail=f"Không có token cho thiết bị '{device_id}'.")
     try:
-        from core.safety_guard import security_engine
+        from mateai.application.security.safety_guard import security_engine
         security_engine.log_audit(str(user.get("username", "")), "revoke_device_token", "SAFE", "SUCCESS",
                                   {"device_id": device_id})
     except Exception:  # pylint: disable=broad-except
@@ -5561,7 +5562,7 @@ async def get_audit_logs(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Fetch structured security audit logs."""
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
     logs = security_engine.get_recent_audit_logs(limit=limit)
     return {
         "status": "success",
@@ -5580,7 +5581,7 @@ async def get_pending_action_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Return the pending action queued in StateManager for the given user, if any."""
-    from core.state_manager import state_manager
+    from mateai.application.agent.state_manager import state_manager
     all_pending = state_manager.list_pending_actions()
     action = state_manager.get_pending_action(user_id)
     if not action and all_pending:
@@ -5626,10 +5627,10 @@ async def confirm_action_endpoint(
     Phase 25: Handle emergency approval for actions in the NEED_CONFIRM tier.
     Automatically resolves skill_name / args from StateManager if not provided in payload.
     """
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
     from core.orchestrator import orchestrator
     from core.plugin_manager import plugin_manager
-    from core.state_manager import state_manager
+    from mateai.application.agent.state_manager import state_manager
 
     # ── Phase 25: Auto-resolve from StateManager ─────────────────────────
     lookup_key = payload.action_id or payload.user_id or current_user.get("username", "admin")
@@ -5956,7 +5957,7 @@ async def fs_list_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     from core.skills.file_system import list_directory
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
 
     target = req.target_client_id or req.target_client or "master"
     if target.lower() in ("master", "local", "server", "chính", "cục bộ"):
@@ -5978,7 +5979,7 @@ async def fs_read_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     from core.skills.file_system import read_file
-    from core.safety_guard import security_engine
+    from mateai.application.security.safety_guard import security_engine
 
     target = req.target_client_id or req.target_client or "master"
     if target.lower() in ("master", "local", "server", "chính", "cục bộ"):
@@ -6000,9 +6001,9 @@ async def fs_write_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     from core.skills.file_system import write_file
-    from core.safety_guard import security_engine
-    from core.zero_trust import evaluate_action_risk
-    from core.state_manager import state_manager
+    from mateai.application.security.safety_guard import security_engine
+    from mateai.application.security.zero_trust import evaluate_action_risk
+    from mateai.application.agent.state_manager import state_manager
 
     target = req.target_client_id or req.target_client or "master"
     risk = evaluate_action_risk("write_file", {"file_path": req.file_path, "mode": req.mode})
@@ -6043,9 +6044,9 @@ async def fs_delete_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     from core.skills.file_system import delete_item
-    from core.safety_guard import security_engine
-    from core.zero_trust import evaluate_action_risk
-    from core.state_manager import state_manager
+    from mateai.application.security.safety_guard import security_engine
+    from mateai.application.security.zero_trust import evaluate_action_risk
+    from mateai.application.agent.state_manager import state_manager
 
     target = req.target_client_id or req.target_client or "master"
     risk = evaluate_action_risk("delete_item", {"path": req.path, "is_folder": req.is_folder})
@@ -6794,7 +6795,7 @@ async def download_agent(
 
         # Phase 29: Read certs/server.crt on server and embed directly into Client Agent ZIP as server_cert.pem
         try:
-            from core.security_tls import CERT_FILE, ensure_ssl_certs
+            from mateai.infrastructure.security.tls import CERT_FILE, ensure_ssl_certs
             ensure_ssl_certs()
             if CERT_FILE.exists() and CERT_FILE.stat().st_size > 0:
                 cert_bytes = CERT_FILE.read_bytes()
@@ -7098,7 +7099,7 @@ async def api_enterprise_record_finance(
     tên chung chung thì ngưỡng 50 triệu sẽ không kích hoạt.
     """
     from core.database import erp_db
-    from core.zero_trust import execute_with_hitl
+    from mateai.application.security.zero_trust import execute_with_hitl
 
     try:
         body = await request.json()
@@ -7441,7 +7442,7 @@ async def api_multi_agent_route(
     Tác vụ thật sự nguy hiểm vẫn đi qua cổng HITL ở đúng tool của chúng
     (record / delete / run_powershell...).
     """
-    from core.zero_trust import execute_with_hitl
+    from mateai.application.security.zero_trust import execute_with_hitl
 
     try:
         body = await request.json()
@@ -7607,7 +7608,7 @@ async def api_enterprise_onboarding(
     là hành động cấp danh tính cho con người — theo briefing BƯỚC 5 thuộc nhóm
     3-5. Trước đây chỉ có RBAC nên manager tự tạo nhân viên không ai hỏi.
     """
-    from core.zero_trust import execute_with_hitl
+    from mateai.application.security.zero_trust import execute_with_hitl
 
     try:
         body = await request.json()
@@ -7697,7 +7698,7 @@ async def api_hitl_pending_list(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy danh sách các yêu cầu Risk Level 4-5 đang chờ Human-in-the-Loop CEO phê duyệt."""
-    from core.zero_trust import hitl_manager
+    from mateai.application.security.zero_trust import hitl_manager
     try:
         pending = hitl_manager.get_pending_list()
         return {"status": "success", "total_pending": len(pending), "pending_approvals": pending}
@@ -7720,7 +7721,7 @@ async def api_hitl_approve(
         approval_id = body.get("approval_id", "")
         if not approval_id:
             return {"status": "error", "error": "Thiếu approval_id"}
-        from core.zero_trust import hitl_manager
+        from mateai.application.security.zero_trust import hitl_manager
         # `approve_async()` chạy đúng cả hai loại tác vụ:
         #   - coroutine  -> await trực tiếp (skill gọi qua API)
         #   - hàm sync   -> asyncio.to_thread (ghi DB, gọi API ngoại vi),
@@ -7756,7 +7757,7 @@ async def api_hitl_reject(
         reason = body.get("reason", "Bị từ chối bởi CEO")
         if not approval_id:
             return {"status": "error", "error": "Thiếu approval_id"}
-        from core.zero_trust import hitl_manager
+        from mateai.application.security.zero_trust import hitl_manager
         # `reject()` cũng ghi audit log — đẩy sang thread như `approve()`
         # để việc ghi DB không giữ chân event loop.
         result = await asyncio.to_thread(

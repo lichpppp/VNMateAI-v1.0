@@ -38,7 +38,7 @@ class StateManager:
     def load_from_audit_logs(self) -> None:
         """Khôi phục các tác vụ PENDING_CONFIRMATION chưa được duyệt/hủy từ audit_logs, và tải các tác vụ vừa được duyệt gần nhất."""
         try:
-            from core.safety_guard import security_engine
+            from mateai.application.security.safety_guard import security_engine
             # Mới nhất trước → đảo lại theo thời gian. 2000 dòng phủ dư cửa sổ 2 giờ.
             entries = list(reversed(security_engine.get_recent_audit_logs(limit=2000)))
 

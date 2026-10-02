@@ -38,7 +38,7 @@ def _get_erp_db():
 
 
 def _get_security_guard():
-    from core.security_guard import security_guard
+    from mateai.application.security.security_guard import security_guard
     return security_guard
 
 

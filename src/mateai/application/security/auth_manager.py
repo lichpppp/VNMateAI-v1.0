@@ -20,13 +20,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import bcrypt
 import jwt
-from fastapi import Depends, HTTPException, Query, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from passlib.context import CryptContext
 
 from core.db_manager import db_manager
 
-logger = logging.getLogger("core.auth_manager")
+logger = logging.getLogger("mateai.application.security.auth_manager")
 
 # ---------------------------------------------------------------------------
 # Cấu hình Token & Mật khẩu
@@ -34,7 +32,10 @@ logger = logging.getLogger("core.auth_manager")
 JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 giờ
 
-JWT_SECRET_FILE = Path(__file__).resolve().parent.parent / "certs" / "jwt_secret.key"
+# Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+
+JWT_SECRET_FILE = Path(_settings.PROJECT_ROOT) / "certs" / "jwt_secret.key"
 
 
 def _load_jwt_secret() -> str:
@@ -83,7 +84,6 @@ def _load_jwt_secret() -> str:
 JWT_SECRET_KEY = _load_jwt_secret()
 
 pwd_context = CryptContext(schemes=["bcrypt", "pbkdf2_sha256"], deprecated="auto")
-http_bearer = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------------------------
@@ -187,77 +187,3 @@ class AuthManager:
 
 
 auth_manager = AuthManager()
-
-
-# ---------------------------------------------------------------------------
-# FastAPI Security Dependencies
-# ---------------------------------------------------------------------------
-async def get_current_user(
-    request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
-    token_query: Optional[str] = Query(default=None, alias="token"),
-) -> Dict[str, Any]:
-    """
-    FastAPI dependency trích xuất và kiểm tra người dùng hiện tại từ:
-    1. Header Authorization: Bearer <token>
-    2. Query param ?token=<token> (hỗ trợ phát audio trực tiếp hoặc xem tệp)
-
-    Zero-Trust: KHÔNG có bất kỳ fallback nào. Mọi request đều phải mang JWT hợp lệ.
-    (Trước đây từng tự cấp quyền admin cho localhost và cho Referer chứa "/hud" —
-     cả hai đều dễ bị giả mạo và đã bị gỡ bỏ.)
-    """
-    raw_token = None
-    if credentials and credentials.credentials:
-        raw_token = credentials.credentials
-    elif token_query:
-        raw_token = token_query
-
-    if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Yêu cầu xác thực tài khoản (Thiếu Bearer Token).",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    payload = auth_manager.decode_access_token(raw_token)
-    if not payload or "sub" not in payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Phiên đăng nhập không hợp lệ hoặc đã hết hạn.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    username = payload.get("sub")
-    user = auth_manager.get_user(username)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tài khoản người dùng không tồn tại.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Trả về thông tin an toàn (bỏ password_hash)
-    return {
-        "id": user.get("id", f"usr_{user['username']}"),
-        "username": user["username"],
-        "full_name": user.get("full_name", user["username"]),
-        "role": user.get("role", "viewer"),
-        "created_at": user.get("created_at"),
-    }
-
-
-def require_roles(allowed_roles: List[str]):
-    """
-    Dependency factory kiểm tra quyền của người dùng (RBAC).
-    Ví dụ: Depends(require_roles(["admin", "manager"]))
-    """
-    async def role_checker(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-        user_role = current_user.get("role", "viewer")
-        if user_role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Quyền hạn '{user_role}' không được phép thực hiện tác vụ này. Yêu cầu một trong các quyền: {allowed_roles}.",
-            )
-        return current_user
-
-    return role_checker

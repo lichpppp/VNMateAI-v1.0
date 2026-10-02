@@ -25,7 +25,7 @@ from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 from fastapi import Depends
 
-from core.auth_manager import get_current_user
+from mateai.interfaces.http.auth_dependencies import get_current_user
 from core.database import erp_db
 
 logger = logging.getLogger("core.api_erp")

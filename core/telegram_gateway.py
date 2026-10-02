@@ -424,7 +424,7 @@ class TelegramBotService:
             if user:
                 reviewer = f"telegram:{user.username or user.id}"
 
-            from core.zero_trust import hitl_manager
+            from mateai.application.security.zero_trust import hitl_manager
 
             if ok:
                 # `approve_async()` là bản duyệt bất đồng bộ — bắt buộc ở

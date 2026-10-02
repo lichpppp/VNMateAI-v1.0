@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core.database import erp_db  # noqa: E402
-from core.safety_guard import security_engine  # noqa: E402
+from mateai.application.security.safety_guard import security_engine  # noqa: E402
 
 
 def test_security_event_goes_to_audit_logs_and_reads_back():
@@ -41,7 +41,7 @@ def test_rbac_rows_show_in_the_same_view():
 
 
 def test_pending_action_is_restored_from_audit_logs():
-    from core.state_manager import StateManager
+    from mateai.application.agent.state_manager import StateManager
 
     security_engine.log_audit("pc-restore", "restart_service", "NEED_CONFIRM",
                               "PENDING_CONFIRMATION", {"name": "spooler"})
@@ -58,7 +58,7 @@ def test_audit_log_cannot_be_cleared_over_http():
     from fastapi.testclient import TestClient
     import core.server as server
 
-    from core.auth_manager import auth_manager
+    from mateai.application.security.auth_manager import auth_manager
 
     admin = next(u for u in auth_manager.get_all_users() if u.get("role") == "admin")
     token = auth_manager.create_access_token(data={"sub": admin["username"], "role": "admin"})

@@ -25,8 +25,8 @@ def gate(monkeypatch):
     calls = {"executed": [], "audit": [], "rbac": []}
     state = {"risk": "SAFE", "rbac_ok": True}
 
-    import core.zero_trust as zt
-    import core.security_guard as sg
+    import mateai.application.security.zero_trust as zt
+    import mateai.application.security.security_guard as sg
     import core.plugin_manager as pm
     import mateai.application.skills.plugin_registry as pr
 
@@ -46,7 +46,7 @@ def gate(monkeypatch):
     monkeypatch.setattr(pr.plugin_registry, "get_tool_names", lambda: [])
     monkeypatch.setattr(avl.security_engine, "log_audit",
                         lambda *a, **k: calls["audit"].append(a[1:3]))
-    import core.state_manager as smod
+    import mateai.application.agent.state_manager as smod
     monkeypatch.setattr(smod.state_manager, "save_pending_action", lambda **kw: None)
     return calls, state
 
