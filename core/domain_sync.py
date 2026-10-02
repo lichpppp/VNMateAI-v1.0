@@ -23,7 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from core.database import ClosingConnection
+from core.database import open_sqlite
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +48,7 @@ class WindowsDomainManager:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Create and configure SQLite connection with WAL mode and row factory."""
-        conn = sqlite3.connect(str(self.db_path), timeout=10.0, factory=ClosingConnection)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        return conn
+        return open_sqlite(self.db_path, timeout=10.0, synchronous="NORMAL")
 
     def _init_db(self) -> None:
         """Initialize SQLite database tables for employees and computers."""

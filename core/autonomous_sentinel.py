@@ -114,7 +114,8 @@ class AutonomousSentinel:
             return None
 
         try:
-            with sqlite3.connect(str(_DB_PATH), timeout=2.0) as conn:
+            from core.database import open_sqlite
+            with open_sqlite(_DB_PATH, timeout=2.0, wal=False) as conn:
                 try:
                     row = conn.execute(
                         "SELECT MAX(synced_at) FROM ("
@@ -154,8 +155,18 @@ class AutonomousSentinel:
 
         try:
             # Attempt immediate transaction lock test with short timeout
-            with sqlite3.connect(str(_DB_PATH), timeout=0.8) as conn:
-                conn.execute("PRAGMA quick_check")
+            from core.database import open_sqlite
+            with open_sqlite(_DB_PATH, timeout=0.8, wal=False) as conn:
+                # quick_check KHÔNG ném lỗi khi file hỏng — nó trả các dòng mô tả
+                # lỗi ("ok" nếu lành). Trước đây kết quả bị bỏ qua nên CSDL hỏng
+                # không bao giờ bị phát hiện.
+                problems = [str(r[0]) for r in conn.execute("PRAGMA quick_check").fetchall()]
+                if problems != ["ok"]:
+                    return {
+                        "category": "sql_deadlock",
+                        "title": "Lỗi Toàn Vẹn Cơ Sở Dữ Liệu SQL",
+                        "message": f"PRAGMA quick_check báo lỗi: {'; '.join(problems)[:120]}",
+                    }
                 # Test write-lock availability
                 conn.execute("BEGIN IMMEDIATE")
                 conn.rollback()

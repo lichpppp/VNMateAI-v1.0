@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import bcrypt
 import psutil
 
-from core.database import ClosingConnection, ensure_tasks_table
+from core.database import ensure_tasks_table, open_sqlite
 
 logger = logging.getLogger("core.db_manager")
 
@@ -44,13 +44,7 @@ class DatabaseManager:
 
     def _get_connection(self) -> sqlite3.Connection:
         """Tạo kết nối SQLite với Row factory để dễ dàng truy xuất cột dạng dict."""
-        conn = sqlite3.connect(
-            str(self.db_path), timeout=20.0, check_same_thread=False,
-            factory=ClosingConnection,
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")  # Tăng tốc độ đọc/ghi đồng thời
-        return conn
+        return open_sqlite(self.db_path, timeout=20.0)
 
     def init_db(self) -> None:
         """Tự động tạo bảng và dữ liệu khởi tạo ban đầu nếu chưa tồn tại."""

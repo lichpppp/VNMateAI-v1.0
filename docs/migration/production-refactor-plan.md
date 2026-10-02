@@ -499,3 +499,14 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime (chỉ đọc, không ghi dữ liệu thử vào CSDL thật):** cột `tasks` của CSDL đang dùng không đổi (14 cột); `/roi-dashboard`, `/itsm/tickets`, `/admin/departments/overview` trả 200.
 
 **Kế hoạch PostgreSQL (chưa làm, cần quyết định):** hiện có 4 nơi mở SQLite trực tiếp (RULE-014: `autonomous_sentinel` 2, `db_manager`, `domain_sync`, `health_monitor`) + `ERPDatabase` + `db_manager` + `memory_manager`/HR DB. Bước trước khi chuyển: gom về một lớp truy cập (`get_connection`) để đổi driver ở một chỗ.
+
+## 23. Báo cáo Data — một đường mở SQLite (RULE-014) (2026-10-02)
+
+**STATUS:** XONG
+
+**Một implementation:** `core.database.open_sqlite(path, timeout, foreign_keys, wal, synchronous)` — nơi duy nhất trong `core/` gọi `sqlite3.connect`. Trả `ClosingConnection` (thoát `with` là đóng) + `sqlite3.Row`. Chuyển sang: `ERPDatabase.get_connection` (FK + WAL, 30 s), `db_manager` (WAL, 20 s), `domain_sync` (WAL + synchronous NORMAL, 10 s), probe của `health_monitor` và `autonomous_sentinel` (×2, `wal=False`, vẫn kiểm tồn tại file trước để không tạo CSDL rỗng). Mỗi lớp giữ đúng tuỳ chọn cũ. RULE-014: 5 → 0. Đây là bước chuẩn bị cho PostgreSQL: đổi driver/tuỳ chọn ở một chỗ.
+
+**Lỗi tìm thấy khi gom:** `autonomous_sentinel.check_sql_health` gọi `PRAGMA quick_check` nhưng bỏ qua kết quả. `quick_check` không ném lỗi khi file hỏng — nó trả các dòng mô tả (`"ok"` nếu lành) → CSDL hỏng không bao giờ bị cảnh báo. Nay kết quả khác `["ok"]` → cảnh báo kèm nội dung lỗi. Probe cũ dùng `with sqlite3.connect()` (chỉ commit, không đóng) — nay đóng thật.
+
+**Test:** 255 pass / 0 fail. Mới: `test_sqlite_single_open.py` (4: tuỳ chọn + đóng khi thoát; probe không đổi journal mode; CSDL lành → không cảnh báo; quick_check báo lỗi → có cảnh báo — fail trên code cũ).
+**Runtime:** `/readyz` ok (database ok); `/domain/employees`, `/roi-dashboard`, `/users` 200; log không có lỗi SQLite.

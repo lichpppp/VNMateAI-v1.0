@@ -8,12 +8,7 @@
     "skills/ninerouter_skills.py": 1
   },
   "RULE-013": {},
-  "RULE-014": {
-    "core/autonomous_sentinel.py": 2,
-    "core/db_manager.py": 1,
-    "core/domain_sync.py": 1,
-    "core/health_monitor.py": 1
-  },
+  "RULE-014": {},
   "RULE-015": {
     "core/api_admin.py": 1,
     "core/background_workers.py": 1,

@@ -26,6 +26,34 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 
+def open_sqlite(
+    path: "Path | str",
+    *,
+    timeout: float = 30.0,
+    foreign_keys: bool = False,
+    wal: bool = True,
+    synchronous: Optional[str] = None,
+) -> sqlite3.Connection:
+    """
+    Nơi DUY NHẤT mở kết nối SQLite trong core/ (RULE-014) — đổi driver / thêm
+    tuỳ chọn chung (vd. chuyển PostgreSQL) chỉ sửa ở đây.
+
+    Kết nối là ClosingConnection (thoát khối `with` là ĐÓNG, không chỉ commit),
+    row_factory = sqlite3.Row. Probe sức khoẻ dùng wal=False: chỉ đọc, không đổi
+    chế độ journal của file.
+    """
+    conn = sqlite3.connect(str(path), timeout=timeout, check_same_thread=False,
+                           factory=ClosingConnection)
+    conn.row_factory = sqlite3.Row
+    if foreign_keys:
+        conn.execute("PRAGMA foreign_keys = ON;")
+    if wal:
+        conn.execute("PRAGMA journal_mode = WAL;")
+    if synchronous:
+        conn.execute(f"PRAGMA synchronous = {synchronous};")
+    return conn
+
+
 def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
     """
     Tạo / di trú bảng `tasks` — nơi DUY NHẤT định nghĩa schema của bảng này.
@@ -158,14 +186,7 @@ class ERPDatabase:
 
     def get_connection(self) -> sqlite3.Connection:
         """Tạo kết nối SQLite có kích hoạt FOREIGN KEY và Row factory."""
-        conn = sqlite3.connect(
-            str(self.db_path), timeout=30.0, check_same_thread=False,
-            factory=ClosingConnection,
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA journal_mode = WAL;")
-        return conn
+        return open_sqlite(self.db_path, timeout=30.0, foreign_keys=True)
 
     def init_db(self) -> None:
         """Tạo các bảng ERP và kiểm tra schema migrations."""
