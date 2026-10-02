@@ -544,7 +544,7 @@ section("Tập bí mật không trùng với tập trường của connector")
 
 # Trùng lặp danh sách tên bí mật ở hai nơi thì sớm trôi lệch. Test này
 # chỉ khẳng định quan hệ lập phương (subset), không thay đổi hành vi.
-from mateai.interfaces.http.server import _CONNECTOR_SECRET_FIELDS  # noqa: E402
+from mateai.interfaces.http.routers.enterprise import _CONNECTOR_SECRET_FIELDS  # noqa: E402
 
 check(
     "mọi trường bí mật của connector đều nằm trong tập che chung",

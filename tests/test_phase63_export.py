@@ -45,7 +45,7 @@ from mateai.infrastructure.files.file_export import (  # noqa: E402
     _rows_to_xlsx,
     _safe_filename,
 )
-from mateai.interfaces.http.server import _safe_int  # noqa: E402
+from mateai.interfaces.http.routers.enterprise import _safe_int  # noqa: E402
 
 ROWS = [
     {"ma_hang": "SP001", "ten_hang": "Ghế xoay nội thất", "so_luong": 45, "don_gia": 1250000},

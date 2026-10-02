@@ -73,11 +73,11 @@ from mateai.infrastructure.connectors.base_connector import (  # noqa: E402
     CONNECTOR_DEFAULTS,
     CONNECTOR_REQUIRED_FIELDS,
 )
-from mateai.interfaces.http.server import (  # noqa: E402
+from mateai.interfaces.http.routers.enterprise import (  # noqa: E402
     _CONNECTOR_SECRET_FIELDS,
     _build_connector_config_schema,
-    _is_secret_field,
 )
+from mateai.interfaces.http.server import _is_secret_field  # noqa: E402
 
 # ──────────────────────────────────────────────────────────────────────
 section("Form không còn viết tay")
