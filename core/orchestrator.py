@@ -219,7 +219,7 @@ class Orchestrator:
             from core.audio.streaming_tts_pipeline import get_acoustic_ack_audio
             ack_audio = await get_acoustic_ack_audio()
             if ack_audio:
-                from core.server import broadcast_hud_binary
+                from core.realtime_hub import broadcast_hud_binary
                 await broadcast_hud_binary(ack_audio)
                 logger.info("[Orchestrator] Bắn âm thanh đệm ACK (<100ms) khi kích hoạt skill '%s'", skill_name)
         except Exception as exc:

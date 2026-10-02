@@ -71,10 +71,6 @@ if sys.platform == "win32":
 
 logger = logging.getLogger(__name__)
 
-#: Byte Order Mark UTF-8. Excel trên Windows mở file .csv không BOM bằng mã
-#: ANSI của máy, nên tiếng Việt ra "Ã¡" hay "?" tuỳ phiên bản. Ghi BOM vào là
-#: cách rẻ nhất để file đúng mọi máy — hơn là dặn người dùng mở bằng import.
-BOM_UTF8 = b"\xef\xbb\xbf"
 
 # ─── Resolve paths for static files ────────────────────────────────────────
 import sys
@@ -92,94 +88,17 @@ _REGISTRY_PATH = _PROJECT_ROOT / "skills" / "registry.json"
 # hai bản đã lệch nhau — mỗi bên sửa một lỗi mà bên kia vẫn còn).
 _CLIENT_AGENT_DIR = _PROJECT_ROOT / "client_agent"
 
-# ---------------------------------------------------------------------------
-# Multi-Node Audio State (Phase 10) & Portal UI WebSockets (Phase 17)
-# ---------------------------------------------------------------------------
-active_audio_nodes: Dict[str, Dict[str, Any]] = {}
-active_portal_websockets: set[WebSocket] = set()
-active_hud_websockets: set[WebSocket] = set()
-active_topology_websockets: set[WebSocket] = set()
-
-
-async def broadcast_topology_event(source: str, target: str, action: str = "") -> None:
-    """Phase 88: Phát sóng sự kiện luồng dữ liệu thời gian thực tới giao diện Topology / Workflow."""
-    payload = {
-        "event": "tool_executed",
-        "type": "tool_executed",
-        "source": source,
-        "target": target,
-        "action": action,
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-    msg = _json.dumps(payload, ensure_ascii=False)
-
-    # Gửi tới các viewer topology đang mở
-    dead_topo = set()
-    for ws in list(active_topology_websockets):
-        try:
-            await ws.send_text(msg)
-        except Exception:
-            dead_topo.add(ws)
-    for ws in dead_topo:
-        active_topology_websockets.discard(ws)
-
-    # Gửi đồng bộ sang HUD
-    dead_hud = set()
-    for ws in list(active_hud_websockets):
-        try:
-            await ws.send_text(msg)
-        except Exception:
-            dead_hud.add(ws)
-    for ws in dead_hud:
-        active_hud_websockets.discard(ws)
-
-
-async def broadcast_portal_ui(event: str, data: Optional[Dict[str, Any]] = None) -> None:
-    """Phát sóng sự kiện điều khiển UI thời gian thực tới tất cả trình duyệt Web Portal."""
-    if not active_portal_websockets:
-        return
-    payload = {"event": event, "timestamp": datetime.utcnow().isoformat(), **(data or {})}
-    msg = _json.dumps(payload, ensure_ascii=False)
-    dead_sockets = set()
-    for ws in list(active_portal_websockets):
-        try:
-            await ws.send_text(msg)
-        except Exception:
-            dead_sockets.add(ws)
-    for ws in dead_sockets:
-        active_portal_websockets.discard(ws)
-
-
-async def broadcast_hud(payload: Dict[str, Any]) -> None:
-    """Phase 33: Phát sóng dữ liệu thị giác / âm thanh / metrics tới tất cả màn hình VN-MateAI HUD."""
-    if not active_hud_websockets:
-        return
-    msg = _json.dumps(payload, ensure_ascii=False)
-    dead_sockets = set()
-    for ws in list(active_hud_websockets):
-        try:
-            await ws.send_text(msg)
-        except Exception:
-            dead_sockets.add(ws)
-    for ws in dead_sockets:
-        active_hud_websockets.discard(ws)
-
-
-async def broadcast_hud_binary(data: bytes) -> None:
-    """
-    Phase 93 — Gửi raw audio bytes (MP3 chunks) tới HUD qua WebSocket Binary Frame.
-    Không dùng base64 — giảm 33% overhead, client nhận và phát ngay qua Web Audio API.
-    """
-    if not active_hud_websockets or not data:
-        return
-    dead_sockets = set()
-    for ws in list(active_hud_websockets):
-        try:
-            await ws.send_bytes(data)
-        except Exception:
-            dead_sockets.add(ws)
-    for ws in dead_sockets:
-        active_hud_websockets.discard(ws)
+# Trạng thái kết nối + phát sóng: core/realtime_hub.py (module lõi dùng trực tiếp).
+from core.realtime_hub import (  # noqa: E402
+    active_audio_nodes,
+    active_hud_websockets,
+    active_portal_websockets,
+    active_topology_websockets,
+    broadcast_hud,
+    broadcast_hud_binary,
+    broadcast_portal_ui,
+    broadcast_topology_event,
+)
 
 
 async def _broadcast_thinking(state: str, text: str = "", query: str = "") -> None:
@@ -8357,100 +8276,13 @@ def _safe_int(value: Any, default: int, lo: int, hi: int) -> int:
         return default
 
 
-def _safe_filename(name: str, max_len: int = 60) -> str:
-    """
-    Rút gọn tên file về ASCII an toàn.
-
-    Header `Content-Disposition` chỉ mang được ASCII; gửi tiếng Việt thẳng vào
-    sẽ bị cắt cụt hoặc làm hỏng header, trình duyệt tải về tên rác. Tên gốc có
-    dấu vẫn được giữ qua tham số `filename*` — xem `_content_disposition`.
-    """
-    raw = str(name or "bao-cao")
-    # Bỏ dấu trước, rồi bỏ ký tự lạ — thứ tự này giữ lại được chữ cái.
-    ascii_only = unicodedata.normalize("NFKD", raw).encode("ascii", "ignore").decode("ascii")
-    cleaned = re.sub(r"[^A-Za-z0-9_\-]+", "-", ascii_only).strip("-")
-    return (cleaned or "bao-cao")[:max_len]
-
-
-def _content_disposition(title: str, stamp: str, ext: str) -> str:
-    """
-    Dựng header tải file: `filename` ASCII + `filename*` UTF-8 (RFC 5987/6266).
-
-    Cần cả hai: client cũ chỉ đọc `filename` và sẽ thấy tên không dấu; client
-    mới đọc `filename*` và hiện đúng tên có dấu cho người dùng Việt.
-    """
-    ascii_name = f"{_safe_filename(title)}-{stamp}.{ext}"
-    try:
-        utf8_name = quote(f"{title}-{stamp}.{ext}", safe="")
-    except Exception:  # pragma: no cover - title lạ thì rơi về bản ASCII
-        utf8_name = ascii_name
-    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
-
-
-def _cell_value(value: Any) -> Any:
-    """
-    Chuẩn hoá một ô trước khi ghi ra file.
-
-    Dict/list không ghi thẳng vào Excel được và cũng vô nghĩa với người đọc
-    báo cáo — gộp thành JSON một dòng cho dễ nhìn hơn là "[object Object]".
-    """
-    if value is None or isinstance(value, (int, float, bool)):
-        return value
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, ensure_ascii=False)
-    return str(value)
-
-
-def _rows_to_csv(rows: List[Dict[str, Any]], columns: List[str]) -> bytes:
-    """CSV có BOM UTF-8, tiêu đề cột tiếng Việt, dòng \r\n theo thông lệ Excel."""
-    buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\r\n")
-    writer.writerow(columns)
-    for row in rows:
-        writer.writerow([_cell_value(row.get(c)) for c in columns])
-    return BOM_UTF8 + buf.getvalue().encode("utf-8")
-
-
-def _rows_to_xlsx(rows: List[Dict[str, Any]], columns: List[str], sheet_title: str) -> bytes:
-    """
-    XLSX: dòng tiêu đề đóng băng + tự giãn cột theo nội dung.
-
-    Giãn cột theo độ dài thực tế thay vì đặt cứng — báo cáo tài chính có cột
-    "diễn giải" rất dài, đặt cứng sẽ khiến mỗi cột phải mở rộng thủ công.
-    """
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = sheet_title[:31] or "Báo cáo"  # Excel chặn tên sheet > 31 ký tự
-
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="334155")
-    header_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-    ws.append(columns)
-    for idx, cell in enumerate(ws[1], start=1):
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = header_align
-    ws.freeze_panes = "A2"
-
-    for row in rows:
-        ws.append([_cell_value(row.get(c)) for c in columns])
-
-    for idx, col in enumerate(columns, start=1):
-        # Cộng thêm 2 ký tự cho padding, trần 60 để một mô tả dài không đẩy
-        # cột khỏi màn hình.
-        longest = max([len(str(col))] + [
-            len(str(ws.cell(row=r, column=idx).value or "")) for r in range(2, min(ws.max_row, 200) + 1)
-        ])
-        ws.column_dimensions[get_column_letter(idx)].width = min(longest + 2, 60)
-
-    bio = io.BytesIO()
-    wb.save(bio)
-    return bio.getvalue()
+from core.file_export import (  # noqa: E402
+    _cell_value,
+    _content_disposition,
+    _rows_to_csv,
+    _rows_to_xlsx,
+    _safe_filename,
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

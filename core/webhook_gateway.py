@@ -289,7 +289,7 @@ class AlertProcessor:
 
         # 3. HUD WebSocket (broadcast to portal)
         try:
-            from core.server import broadcast_hud
+            from core.realtime_hub import broadcast_hud
             import asyncio
             # Need running loop
             try:

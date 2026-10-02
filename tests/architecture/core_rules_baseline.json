@@ -9,16 +9,5 @@
   },
   "RULE-013": {},
   "RULE-014": {},
-  "RULE-015": {
-    "core/api_admin.py": 1,
-    "core/background_workers.py": 1,
-    "core/orchestrator.py": 1,
-    "core/plugin_registry.py": 1,
-    "core/skills/robotics_tools.py": 1,
-    "core/voice_controller.py": 2,
-    "core/webhook_gateway.py": 1,
-    "core/xiaozhi_gateway.py": 6,
-    "skills/data_source_tools.py": 1,
-    "skills/visual_skills.py": 1
-  }
+  "RULE-015": {}
 }

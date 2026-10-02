@@ -333,7 +333,7 @@ async def prepare_data_source_export(
 
     async def _executor() -> Dict[str, Any]:
         from core.connectors.generic_connector import GenericConnector
-        from core.server import (
+        from core.file_export import (
             _content_disposition,
             _rows_to_csv,
             _rows_to_xlsx,

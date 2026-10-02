@@ -97,5 +97,5 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 | RULE-012 | 1 | `skills/ninerouter_skills.py` |
 | RULE-013 | **0** | `config_loader` là cổng duy nhất (plan §18) |
 | RULE-014 | **0** | `core.database.open_sqlite` là đường mở duy nhất (plan §23) |
-| RULE-015 | 16 import ở 10 module | module lõi còn import `core.server` (chủ yếu để phát sự kiện tới HUD/portal) |
+| RULE-015 | **0** | trạng thái kết nối + phát sóng ở `core/realtime_hub.py`, helper xuất file ở `core/file_export.py` (plan §27) |
 | RULE-016 | Đạt | danh mục tool duy nhất là `plugin_manager`; `plugin_registry` chỉ là chính sách thực thi (plan §10); log khởi động không còn cảnh báo đăng ký trùng |

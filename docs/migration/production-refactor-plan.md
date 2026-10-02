@@ -544,3 +544,16 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Test:** `test_per_device_tokens.py` (5). Toàn bộ 275 pass.
 **Runtime (cổng 8000):** cấp token cho `smoke_robot` → kết nối đúng id: nhận; cùng token cho `esp32_kitchen` hoặc đường không id: 403; thu hồi → 403. Token thử đã thu hồi.
 **Việc của chủ dự án:** `docs/production/owner-todo.md`.
+
+## 27. Gỡ phụ thuộc vòng vào core.server (RULE-015) (2026-10-02)
+
+**STATUS:** XONG
+
+**Vấn đề:** 16 lệnh import `core.server` trong 10 module lõi (gateway, worker, orchestrator, registry, skill) — server import các module này, chúng import ngược lại server (vòng). Hệ quả: không tách được module nào khỏi `server.py`, và lỗi thứ tự khởi tạo tiềm ẩn.
+**Sửa (di chuyển code, không thêm lớp bọc):**
+- `core/realtime_hub.py`: `active_audio_nodes`, `active_hud/portal/topology_websockets`, `broadcast_hud`, `broadcast_hud_binary`, `broadcast_portal_ui`, `broadcast_topology_event` — chuyển nguyên từ `server.py`; server import lại các tên này.
+- `core/file_export.py`: `BOM_UTF8`, `_safe_filename`, `_content_disposition`, `_cell_value`, `_rows_to_csv`, `_rows_to_xlsx` (dùng bởi `data_source_tools` và endpoint tải file).
+- 10 module chuyển import sang hai module trên. RULE-015: 16 → 0 (baseline hạ). Mọi RULE-013/014/015 nay bằng 0.
+**Lỗi bắt được trong lúc chuyển (trước khi commit):** `_content_disposition` dùng `quote` không được import ở module mới — lỗi bị `try/except` nuốt, sẽ âm thầm mất tên file UTF-8; thiếu `json` và `BOM_UTF8`. Tìm bằng quét AST tên chưa định nghĩa.
+**Test:** 275 pass. `test_phase63_export` import helper từ module chuẩn mới.
+**Runtime:** thiết bị kết nối qua `xiaozhi_gateway` hiện trong `/api/v1/audio-nodes` (server đọc cùng đối tượng); heartbeat worker (`api_admin`) phát `tool_executed` tới viewer `/ws/topology`. Token thử đã thu hồi.

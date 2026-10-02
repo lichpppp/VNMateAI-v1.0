@@ -306,7 +306,7 @@ async def receive_worknode_heartbeat(req: WorknodeHeartbeatRequest) -> Dict[str,
 
     # Phát sóng sự kiện WebSocket Topology để Web UI cập nhật ngay mà không cần reload trang
     try:
-        from core.server import broadcast_topology_event
+        from core.realtime_hub import broadcast_topology_event
         await broadcast_topology_event(
             source=f"worknode_{req.node_id}",
             target="worker_grid_cluster",
