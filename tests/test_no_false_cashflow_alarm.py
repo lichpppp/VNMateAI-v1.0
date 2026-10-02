@@ -153,3 +153,10 @@ check("không trả lỗi codec thô cho người dùng", "ascii' codec" not in 
 
 print(f"\nTổng: {PASS + FAIL} | Pass: {PASS} | Fail: {FAIL}")
 sys.exit(1 if FAIL else 0)
+
+
+def test_truncated_sql_is_not_executed():
+    """Câu trả lời LLM bị cắt giữa chừng (thiếu ngoặc) không được gắn ';' rồi chạy."""
+    from core.analytics_engine import _extract_sql
+    assert _extract_sql("SELECT d.name, COUNT(e.id") == ""
+    assert _extract_sql("```sql\nSELECT COUNT(*) FROM employees;\n```") == "SELECT COUNT(*) FROM employees;"

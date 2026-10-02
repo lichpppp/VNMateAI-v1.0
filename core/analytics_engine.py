@@ -70,41 +70,42 @@ def _ask_llm_for_sql(question: str) -> Tuple[str, str, str]:
     """
     try:
         from core.skills.ai_delegation import _get_llm_config
-        from openai import OpenAI
+        from core.llm_provider import complete_text_blocking
     except Exception as exc:
-        return "", "", f"không import được OpenAI client: {exc}"
+        return "", "", f"không import được LLM provider: {exc}"
 
     cfg = _get_llm_config()
     if not cfg.get("api_key") or cfg["api_key"] == "sk-dummy":
         return "", "", "chưa cấu hình LLM API key"
 
     models = cfg.get("specialist_models") or [cfg["specialist_model"]]
-    client = OpenAI(base_url=cfg["base_url"], api_key=cfg["api_key"], timeout=60.0)
-    failures: List[str] = []
+    try:
+        raw, model_name = complete_text_blocking(
+            cfg["base_url"], cfg["api_key"], models,
+            [
+                {"role": "system", "content": SQL_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Câu hỏi của CEO: {question}"},
+            ],
+            temperature=0.0,  # SQL cần tất định, không sáng tạo
+            max_tokens=1000,  # model có bước suy luận có thể tốn >400 token trước khi viết SQL
+            # Câu SQL ≤ 400 token: 20 s/model là dư. Model chuyên gia "thinking" hay
+            # chậm; nếu hết model, có bộ sinh SQL dự phòng (và báo rõ lỗi cho CEO) —
+            # tốt hơn bắt CEO chờ tới N × 60 s.
+            timeout=20.0,
+        )
+    except Exception as exc:
+        # Provider đã thử lần lượt mọi model (bỏ qua model hỏng/đã ngừng); lỗi nói
+        # rõ nguyên nhân để CEO không phải đoán.
+        logger.warning("[AnalyticsEngine] LLM sinh SQL thất bại: %s", exc)
+        return "", "", f"thử {len(models)} model đều thất bại — {str(exc)[:300]}"
 
-    for model_name in models:
-        try:
-            resp = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": SQL_SYSTEM_PROMPT},
-                    {"role": "user", "content": f"Câu hỏi của CEO: {question}"},
-                ],
-                temperature=0.0,  # SQL cần tất định, không sáng tạo
-                max_tokens=400,
-            )
-            raw = (resp.choices[0].message.content or "").strip()
-            sql = _extract_sql(raw)
-            if sql:
-                return sql, model_name, ""
-            failures.append(f"{model_name}: trả lời không chứa câu SELECT nào")
-        except Exception as exc:
-            # Ghi lại từng lỗi để thông báo cuối cùng nói rõ ĐẦY ĐỦ nguyên nhân,
-            # thay vì chỉ "LLM lỗi" khiến CEO phải đoán.
-            failures.append(f"{model_name}: {type(exc).__name__} — {str(exc)[:200]}")
-            logger.warning("[AnalyticsEngine] LLM sinh SQL thất bại (%s): %s", model_name, exc)
+    sql = _extract_sql((raw or "").strip())
+    if sql:
+        return sql, model_name, ""
+    return "", "", f"{model_name}: trả lời không chứa câu SELECT nào"
 
-    return "", "", f"thử {len(models)} model đều thất bại — " + " | ".join(failures)
+
+# ---------------------------------------------------------------------------
 
 
 def _infer_chart_type(prompt_lower: str, sql: str) -> str:
@@ -144,8 +145,12 @@ def _extract_sql(raw: str) -> str:
 
     sql = match.group(0).strip()
     # Cắt phần thừa sau dấu chấm câu cuối cùng.
-    sql = sql.split(";")[0].strip() + ";"
-    return sql
+    sql = sql.split(";")[0].strip()
+    # Câu trả lời bị cắt (hết max_tokens giữa chừng) thường thiếu dấu đóng ngoặc:
+    # gắn thêm ";" sẽ ra SQL hỏng. Coi là không sinh được → thử model khác / dự phòng.
+    if sql.count("(") != sql.count(")"):
+        return ""
+    return sql + ";"
 
 
 class AnalyticsEngine:

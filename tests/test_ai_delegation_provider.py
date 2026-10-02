@@ -70,3 +70,57 @@ async def test_all_models_fail_returns_error_not_exception(fake):
     state["bad"] = {"spec-a", "spec-b"}
     res = await deleg.delegate_to_specialist_async("chẩn đoán lỗi")
     assert res["status"] == "error" and res["error"] == "ALL_SPECIALIST_MODELS_FAILED"
+
+
+# ── cầu nối đồng bộ dùng chung (analytics_engine, meta_architect) ────────────
+def test_sync_bridge_skips_retired_model_and_returns_text(monkeypatch):
+    """Code trong thread worker dùng cùng provider: model đã ngừng bị bỏ qua."""
+    import core.llm_provider as lp
+    from types import SimpleNamespace
+
+    calls = []
+    retired = "Gemini 3.5 Flash is no longer available. Please switch to Gemini 3.7 Flash."
+
+    class Fake:
+        def __init__(self, **kw):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        async def _create(self, **kw):
+            calls.append(kw["model"])
+            text = retired if kw["model"] == "old" else "SELECT 1"
+            msg = SimpleNamespace(content=text, tool_calls=None)
+            return SimpleNamespace(model=kw["model"], choices=[SimpleNamespace(message=msg)])
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(lp.openai, "AsyncOpenAI", Fake)
+    lp._model_down_until.clear()
+    text, model = lp.complete_text_blocking("http://x/v1", "k", ["old", "new"],
+                                            [{"role": "user", "content": "q"}], max_tokens=10)
+    assert (text, model) == ("SELECT 1", "new") and calls == ["old", "new"]
+    lp._model_down_until.clear()
+
+
+def test_analytics_and_meta_architect_use_the_shared_bridge(monkeypatch):
+    import core.llm_provider as lp
+    import core.analytics_engine as ae
+    from core.meta_architect import meta_architect
+
+    seen = []
+
+    def fake_bridge(base_url, api_key, models, messages, **kw):
+        seen.append((models, kw.get("max_tokens")))
+        if "SQL" in messages[0]["content"]:
+            return "SELECT name FROM employees LIMIT 3", models[0]
+        return "```python\nfrom core.plugin_manager import export_skill\n```", models[0]
+
+    monkeypatch.setattr(lp, "complete_text_blocking", fake_bridge)
+    monkeypatch.setattr("core.skills.ai_delegation._get_llm_config", lambda: {
+        "base_url": "http://x/v1", "api_key": "k", "specialist_model": "m1",
+        "specialist_models": ["m1", "m2"]})
+    sql, model, err = ae._ask_llm_for_sql("danh sách nhân viên")
+    assert sql.startswith("SELECT") and model == "m1" and not err and seen[0][0] == ["m1", "m2"]
+
+    code = meta_architect.synthesize_skill("làm gì đó")
+    assert "export_skill" in code and seen[1][1] == 4096

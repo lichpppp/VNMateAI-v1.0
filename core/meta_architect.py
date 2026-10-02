@@ -26,8 +26,6 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from openai import OpenAI
-
 from core.config_loader import settings
 from core.safety_guard import safety_guard
 
@@ -67,18 +65,6 @@ class MetaArchitect:
     """
     Synthesises new Python skill modules on demand using an LLM.
     """
-
-    def __init__(self) -> None:
-        self._client: Optional[OpenAI] = None
-
-    def _get_client(self) -> OpenAI:
-        """Lazily initialise the OpenAI SDK client."""
-        if self._client is None:
-            self._client = OpenAI(
-                api_key=settings.API_KEY,
-                base_url=settings.BASE_URL,
-            )
-        return self._client
 
     # ------------------------------------------------------------------
     # Public API
@@ -135,40 +121,19 @@ class MetaArchitect:
                 "Quản Lý Trợ Lý AI > Bộ Não & Xử Lý Ngôn Ngữ."
             )
 
-        client = OpenAI(
-            base_url=base_url,
-            api_key=api_key if api_key else "sk-dummy",
-            timeout=60.0,
-        )
-
-        response = None
-        last_error = None
-        used_model = None
-
-        for model_name in candidate_models:
-            try:
-                logger.info("MetaArchitect: Thử sinh mã bằng mô hình [%s]...", model_name)
-                response = client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": _CODE_GEN_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_message},
-                    ],
-                    temperature=0.2,
-                    max_tokens=4096,
-                )
-                used_model = model_name
-                logger.info("MetaArchitect: Sinh mã kỹ năng thành công qua 9router [%s]", model_name)
-                break
-            except Exception as exc:  # pylint: disable=broad-except
-                logger.warning("MetaArchitect: Mô hình [%s] gặp sự cố: %s. Chuyển mô hình dự phòng...", model_name, exc)
-                last_error = exc
-
-        if response is None or not response.choices:
-            logger.error("MetaArchitect: Tất cả mô hình sinh mã đều thất bại. Lỗi cuối: %s", last_error)
-            raise RuntimeError(f"Tất cả mô hình sinh mã qua 9router đều thất bại. Lỗi: {last_error}") from last_error
-
-        raw_response: str = response.choices[0].message.content or ""
+        from core.llm_provider import complete_text_blocking
+        try:
+            raw_response, used_model = complete_text_blocking(
+                base_url, api_key or "sk-dummy", candidate_models,
+                [
+                    {"role": "system", "content": _CODE_GEN_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                temperature=0.2, max_tokens=4096, timeout=60.0,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("MetaArchitect: Tất cả mô hình sinh mã đều thất bại. Lỗi cuối: %s", exc)
+            raise RuntimeError(f"Tất cả mô hình sinh mã qua 9router đều thất bại. Lỗi: {exc}") from exc
         logger.debug("MetaArchitect raw LLM response (model: %s):\n%s", used_model, raw_response[:800])
 
         code_str = self._extract_code(raw_response)

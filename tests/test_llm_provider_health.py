@@ -155,3 +155,17 @@ async def test_normal_and_short_replies_are_not_flagged():
         assert out == text and client.calls == ["m"]
     assert lp.looks_like_retired_model_reply(RETIRED)
     assert lp.looks_like_retired_model_reply("This model has been deprecated.")
+
+
+async def test_quota_exhausted_model_parked_for_long():
+    class QuotaClient(FakeClient):
+        async def _create(self, **kw):
+            self.calls.append(kw["model"])
+            if kw["model"] == "poor":
+                raise RuntimeError("Error code: 503 - RESOURCE_EXHAUSTED Individual quota reached. Resets in 101h")
+            return SimpleNamespace(model=kw["model"])
+
+    client = QuotaClient(bad=set())
+    p = lp.NineRouterLLMProvider(client, "poor", ["rich"])
+    await p.complete(messages=[])
+    assert lp.model_health()["poor"] > lp.MODEL_COOLDOWN_S

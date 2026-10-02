@@ -84,7 +84,13 @@ def looks_like_retired_model_reply(text: str) -> bool:
     return bool(text) and bool(_RETIRED_MODEL_RE.search(text[:240]))
 
 
+_QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|quota reached", re.IGNORECASE)
+
+
 def _mark_model_failed(model: str, reason: Any, cooldown_s: float = MODEL_COOLDOWN_S) -> None:
+    # Hết quota (vd. "Resets in 101h") không tự khỏi sau 120 s: xếp cuối lâu như model đã ngừng.
+    if _QUOTA_RE.search(str(reason)):
+        cooldown_s = max(cooldown_s, MODEL_RETIRED_COOLDOWN_S)
     _model_down_until[model] = time.monotonic() + cooldown_s
     logger.warning("[LLMProvider] Tạm xếp cuối model '%s' trong %.0fs: %s", model, cooldown_s, reason)
 
@@ -476,6 +482,41 @@ class NineRouterLLMProvider(BaseLLMProvider):
         if not models:
             raise ValueError("Chưa cấu hình model nào cho NineRouterLLMProvider.")
         raise RuntimeError(f"Tất cả model {models} đều thất bại: {last_err}")
+
+
+def complete_text_blocking(
+    base_url: str,
+    api_key: str,
+    models: List[str],
+    messages: List[Dict[str, Any]],
+    *,
+    temperature: float = 0.2,
+    max_tokens: int = 2048,
+    timeout: float = 60.0,
+) -> "tuple[str, str]":
+    """
+    Cầu nối ĐỒNG BỘ tới provider chung cho code chạy trong thread worker
+    (skill, MetaArchitect, analytics). Trả (nội dung, model đã trả lời); ném
+    RuntimeError nếu mọi model đều hỏng. Dùng chung vòng thử model + trí nhớ
+    model hỏng/đã ngừng của NineRouterLLMProvider — không tự tạo client riêng.
+
+    Chỉ gọi từ thread KHÔNG có event loop đang chạy (xem plugin_manager.run_blocking).
+    """
+    async def _run() -> "tuple[str, str]":
+        client = openai.AsyncOpenAI(base_url=base_url, api_key=api_key or "sk-dummy",
+                                    timeout=timeout, max_retries=0)
+        try:
+            provider = NineRouterLLMProvider(client, models[0], models[1:])
+            resp = await provider.complete(
+                messages=messages, temperature=temperature, max_tokens=max_tokens,
+                timeout=timeout, extra_body=None,
+            )
+        finally:
+            await client.close()
+        text = (resp.choices[0].message.content or "") if getattr(resp, "choices", None) else ""
+        return text, getattr(resp, "model", None) or models[0]
+
+    return asyncio.run(_run())
 
 
 # ---------------------------------------------------------------------------

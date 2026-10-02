@@ -389,3 +389,19 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 | `check_peripherals` | 25 ms, **3** thiết bị (WMI lỗi, dự phòng) | ~2,1 s, **31** thiết bị (WMI thật); `/livez` median 2 ms, max ~260 ms (1 mẫu, lúc khởi tạo WMI) |
 
 **Còn lại:** `meta_architect`/`analytics_engine` vẫn tạo client OpenAI đồng bộ riêng (RULE-011) — không còn chặn loop, nhưng chưa đi qua provider chung (chưa có nhận diện model hỏng/đã ngừng).
+
+## 17. Báo cáo LLM (tiếp) — nốt hai client đồng bộ cuối, RULE-011 (2026-10-02)
+
+**STATUS:** XONG
+
+**Một implementation:** `core.llm_provider.complete_text_blocking()` — cầu nối đồng bộ cho code chạy trong thread worker, bọc `NineRouterLLMProvider` (cùng vòng thử model + trí nhớ model hỏng/đã ngừng/hết quota). `analytics_engine` (sinh SQL) và `meta_architect` (sinh mã skill) bỏ client `OpenAI` đồng bộ riêng. RULE-011: 12 → 7 vi phạm (hạ baseline: analytics 2→0, meta_architect 3→0). Còn lại 7 là cố ý đã ghi ở §9 (provider, nút "thử kết nối" của người dùng) + `audio_processor` (Whisper, không phải chat).
+
+**Lỗi tìm thấy khi chạy thật và đã sửa:**
+1. `_extract_sql` nhận câu SQL bị cắt cụt (`COUNT(employees.id`) rồi tự gắn `;` → "near ';' syntax error". Nay câu thiếu ngoặc bị coi là không sinh được → thử model khác / dự phòng, báo rõ lỗi. `max_tokens` 400 → 1000 (model có bước suy luận). Lỗi có từ trước, chỉ lộ ra khi model chính hết quota.
+2. Model hết quota ("Resets in 101h", HTTP 503/429 `RESOURCE_EXHAUSTED`) chỉ bị xếp cuối 120 s → cứ vài phút lại mất thêm một lượt gọi vô ích. Nay xếp cuối 1 giờ (như model đã ngừng).
+3. Timeout sinh SQL 60 → 20 s/model (câu ≤ 1000 token; có SQL dự phòng) thay vì chờ tới N × 60 s.
+
+**Test:** 233 pass / 0 fail. Mới: cầu nối bỏ qua model đã ngừng; analytics + meta_architect dùng cầu nối; quota → cooldown dài; SQL cụt không được chạy.
+**Runtime/hiệu năng (9Router thật, `_ask_llm_for_sql`, 2 lượt liên tiếp sau khởi động):** 38,4 s → 5,0 s. Lượt đầu trả giá học 2 model hết quota (mỗi model ~18 s mới trả 503); từ lượt 2 hai model đó bị bỏ qua. REST `/enterprise/analytics/chart` trả SQL hợp lệ, `sql_source: llm`, có biểu đồ. Trí nhớ model hỏng nằm trong bộ nhớ tiến trình nên mỗi lần khởi động lại lượt đầu vẫn chậm; chưa lưu xuống đĩa.
+
+**Cần ở cấu hình:** `ag/claude-opus-4-6-thinking` và `ag/claude-sonnet-4-6` hết quota tới 2026-10-06 09:22 UTC; danh sách còn giá trị mẫu `YOUR_MODEL_NAME_HERE` (bị bỏ qua đúng). Nên đặt model chạy được (vd. `ag/gemini-3-flash`) lên đầu danh sách chuyên gia.
