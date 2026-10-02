@@ -318,3 +318,19 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime:** 3 probe trả 200 trên server thật; chạy `remote_worker_daemon.py` thật: không token → 401 và node không lên grid; có token → node có trong `/api/v1/worknodes/status`.
 
 **Còn lại (Security):** cấp admin theo tiền tố id trong `_resolve_role`; gộp hai mô hình role; rà các WebSocket còn lại (`/ws/topology`, `/ws/portal-ui`, `/ws/voice`, `/ws/audio-stream`).
+
+## 13. Báo cáo Security (tiếp) — rà soát WebSocket (2026-10-02)
+
+**STATUS:** XONG
+
+| Socket | Trước | Sau |
+|---|---|---|
+| `/ws/portal-ui`, `/ws/client`, `/ws/audio-stream` (+ alias xiaozhi) | đã bắt buộc JWT / enrollment secret / device secret | giữ nguyên |
+| `/ws/hud` | xem §11 | chỉ xem telemetry khi chưa đăng nhập |
+| `/ws/voice`, `/ws/v1/voice-stream` | ẩn danh chạy dưới tên `web_user` (viewer: vẫn đọc dữ liệu tổ chức qua tool, tốn chi phí LLM) | bắt buộc JWT, đóng 1008 |
+| `/ws/topology` | không xác thực: ai cũng xem luồng tool và bơm sự kiện `trigger` giả | bắt buộc JWT; admin `SystemCanvas` gửi `?token=` (`sessionToken()` trong `admin/lib/api.ts`) |
+
+**Test:** 221 pass / 0 fail. Mới: `test_websockets_require_login.py` (5; 3 test từ chối fail trên code cũ).
+**Runtime:** 4 socket: không token → HTTP 403, có token → nhận gói chào. Lượt thoại thật qua `/ws/v1/voice-stream` (bench_voice, 1 lượt mỗi loại): fast path chữ đầu 280 ms, audio đầu 3,5 s; lượt LLM chữ đầu 22 s — lượt đầu sau khởi động, khớp hành vi 9Router đã ghi ở §9, không do thay đổi này.
+
+**Còn lại (Security):** cấp admin theo tiền tố id trong `_resolve_role`; gộp hai mô hình role.

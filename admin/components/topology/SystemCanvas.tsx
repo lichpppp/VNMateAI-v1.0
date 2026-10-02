@@ -14,7 +14,7 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import dagre from 'dagre';
-import { authFetch } from '@/lib/api';
+import { authFetch, sessionToken } from '@/lib/api';
 import 'reactflow/dist/style.css';
 
 import { CoreNode } from './CoreNode';
@@ -1062,7 +1062,8 @@ export default function SystemCanvas() {
       try {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host;
-        const wsUrl = `${protocol}//${host}/ws/topology`;
+        const token = sessionToken();
+        const wsUrl = `${protocol}//${host}/ws/topology${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
         socket = new WebSocket(wsUrl);
         wsRef.current = socket;

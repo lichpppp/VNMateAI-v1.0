@@ -4400,7 +4400,17 @@ async def websocket_topology_endpoint(websocket: WebSocket) -> None:
     """
     Phase 88: WebSocket cho giao diện Topology & Real-time Live Flow Animation.
     Nhận sự kiện tool_executed và đồng bộ trạng thái đường nối trên canvas.
+
+    Zero-Trust: bắt buộc JWT (?token=). Trước đây ai cũng xem được luồng tool
+    đang chạy và bơm sự kiện "trigger" giả lên sơ đồ.
     """
+    if _authenticate_websocket(websocket) is None:
+        logger.warning(
+            "Từ chối Topology WebSocket từ %s: thiếu hoặc sai token.",
+            websocket.client.host if websocket.client else "unknown",
+        )
+        await websocket.close(code=1008, reason="Unauthorized: thiếu token hợp lệ.")
+        return
     await websocket.accept()
     active_topology_websockets.add(websocket)
     logger.info("Topology viewer connected (%d active sessions).", len(active_topology_websockets))
@@ -4587,10 +4597,19 @@ async def websocket_realtime_voice_endpoint(websocket: WebSocket) -> None:
     Phase 1: Realtime Voice WebSocket Endpoint (/ws/voice & /ws/v1/voice-stream).
     Hỗ trợ Event Protocol chuẩn hóa, truyền âm thanh Binary Frame, và Barge-In Cancellation.
     """
+    # Zero-Trust: bắt buộc JWT. Trước đây kết nối ẩn danh chạy dưới tên
+    # "web_user" (quyền viewer) — vẫn đọc được dữ liệu tổ chức qua tool và tốn
+    # chi phí LLM mà không gắn với ai.
     ws_user = _authenticate_websocket(websocket)
-    user_info = ws_user or {"sub": "web_user", "username": "web_user", "role": "user"}
+    if ws_user is None:
+        logger.warning(
+            "Từ chối Voice WebSocket từ %s: thiếu hoặc sai token.",
+            websocket.client.host if websocket.client else "unknown",
+        )
+        await websocket.close(code=1008, reason="Unauthorized: thiếu token hợp lệ.")
+        return
     from core.realtime_voice_ws import handle_realtime_voice_endpoint
-    await handle_realtime_voice_endpoint(websocket, user=user_info)
+    await handle_realtime_voice_endpoint(websocket, user=ws_user)
 
 
 # ---------------------------------------------------------------------------

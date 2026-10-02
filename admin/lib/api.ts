@@ -193,11 +193,14 @@ export const api = new ApiClient(API_BASE);
  * fetch() kèm JWT của phiên đăng nhập (cùng khoá với ApiClient). Dùng cho các
  * component gọi thẳng `/api/v1/...` — các endpoint đó không còn public.
  */
+export function sessionToken(): string | null {
+  return typeof window !== 'undefined'
+    ? localStorage.getItem('vnmateai_token') || localStorage.getItem('vnmate_token')
+    : null;
+}
+
 export function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const token =
-    typeof window !== 'undefined'
-      ? localStorage.getItem('vnmateai_token') || localStorage.getItem('vnmate_token')
-      : null;
+  const token = sessionToken();
   const headers = new Headers(init.headers);
   if (token) headers.set('Authorization', `Bearer ${token}`);
   return fetch(input, { ...init, headers });
