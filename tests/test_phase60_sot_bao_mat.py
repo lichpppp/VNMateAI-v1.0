@@ -71,7 +71,7 @@ def section(title: str) -> None:
 # ══════════════════════════════════════════════════════════════════════════
 def test_webhook_signature() -> None:
     section("── Xác thực webhook (chống webhook giả mạo) ──")
-    from core.webhook_gateway import SignatureVerifier as V
+    from mateai.interfaces.http.webhook_gateway import SignatureVerifier as V
 
     body = b'{"event_type":"instance_down"}'
     secret = "shared-secret-diem-thu"
@@ -104,7 +104,7 @@ def test_webhook_signature() -> None:
         V.verify_oci_signature(b'{"tampered":true}', {"x-oci-signature": good}, secret) is False,
     )
 
-    src = Path("core/webhook_gateway.py").read_text(encoding="utf-8")
+    src = Path("src/mateai/interfaces/http/webhook_gateway.py").read_text(encoding="utf-8")
     check(
         "không còn 'return True  # Allow' giả trong verify_oci_signature",
         "return True  # Allow" not in src,
@@ -126,7 +126,7 @@ def test_webhook_signature() -> None:
 
 def test_webhook_metadata_trust() -> None:
     section("── Metadata cảnh báo phải trung thực ──")
-    from core.webhook_gateway import AlertProcessor, WebhookPayload
+    from mateai.interfaces.http.webhook_gateway import AlertProcessor, WebhookPayload
 
     proc = AlertProcessor()
     payload = WebhookPayload(
@@ -396,7 +396,7 @@ def test_every_hitl_call_site_awaits() -> None:
 
 def test_webhook_secret_not_required_still_honest() -> None:
     section("── Webhook chưa cấu hình secret: không được tuyên bố đã xác thực ──")
-    src = Path("core/webhook_gateway.py").read_text(encoding="utf-8")
+    src = Path("src/mateai/interfaces/http/webhook_gateway.py").read_text(encoding="utf-8")
     check(
         "có nhánh đặt verified=False khi chưa cấu hình secret",
         "if not secret_configured:" in src and "verified = False" in src,
@@ -509,7 +509,7 @@ def test_hitl_async_executor_really_runs() -> None:
 
     # Cả hai nơi gọi thật đều phải dùng bản async
     srv = Path("core/server.py").read_text(encoding="utf-8")
-    tg = Path("core/telegram_gateway.py").read_text(encoding="utf-8")
+    tg = Path("src/mateai/interfaces/telegram/telegram_gateway.py").read_text(encoding="utf-8")
     check("endpoint web gọi approve_async", "await hitl_manager.approve_async(" in srv,
           "đang gọi bản đồng bộ — tác vụ async sẽ không chạy")
     check("nút Telegram gọi approve_async", "await hitl_manager.approve_async(" in tg,
@@ -518,7 +518,7 @@ def test_hitl_async_executor_really_runs() -> None:
 
 def test_telegram_markdown_is_escaped() -> None:
     section("── Telegram: mô tả có ký tự Markdown không được làm hỏng tin nhắn ──")
-    from core.telegram_gateway import escape_markdown
+    from mateai.interfaces.telegram.telegram_gateway import escape_markdown
 
     def unclosed_entities(text: str) -> list:
         """Mô phỏng trình phân tích Markdown của Telegram: ngoài code span,
@@ -557,7 +557,7 @@ def test_telegram_markdown_is_escaped() -> None:
         check(f"mô tả {desc[:28]!r}: sau escape thì sạch", not unclosed_entities(fixed),
               "; ".join(unclosed_entities(fixed)))
 
-    src = Path("core/telegram_gateway.py").read_text(encoding="utf-8")
+    src = Path("src/mateai/interfaces/telegram/telegram_gateway.py").read_text(encoding="utf-8")
     check("send_hitl_request escape description (version=1)",
           "escape_markdown(str(description or \"\"), version=1)" in src)
     check("cắt tin nhắn không để lại dấu gạch chéo trần",
@@ -825,7 +825,7 @@ def test_startup_guarded_once() -> None:
 
 def test_webhook_gateway_no_empty_oci_gap() -> None:
     section("── Webhook: resource_id từ các biến thể payload ──")
-    from core.webhook_gateway import AlertProcessor
+    from mateai.interfaces.http.webhook_gateway import AlertProcessor
 
     proc = AlertProcessor()
     proc._recent.clear() if hasattr(proc, "_recent") else None

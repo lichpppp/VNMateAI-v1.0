@@ -59,7 +59,7 @@ def main() -> None:
     from mateai.application.security.zero_trust import _APPROVAL_TTL_SECONDS
 
     # ── "Tường lửa gửi Telegram": đếm số tin, không gửi thật ────────────────
-    from core.telegram_gateway import telegram_gateway as _tg
+    from mateai.interfaces.telegram.telegram_gateway import telegram_gateway as _tg
 
     sent: dict[str, int] = {"n": 0}
 

@@ -445,7 +445,7 @@ async def _external_api_worker(interval: float = 30.0) -> None:
 
             # 2. Check Telegram Bot Gateway status
             try:
-                from core.telegram_gateway import telegram_gateway
+                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
                 is_running = getattr(telegram_gateway, "is_running", False)
                 if is_running:
                     SYSTEM_HEALTH_CACHE["services"]["telegram_gateway"] = {

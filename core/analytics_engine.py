@@ -532,7 +532,7 @@ class AnalyticsEngine:
             # nhánh NO_DATA đã trả về từ trên nên không bao giờ tới đây mà
             # chưa có giao dịch.
             try:
-                from core.telegram_gateway import telegram_gateway
+                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
                 telegram_gateway.send_incident_alert(alert_message)
             except Exception:
                 pass

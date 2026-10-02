@@ -19,8 +19,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.telegram_gateway as tg_mod  # noqa: E402
-from core.telegram_gateway import telegram_gateway  # noqa: E402
+import mateai.interfaces.telegram.telegram_gateway as tg_mod  # noqa: E402
+from mateai.interfaces.telegram.telegram_gateway import telegram_gateway  # noqa: E402
 
 REAL_SHAPE = "123456789:AAHf0abcdefghijklmnopqrstuvwxyz012"
 

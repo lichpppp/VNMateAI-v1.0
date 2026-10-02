@@ -968,6 +968,22 @@ class ERPDatabase:
 
     # ── Phase 48: Task ORM Extensions ────────────────────────────────────────
 
+    def find_department_id_by_name(self, name_fragments: List[str]) -> Optional[int]:
+        """Id phòng ban đầu tiên có tên chứa một trong các đoạn (không phân biệt hoa thường)."""
+        if not name_fragments:
+            return None
+        where = " OR ".join("LOWER(name) LIKE ?" for _ in name_fragments)
+        params = [f"%{frag.lower()}%" for frag in name_fragments]
+        with self.get_connection() as conn:
+            row = conn.execute(f"SELECT id FROM departments WHERE {where} LIMIT 1;", params).fetchone()
+            return row[0] if row else None
+
+    def first_employee_id_in_department(self, dept_id: int) -> Optional[int]:
+        """Id nhân viên đầu tiên của phòng ban (None nếu phòng chưa có ai)."""
+        with self.get_connection() as conn:
+            row = conn.execute("SELECT id FROM employees WHERE dept_id = ? LIMIT 1;", (dept_id,)).fetchone()
+            return row[0] if row else None
+
     def create_erp_task(
         self,
         title: str,

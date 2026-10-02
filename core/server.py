@@ -1191,7 +1191,7 @@ async def _on_startup() -> None:
 
     # Phase 18: Start Telegram Gateway in background daemon thread (only if enabled)
     try:
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         from core.config_loader import get_config_section
         is_tg_enabled = get_config_section("telegram").get("enabled", False)
         if is_tg_enabled:
@@ -1285,7 +1285,7 @@ async def _on_startup() -> None:
 
     # Phase 59: Register Webhook Gateway routes (AWS SNS, OCI Alarms, Paperless, eInvoice webhooks)
     try:
-        from core.webhook_gateway import register_webhook_routes
+        from mateai.interfaces.http.webhook_gateway import register_webhook_routes
         register_webhook_routes(app)
         logger.info("Phase 59: Webhook Gateway routes registered at /api/webhooks/{source}")
     except Exception as wh_exc:
@@ -1347,7 +1347,7 @@ async def _on_startup() -> None:
 
     # Phase 57: Start Email Gateway (IMAP listener if configured)
     try:
-        from core.email_gateway import email_gateway
+        from mateai.interfaces.email.email_gateway import email_gateway
         from core.config_loader import get_config_section
         email_cfg = get_config_section("email_gateway")
         if email_cfg.get("enabled") and email_cfg.get("username"):
@@ -3634,7 +3634,7 @@ async def save_config(
             tg_token = tg_block.get("bot_token", "") if isinstance(tg_block, dict) else ""
             tg_enabled = bool(tg_block.get("enabled")) if isinstance(tg_block, dict) else False
             try:
-                from core.telegram_gateway import telegram_gateway
+                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
                 if not tg_enabled:
                     telegram_gateway.stop()
                 elif tg_token and not getattr(telegram_gateway, "is_running", False):
@@ -5753,7 +5753,7 @@ async def confirm_action_endpoint(
 
     if tg_chat_id:
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
             telegram_gateway.send_incident_alert(f"✅ [ĐÃ PHÊ DUYỆT]\n\n{synth_reply}", target=tg_chat_id)
         except Exception as exc:
             logger.warning("[Phase 25] Lỗi gửi thông báo Telegram sau duyệt: %s", exc)
@@ -6321,7 +6321,7 @@ async def get_telegram_config(
         from core.config_loader import get_config_section
         tg_data = get_config_section("telegram")
 
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         is_running = getattr(telegram_gateway, "is_running", False)
 
         masked = _mask_secrets(dict(tg_data))
@@ -6356,7 +6356,7 @@ async def toggle_telegram_gateway(
         enabled = bool(payload.get("enabled", False))
         raw = update_config_section("telegram", {"enabled": enabled})
 
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         if enabled:
             if raw["telegram"].get("bot_token"):
                 telegram_gateway.stop()
@@ -6525,7 +6525,7 @@ async def update_telegram_config(
 
         is_tg_on = raw.get("telegram", {}).get("enabled", False)
         # Restart or stop gateway
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         effective_bot_token = (raw.get("telegram", {}).get("bot_token") or "").strip()
         if is_tg_on and effective_bot_token:
             try:
@@ -6569,7 +6569,7 @@ async def telegram_status(
 ) -> Dict[str, Any]:
     """Return current Telegram gateway running status."""
     try:
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         running = telegram_gateway.is_running
         return {
             "status": "success",
@@ -6594,7 +6594,7 @@ async def test_telegram_alert(
         raise HTTPException(status_code=403, detail="Chỉ Admin hoặc Manager mới có thể gửi tin nhắn kiểm thử.")
 
     try:
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         from datetime import datetime as _dt
 
         bot_token = payload.bot_token if payload else None
@@ -6638,7 +6638,7 @@ async def detect_telegram_chat(
         raise HTTPException(status_code=403, detail="Không có quyền truy cập.")
 
     try:
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         bot_token = payload.bot_token if payload else None
         chats = await run_blocking(telegram_gateway.get_recent_chats, bot_token=bot_token)
         return {
@@ -7695,7 +7695,7 @@ async def api_enterprise_email_simulate(
     """Mô phỏng email khách hàng gửi đến. AI tự phân loại, tạo Ticket và gửi auto-reply."""
     try:
         body = await request.json()
-        from core.email_gateway import email_gateway
+        from mateai.interfaces.email.email_gateway import email_gateway
         result = email_gateway.process_incoming_email(
             sender=body.get("sender", "khachhang@doanhnghiep.vn"),
             subject=body.get("subject", "Yêu cầu hỗ trợ"),
@@ -8727,7 +8727,7 @@ async def _on_shutdown() -> None:
 
     # Phase 18: Stop Telegram Gateway
     try:
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         telegram_gateway.stop()
         logger.info("Phase 18: Telegram Gateway stopped.")
     except Exception:

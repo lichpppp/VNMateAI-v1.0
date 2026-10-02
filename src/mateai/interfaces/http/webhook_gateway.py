@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 
 from core.config_loader import settings
 from core.skills.proactive_manager import proactive_manager
-from core.telegram_gateway import telegram_gateway
+from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 from mateai.application.security.zero_trust import log_security_audit
 
 logger = logging.getLogger(__name__)
@@ -432,7 +432,22 @@ async def receive_webhook(
         )
 
     if not secret_configured:
-        # Chưa cấu hình secret: vẫn nhận (tiện cho cài đặt ban đầu) nhưng đặt
+        # Mặc định TỪ CHỐI: endpoint này không cần đăng nhập, nên webhook không chữ
+        # ký = ai cũng đẩy được nội dung tuỳ ý vào nhóm Telegram admin và HUD.
+        # Chỉ nhận khi admin bật tường minh `security.allow_unsigned_webhooks`
+        # (giai đoạn cài đặt ban đầu).
+        from core.config_loader import get_config_section
+        if not get_config_section("security").get("allow_unsigned_webhooks", False):
+            logger.warning("[WebhookGateway] Từ chối webhook '%s' không chữ ký (chưa cấu hình secret).", source)
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    f"Webhook '{source}' bị từ chối: chưa cấu hình chữ ký. Đặt "
+                    f"VNMATE_WEBHOOK_{source.upper()}_SECRET (hoặc tạm bật "
+                    "security.allow_unsigned_webhooks khi cài đặt)."
+                ),
+            )
+        # Được phép nhận không chữ ký: vẫn nhận nhưng đặt
         # `verified = False` để payload và log không bao giờ tuyên bố sai là
         # đã xác thực. Giữ nguyên `verified` ở đây sẽ khiến mọi lần kiểm tra
         # về sau tin vào một thứ chưa từng được kiểm tra.

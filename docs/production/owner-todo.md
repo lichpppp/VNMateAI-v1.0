@@ -44,3 +44,5 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 ## Connector (khi dùng)
 
 - [ ] M365 / eInvoice / Paperless / OCI chưa được chạy thật (không có tài khoản thử). Bật từng cái trong môi trường thử; webhook cần `VNMATE_WEBHOOK_<NGUỒN>_SECRET`.
+- [ ] **Webhook giờ bị TỪ CHỐI nếu chưa có chữ ký** (2026-10-02). Khi tích hợp hệ thống gửi webhook, đặt `VNMATE_WEBHOOK_<NGUỒN>_SECRET` (`PAPERLESS`, `EINVOICE`, `CUSTOM`, `OCI`; AWS SNS dùng chứng chỉ ký). Chỉ khi cài đặt thử mới tạm bật `"security": {"allow_unsigned_webhooks": true}`.
+- [ ] Xoá trong nhóm Telegram tin cảnh báo thử "smoke" (2026-10-02 19:44) — do kiểm tra webhook trước khi chặn.

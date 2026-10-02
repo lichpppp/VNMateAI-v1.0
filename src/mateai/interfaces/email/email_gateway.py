@@ -162,23 +162,16 @@ class EmailGateway:
         # 2. Xác định phòng ban phụ trách
         target_dept = 1  # Mặc định phòng 1 (IT / Kỹ thuật)
         assignee_id = 1
-        with erp_db.get_connection() as conn:
-            cursor = conn.cursor()
-            if any(w in text_lower for w in ("thanh toán", "hóa đơn", "tiền", "hợp đồng", "chi phí")):
-                cursor.execute("SELECT id FROM departments WHERE LOWER(name) LIKE '%tài chính%' OR LOWER(name) LIKE '%kế toán%' LIMIT 1;")
-                r = cursor.fetchone()
-                if r:
-                    target_dept = r[0]
-            else:
-                cursor.execute("SELECT id FROM departments WHERE LOWER(name) LIKE '%kỹ thuật%' OR LOWER(name) LIKE '%it%' LIMIT 1;")
-                r = cursor.fetchone()
-                if r:
-                    target_dept = r[0]
-
-            cursor.execute("SELECT id FROM employees WHERE dept_id = ? LIMIT 1;", (target_dept,))
-            emp_r = cursor.fetchone()
-            if emp_r:
-                assignee_id = emp_r[0]
+        # Truy vấn nằm ở tầng dữ liệu (ERPDatabase), không chạy SQL ở tầng giao diện.
+        if any(w in text_lower for w in ("thanh toán", "hóa đơn", "tiền", "hợp đồng", "chi phí")):
+            found = erp_db.find_department_id_by_name(["tài chính", "kế toán"])
+        else:
+            found = erp_db.find_department_id_by_name(["kỹ thuật", "it"])
+        if found is not None:
+            target_dept = found
+        emp = erp_db.first_employee_id_in_department(target_dept)
+        if emp is not None:
+            assignee_id = emp
 
         # 3. Tạo Task Ticket vào ERP
         clean_subj = subject.strip() or "Yêu cầu hỗ trợ khách hàng"
@@ -239,7 +232,7 @@ class EmailGateway:
         # Đẩy cảnh báo sang Telegram nếu là P1 / P2
         if priority in ("P1-Critical", "P2-High"):
             try:
-                from core.telegram_gateway import telegram_gateway
+                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
                 telegram_gateway.send_incident_alert(
                     f"🚨 [EMAIL KHẨN CẤP TỪ KHÁCH HÀNG - {priority}]\n"
                     f"• Người gửi: {sender}\n"

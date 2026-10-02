@@ -696,3 +696,20 @@ Cả package `core/connectors/` (base, aws, oci, paperless, einvoice, m365, gene
 - Test `test_connector_config_paths.py` (đọc mới qua config_loader; kho nguồn dữ liệu ở thư mục gốc).
 **Đã xoá (bản song song):** `infrastructure/connectors/{base_connector,circuit_breaker,erp_connector,telegram_connector,__init__}.py` (bản cũ), `tests/unit/test_connectors.py`.
 **Test:** 264 pass. **Runtime:** "Enterprise Connectors loaded", 11/11 connector tool đăng ký vào registry; `/enterprise/connectors/health`, `/catalog`, `/data-sources` 200 (4 connector dựng sẵn).
+
+## 36. Phase 4 — kênh giao tiếp vào `src/mateai` + chặn webhook không chữ ký (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/telegram_gateway.py` | `mateai/interfaces/telegram/telegram_gateway.py` |
+| `core/email_gateway.py` | `mateai/interfaces/email/email_gateway.py` |
+| `core/webhook_gateway.py` | `mateai/interfaces/http/webhook_gateway.py` |
+
+(Bằng script chuyển dùng chung — không đụng `client_agent/`.)
+
+**RULE-004 (test ranh giới bắt được, vi phạm thật):** `email_gateway` (tầng giao diện) tự chạy SQL tìm phòng ban/nhân viên cho ticket → chuyển vào `ERPDatabase.find_department_id_by_name` / `first_employee_id_in_department` (cùng câu truy vấn, tham số hoá). Test `test_email_ticket_routing.py`.
+
+**Lỗ hổng: webhook không chữ ký được chuyển vào nhóm Telegram admin.** `/api/webhooks/*` không cần đăng nhập; khi chưa cấu hình secret, webhook vẫn được nhận và chuyển thành tin nhắn Telegram + HUD (gắn nhãn "CHƯA XÁC THỰC"). Phát hiện khi kiểm tra runtime: một POST thử không chữ ký đã tạo tin nhắn thật trong nhóm (xem owner-todo). **Sửa:** mặc định trả 401 khi chưa có secret; chỉ nhận nếu bật `security.allow_unsigned_webhooks`. Test `test_webhook_unsigned_rejected.py` (mặc định 401 + không dispatch; bật cờ → nhận). Runtime: POST không chữ ký → 401, số lần `sendMessage` không đổi.
+**Test:** 267 pass.

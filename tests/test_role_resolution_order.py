@@ -51,7 +51,7 @@ def test_lookup_error_fails_closed_even_for_device_prefix(monkeypatch):
 
 
 async def test_telegram_ignores_everyone_when_no_admin_chat_configured(monkeypatch):
-    from core.telegram_gateway import telegram_gateway
+    from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
     import mateai.application.agent.llm_engine as llm_mod
 
     asked = []

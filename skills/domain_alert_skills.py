@@ -157,7 +157,7 @@ def send_telegram_message(message: str, target: str = "incident_group") -> Dict[
         return {"status": "error", "message": "Nội dung tin nhắn không được để trống."}
 
     try:
-        from core.telegram_gateway import telegram_gateway
+        from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 
         if target == "all_admins":
             ok = telegram_gateway.send_to_all_admins(message.strip())

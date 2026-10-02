@@ -892,5 +892,5 @@ class TelegramBotService:
 
 
 # Module-level singleton — import from anywhere with:
-#   from core.telegram_gateway import telegram_gateway
+#   from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 telegram_gateway = TelegramBotService()

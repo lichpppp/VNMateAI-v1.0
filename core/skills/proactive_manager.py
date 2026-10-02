@@ -189,7 +189,7 @@ class ProactiveManager:
     def _dispatch_reminder(self, message: str, task: Dict[str, Any]) -> None:
         """Gửi thông điệp đôn đốc tới Telegram hoặc kênh thông báo."""
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
             telegram_gateway.send_incident_alert(message)
         except Exception as exc:
             logger.debug("[ProactiveManager] Telegram alert skip: %s", exc)
@@ -347,7 +347,7 @@ def assign_task_intelligently(
         )
 
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
             telegram_gateway.send_incident_alert(notify_msg)
         except Exception:
             pass

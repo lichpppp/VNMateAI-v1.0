@@ -282,7 +282,7 @@ class TestPhase90ComputerUse(unittest.TestCase):
                 enqueued.append(task.task_id)
                 return True
 
-            with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue),                  patch("core.telegram_gateway.telegram_gateway.send_hitl_request", return_value=False),                  patch("core.telegram_gateway.telegram_gateway.send_incident_alert", return_value=False):
+            with patch.object(cup, "_enqueue_task_to_worker", fake_enqueue),                  patch("mateai.interfaces.telegram.telegram_gateway.telegram_gateway.send_hitl_request", return_value=False),                  patch("mateai.interfaces.telegram.telegram_gateway.telegram_gateway.send_incident_alert", return_value=False):
                 res = await tool_execute_gui_task(
                     task_goal="Phê duyệt thanh toán hoá đơn nhà cung cấp",
                     system_target="ERP",

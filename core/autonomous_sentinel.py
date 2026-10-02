@@ -265,7 +265,7 @@ class AutonomousSentinel:
 
         # 1. Broadcast Telegram Alert
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
             if telegram_gateway and telegram_gateway._running:
                 tg_text = f"🚨 *[SENTINEL INCIDENT ALERT]* 🚨\n\n*Tiêu đề:* {title}\n*Chi tiết:* {message}\n*Thời gian:* {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"
                 telegram_gateway.send_incident_alert(tg_text)
@@ -308,7 +308,7 @@ class AutonomousSentinel:
         logger.info("[AutonomousSentinel] SỰ CỐ ĐÃ KHÔI PHỤC [%s]: %s", category, res_title)
 
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
             if telegram_gateway and telegram_gateway._running:
                 tg_text = (
                     f"✅ *[SENTINEL INCIDENT RESOLVED]* ✅\n\n"

@@ -204,7 +204,7 @@ class OnboardingWorkflow:
         )
 
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
             if telegram_gateway.send_incident_alert(welcome_msg):
                 steps.append({"step": "notify_telegram", "status": "executed",
                               "detail": "Đã gửi tin nhắn chào mừng qua Telegram."})

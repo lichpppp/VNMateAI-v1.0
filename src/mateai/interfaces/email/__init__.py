@@ -1,0 +1,1 @@
+"""src/mateai/interfaces/email"""

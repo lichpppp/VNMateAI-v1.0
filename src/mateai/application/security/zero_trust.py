@@ -301,7 +301,7 @@ class HumanInTheLoopManager:
         notified = False
         buttons_sent = False
         try:
-            from core.telegram_gateway import telegram_gateway
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 
             buttons_sent = telegram_gateway.send_hitl_request(
                 approval_id=approval_id,
@@ -479,7 +479,7 @@ class HumanInTheLoopManager:
         # (test ở test_phase60_sot_bao_mat.py canh giữ tính chất đó).
         if HITL_NOTIFY_RESULT:
             try:
-                from core.telegram_gateway import telegram_gateway
+                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
                 # `send_incident_alert()` gửi với `parse_mode="HTML"`, nên mọi
                 # phần động (tên tác vụ, lỗi phát sinh, tên người duyệt) phải
                 # escape HTML. Không escape thì một lỗi chứa `<` hoặc `&` —
