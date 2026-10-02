@@ -260,7 +260,7 @@ def _cancel_hud_voice_task(session_id: str) -> bool:
     return True
 
 
-async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") -> None:
+async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud", *, caller: str) -> None:
     """
     Bọc lượt thoại, tự dọn sổ task khi xong.
 
@@ -273,7 +273,7 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
     task = asyncio.current_task()
     _hud_voice_tasks[session_id] = task  # type: ignore[assignment]
     try:
-        await _process_hud_voice_command_body(cmd_query, session_id)
+        await _process_hud_voice_command_body(cmd_query, session_id, caller=caller)
     finally:
         # Chỉ xoá nếu sổ vẫn đang trỏ tới CHÍNH mình. Lệnh mới tới đã ghi đè
         # sổ rồi, xoá vô điều kiện sẽ làm mất task của lượt đang chạy.
@@ -326,7 +326,7 @@ class _HudVoiceSink:
             })
 
 
-async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud") -> None:
+async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud", *, caller: str) -> None:
     """
     Một lượt nói của HUD. Nghiệp vụ ở core.voice_turn.process_voice_turn (dùng
     chung mọi kênh); ở đây chỉ còn phần riêng của HUD: câu "thôi/dừng" khi đang
@@ -371,6 +371,8 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             sink=sink,
             session_id=session_id,
             source_device="hud",
+            # RBAC theo người đã đăng nhập trên HUD, không theo nhãn "hud".
+            caller=caller,
             filler_after_s=1.0,  # Phase 67/70: lời đệm chỉ khi câu thật chưa về sau 1s
         )
     except asyncio.CancelledError:
@@ -752,31 +754,26 @@ async def auth_middleware(request: Request, call_next):
     nào trong LAN cũng giành được quyền admin. Đã gỡ bỏ.)
     """
     path = request.url.path
+    # Chỉ những gì PHẢI chạy trước khi đăng nhập. Mọi endpoint ghi/điều khiển
+    # (computer-use/dispatch, screenshot, topology save/reset, departments/save,
+    # cross-report, ephemeral-cache/flush...) từng nằm ở đây — tức ai trong LAN
+    # cũng gọi được không cần JWT. Đã chuyển hết sang yêu cầu đăng nhập.
+    # Chỉ những gì PHẢI chạy trước khi đăng nhập. Mọi endpoint ghi/điều khiển
+    # (computer-use/dispatch, screenshot, topology save/reset, departments/save,
+    # cross-report, ephemeral-cache/flush...) từng nằm ở đây — tức ai trong LAN
+    # cũng gọi được không cần JWT. Đã chuyển hết sang yêu cầu đăng nhập.
+    # Chỉ những gì PHẢI chạy trước khi đăng nhập. Mọi endpoint ghi/điều khiển
+    # (computer-use/dispatch, screenshot, topology save/reset, departments/save,
+    # cross-report, ephemeral-cache/flush...) từng nằm ở đây — tức ai trong LAN
+    # cũng gọi được không cần JWT. Đã chuyển hết sang yêu cầu đăng nhập.
     public_endpoints = (
         "/api/v1/login",
         "/api/v1/login/",
-        "/api/v1/config/assistant-name",
-        "/api/v1/health-dashboard",
-        "/api/v1/audio-nodes",
-        "/api/v1/clients",
-        "/api/v1/roi-dashboard",
-        "/api/v1/system/topology",
-        "/api/v1/system/topology/trigger",
-        "/api/v1/system/topology/save",
-        "/api/v1/system/topology/reset",
-        "/api/v1/computer-use/status",
-        "/api/v1/computer-use/dispatch",
-        "/api/v1/computer-use/sessions",
-        "/api/v1/computer-use/screenshot",
-        "/api/v1/computer-use/self-healing-logs",
-        "/api/v1/admin/topology",
-        "/api/v1/admin/departments/overview",
-        "/api/v1/admin/departments/save",
-        "/api/v1/admin/cross-report",
+        "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập
+        "/api/v1/health-dashboard",        # telemetry HUD chế độ xem
+        # Worker daemon (workers/remote_worker_daemon.py) chưa có cơ chế token —
+        # rủi ro đã ghi trong plan; gỡ khỏi đây khi worker có danh tính.
         "/api/v1/worknodes/heartbeat",
-        "/api/v1/worknodes/status",
-        "/api/v1/admin/ephemeral-cache",
-        "/api/v1/admin/ephemeral-cache/flush",
     )
 
     # Mọi tiền tố path phải được bọc xác thực. /api/erp/ là router của
@@ -1346,14 +1343,6 @@ async def _on_startup() -> None:
         logger.info("Phase 60: Background Worker Manager started.")
     except Exception as bw_exc:
         logger.warning("Phase 60: Could not start Background Worker Manager: %s", bw_exc)
-
-    # Phase 60: Start HITL Manager cleanup loop
-    try:
-        from core.security.hitl_manager import hitl_manager
-        asyncio.create_task(hitl_manager.start_cleanup_loop())
-        logger.info("Phase 60: HITL Manager cleanup loop started.")
-    except Exception as hitl_exc:
-        logger.warning("Phase 60: Could not start HITL Manager: %s", hitl_exc)
 
     # Phase 57: Start Email Gateway (IMAP listener if configured)
     try:
@@ -2591,13 +2580,6 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
     except Exception:
         counters.setdefault("zt_pending", 0)
 
-    # Hàng đợi phê duyệt HITLManager (Phase 60) — trước đây KHÔNG có REST nào lộ
-    try:
-        from core.security.hitl_manager import hitl_manager as p60_hitl
-        counters["p60_pending"] = len(p60_hitl.get_pending_list())
-    except Exception:
-        counters.setdefault("p60_pending", 0)
-
     # Worker nền: đang chạy / tổng / số slot tối đa
     try:
         from core.background_workers import background_worker_manager as bg
@@ -2665,6 +2647,9 @@ async def voice_command(
             source_device=source_device,
             history=payload.history,
             session_id=payload.session_id or source_device,
+            # RBAC theo người đã đăng nhập, KHÔNG theo source_device do client tự
+            # khai (gửi source_device="hud" từng đủ để nhận quyền admin).
+            caller=str(user.get("username") or user.get("sub") or "anonymous"),
         )
         display_reply: str = result.get("reply", "")
         # Phase 87: suy nghĩ của lượt này đi kèm trong kết quả. Đọc từ đây
@@ -4456,7 +4441,17 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                 await websocket.send_text(_json.dumps({"type": "pong"}))
             elif action == "voice_command":
                 cmd_query = (data.get("query") or "").strip()
-                if cmd_query:
+                if cmd_query and ws_user is None:
+                    # Zero-Trust: HUD chưa đăng nhập chỉ xem telemetry. Trước đây
+                    # lệnh chạy dưới danh tính "hud" = quyền admin cho bất kỳ ai
+                    # mở được cổng 443.
+                    await websocket.send_text(_json.dumps({
+                        "type": "auth_required",
+                        "message": "HUD chưa đăng nhập: không nhận lệnh thoại. "
+                                   "Hãy đăng nhập trên portal rồi mở lại HUD.",
+                        "timestamp": datetime.utcnow().isoformat(),
+                    }, ensure_ascii=False))
+                elif cmd_query:
                     # Phase 81: huỷ lượt cũ trước khi nhận lượt mới. HUD đã
                     # dừng phát audio phía trình duyệt, nhưng nếu lượt cũ còn
                     # chạy ở đây thì nó vẫn sinh TTS và đẩy xuống — HUD sẽ phát
@@ -4471,7 +4466,8 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                             "interrupted": True,
                             "timestamp": datetime.utcnow().isoformat(),
                         })
-                    asyncio.create_task(_process_hud_voice_command(cmd_query))
+                    asyncio.create_task(_process_hud_voice_command(
+                        cmd_query, caller=str(ws_user.get("username") or "anonymous")))
             elif action == "confirm_action":
                 approved = bool(data.get("approved", True))
                 action_id = data.get("action_id")
@@ -5442,26 +5438,6 @@ async def inspect_security_sandbox(
         "has_sensitive_data": has_sensitive,
         "masked_content": masked,
     }
-
-
-@app.delete(
-    "/api/v1/security/audit-logs",
-    summary="Clear or truncate security audit logs (Admin only)",
-    tags=["Security"],
-)
-async def clear_audit_logs(
-    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Clear all security audit logs from file and in-memory cache."""
-    from core.safety_guard import security_engine, AUDIT_LOG_FILE
-    try:
-        AUDIT_LOG_FILE.write_text("", encoding="utf-8")
-        security_engine._audit_cache.clear()
-        security_engine.log_audit("admin", "clear_audit_logs", "SAFE", "SUCCESS", {"cleared_by": current_user.get("username", "admin")})
-        return {"status": "success", "message": "Đã làm sạch toàn bộ nhật ký kiểm toán an ninh."}
-    except Exception as exc:
-        logger.error("Lỗi khi xóa audit logs: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Lỗi xóa log: {exc}")
 
 
 @app.get(
@@ -8743,14 +8719,6 @@ async def _on_shutdown() -> None:
         logger.info("Phase 60: Background Worker Manager stopped.")
     except Exception as e:
         logger.warning("Phase 60: Background Worker Manager shutdown error: %s", e)
-
-    # Phase 60: Stop HITL Manager cleanup loop
-    try:
-        from core.security.hitl_manager import hitl_manager
-        await hitl_manager.stop_cleanup_loop()
-        logger.info("Phase 60: HITL Manager cleanup loop stopped.")
-    except Exception as e:
-        logger.warning("Phase 60: HITL Manager shutdown error: %s", e)
 
     # Phase 57: Stop Autonomous Sentinel
     try:

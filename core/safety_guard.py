@@ -12,15 +12,14 @@ Responsibilities:
   3. Action Risk Assessment:
      - evaluate_action_risk(action_name, params): Returns "SAFE", "NEED_CONFIRM", or "BLOCKED".
   4. Enterprise Audit Logging:
-     - log_audit(client_id, action, risk, status, details): Writes structured logs to logs/security_audit.log.
-     - get_recent_audit_logs(limit): Retrieves recent audit events for Web Portal inspection.
+     - log_audit(client_id, action, risk, status, details): ghi vào bảng audit_logs (chỉ INSERT).
+     - get_recent_audit_logs(limit): đọc audit_logs cho Web Portal — một kho audit duy nhất.
   5. Backward-compatible SafetyGuard wrapper for existing HITL flows.
 """
 
 from __future__ import annotations
 
 import ast
-import collections
 import ctypes
 import json
 import logging
@@ -36,11 +35,42 @@ from core.config_loader import settings
 
 logger = logging.getLogger(__name__)
 
-# Ensure logs directory exists
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-LOGS_DIR = _PROJECT_ROOT / "logs"
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
-AUDIT_LOG_FILE = LOGS_DIR / "security_audit.log"
+# Trạng thái sự kiện an ninh → cột status (CHECK) của audit_logs. Tên sự kiện
+# gốc vẫn được giữ nguyên trong payload["event"].
+_EVENT_TO_DB_STATUS: Dict[str, str] = {
+    "SUCCESS": "success", "USER_APPROVED": "success", "RECEIVED": "success",
+    "FAILED": "failed", "SYNTAX_ERROR": "failed",
+    "BLOCKED": "blocked", "REJECTED": "blocked", "USER_REJECTED": "blocked",
+    "UNVERIFIED": "blocked",
+    "PENDING_CONFIRMATION": "pending",
+}
+
+
+def _audit_row_to_event(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Một dòng audit_logs → dạng sự kiện portal/StateManager đang dùng."""
+    from datetime import datetime, timezone
+
+    raw = row.get("payload")
+    try:
+        payload = json.loads(raw) if raw else {}
+    except (TypeError, ValueError):
+        payload = {"raw": raw}
+    is_security_event = isinstance(payload, dict) and "event" in payload and "risk" in payload
+    try:
+        epoch = datetime.fromisoformat(str(row.get("timestamp"))).replace(tzinfo=timezone.utc).timestamp()
+    except ValueError:
+        epoch = 0.0
+    return {
+        "id": row.get("id"),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(epoch)),
+        "timestamp_epoch": epoch,
+        "client_id": row.get("employee_id") or "local",
+        "action": row.get("action_type"),
+        # Dòng ghi thẳng bằng write_audit_log (RBAC, HITL) không có mức rủi ro.
+        "risk": payload.get("risk") if is_security_event else "-",
+        "status": payload.get("event") if is_security_event else str(row.get("status") or "").upper(),
+        "details": payload.get("details", {}) if is_security_event else payload,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -102,24 +132,7 @@ class SecurityEngine:
     Enterprise Zero-Trust Defense Engine for VN-MateAI.
     """
 
-    def __init__(self) -> None:
-        self._audit_cache: collections.deque = collections.deque(maxlen=300)
-        self._load_existing_audit_logs()
-
-    def _load_existing_audit_logs(self) -> None:
-        """Warm up in-memory audit log cache from file."""
-        if not AUDIT_LOG_FILE.exists():
-            return
-        try:
-            lines = AUDIT_LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-            for line in lines[-200:]:
-                if line.strip():
-                    try:
-                        self._audit_cache.append(json.loads(line))
-                    except Exception:
-                        pass
-        except Exception as exc:
-            logger.warning("Không thể nạp log kiểm toán cũ: %s", exc)
+    # Không giữ trạng thái: audit nằm trong audit_logs (core.database).
 
     # -----------------------------------------------------------------------
     # 1. Khử Nhiễm Dữ Liệu Đầu Vào (Data Sanitizer / Masking)
@@ -270,35 +283,33 @@ class SecurityEngine:
         details: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
-        Record a security audit event to logs/security_audit.log and in-memory cache.
+        Ghi một sự kiện an ninh vào audit_logs (bất biến: chỉ INSERT).
+
+        Trước đây ghi vào logs/security_audit.log — kho thứ hai, có API xoá
+        sạch. Nay mọi audit (RBAC lẫn Zero-Trust/HITL) nằm chung một bảng.
         """
-        event = {
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "timestamp_epoch": time.time(),
-            "client_id": client_id or "local",
-            "action": action,
-            "risk": risk.upper(),
-            "status": status.upper(),
-            "details": details or {},
-        }
-
-        # Append to in-memory deque
-        self._audit_cache.append(event)
-
-        # Append to log file
+        event = str(status or "").upper()
         try:
-            line = json.dumps(event, ensure_ascii=False) + "\n"
-            with open(AUDIT_LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(line)
-        except Exception as exc:
-            logger.error("Lỗi khi ghi security_audit.log: %s", exc)
+            from core.database import erp_db
+            erp_db.write_audit_log(
+                action_type=action,
+                status=_EVENT_TO_DB_STATUS.get(event, "failed"),
+                employee_id=client_id or "local",
+                payload={"risk": str(risk or "").upper(), "event": event, "details": details or {}},
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            # Audit không được làm hỏng tác vụ chính, nhưng phải để lại dấu vết.
+            logger.error("Không ghi được audit '%s' (%s): %s", action, event, exc)
 
     def get_recent_audit_logs(self, limit: int = 50) -> List[Dict[str, Any]]:
-        """
-        Return the most recent audit logs for the Web Portal.
-        """
-        all_logs = list(self._audit_cache)
-        return all_logs[-limit:][::-1]  # Return newest first
+        """Sự kiện audit mới nhất trước (đọc từ audit_logs)."""
+        try:
+            from core.database import erp_db
+            rows = erp_db.get_audit_logs(limit=limit)
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("Không đọc được audit_logs: %s", exc)
+            return []
+        return [_audit_row_to_event(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

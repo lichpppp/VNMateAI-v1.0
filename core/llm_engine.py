@@ -700,8 +700,10 @@ class LLMEngine:
         # Zero-Trust: caller_id là danh tính dùng cho RBAC + hàng đợi pending action.
         # KHÔNG được mặc định thành "admin" — mặc định đó biến mọi request không khai
         # báo nguồn thành full quyền. Dùng "anonymous" để _resolve_role() fail-closed
-        # về 'viewer' cho tới khi có cơ chế định danh thật sự.
-        caller_id = str(source_device or "anonymous")
+        # về 'viewer' cho tới khi có cơ chế định danh thật sự. `caller` (người dùng
+        # đã đăng nhập) thắng source_device — cùng khoá mà cổng tool dùng khi lưu
+        # pending action, nếu không "Đồng ý" sẽ không bao giờ tìm thấy tác vụ.
+        caller_id = str(caller or source_device or "anonymous")
         active_session = str(session_id or source_device or "default")
         clean_q = query.strip().lower().rstrip(".,!?")
 
@@ -1002,7 +1004,7 @@ class LLMEngine:
                     from core.agent_voice_loop import run_tool_with_policy
                     _gate = await run_tool_with_policy(
                         fn_name, fn_args,
-                        caller=str(caller or source_device or "anonymous"),
+                        caller=caller_id,
                         source_device=source_device,
                         query=query,
                         session_id=getattr(assistant_msg, "id", None),

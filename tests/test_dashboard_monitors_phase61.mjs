@@ -81,7 +81,7 @@ check('khối Phase 61 dùng `_esc` cấp module (không tự định nghĩa)',
 
 // ── Khung chạy thật: KHÔNG định nghĩa `_esc` ──────────────────────────────
 const monIds = [
-  'mon-queue-zt', 'mon-queue-p60', 'mon-queue-bg-run', 'mon-queue-bg-max',
+  'mon-queue-zt', 'mon-queue-bg-run', 'mon-queue-bg-max',
   'mon-queue-bg-total', 'mon-queue-bg-bar', 'mon-queue-task-sum',
   'mon-queue-task-completed', 'mon-queue-task-pending', 'mon-queue-task-issues',
   'mon-queue-bar-completed', 'mon-queue-bar-pending', 'mon-queue-bar-issues',
@@ -224,7 +224,7 @@ const HEALTH = {
            skills_enabled: 72, uptime_seconds: 600, uptime_human: '10m',
            active_hud_websockets: 1, active_lan_clients: 3 },
   live_events: [],
-  counters: { zt_pending: 2, p60_pending: 1, bg_running: 3, bg_total: 17, bg_max_concurrent: 5 },
+  counters: { zt_pending: 2, bg_running: 3, bg_total: 17, bg_max_concurrent: 5 },
   security_role: 'ADMIN',
 };
 
@@ -255,7 +255,6 @@ const txt = (id) => (D[id]?.textContent ?? '').trim();
 results.push('▸ Panel 6/9 — tầng nhanh 2s (renderMonitorFastPath)');
 M.renderMonitorFastPath(HEALTH);
 check('ZT chờ duyệt = 2', txt('mon-queue-zt') === '2', txt('mon-queue-zt'));
-check('P60 chờ duyệt = 1', txt('mon-queue-p60') === '1', txt('mon-queue-p60'));
 check('slot worker 3/5', txt('mon-queue-bg-run') === '3' && txt('mon-queue-bg-max') === '5');
 check('tổng tác vụ nền = 17', txt('mon-queue-bg-total') === '17');
 check('thanh slot = 60%', D['mon-queue-bg-bar'].style.width === '60%', D['mon-queue-bg-bar'].style.width);
@@ -272,7 +271,7 @@ check('payload null không gây lỗi', txt('mon-queue-zt') === '0');
 M.renderMonitorFastPath(HEALTH); // trả lại trạng thái sạch
 
 // bg_max_concurrent = 0 (worker chưa khởi động) → tuyệt đối không được NaN
-M.renderMonitorFastPath({ counters: { zt_pending: 0, p60_pending: 0, bg_running: 0, bg_total: 0, bg_max_concurrent: 0 } });
+M.renderMonitorFastPath({ counters: { zt_pending: 0, bg_running: 0, bg_total: 0, bg_max_concurrent: 0 } });
 check('bg_max_concurrent = 0 KHÔNG sinh NaN (chia cho 0)',
   D['mon-queue-bg-bar'].style.width === '0%' && !String(D['mon-queue-bg-bar'].style.width).includes('NaN'),
   D['mon-queue-bg-bar'].style.width);
@@ -571,12 +570,12 @@ check('giữ nguyên 4 dòng inject gốc',
   && ep.includes('get_skill_count()') && ep.includes('get_all_tools()'));
 check('thêm active_hud_websockets', ep.includes('active_hud_websockets'));
 check('thêm active_lan_clients', ep.includes('active_lan_clients'));
-check('thêm 5 counter (zt_pending, p60_pending, bg_running, bg_total, bg_max_concurrent)',
-  ['zt_pending', 'p60_pending', 'bg_running', 'bg_total', 'bg_max_concurrent'].every((k) => ep.includes(k)));
+check('thêm 4 counter (zt_pending, bg_running, bg_total, bg_max_concurrent)',
+  ['zt_pending', 'bg_running', 'bg_total', 'bg_max_concurrent'].every((k) => ep.includes(k)));
 check('mỗi nhánh đọc counter bọc try/except — lỗi không làm hỏng endpoint',
   (ep.match(/try:/g) || []).length >= 4, String((ep.match(/try:/g) || []).length));
-check('2 module hitl_manager được import bằng alias (tránh trùng tên)',
-  ep.includes('as zt_hitl') && ep.includes('as p60_hitl'));
+check('một hàng đợi HITL duy nhất (zero_trust)',
+  ep.includes('as zt_hitl') && !ep.includes('p60'));
 // Chỉ soi lời gọi thật, không soi chữ trong docstring ("...network requests.").
 const codeOnly = ep.split('\n')
   .filter((l) => !l.trim().startsWith('#') && !/^\s*("""|'''|\*|\/\/)/.test(l))

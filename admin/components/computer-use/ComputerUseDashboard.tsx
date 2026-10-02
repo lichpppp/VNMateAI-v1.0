@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { authFetch } from '@/lib/api';
 import {
   MonitorPlay,
   Shield,
@@ -75,7 +76,7 @@ export default function ComputerUseDashboard() {
   // Load Status & Sessions from Backend
   const loadStatus = async () => {
     try {
-      const res = await fetch('/api/v1/computer-use/status');
+      const res = await authFetch('/api/v1/computer-use/status');
       if (res.ok) {
         const data = await res.json();
         if (data.worker_cluster?.nodes) {
@@ -89,7 +90,7 @@ export default function ComputerUseDashboard() {
 
   const loadSessions = async () => {
     try {
-      const res = await fetch('/api/v1/computer-use/sessions');
+      const res = await authFetch('/api/v1/computer-use/sessions');
       if (res.ok) {
         const data = await res.json();
         if (data.sessions) {
@@ -103,7 +104,7 @@ export default function ComputerUseDashboard() {
 
   const loadHealingLogs = async () => {
     try {
-      const res = await fetch('/api/v1/computer-use/self-healing-logs');
+      const res = await authFetch('/api/v1/computer-use/self-healing-logs');
       if (res.ok) {
         const data = await res.json();
         if (data.logs) {
@@ -118,7 +119,7 @@ export default function ComputerUseDashboard() {
   const captureScreen = async () => {
     setIsCapturing(true);
     try {
-      const res = await fetch('/api/v1/computer-use/screenshot');
+      const res = await authFetch('/api/v1/computer-use/screenshot');
       if (res.ok) {
         const data = await res.json();
         if (data.screenshot_base64) {
@@ -160,7 +161,7 @@ export default function ComputerUseDashboard() {
     setDispatchResult(null);
 
     try {
-      const res = await fetch('/api/v1/computer-use/dispatch', {
+      const res = await authFetch('/api/v1/computer-use/dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

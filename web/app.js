@@ -663,20 +663,6 @@ async function apiInspectSecuritySandbox(type, content, params = null) {
   }
 }
 
-async function apiClearAuditLogs() {
-  try {
-    const res = await apiFetch(`${API_BASE}/api/v1/security/audit-logs`, {
-      method: 'DELETE',
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
-    return data;
-  } catch (err) {
-    console.error('[API] Lỗi làm sạch nhật ký kiểm toán:', err);
-    return { status: 'error', detail: err.message };
-  }
-}
-
 async function apiGetAuditLogs(limit = 100) {
   try {
     const res = await apiFetch(`${API_BASE}/api/v1/security/audit-logs?limit=${limit}`);
@@ -1267,7 +1253,6 @@ function renderMonitorFastPath(data) {
 
   // ── Panel 6: hàng đợi phê duyệt + slot worker nền ──
   _monSet('mon-queue-zt', c.zt_pending ?? 0);
-  _monSet('mon-queue-p60', c.p60_pending ?? 0);
 
   const bgRun = c.bg_running ?? 0;
   const bgMax = c.bg_max_concurrent ?? 0;
@@ -7053,7 +7038,7 @@ async function analyzeSecuritySandbox() {
   }
 }
 
-// ── Export & Clear Audit Logs ────────────────────────────────────────────────
+// ── Export Audit Logs (audit_logs bất biến — không có nút xoá) ────────────────────────────────────────────────
 function exportAuditLogsJson() {
   if (!securityAuditLogs || securityAuditLogs.length === 0) {
     showToast('Chưa có bản ghi nhật ký nào để xuất!', 'warning');
@@ -7070,21 +7055,6 @@ function exportAuditLogsJson() {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
   showToast('✅ Đã xuất tệp nhật ký kiểm toán thành công!', 'success');
-}
-
-async function clearAuditLogsUI() {
-  if (!confirm('⚠️ CẢNH BÁO AN NINH: Bạn có chắc chắn muốn xóa sạch toàn bộ lịch sử nhật ký kiểm toán? Thao tác này không thể hoàn tác!')) {
-    return;
-  }
-  const res = await apiClearAuditLogs();
-  if (res && res.status === 'success') {
-    showToast('✅ Đã làm sạch toàn bộ nhật ký kiểm toán!', 'success');
-    securityAuditLogs = [];
-    renderAuditLogsTable([]);
-    updateSecurityStats([]);
-  } else {
-    showToast(`❌ Không thể xóa nhật ký: ${res?.detail || 'Lỗi không xác định'}`, 'error');
-  }
 }
 
 function filterAuditLogs() {
@@ -14100,7 +14070,7 @@ async function loadEnterpriseDepartments() {
   const container = document.getElementById('departments-list-grid');
   if (!container) return;
   try {
-    const res = await fetch('/api/v1/admin/departments/overview');
+    const res = await apiFetch('/api/v1/admin/departments/overview');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const depts = data.departments || [];
@@ -14205,7 +14175,7 @@ async function submitDepartmentForm() {
   }
 
   try {
-    const res = await fetch('/api/v1/admin/departments/save', {
+    const res = await apiFetch('/api/v1/admin/departments/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -14222,7 +14192,7 @@ async function submitDepartmentForm() {
 
 async function syncDeptDataNow(deptCode) {
   try {
-    const res = await fetch('/api/v1/admin/departments/save', {
+    const res = await apiFetch('/api/v1/admin/departments/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dept_code: deptCode, dept_name: deptCode }),
@@ -14242,7 +14212,7 @@ async function triggerEnterpriseCrossReport() {
   if (richEl) richEl.textContent = 'Vui lòng chờ...';
 
   try {
-    const res = await fetch('/api/v1/admin/cross-report', {
+    const res = await apiFetch('/api/v1/admin/cross-report', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ scope: ['FIN', 'HR', 'CTO'], clearance_level: 4 }),
@@ -14284,7 +14254,7 @@ async function loadElasticGridManager() {
   const listEl = document.getElementById('grid-nodes-list');
 
   try {
-    const res = await fetch('/api/v1/worknodes/status');
+    const res = await apiFetch('/api/v1/worknodes/status');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const grid = data.grid || {};

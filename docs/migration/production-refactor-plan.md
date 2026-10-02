@@ -277,3 +277,32 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Rủi ro:** tool trước đây chỉ có trong danh sách viết tay mà không có skill tương ứng sẽ biến mất khỏi LLM — đã đối chiếu 7/7 tool (6 trùng, 1 đăng ký mới). Connector Phase 59 phải tự `@export_skill` để LLM thấy.
 
 **Còn lại:** D4 (bản server của kỹ năng máy con), C6 `meta_architect`/`analytics_engine`, E2 alias `/ws/audio-stream`.
+
+## 11. Báo cáo Phase Security — một HITL, một kho audit, đóng các lối vào không xác thực (2026-10-02)
+
+**PHASE:** Security (sau Skills/Tools theo thứ tự Voice → LLM → Skills → Security)
+**STATUS:** XONG phần dưới; còn lại ghi ở cuối mục
+
+**Một implementation:**
+
+| Việc | Trước | Sau |
+|---|---|---|
+| HITL | `zero_trust.HumanInTheLoopManager` + `security/hitl_manager.HITLManager` (Phase 60) | chỉ `zero_trust.hitl_manager`. `HITLManager` **không có nơi nào tạo request** ngoài test → hàng đợi luôn rỗng; đã xoá cùng vòng dọn dẹp, nhánh Telegram, counter `p60_pending` trên dashboard |
+| Kho audit | bảng `audit_logs` (bất biến) + file `logs/security_audit.log` (API `DELETE` xoá sạch được) | chỉ `audit_logs`. `security_engine.log_audit` ghi DB (sự kiện gốc giữ trong payload), portal + `StateManager` đọc từ DB. `DELETE /api/v1/security/audit-logs` và nút "Làm Sạch Log" đã gỡ (→ 405). File cũ để nguyên, không xoá, không còn ghi |
+
+**Lỗi bảo mật đã sửa (đều có test fail trên code cũ):**
+1. `POST /api/v1/voice-command`: RBAC theo `source_device` do client tự khai — manager gửi `"hud"` là thành admin. Nay theo user đã đăng nhập.
+2. `/ws/hud` chưa đăng nhập vẫn gửi `voice_command`, chạy dưới danh tính `"hud"` = admin. Nay bị từ chối (`auth_required`); HUD đã đăng nhập chạy theo username (quyết định của chủ dự án).
+3. 13 endpoint nằm trong danh sách public của middleware, gồm `computer-use/dispatch` (điều khiển GUI máy chủ), `computer-use/screenshot`, topology save/reset/trigger, `departments/save`, `cross-report`, `ephemeral-cache/flush`. Nay chỉ còn public: login, assistant-name, health-dashboard, worknodes/heartbeat. Portal (`apiFetch`) và admin (`authFetch` mới trong `admin/lib/api.ts`) gửi JWT.
+4. `ask_async` tra pending action theo `source_device` trong khi cổng tool lưu theo `caller` → trên portal, "Đồng ý" không bao giờ tìm thấy tác vụ. Nay dùng cùng khoá.
+
+**Test:** 212 pass / 0 fail. Mới: `test_hud_requires_login.py`, `test_audit_single_store.py`, `test_public_endpoints_locked.py`, 2 test thêm trong `test_confirm_pending_action.py`. Sửa: phase60 (bỏ test của manager đã xoá), phase61 mjs (bỏ counter P60), phase88 (gửi token).
+**Runtime (server thật):** endpoint khoá: không token 401 / có token 200; `DELETE audit-logs` 405; HUD không token bị từ chối, có token chạy đủ lượt (listening → speaking); `/admin/topology` 200 và chunk topology gửi Bearer.
+**Hiệu năng:** không đo. `log_audit` đổi từ append file sang INSERT SQLite (đồng bộ, như trước).
+
+**Rủi ro / còn lại:**
+- `POST /api/v1/worknodes/heartbeat` vẫn public, và phản hồi giao task cho node bất kỳ — ai giả làm worker là nhận được task. Cần danh tính cho worker daemon.
+- `security_guard._resolve_role` vẫn cấp admin theo **tiền tố** id (`esp32*`, `xiaozhi*`, `telegram*`, `hud*`, `robot*`; f389bbe). Sau bản sửa này, các đường đã biết đều đi theo user hoặc thiết bị đã xác thực; nhưng kênh mới nào truyền id do client tự đặt thì sẽ lại thành admin.
+- Hai mô hình role (portal admin/manager/viewer ↔ RBAC admin/it_support/operator/viewer qua `PORTAL_ROLE_MAP`) chưa gộp: cần đổi role trong DB, là quyết định sản phẩm.
+- `/ws/topology` và các WebSocket khác chưa được rà soát trong đợt này.
+- Health endpoints `/livez` `/readyz` `/startupz` chưa làm.

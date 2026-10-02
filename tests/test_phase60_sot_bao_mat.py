@@ -207,102 +207,6 @@ def test_hitl_executor_runs_once() -> None:
 
 
 # ══════════════════════════════════════════════════════════════════════════
-# 5. HITLManager: lỗi walrus và resume executor
-# ══════════════════════════════════════════════════════════════════════════
-def test_hitl_manager() -> None:
-    section("── HITLManager (Phase 60) ──")
-    from core.security.hitl_manager import hitl_manager
-
-    # Lỗi walrus: `if request_id := request.id in self._pending` gán bool.
-    # Bắt bằng cách chạy đúng nhánh ghi telegram_message_id với self._pending
-    # thật, không có network.
-    ran: list[int] = []
-
-    def side_effect(**_kw):
-        ran.append(1)
-        return {"ok": True}
-
-    async def boom(**_kw):
-        raise RuntimeError("DB down")
-
-    async def main() -> None:
-        r = hitl_manager.create_request(
-            tool_name="t_ok", parameters={}, requested_by="T",
-            description="d", risk_level=5, executor_callback=side_effect, ttl_seconds=300,
-        )
-        res = await hitl_manager.approve(r.id, approved_by="ceo")
-        check("approve chạy executor", res.get("executed") is True, str(res)[:150])
-        check("executor chạy đúng 1 lần", len(ran) == 1, f"{len(ran)} lần")
-
-        res2 = await hitl_manager.approve(r.id, approved_by="ceo")
-        check("duyệt lần 2 bị từ chối (không chạy lại)", res2.get("status") == "error", str(res2)[:100])
-        check("side-effect vẫn 1 lần sau duyệt lại", len(ran) == 1, f"{len(ran)} lần")
-
-        r3 = hitl_manager.create_request(
-            tool_name="t_boom", parameters={}, requested_by="T",
-            description="d", risk_level=4, executor_callback=boom, ttl_seconds=300,
-        )
-        res3 = await hitl_manager.approve(r3.id, approved_by="ceo")
-        check("executor lỗi -> không báo thành công", res3.get("executed") is False, str(res3)[:150])
-        check("lỗi executor được trả về", "DB down" in str(res3.get("execution_error")))
-
-        r4 = hitl_manager.create_request(
-            tool_name="t_noexec", parameters={}, requested_by="T",
-            description="d", risk_level=3, ttl_seconds=300,
-        )
-        res4 = await hitl_manager.approve(r4.id, approved_by="ceo")
-        check("không có executor -> executed=False", res4.get("executed") is False, str(res4)[:120])
-
-        r5 = hitl_manager.create_request(
-            tool_name="t_rej", parameters={}, requested_by="T",
-            description="d", risk_level=3, ttl_seconds=300,
-        )
-        res5 = await hitl_manager.reject(r5.id, rejected_by="ceo", reason="không cần")
-        check("reject trả status rejected", res5.get("status") == "rejected", str(res5)[:120])
-
-        check(
-            "get_request() dùng để route Telegram trả về request",
-            hitl_manager.get_request(r5.id) is not None,
-        )
-        check(
-            "get_request() trả None cho id không tồn tại",
-            hitl_manager.get_request("HITL-KHONGCO") is None,
-        )
-
-    asyncio.run(main())
-
-    # Chặn hồi quy của lỗi walrus: nếu ai đó đổi lại thành toán tử walrus,
-    # biểu thức sẽ gán bool và `self._pending[...]` ném KeyError. Chỉ soi mã
-    # thực thi, bỏ qua comment (comment giải thích chính lỗi này có chứa mẫu đó).
-    src = Path("core/security/hitl_manager.py").read_text(encoding="utf-8")
-    code_lines = [
-        ln for ln in src.splitlines()
-        if not ln.strip().startswith("#")
-    ]
-    check(
-        "không còn mẫu walrus lỗi ':= ... in self._pending' ở mã thực thi",
-        not any(":= request.id in" in ln for ln in code_lines),
-    )
-
-
-def test_telegram_has_edit_helper() -> None:
-    section("── TelegramGateway: hàm gỡ nút HITL ──")
-    from core.telegram_gateway import telegram_gateway
-
-    check(
-        "có _handle_hitl_callback_edit (approve() gọi await hàm này)",
-        hasattr(telegram_gateway, "_handle_hitl_callback_edit"),
-    )
-    fn = getattr(telegram_gateway, "_handle_hitl_callback_edit", None)
-    if fn:
-        check("_handle_hitl_callback_edit là coroutine (gọi được bằng await)",
-              inspect.iscoroutinefunction(fn))
-    src = Path("core/telegram_gateway.py").read_text(encoding="utf-8")
-    check("callback route qua HITLManager mới trước nhánh cũ",
-          src.index("new_hitl") < src.index("from core.zero_trust import hitl_manager"))
-
-
-# ══════════════════════════════════════════════════════════════════════════
 # 7. Chuẩn hoá kết quả của PluginRegistry
 # ══════════════════════════════════════════════════════════════════════════
 def test_declared_risk_level_is_authoritative() -> None:
@@ -938,8 +842,6 @@ def main() -> int:
         test_webhook_signature,
         test_webhook_metadata_trust,
         test_hitl_executor_runs_once,
-        test_hitl_manager,
-        test_telegram_has_edit_helper,
         test_declared_risk_level_is_authoritative,
         test_database_lock_is_reentrant,
         test_every_hitl_call_site_awaits,

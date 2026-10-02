@@ -2450,9 +2450,6 @@
                   <span id="mon-queue-zt"
                     class="text-xl font-black text-amber-500 dark:text-amber-400 tabular-nums">—</span>
                   <span class="text-[9px] text-slate-400 dark:text-slate-500">ZT</span>
-                  <span id="mon-queue-p60"
-                    class="text-xl font-black text-amber-500 dark:text-amber-400 tabular-nums">—</span>
-                  <span class="text-[9px] text-slate-400 dark:text-slate-500">P60</span>
                 </div>
               </div>
 
@@ -6525,7 +6522,7 @@
             <div class="flex items-center gap-2">
               <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <span>📋 Nhật Ký Kiểm Toán An Ninh (Security Audit Logs)</span>
-                <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">logs/security_audit.log</span>
+                <span class="text-[11px] text-slate-500 dark:text-slate-400 font-mono">audit_logs (bất biến)</span>
               </h3>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
@@ -6544,11 +6541,6 @@
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
                 <span>Xuất JSON</span>
-              </button>
-              <button onclick="clearAuditLogsUI()"
-                class="px-2.5 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/30 text-xs font-semibold whitespace-nowrap transition"
-                title="Xóa toàn bộ nhật ký kiểm toán (Yêu cầu quyền Quản trị viên)">
-                🗑️ Làm Sạch Log
               </button>
               <button onclick="loadSecurityCenter(); showToast('Đã làm mới nhật ký kiểm toán', 'info')"
                 class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm">

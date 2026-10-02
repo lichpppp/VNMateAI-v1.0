@@ -35,22 +35,18 @@ class StateManager:
         self._ttl_seconds = ttl_seconds
         self.load_from_audit_logs()
 
-    def load_from_audit_logs(self, audit_log_path: str = "logs/security_audit.log") -> None:
-        """Khôi phục các tác vụ PENDING_CONFIRMATION chưa được duyệt/hủy từ file log, và tải các tác vụ vừa được duyệt gần nhất."""
-        import os
-        import json
-        if not os.path.exists(audit_log_path):
-            return
+    def load_from_audit_logs(self) -> None:
+        """Khôi phục các tác vụ PENDING_CONFIRMATION chưa được duyệt/hủy từ audit_logs, và tải các tác vụ vừa được duyệt gần nhất."""
         try:
-            with open(audit_log_path, "r", encoding="utf-8") as f:
-                lines = [l.strip() for l in f if l.strip()]
+            from core.safety_guard import security_engine
+            # Mới nhất trước → đảo lại theo thời gian. 2000 dòng phủ dư cửa sổ 2 giờ.
+            entries = list(reversed(security_engine.get_recent_audit_logs(limit=2000)))
 
             # Track resolved actions & approved actions
             pending_candidates: Dict[str, Dict[str, Any]] = {}
             recent_approved: List[Dict[str, Any]] = []
-            for line in lines:
+            for entry in entries:
                 try:
-                    entry = json.loads(line)
                     action_name = entry.get("action")
                     client_id = entry.get("client_id", "master")
                     status = (entry.get("status") or "").upper()

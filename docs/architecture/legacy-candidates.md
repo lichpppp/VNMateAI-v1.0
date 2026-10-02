@@ -3,7 +3,7 @@
 > Phase 0 — chỉ phân loại, **chưa xóa gì**. Thay thế `docs/cleanup-candidates.md` (tài liệu đó tham chiếu các file đã không còn, ví dụ `core/api_voice_stream.py`, `scratch/`, `vnmateai.db.bak-*`).
 > Bằng chứng xem `duplication-matrix.md`. Điều kiện xóa (Phase C): thay thế đã có, caller đã chuyển, test pass, đã chạy thử runtime.
 
-## Trạng thái (cập nhật Phase 6, 2026-10-02)
+## Trạng thái (cập nhật Phase Security, 2026-10-02)
 
 | Mục | Trạng thái |
 |---|---|
@@ -21,7 +21,9 @@
 | A4 `erp_organization` | **ĐÃ ĐĂNG KÝ** làm skill (`skills/erp_organization.py`) thay vì xoá |
 | C9 `client_template/` | **ĐÃ THAY** — zip tải về sinh từ `client_agent/`, fork đã xoá (Phase 6) |
 | D7 `plugin_manager` + `plugin_registry` | **ĐÃ GỘP**: danh mục = `plugin_manager`; registry = chính sách thực thi (Phase 6) |
-| A5–A6, C10–C11, D1–D6, D8, E1–E8 | chưa làm |
+| D1 HITL `security/hitl_manager.HITLManager` | **ĐÃ XOÁ** — không có producer; HITL duy nhất là `zero_trust.hitl_manager` |
+| Kho audit file `logs/security_audit.log` | **ĐÃ THAY** bằng `audit_logs` (bất biến); API xoá log đã gỡ |
+| A5–A6, C10–C11, D2–D6, D8, E1–E8 | chưa làm |
 
 ## A. Xóa được ngay khi vào Phase C (không có caller)
 

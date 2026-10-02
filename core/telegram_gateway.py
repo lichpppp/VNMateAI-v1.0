@@ -210,68 +210,6 @@ class TelegramBotService:
             logger.error("[TelegramGateway] Unexpected error in _handle_message: %s", exc)
 
     # ── HITL 1-Tap (Phase 58 BƯỚC 3) ───────────────────────────────────────
-    async def _handle_hitl_callback_edit(
-        self,
-        chat_id: str,
-        message_id: int,
-        text: str,
-    ) -> bool:
-        """
-        Sửa tin nhắn HITL đã gửi: thay nội dung và GỠ nút bấm.
-
-        Vì sao cần hàm này
-        -----------------
-        `HITLManager.approve()`/`reject()` gọi hàm này để chính tin nhắn mà
-        CEO vừa bấm được đổi thành kết quả và bỏ nút đi. Không có nó, nút "Duyệt"
-        tồn tại vô thời hạn; CEO bấm lần hai nhận "đã duyệt rồi" mà tin nhắn
-        vẫn trông như đang chờ — một trong những loại lỗi làm mất niềm tin
-        vào HITL nhiều nhất.
-
-        Dùng HTTP trực tiếp (không phải bot object) vì thông báo HITL của
-        `HITLManager` cũng được gửi bằng `httpx`, nên cách này khớp với
-        đường gửi thực tế và không phụ thuộc polling có bật hay không.
-        """
-        cfg = self._get_config()
-        if not cfg or not cfg.bot_token:
-            logger.debug("[TelegramGateway] HITL edit: chưa cấu hình bot_token.")
-            return False
-        if not chat_id or not message_id:
-            logger.debug("[TelegramGateway] HITL edit: thiếu chat_id/message_id.")
-            return False
-
-        def _do_edit() -> bool:
-            try:
-                import httpx
-
-                payload = {
-                    "chat_id": chat_id,
-                    "message_id": message_id,
-                    "text": text,
-                    "parse_mode": "Markdown",
-                    # reply_markup rỗng = gỡ toàn bộ nút bấm.
-                    "reply_markup": {"inline_keyboard": []},
-                }
-                url = f"https://api.telegram.org/bot{cfg.bot_token}/editMessageText"
-                resp = httpx.post(url, json=payload, timeout=15.0)
-                if resp.status_code != 200:
-                    # 400 "message is not modified" là tình huống bình thường
-                    # (bấm hai lần), không phải lỗi cần báo đỏ.
-                    logger.info(
-                        "[TelegramGateway] HITL edit (%s): Telegram từ chối (%s)",
-                        message_id, resp.status_code,
-                    )
-                    return False
-                return True
-            except Exception as exc:  # pylint: disable=broad-except
-                logger.error("[TelegramGateway] HITL edit lỗi mạng: %s", exc)
-                return False
-
-        # Gọi chặn (blocking) ở đây là chấp nhận được: approve() đã nằm trong
-        # event loop, nhưng đây là thao tác phụ sau quyết định. Đổi sang
-        # create_task sẽ tạo race: người dùng thấy nút còn rồi bấm lại
-        # trước khi lần sửa kịp tới.
-        return await asyncio.get_event_loop().run_in_executor(None, _do_edit)
-
     @staticmethod
     def build_hitl_keyboard(approval_id: str) -> Optional[Any]:
         """
@@ -472,58 +410,6 @@ class TelegramBotService:
             user = query.from_user
             if user:
                 reviewer = f"telegram:{user.username or user.id}"
-
-            # Phase 60: HITLManager mới tự sửa tin nhắn (gỡ nút) và ghi audit
-            # trong `approve()`/`reject()`. Nhánh cũ `core.zero_trust` giữ lại
-            # làm fallback cho các yêu cầu do đường Zero-Trust cũ tạo ra — hai
-            # hàng đợi này cùng tồn tại, không thể bỏ nhánh nào.
-            new_result: Optional[Dict[str, Any]] = None
-            try:
-                from core.security.hitl_manager import hitl_manager as new_hitl
-
-                if new_hitl.get_request(approval_id) is not None:
-                    if ok:
-                        new_result = await new_hitl.approve(approval_id, approved_by=reviewer)
-                    else:
-                        new_result = await new_hitl.reject(
-                            approval_id,
-                            rejected_by=reviewer,
-                            reason="Từ chối trên Telegram",
-                        )
-            except Exception as exc:
-                logger.error(
-                    "[TelegramGateway] HITL %s: HITLManager mới lỗi (%s) — thử nhánh cũ.",
-                    approval_id, exc,
-                )
-                new_result = None
-
-            if new_result is not None:
-                # `approve()` đã sửa tin nhắn gốc và gỡ nút, nên chỉ cần báo
-                # kết quả cuối. Báo cáo phản ánh đúng: duyệt nhưng không thực
-                # thi được là trạng thái riêng, không phải thành công.
-                if new_result.get("status") == "error":
-                    head = f"⚠️ *Không thực hiện được* ({verb})"
-                elif not ok:
-                    head = "⛔ *Đã từ chối*"
-                elif new_result.get("execution_error"):
-                    head = "⚠️ *Đã duyệt nhưng thực thi lỗi*"
-                elif new_result.get("executed"):
-                    head = "✅ *Đã duyệt và thực thi thành công*"
-                else:
-                    head = "✅ *Đã duyệt*"
-                body = new_result.get("execution_error") or new_result.get("message") or ""
-                text = f"{head}\nMã: `{approval_id}`"
-                if body:
-                    text += f"\n{body}"
-                try:
-                    await query.edit_message_text(
-                        text=text,
-                        parse_mode="Markdown",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[]),
-                    )
-                except Exception:
-                    await query.edit_message_text(text=text)
-                return
 
             from core.zero_trust import hitl_manager
 

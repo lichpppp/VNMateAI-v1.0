@@ -14,6 +14,7 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import dagre from 'dagre';
+import { authFetch } from '@/lib/api';
 import 'reactflow/dist/style.css';
 
 import { CoreNode } from './CoreNode';
@@ -610,7 +611,7 @@ export default function SystemCanvas() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/v1/system/topology');
+      const res = await authFetch('/api/v1/system/topology');
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -891,7 +892,7 @@ export default function SystemCanvas() {
   const handleSaveTopology = async () => {
     setSaving(true);
     try {
-      const res = await fetch('/api/v1/system/topology/save', {
+      const res = await authFetch('/api/v1/system/topology/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nodes: allNodes, edges: allEdges }),
@@ -914,7 +915,7 @@ export default function SystemCanvas() {
   const handleResetTopology = async () => {
     if (!confirm('Bạn có chắc muốn khôi phục sơ đồ về mặc định hệ thống?')) return;
     try {
-      await fetch('/api/v1/system/topology/reset', { method: 'POST' });
+      await authFetch('/api/v1/system/topology/reset', { method: 'POST' });
     } catch (e) {}
     localStorage.removeItem('vnmate_custom_topology');
     fetchTopology();
@@ -1102,7 +1103,7 @@ export default function SystemCanvas() {
     activateEdgeFlow(source, target);
 
     try {
-      await fetch('/api/v1/system/topology/trigger', {
+      await authFetch('/api/v1/system/topology/trigger', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ source, target, action: actionName }),
@@ -1125,7 +1126,7 @@ export default function SystemCanvas() {
         );
         activateEdgeFlow(s.source, s.target);
         try {
-          await fetch('/api/v1/system/topology/trigger', {
+          await authFetch('/api/v1/system/topology/trigger', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ source: s.source, target: s.target, action: s.action }),

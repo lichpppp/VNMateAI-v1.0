@@ -25,8 +25,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core.server import app
+from core.auth_manager import auth_manager
 
-client = TestClient(app)
+# Topology API không còn public (ghi/đọc sơ đồ hệ thống cần đăng nhập).
+_admin = next(u for u in auth_manager.get_all_users() if u.get("role") == "admin")
+_token = auth_manager.create_access_token(data={"sub": _admin["username"], "role": "admin"})
+client = TestClient(app, headers={"Authorization": f"Bearer {_token}"})
 
 PASSED = 0
 FAILED = 0

@@ -174,7 +174,7 @@ def list_directory(path: str = ".", **kwargs: Any) -> Dict[str, Any]:
         "properties": {
             "file_path": {
                 "type": "string",
-                "description": "Đường dẫn tệp tin cần đọc (ví dụ: 'logs/security_audit.log', 'config.json').",
+                "description": "Đường dẫn tệp tin cần đọc (ví dụ: 'logs/run.log', 'config.json').",
             },
             "lines": {
                 "type": "integer",
