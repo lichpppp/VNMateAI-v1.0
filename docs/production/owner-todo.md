@@ -46,3 +46,19 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] M365 / eInvoice / Paperless / OCI chưa được chạy thật (không có tài khoản thử). Bật từng cái trong môi trường thử; webhook cần `VNMATE_WEBHOOK_<NGUỒN>_SECRET`.
 - [ ] **Webhook giờ bị TỪ CHỐI nếu chưa có chữ ký** (2026-10-02). Khi tích hợp hệ thống gửi webhook, đặt `VNMATE_WEBHOOK_<NGUỒN>_SECRET` (`PAPERLESS`, `EINVOICE`, `CUSTOM`, `OCI`; AWS SNS dùng chứng chỉ ký). Chỉ khi cài đặt thử mới tạm bật `"security": {"allow_unsigned_webhooks": true}`.
 - [ ] Xoá trong nhóm Telegram tin cảnh báo thử "smoke" (2026-10-02 19:44) — do kiểm tra webhook trước khi chặn.
+
+## Thay đổi cần biết (2026-10-03)
+
+- **Chỉ admin duyệt được tác vụ rủi ro cao** (portal, HUD, panel HITL, Telegram, câu "đồng ý"). Manager không còn duyệt được. Danh sách chờ duyệt và nhật ký audit cũng chỉ admin xem.
+- **Mọi yêu cầu duyệt giờ đi một hàng đợi** và tác vụ cần duyệt từ hội thoại/portal/`fs`/máy trạm cũng **gửi thẻ duyệt có nút bấm tới Telegram** (trước chỉ một số loại). Nếu thấy nhiều tin hơn trước, đó là lý do.
+- `/api/v1/fs/*` chỉ admin; công cụ đọc tệp từ chối tệp chứa bí mật (`config.json`, `.env`, khoá, chứng chỉ, CSDL) ở mọi kênh.
+- Endpoint cũ `/api/v1/audit-logs` đã gỡ — dùng `/api/v1/security/audit-logs` (giao diện đã chuyển). Ai có script riêng gọi đường cũ cần đổi.
+
+## Kiểm tra / quyết định còn mở
+
+- [ ] **CI GitHub Actions** (`.github/workflows/tests.yml`) đã thêm nhưng **chưa thấy chạy trên GitHub** (máy này không có `gh`). Mở tab Actions của repo xem lần chạy đầu; nếu bước `pip install` lỗi (torch, pyaudio trên runner) báo lại để chỉnh. Bộ test đã qua 371/371 trên bản checkout sạch với `config.example.json`.
+- [ ] **Skill trùng giữa máy chủ và gói agent máy trạm**: `skills/{custom_skills, pc_control_skills, sysadmin_skills}.py` giống hệt `client_agent/skills/`; `file_system`, `monitoring_skills`, `excel_records_skill`, `visual_skills` đã lệch nhau. Quyết định: máy chủ có cần tự điều khiển chính nó (chuột/bàn phím/cửa sổ) không? Nếu không → bỏ bản ở `skills/`, chỉ giữ ở agent; nếu có → giữ một nguồn và đóng gói agent từ nguồn đó.
+- [ ] **PostgreSQL** (kế hoạch: `docs/migration/sqlite-to-postgresql-plan.md`): cần máy chủ PG và chọn thời điểm cutover. Chưa làm.
+- [ ] **Tách tiến trình api / realtime / worker + Redis** (state chia sẻ: hàng đợi duyệt, phiên thoại, WebSocket): chưa làm — cần Redis và quyết định có chạy nhiều tiến trình không. Hiện một tiến trình là đủ cho một văn phòng; khôi phục hàng đợi duyệt sau khởi động lại đã có.
+- [ ] **Container**: chưa làm — ứng dụng dùng COM/pywin32, micro, điều khiển màn hình Windows nên không chạy được trong container Linux; nếu cần, chỉ tách phần API thuần.
+- [ ] `skills/registry.json` và hai skill do AI tạo (`skills/auto_play_music.py`, `skills/thong_ke_lo_xsmb.py`) cùng `get_lotto.py`, `generate_pdf.py` ở gốc repo là tệp sinh trong lúc chạy / của bạn — **chưa commit, không đụng tới**. Xem lại và tự quyết có đưa vào git không.

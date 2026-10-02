@@ -952,3 +952,12 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 `GET /api/v1/audit-logs` (dòng thô) và `GET /api/v1/security/audit-logs` (dạng sự kiện) đọc cùng bảng `audit_logs` với hai định dạng; giao diện gọi cả hai. Giữ `/api/v1/security/audit-logs`, thêm `outcome` (trạng thái chuẩn hoá của bảng) và `total`; chuyển panel Giám sát (Panel 8) và cột cảnh báo của Trung tâm chỉ huy sang endpoint này (đọc `outcome`, `action`, `client_id`); gỡ `/api/v1/audit-logs` (không còn nơi gọi: web, admin, client_agent, test).
 
 **TESTS:** 370 pass; test JS phase61 112/112 với dữ liệu dạng mới. **RUNTIME:** `/api/v1/audit-logs` → 404; `/api/v1/security/audit-logs?limit=100` → 100 dòng, outcome {success 91, pending 4, blocked 2, failed 3}; `app.js` phục vụ đường mới.
+
+## 53. Phase 11 — kiểm toán cuối; CI; kế hoạch PostgreSQL (2026-10-03)
+
+**STATUS:** XONG (phần làm được trên máy này); phần cần hạ tầng/quyết định ghi ở `docs/production/owner-todo.md`.
+
+- `docs/migration/final-audit.md`: số liệu thật (58 commit, 71 tệp xoá, −3.100 dòng ròng, `server.py` 8.898 → 1.021), bảng "một chức năng — một implementation" kèm test canh giữ, danh sách lớp bọc/bản sao còn lại và lý do, những gì chưa làm.
+- `docs/migration/sqlite-to-postgresql-plan.md`: kiểm kê đo thật (2 CSDL, 16 bảng, 269 dòng), bước chuyển, kiểm số dòng + checksum, cutover, rollback.
+- Xoá `apps/{api,realtime,worker}` (gói rỗng, không ai import). Đường dẫn `hr_kpi.db` một chủ (`domain_sync`). Test kiến trúc mới: mọi lời gọi HTTP ra ngoài phải có timeout (25/25 hiện có).
+- CI `.github/workflows/tests.yml` (windows-latest: pip, build admin, pytest + node). Hai test làm cho tự cô lập (phase87 đặt model, phase92 tự làm nóng cache). Bản checkout sạch với `config.example.json`: **371 pass**. Chưa xác nhận chạy trên GitHub.
