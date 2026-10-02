@@ -320,33 +320,34 @@ def test_hud_panel() -> None:
 def test_server_wiring() -> None:
     section("server.py: mọi đường voice đều bắn gói thinking")
 
-    src = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
+    # Luồng HUD nằm ở hud_voice.py, đường REST ở routers/voice.py.
+    src = Path("src/mateai/interfaces/http/hud_voice.py").read_text(encoding="utf-8")
+    rest_src = Path("src/mateai/interfaces/http/routers/voice.py").read_text(encoding="utf-8")
 
-    check("có hàm _broadcast_thinking", "async def _broadcast_thinking(" in src)
+    check("có hàm broadcast_thinking", "async def broadcast_thinking(" in src)
     check("gói có type thinking", '"type": "thinking"' in src)
     check("gói có status", '"status": state' in src)
     check("gói có text", '"text": text' in src)
 
     # Đường WS (voice qua microphone HUD)
     # Phase 3: phần riêng của HUD gồm đầu ra _HudVoiceSink + thân hàm.
-    _start = src.index("class _HudVoiceSink") if "class _HudVoiceSink" in src \
-        else src.index("async def _process_hud_voice_command_body")
-    body = src[_start:src.index("def _get_hud_metrics_payload")]
+    _start = src.index("class HudVoiceSink")
+    body = src[_start:src.index("def get_metrics_payload")]
     check("đường WS: báo 'thinking' khi nhận lệnh",
-          '_broadcast_thinking("thinking"' in body)
+          'broadcast_thinking("thinking"' in body)
     check("đường WS: báo 'done' khi có câu trả lời",
-          '_broadcast_thinking(\n                    "done"' in body
-          or '_broadcast_thinking("done"' in body
+          'broadcast_thinking(\n                    "done"' in body
+          or 'broadcast_thinking("done"' in body
           or '"done",' in body
           or '"done" if reasoning' in body)
     check("đường WS: báo 'empty' khi lỗi",
-          '_broadcast_thinking("empty"' in body)
+          'broadcast_thinking("empty"' in body)
 
     # Đường REST (/api/v1/voice-command)
-    rest = src[src.index('"/api/v1/voice-command"'):]
-    check("đường REST: báo 'thinking'", '_broadcast_thinking("thinking"' in rest)
+    rest = rest_src[rest_src.index('"/api/v1/voice-command"'):]
+    check("đường REST: báo 'thinking'", 'broadcast_thinking("thinking"' in rest)
     check("đường REST: báo 'done'/'empty'",
-          '_broadcast_thinking(' in rest and '"done"' in rest and '"empty"' in rest)
+          'broadcast_thinking(' in rest and '"done"' in rest and '"empty"' in rest)
 
     # Không được bắn suy nghĩ vào câu trả lời (sẽ bị đọc to).
     check("suy nghĩ KHÔNG nằm trong text của voice_active",

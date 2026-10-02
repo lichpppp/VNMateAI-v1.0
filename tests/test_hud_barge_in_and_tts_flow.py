@@ -105,16 +105,18 @@ check("câu cuối giữ nguyên", out[-1].strip().startswith("Xong rồi"), out
 
 # ══ 4. Ngắt lời phía máy chủ ═════════════════════════════════════════════
 print("\n▸ Máy chủ huỷ lượt thoại cũ khi có lệnh mới")
-server_py = (Path(__file__).resolve().parent.parent / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
-check("có sổ theo dõi task theo phiên", "_hud_voice_tasks" in server_py)
-check("có hàm huỷ lượt đang chạy", "def _cancel_hud_voice_task" in server_py)
+# Luồng lượt thoại ở hud_voice.py; kênh /ws/hud (nhận lệnh, huỷ lượt cũ) ở tầng HTTP.
+_http = Path(__file__).resolve().parent.parent / "src" / "mateai" / "interfaces" / "http"
+server_py = "\n\n".join(p.read_text(encoding="utf-8") for p in [_http / "hud_voice.py", _http / "server.py", *sorted((_http / "routers").glob("*.py"))])
+check("có sổ theo dõi task theo phiên", "active_tasks" in server_py)
+check("có hàm huỷ lượt đang chạy", "def cancel_task" in server_py)
 check("lệnh mới gọi huỷ trước khi tạo task mới",
-      server_py.index("_cancel_hud_voice_task(\"hud\")")
-      < server_py.index("asyncio.create_task(_process_hud_voice_command("))
+      server_py.index("hud_voice.cancel_task(\"hud\")")
+      < server_py.index("asyncio.create_task(hud_voice.process_command("))
 # Dọn sổ phải ở `finally` — dọn ở từng nhánh return là dễ sót, và hàm thân có
 # nhiều nhánh return sớm.
-wrapper = server_py.split("async def _process_hud_voice_command(", 1)[-1].split("async def _process_hud_voice_command_body(", 1)[0]
-check("dọn sổ task nằm trong finally", "finally:" in wrapper and "_hud_voice_tasks.pop" in wrapper)
+wrapper = server_py.split("async def process_command(", 1)[-1].split("async def process_command_body(", 1)[0]
+check("dọn sổ task nằm trong finally", "finally:" in wrapper and "active_tasks.pop" in wrapper)
 check("báo HUD đã bị ngắt", '"interrupted": True' in server_py)
 
 print("\n▸ HUD dừng phát ngay khi có lệnh mới")
@@ -167,7 +169,7 @@ print("\n▸ Máy chủ không chờ TTS trong vòng lặp LLM")
 _root = Path(__file__).resolve().parents[1]
 voice_turn = (_root / "src" / "mateai" / "application" / "voice" / "voice_turn.py").read_text(encoding="utf-8")
 tts_queue = (_root / "src" / "mateai" / "infrastructure" / "tts" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
-body = server_py.split("async def _process_hud_voice_command_body", 1)[-1].split("def _get_hud_metrics_payload", 1)[0]
+body = server_py.split("async def process_command_body", 1)[-1].split("def get_metrics_payload", 1)[0]
 check("HUD đi qua use case chung", "process_voice_turn(" in body)
 check("có hàng đợi task TTS", "StreamingTTSWorkerPipeline" in voice_turn)
 # BỎ COMMENT trước khi quét: bình luận giải thích lỗi cũ lại nhắc lại đúng dòng

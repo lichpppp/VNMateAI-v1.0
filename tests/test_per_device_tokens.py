@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.infrastructure.database.db_manager as dbm  # noqa: E402
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import ws_auth  # noqa: E402
 from mateai.interfaces.http import enrollment  # noqa: E402
 
 
@@ -39,28 +40,28 @@ def _ws(token):
 def test_token_is_bound_to_its_device(store):
     tok_a = store.issue_device_token("robot_a")
     store.issue_device_token("robot_b")
-    assert server._authenticate_device(_ws(tok_a), "robot_a") is True
-    assert server._authenticate_device(_ws(tok_a), "robot_b") is False, "token của A không được mở B"
-    assert server._authenticate_device(_ws(tok_a), "esp32-default") is False
+    assert ws_auth.authenticate_device(_ws(tok_a), "robot_a") is True
+    assert ws_auth.authenticate_device(_ws(tok_a), "robot_b") is False, "token của A không được mở B"
+    assert ws_auth.authenticate_device(_ws(tok_a), "esp32-default") is False
 
 
 def test_rotate_and_revoke(store):
     old = store.issue_device_token("robot_a")
     new = store.issue_device_token("robot_a")
-    assert server._authenticate_device(_ws(old), "robot_a") is False
-    assert server._authenticate_device(_ws(new), "robot_a") is True
+    assert ws_auth.authenticate_device(_ws(old), "robot_a") is False
+    assert ws_auth.authenticate_device(_ws(new), "robot_a") is True
     assert store.revoke_device_token("robot_a") is True
-    assert server._authenticate_device(_ws(new), "robot_a") is False
+    assert ws_auth.authenticate_device(_ws(new), "robot_a") is False
     assert "token" not in str(store.list_device_tokens()).lower().replace("device_tokens", "")
 
 
 def test_shared_secret_can_be_switched_off(store, monkeypatch):
-    assert server._authenticate_device(_ws("shared-secret-xyz"), "robot_x") is True
+    assert ws_auth.authenticate_device(_ws("shared-secret-xyz"), "robot_x") is True
     monkeypatch.setattr("mateai.config.loader.get_config_section",
                         lambda name: {"require_per_device_token": True} if name == "security" else {})
-    assert server._authenticate_device(_ws("shared-secret-xyz"), "robot_x") is False
+    assert ws_auth.authenticate_device(_ws("shared-secret-xyz"), "robot_x") is False
     tok = store.issue_device_token("robot_x")
-    assert server._authenticate_device(_ws(tok), "robot_x") is True
+    assert ws_auth.authenticate_device(_ws(tok), "robot_x") is True
 
 
 def test_only_hash_is_stored(store):

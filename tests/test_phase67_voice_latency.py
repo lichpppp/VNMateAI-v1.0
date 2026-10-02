@@ -111,7 +111,7 @@ check("'bật' ra câu của action_execute",
 
 # ══ 2. Nguồn trong server.py ═════════════════════════════════════════════
 section("Lời đệm trong đường HUD")
-srv = Path(__file__).resolve().parents[1] / "src" / "mateai" / "interfaces" / "http" / "server.py"
+srv = Path(__file__).resolve().parents[1] / "src" / "mateai" / "interfaces" / "http" / "hud_voice.py"
 src = srv.read_text(encoding="utf-8")
 tree = ast.parse(src)
 
@@ -123,9 +123,9 @@ tree = ast.parse(src)
 # và `break` ở lần khớp đầu sẽ lấy nhầm hàm bọc (ngắn hơn) và báo sai.
 _hud_fns = {
     n.name: n for n in ast.walk(tree)
-    if isinstance(n, ast.AsyncFunctionDef) and n.name.startswith("_process_hud_voice_command")
+    if isinstance(n, ast.AsyncFunctionDef) and n.name.startswith("process_command")
 }
-fn = _hud_fns.get("_process_hud_voice_command_body") or _hud_fns.get("_process_hud_voice_command")
+fn = _hud_fns.get("process_command_body") or _hud_fns.get("process_command")
 check("tìm thấy phần thân xử lý lệnh thoại HUD", fn is not None)
 
 fn_src = ast.get_source_segment(src, fn) or ""

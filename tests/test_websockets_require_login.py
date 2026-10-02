@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient  # noqa: E402
 
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import ws_auth  # noqa: E402
 
 
 @pytest.mark.parametrize("path", ["/ws/voice", "/ws/v1/voice-stream", "/ws/topology"])
@@ -33,7 +34,7 @@ def test_rejects_without_token(path):
 
 
 def test_topology_accepts_logged_in_user(monkeypatch):
-    monkeypatch.setattr(server, "_authenticate_websocket", lambda _ws: {"username": "dan", "role": "admin"})
+    monkeypatch.setattr(ws_auth, "authenticate_websocket", lambda _ws: {"username": "dan", "role": "admin"})
     with TestClient(server.app).websocket_connect("/ws/topology") as ws:
         assert json.loads(ws.receive_text())["event"] == "connected"
 
@@ -48,7 +49,7 @@ def test_voice_runs_as_logged_in_user(monkeypatch):
 
     import mateai.interfaces.websocket.realtime_voice_ws as rv
     monkeypatch.setattr(rv, "handle_realtime_voice_endpoint", fake_handler)
-    monkeypatch.setattr(server, "_authenticate_websocket", lambda _ws: {"username": "dan", "sub": "dan"})
+    monkeypatch.setattr(ws_auth, "authenticate_websocket", lambda _ws: {"username": "dan", "sub": "dan"})
     with TestClient(server.app).websocket_connect("/ws/voice"):
         pass
     assert seen["user"]["username"] == "dan"

@@ -908,3 +908,17 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME:** ảnh chụp TOÀN BỘ 81 route GET × 4 vai trước–sau: không khác. Trang `/`, `/hud` còn tiêm phiên bản script theo mtime; trang admin + tài nguyên `/_next` 200; `/static` gửi `no-cache, must-revalidate`; đăng nhập sai 401; `/auth/me` đúng dạng cũ.
 
 **NEXT STEP:** voice-command + phiên thoại, HUD, các WebSocket, middleware/startup.
+
+## 50. Phần lõi: `ws_auth`, `hud_voice`, router `voice`, `hud`, `websockets` — TÁCH `server.py` HOÀN TẤT (2026-10-03)
+
+**STATUS:** XONG
+
+**FILES CHANGED:** `interfaces/http/ws_auth.py` (`authenticate_device/worker/websocket`, `is_valid_worker_token`, `JWT_FALLBACK_ROLES` — tên cũ `WS_APPROVER_ROLES` gây hiểu nhầm là quyền duyệt); `interfaces/http/hud_voice.py` (`process_command[_body]`, `HudVoiceSink`, `cancel_task`, `broadcast_thinking`, `get_metrics_payload`, `telemetry_loop`); router `voice` (voice-command, phiên thoại), `hud` (simulate), `websockets` (8 đường WS: robot/xiaozhi, portal-ui, topology, hud, voice, client). Nơi gọi dùng `module.ham()`; test thay đúng module (trước đó vài test thay `server.broadcast_hud` không có tác dụng vì endpoint đã ở router khác — đã sửa). Test đọc nguồn quét cả tầng HTTP.
+
+**`server.py`: 8.700 → 1.015 dòng**, chỉ còn phần dựng ứng dụng: FastAPI app, CORS, middleware xác thực, mount tĩnh, probe `/livez` `/startupz` `/readyz`, listener cổng 8000 cho thiết bị, startup/shutdown, `include_router` 31 router. 187 route giữ nguyên, thứ tự route trùng mẫu giữ nguyên (so với HEAD mỗi bước).
+
+**TESTS:** 361 pass.
+
+**RUNTIME:** ảnh chụp toàn bộ 81 route GET × 4 vai trước–sau: không khác. WS `/ws/voice`, `/ws/v1/voice-stream`, `/ws/topology`, `/ws/portal-ui`: không token 403, có token nhận. Lệnh thoại REST 5,1 s; lượt nói HUD qua WS: thinking → voice_active, 3 khung audio, câu đầu sau 1,0 s. Robot qua cổng 8000: không token bị từ chối, token thiết bị → nhận. Worker cục bộ chạy `get_system_info` qua `/ws/client`.
+
+**NEXT STEP:** Phase Security tiếp: gộp hai hàng đợi duyệt (StateManager ↔ hitl_manager), gộp hai endpoint audit.

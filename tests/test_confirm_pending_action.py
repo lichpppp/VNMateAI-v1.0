@@ -87,7 +87,8 @@ async def test_confirm_finds_action_saved_under_logged_in_caller(monkeypatch):
 
 async def test_rest_voice_command_uses_logged_in_user_not_source_device(monkeypatch):
     """source_device do client tự khai ("hud") không được quyết định RBAC."""
-    import mateai.interfaces.http.server as server
+    import mateai.interfaces.http.routers.voice as voice
+    from mateai.interfaces.http import hud_voice
 
     seen = {}
 
@@ -99,10 +100,10 @@ async def test_rest_voice_command_uses_logged_in_user_not_source_device(monkeypa
         return None
 
     monkeypatch.setattr(llm_engine, "ask_async", fake_ask_async)
-    monkeypatch.setattr(server, "broadcast_hud", _noop)
-    monkeypatch.setattr(server, "_broadcast_thinking", _noop)
+    monkeypatch.setattr(voice, "broadcast_hud", _noop)
+    monkeypatch.setattr(hud_voice, "broadcast_thinking", _noop)
 
-    payload = server.VoiceCommandRequest(query="tắt máy", source_device="hud", include_audio=False)
-    await server.voice_command(payload, user={"username": "bob-manager", "role": "manager"})
+    payload = voice.VoiceCommandRequest(query="tắt máy", source_device="hud", include_audio=False)
+    await voice.voice_command(payload, user={"username": "bob-manager", "role": "manager"})
     assert seen["caller"] == "bob-manager"
     assert seen["source_device"] == "hud"

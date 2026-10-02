@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 import mateai.application.agent.tool_gate as tool_gate
 import mateai.interfaces.http.server as server
 from mateai.interfaces.http import speech
+import mateai.interfaces.http.routers.security as sec
 from mateai.application.agent.llm_engine import llm_engine
 from mateai.application.agent.state_manager import state_manager
 from mateai.application.security.auth_manager import auth_manager
@@ -42,8 +43,8 @@ def env(monkeypatch):
 
     monkeypatch.setattr(tool_gate, "run_tool_with_policy", fake_gate)
     monkeypatch.setattr(llm_engine, "_call_llm", no_llm)
-    monkeypatch.setattr(server, "broadcast_hud", noop)
-    monkeypatch.setattr(server, "broadcast_portal_ui", noop)
+    monkeypatch.setattr(sec, "broadcast_hud", noop)
+    monkeypatch.setattr(sec, "broadcast_portal_ui", noop)
     monkeypatch.setattr(speech, "tts_bytes", no_tts)
     created = []
     yield calls, created

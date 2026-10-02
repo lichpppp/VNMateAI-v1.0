@@ -22,6 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import hud_voice  # noqa: E402
 from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
 
 SENTENCES = [f"Đây là câu số {i} của câu trả lời." for i in range(1, 6)]
@@ -91,10 +92,10 @@ def hud(monkeypatch):
     monkeypatch.setattr(fcr.fast_command_router, "dispatch", no_fast)
     monkeypatch.setattr(llm_engine, "classify_intent",
                         staticmethod(lambda q: {"type": "conversation", "target_brain": "voice", "ack_needed": False}))
-    monkeypatch.setattr(server, "broadcast_hud", fake_broadcast_hud)
-    monkeypatch.setattr(server, "broadcast_hud_binary", fake_broadcast_binary)
-    monkeypatch.setattr(server, "broadcast_portal_ui", fake_portal)
-    monkeypatch.setattr(server, "_broadcast_thinking", fake_thinking)
+    monkeypatch.setattr(hud_voice, "broadcast_hud", fake_broadcast_hud)
+    monkeypatch.setattr(hud_voice, "broadcast_hud_binary", fake_broadcast_binary)
+    monkeypatch.setattr(hud_voice, "broadcast_portal_ui", fake_portal)
+    monkeypatch.setattr(hud_voice, "broadcast_thinking", fake_thinking)
 
     from mateai.application.voice.voice_session import voice_sessions
     session_id = "test-hud-behavior"
@@ -121,7 +122,7 @@ def _spoken_text(events):
 
 
 async def test_audio_in_sentence_order_and_nothing_lost(hud):
-    await server._process_hud_voice_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
+    await hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
 
     audio = [a[: len(SENTENCES[0])] for a in _spoken_audio(hud["events"])]
     assert audio == SENTENCES, f"audio sai thứ tự hoặc thiếu câu: {audio}"
@@ -130,7 +131,7 @@ async def test_audio_in_sentence_order_and_nothing_lost(hud):
 
 async def test_tts_runs_ahead_of_playback(hud):
     """Mọi câu đã được giao cho TTS trước khi câu đầu kịp phát xong."""
-    await server._process_hud_voice_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
+    await hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
     # Câu 1 mất 0.25s; nếu TTS tuần tự thì câu 4 chỉ bắt đầu sau ~0.6s.
     # Gối đầu 3 câu -> 4 câu đầu được khởi động gần như cùng lúc.
     assert hud["started"][:4] == SENTENCES[:4]
@@ -146,7 +147,7 @@ async def test_tts_failure_still_sends_text(hud, monkeypatch):
             yield s
 
     monkeypatch.setattr(llm_engine, "stream_voice_response", stream_with_bad)
-    await server._process_hud_voice_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
+    await hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
 
     assert _spoken_text(hud["events"]) == [SENTENCES[0], bad, SENTENCES[1]]
     audio = [a[: len(SENTENCES[0])] for a in _spoken_audio(hud["events"])]
@@ -155,7 +156,7 @@ async def test_tts_failure_still_sends_text(hud, monkeypatch):
 
 async def test_barge_in_leaves_no_tts_task_running(hud):
     task = asyncio.create_task(
-        server._process_hud_voice_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
+        hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
     )
     # Đợi đến khi hàng đợi TTS đã có việc, rồi huỷ như khi người dùng ngắt lời.
     for _ in range(100):

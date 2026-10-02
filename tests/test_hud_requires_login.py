@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient  # noqa: E402
 
 import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import hud_voice  # noqa: E402
+from mateai.interfaces.http import ws_auth  # noqa: E402
 
 
 def _drain_until(ws, wanted: str, limit: int = 10) -> dict:
@@ -34,7 +36,7 @@ def test_unauthenticated_hud_cannot_run_voice_commands(monkeypatch):
     async def fake_voice(cmd_query, session_id="hud", *, caller):
         started.append((cmd_query, caller))
 
-    monkeypatch.setattr(server, "_process_hud_voice_command", fake_voice)
+    monkeypatch.setattr(hud_voice, "process_command", fake_voice)
     client = TestClient(server.app)  # không `with` → không chạy startup
     with client.websocket_connect("/ws/hud") as ws:
         welcome = _drain_until(ws, "hud_welcome")
@@ -56,8 +58,8 @@ def test_authenticated_hud_runs_voice_as_logged_in_user(monkeypatch):
     async def fake_voice(cmd_query, session_id="hud", *, caller):
         started.append((cmd_query, caller))
 
-    monkeypatch.setattr(server, "_process_hud_voice_command", fake_voice)
-    monkeypatch.setattr(server, "_authenticate_websocket",
+    monkeypatch.setattr(hud_voice, "process_command", fake_voice)
+    monkeypatch.setattr(ws_auth, "authenticate_websocket",
                         lambda _ws: {"username": "carol", "role": "admin"})
     client = TestClient(server.app)
     with client.websocket_connect("/ws/hud") as ws:
@@ -79,7 +81,7 @@ def test_manager_cannot_approve_over_hud_socket(monkeypatch):
         approved.append((payload.action_id, current_user["username"]))
 
     monkeypatch.setattr(sec, "confirm_action_endpoint", fake_confirm)
-    monkeypatch.setattr(server, "_authenticate_websocket",
+    monkeypatch.setattr(ws_auth, "authenticate_websocket",
                         lambda _ws: {"username": "mona", "role": "manager"})
     client = TestClient(server.app)
     with client.websocket_connect("/ws/hud") as ws:
@@ -99,7 +101,7 @@ def test_admin_approval_over_hud_socket_reaches_confirm_endpoint(monkeypatch):
         approved.append((payload.action_id, current_user["username"]))
 
     monkeypatch.setattr(sec, "confirm_action_endpoint", fake_confirm)
-    monkeypatch.setattr(server, "_authenticate_websocket",
+    monkeypatch.setattr(ws_auth, "authenticate_websocket",
                         lambda _ws: {"username": "carol", "role": "admin"})
     client = TestClient(server.app)
     with client.websocket_connect("/ws/hud") as ws:
