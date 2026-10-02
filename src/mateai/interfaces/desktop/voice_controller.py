@@ -247,7 +247,7 @@ class VoiceController:
         """
         self._loop = loop
 
-        from core.wake_word_engine import start_wake_word_engine
+        from mateai.infrastructure.audio.wake_word_engine import start_wake_word_engine
         self._wake_engine = start_wake_word_engine(on_wake=self._on_wake_detected)
         if self._wake_engine:
             logger.info("VoiceController: WakeWordEngine started.")
@@ -260,7 +260,7 @@ class VoiceController:
 
     def stop(self) -> None:
         """Stop all subsystems."""
-        from core.wake_word_engine import stop_wake_word_engine
+        from mateai.infrastructure.audio.wake_word_engine import stop_wake_word_engine
         stop_wake_word_engine()
         self._kill_widget()
         logger.info("VoiceController: Stopped.")
@@ -505,7 +505,7 @@ class VoiceController:
             return None
 
         # --- Pause WakeWordEngine to release hardware mic ---
-        from core.wake_word_engine import set_mic_enabled, is_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import set_mic_enabled, is_mic_enabled
         wake_was_enabled = is_mic_enabled()
         if wake_was_enabled:
             logger.info("VoiceController: Pausing WakeWordEngine mic for command recording...")
@@ -552,7 +552,7 @@ class VoiceController:
             return None
 
         # --- Pause WakeWordEngine ---
-        from core.wake_word_engine import set_mic_enabled, is_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import set_mic_enabled, is_mic_enabled
         wake_was_enabled = is_mic_enabled()
         if wake_was_enabled:
             set_mic_enabled(False)
@@ -794,7 +794,7 @@ class VoiceController:
         if not _SR_AVAILABLE:
             return None
 
-        from core.wake_word_engine import set_mic_enabled, is_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import set_mic_enabled, is_mic_enabled
         wake_was_enabled = is_mic_enabled()
         if wake_was_enabled:
             set_mic_enabled(False)

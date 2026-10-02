@@ -356,7 +356,7 @@ def _get_hud_metrics_payload() -> Dict[str, Any]:
     """
     from core.health_monitor import SYSTEM_HEALTH_CACHE
     from core.plugin_manager import plugin_manager
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
     vmem = psutil.virtual_memory()
     cpu = psutil.cpu_percent(interval=None)
@@ -1169,8 +1169,8 @@ async def _on_startup() -> None:
     _STARTUP_DONE = True
 
     from core.plugin_manager import plugin_manager
-    from core.orchestrator import orchestrator
-    from core.task_manager import task_manager
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
+    from mateai.application.devices.task_manager import task_manager
 
     loop = asyncio.get_event_loop()
 
@@ -1779,7 +1779,7 @@ async def change_password_endpoint(
 )
 async def get_audio_nodes_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
     """Trả về danh sách mạch thoại ESP32 Xiaozhi đang kết nối trực tuyến theo thời gian thực."""
-    from core.xiaozhi_gateway import pairing_registry
+    from mateai.interfaces.websocket.xiaozhi_gateway import pairing_registry
     nodes = []
     for dev_id, info in active_audio_nodes.items():
         nodes.append({
@@ -1839,7 +1839,7 @@ async def health_check() -> HealthResponse:
 async def get_system_stats(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
     """Trả về 100% dữ liệu telemetry thực tế từ phần cứng (CPU, RAM, Uptime) và SQLite (Zero Mock)."""
     from mateai.infrastructure.database.db_manager import db_manager
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     from core.plugin_manager import plugin_manager
 
     hw_stats = db_manager.get_system_hardware_stats()
@@ -1899,7 +1899,7 @@ async def get_system_topology() -> Dict[str, Any]:
         except Exception as e:
             logger.warning("Không thể đọc custom_topology.json: %s, dùng cấu hình mặc định", e)
 
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     from core.connectors import CONNECTOR_REGISTRY
 
     try:
@@ -3951,7 +3951,7 @@ async def verify_pairing_code(
     payload: PairingVerifyRequest,
     user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
 
     clean_code = payload.code.strip()
     device_id = pairing_registry.lookup(clean_code)
@@ -4011,7 +4011,7 @@ async def verify_pairing_code(
 async def get_pairing_status(
     user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    from core.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
 
     active_codes = pairing_registry.list_all()
     nodes_telemetry = xiaozhi_gateway.get_nodes_telemetry()
@@ -4036,7 +4036,7 @@ async def unpair_robot(
     payload: PairingUnpairRequest,
     user: dict = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
-    from core.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
 
     await pairing_registry.unregister(payload.device_id)
     await xiaozhi_gateway.send_ui_payload(
@@ -4062,7 +4062,7 @@ async def _handle_audio_stream(websocket: WebSocket, device_id: str) -> None:
     ``?token=``. Trước đây bất kỳ host nào cũng mở được luồng âm thanh của thiết
     bị — có nghĩa là nghe/ghi được mọi thứ người dùng nói trong nhà.
     """
-    from core.xiaozhi_gateway import xiaozhi_gateway
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
     if not _authenticate_device(websocket, device_id):
         logger.warning(
@@ -4569,7 +4569,7 @@ async def websocket_realtime_voice_endpoint(websocket: WebSocket) -> None:
         )
         await websocket.close(code=1008, reason="Unauthorized: thiếu token hợp lệ.")
         return
-    from core.realtime_voice_ws import handle_realtime_voice_endpoint
+    from mateai.interfaces.websocket.realtime_voice_ws import handle_realtime_voice_endpoint
     await handle_realtime_voice_endpoint(websocket, user=ws_user)
 
 
@@ -4588,7 +4588,7 @@ async def websocket_client_endpoint(websocket: WebSocket) -> None:
     ``?token=``. Trước đây bất kỳ máy nào trong LAN cũng đăng ký được làm worker và
     nhận lệnh thực thi skill — tức là remote code execution không cần xác thực.
     """
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
     if not _authenticate_worker(websocket):
         logger.warning(
@@ -4724,9 +4724,9 @@ async def toggle_local_worker_endpoint(
     và phần kiểm chứng bên dưới.
     """
     global _local_worker_process
-    # Import cục bộ: `orchestrator` là singleton sống ở core.orchestrator, các
+    # Import cục bộ: `orchestrator` là singleton sống ở mateai.interfaces.websocket.client_orchestrator, các
     # endpoint khác cũng import kiểu này chứ không nằm ở phạm vi module.
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
     if _local_worker_process is not None and _local_worker_process.poll() is None:
         try:
@@ -4859,7 +4859,7 @@ async def toggle_local_worker_endpoint(
 )
 async def list_connected_clients() -> List[Dict[str, Any]]:
     """Return all currently connected LAN worker nodes."""
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     return orchestrator.get_connected_clients()
 
 
@@ -4874,7 +4874,7 @@ async def execute_skill_on_client(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Dispatch a skill execution request to a target worker node with Zero-Trust check."""
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     from mateai.application.security.safety_guard import security_engine
 
     if not orchestrator.is_client_online(client_id):
@@ -4934,7 +4934,7 @@ async def deploy_skill_to_client(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Push new Python skill code to a remote worker node for immediate loading."""
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     if not orchestrator.is_client_online(client_id):
         raise HTTPException(
             status_code=404,
@@ -4968,7 +4968,7 @@ async def get_client_monitoring_data(
     Proxy live telemetry request to client agent via WebSocket.
     monitor_type: 'screen' | 'processes' | 'network' | 'peripherals' | 'security'
     """
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     if not orchestrator.is_client_online(client_id):
         raise HTTPException(
             status_code=404,
@@ -5003,7 +5003,7 @@ async def kill_client_process_endpoint(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Terminate a process by PID on the target client node."""
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     if not orchestrator.is_client_online(client_id):
         raise HTTPException(
             status_code=404,
@@ -5029,7 +5029,7 @@ async def send_visual_to_client_endpoint(
     user: dict = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
     """Phát lệnh hiển thị giao diện thị giác HUD xuống Client Agent."""
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     if not orchestrator.is_client_online(client_id):
         raise HTTPException(
             status_code=404,
@@ -5117,7 +5117,7 @@ async def xiaozhi_ui_endpoint(
     user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Gửi frame JSON điều khiển màn hình LCD/OLED (ST7789/GC9A01) của mạch Xiaozhi."""
-    from core.xiaozhi_gateway import xiaozhi_gateway
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
     if payload.device_id:
         success = await xiaozhi_gateway.send_ui_payload(
             device_id=payload.device_id,
@@ -5157,7 +5157,7 @@ async def xiaozhi_wake_endpoint(
     user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Chủ động đánh thức Desktop Robot, chớp mắt đỏ trên LCD và phát âm thanh cảnh báo."""
-    from core.xiaozhi_gateway import xiaozhi_gateway
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
     success = await xiaozhi_gateway.wake_and_alert(
         error_title=payload.title,
         detail_message=payload.message,
@@ -5181,7 +5181,7 @@ async def xiaozhi_interrupt_endpoint(
     user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Kích hoạt cơ chế ngắt lời ngay lập tức: huỷ LLM task, xóa buffer audio, phát câu đệm 0ms."""
-    from core.xiaozhi_gateway import xiaozhi_gateway
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
     await xiaozhi_gateway.handle_barge_in(payload.device_id)
     return {
         "status": "success",
@@ -5205,7 +5205,7 @@ async def xiaozhi_announce_endpoint(
     user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Stream TTS audio trực tiếp tới loa của robot qua WebSocket — không phát trong browser."""
-    from core.xiaozhi_gateway import xiaozhi_gateway
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
     clean_text = payload.text.strip()
     if not clean_text:
@@ -5228,7 +5228,7 @@ async def xiaozhi_announce_endpoint(
         raw_mp3 = await _tts_bytes(clean_text)
         if not raw_mp3:
             raise HTTPException(status_code=500, detail="Không thể sinh audio TTS.")
-        from core.xiaozhi_gateway import convert_to_pcm16_16k
+        from mateai.interfaces.websocket.xiaozhi_gateway import convert_to_pcm16_16k
         pcm_bytes = convert_to_pcm16_16k(raw_mp3)
     except Exception as tts_err:
         raise HTTPException(status_code=500, detail=f"Lỗi TTS: {tts_err}")
@@ -5272,7 +5272,7 @@ async def xiaozhi_announce_endpoint(
 )
 async def get_xiaozhi_nodes_telemetry(user: dict = Depends(require_roles(["viewer", "manager", "admin"]))) -> Dict[str, Any]:
     """Trả về danh sách các mạch Xiaozhi Desktop Companion đang online kèm trạng thái LCD và biểu cảm."""
-    from core.xiaozhi_gateway import xiaozhi_gateway
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
     nodes = xiaozhi_gateway.get_nodes_telemetry()
     return {
         "status": "success",
@@ -5648,7 +5648,7 @@ async def confirm_action_endpoint(
     Automatically resolves skill_name / args from StateManager if not provided in payload.
     """
     from mateai.application.security.safety_guard import security_engine
-    from core.orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
     from core.plugin_manager import plugin_manager
     from mateai.application.agent.state_manager import state_manager
 
@@ -5985,7 +5985,7 @@ async def fs_list_endpoint(
         security_engine.log_audit("master", "list_directory", "SAFE", "SUCCESS", {"path": req.path})
         return res
     else:
-        from core.orchestrator import orchestrator
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
         return await orchestrator.execute_on_client(target, "list_directory", {"path": req.path})
 
 
@@ -6007,7 +6007,7 @@ async def fs_read_endpoint(
         security_engine.log_audit("master", "read_file", "SAFE", "SUCCESS", {"file_path": req.file_path, "lines": req.lines})
         return res
     else:
-        from core.orchestrator import orchestrator
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
         return await orchestrator.execute_on_client(target, "read_file", {"file_path": req.file_path, "lines": req.lines})
 
 
@@ -6050,7 +6050,7 @@ async def fs_write_endpoint(
         security_engine.log_audit("master", "write_file", "NEED_CONFIRM", "SUCCESS" if res.get("status") == "success" else "FAILED", {"file_path": req.file_path})
         return res
     else:
-        from core.orchestrator import orchestrator
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
         return await orchestrator.execute_on_client(target, "write_file", {"file_path": req.file_path, "content": req.content, "mode": req.mode})
 
 
@@ -6093,7 +6093,7 @@ async def fs_delete_endpoint(
         security_engine.log_audit("master", "delete_item", "NEED_CONFIRM", "SUCCESS" if res.get("status") == "success" else "FAILED", {"path": req.path})
         return res
     else:
-        from core.orchestrator import orchestrator
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
         return await orchestrator.execute_on_client(target, "delete_item", {"path": req.path, "is_folder": req.is_folder})
 
 
@@ -6115,7 +6115,7 @@ async def get_kpi_logs_endpoint(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Return historical task log from logs/kpi_logs.csv and aggregate KPI metrics."""
-    from core.task_manager import task_manager
+    from mateai.application.devices.task_manager import task_manager
     return task_manager.get_kpi_logs(limit=limit, client_id=client_id, status=status)
 
 
@@ -6135,7 +6135,7 @@ async def send_task_endpoint(
             detail="Tài khoản Viewer chỉ có quyền xem, không được phát lệnh giao việc.",
         )
 
-    from core.task_manager import task_manager
+    from mateai.application.devices.task_manager import task_manager
     sender = payload.sender or current_user.get("full_name", "Ban Giám Đốc")
     result = await task_manager.dispatch_task(
         client_id=payload.client_id,
@@ -6167,7 +6167,7 @@ async def get_mic_status(
 ) -> Dict[str, Any]:
     """Trả về trạng thái bật/tắt của Microphone background listening."""
     try:
-        from core.wake_word_engine import is_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import is_mic_enabled
         enabled = is_mic_enabled()
     except Exception:
         enabled = False
@@ -6210,7 +6210,7 @@ async def toggle_mic(
             detail="Tài khoản Viewer không có quyền điều khiển Microphone.",
         )
     try:
-        from core.wake_word_engine import is_mic_enabled, set_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import is_mic_enabled, set_mic_enabled
         if payload is None or payload.enabled is None:
             target_state = not is_mic_enabled()
         else:

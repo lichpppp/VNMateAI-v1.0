@@ -52,8 +52,8 @@ def send_task_to_client(
     Gửi lệnh popup nhắc việc tương tác xuống máy trạm trong mạng LAN.
     Nhân viên trên máy con sẽ thấy popup nổi và có thể bấm [Đã Hoàn Thành] hoặc [Vướng Mắc].
     """
-    from core.task_manager import task_manager
-    from core.orchestrator import orchestrator
+    from mateai.application.devices.task_manager import task_manager
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
     logger.info("AI ra lệnh giao việc: client='%s', sender='%s', message='%s'", client_id, sender, message)
 
@@ -116,7 +116,7 @@ def summarize_monthly_kpi(
     """
     Đọc dữ liệu nhật ký công việc từ file kpi_logs.csv và tổng hợp báo cáo KPI dạng văn bản súc tích.
     """
-    from core.task_manager import task_manager
+    from mateai.application.devices.task_manager import task_manager
 
     logger.info("AI yêu cầu tổng hợp KPI: client='%s', month='%s'", client_id, month)
     return task_manager.summarize_monthly(client_id=client_id, month=month)

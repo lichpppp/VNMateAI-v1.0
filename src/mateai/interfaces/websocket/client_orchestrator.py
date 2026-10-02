@@ -130,7 +130,7 @@ class Orchestrator:
                 logger.debug("Resolved pending task [%s] from client [%s]", task_id, client_id)
 
         elif action == "task_response" and task_id:
-            from core.task_manager import task_manager
+            from mateai.application.devices.task_manager import task_manager
             status = data.get("status", "completed")
             msg = data.get("message")
             task_manager.handle_task_response(client_id, task_id, status, msg)

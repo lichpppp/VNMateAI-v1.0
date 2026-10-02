@@ -99,7 +99,7 @@ _shutdown_event: threading.Event = threading.Event()
 
 # Phase 13: Voice Controller (wake word + floating widget)
 try:
-    from core.voice_controller import voice_controller as _voice_controller
+    from mateai.interfaces.desktop.voice_controller import voice_controller as _voice_controller
     _VOICE_AVAILABLE = True
 except ImportError:
     _VOICE_AVAILABLE = False
@@ -369,7 +369,7 @@ if hasattr(signal, "SIGTERM"):
 def _get_mic_menu_label(item=None) -> str:
     """Return current mic state label for tray menu."""
     try:
-        from core.wake_word_engine import is_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import is_mic_enabled
         return "🎙 Tắt Lắng Nghe Ngầm" if is_mic_enabled() else "🎙 Bật Lắng Nghe Ngầm (Wake Word)"
     except Exception:
         return "🎙 Lắng Nghe Ngầm"
@@ -378,7 +378,7 @@ def _get_mic_menu_label(item=None) -> str:
 def _toggle_mic_listening(icon: object, item: object) -> None:
     """Toggle microphone hardware state and rebuild tray menu."""
     try:
-        from core.wake_word_engine import is_mic_enabled, set_mic_enabled
+        from mateai.infrastructure.audio.wake_word_engine import is_mic_enabled, set_mic_enabled
         new_state = not is_mic_enabled()
         set_mic_enabled(new_state)
         state_label = "BẬT" if new_state else "TẮT"

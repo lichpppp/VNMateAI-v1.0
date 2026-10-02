@@ -663,3 +663,22 @@ Xoá package rỗng `core/security/` (còn lại sau khi gộp HITL). 32 file đ
 **Lỗi tìm thấy:** token Telegram người dùng nhập được lưu thành `••••••••` + token (dán khoá mới vào SAU ký hiệu che của ô bí mật). `_restore_masked_secrets` chỉ nhận đúng chuỗi ký hiệu → coi chuỗi ghép là giá trị thật → token sai dạng → gateway (đúng thiết kế) không gửi gì. **Sửa:** `_strip_mask_chars` bỏ ký tự `•` khỏi mọi trường bí mật gửi lên (kể cả trong danh sách, khối lồng); còn rỗng = giữ giá trị cũ. Test `test_secret_mask_paste.py` (3; fail trên code cũ). Dữ liệu: bỏ ký hiệu khỏi `telegram.bot_token` đang lưu (sao lưu config trước) → token đúng dạng (46 ký tự). Quét: không trường bí mật nào khác dính ký hiệu.
 **LLM:** đo thật 23 model trong cấu hình (1 lượt, rồi 2 lượt nữa cho model chạy được) → 10 model chạy 3/3; danh sách mới theo độ trễ (owner-todo.md).
 **Runtime:** Telegram polling chạy, tin thử tới nhóm sự cố thành công, token được che trong log; REST + tool 14,6 s với số liệu thật; voice qua LLM chữ đầu 8,5 s / 2,8 s (trước 88,9 s); fast path 157 ms.
+
+## 34. Phase 4 — Devices vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/xiaozhi_gateway.py` | `mateai/interfaces/websocket/xiaozhi_gateway.py` |
+| `core/realtime_voice_ws.py` | `mateai/interfaces/websocket/realtime_voice_ws.py` |
+| `core/orchestrator.py` (kết nối client agent) | `mateai/interfaces/websocket/client_orchestrator.py` |
+| `core/task_manager.py` | `mateai/application/devices/task_manager.py` |
+| `core/voice_controller.py` + `core/voice_widget.py` | `mateai/interfaces/desktop/` (cùng thư mục — widget chạy như tiến trình con) |
+| `core/wake_word_engine.py` | `mateai/infrastructure/audio/wake_word_engine.py` |
+
+Đặt theo tầng: module dùng `fastapi.WebSocket` ở `interfaces`, không ở `application` (RULE-003).
+**Đường dẫn sửa trước khi chuyển:** `xiaozhi_gateway._PROJECT_ROOT`, `task_manager._PROJECT_ROOT` (logs), `wake_word_engine._PATTERNS_FILE` → `settings.PROJECT_ROOT`; test `test_device_paths_stable.py` (gồm script widget tồn tại).
+**Đã xoá (bản song song):** `application/devices/{xiaozhi_service,client_agent_service}.py`, `infrastructure/websocket/{xiaozhi_protocol,client_agent_protocol}.py`, `application/voice/barge_in_controller.py`, `tests/unit/{test_xiaozhi_device,test_client_agent_protocol}.py`.
+**Test kiến trúc:** bộ dò SQL của RULE-004 đổi sang so khớp chữ hoa — `.upper()` bắt nhầm docstring "amplitude update from…" của widget.
+**Test:** 265 pass. **Runtime:** wake word nạp 46 cụm (đúng file mẫu); client agent tải gói → chạy → có trong `/api/v1/clients`; thiết bị Xiaozhi (token riêng) nhận gói `ui`; voice portal fast path 255 ms, LLM chữ đầu 2,9 s.

@@ -18,7 +18,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.realtime_voice_ws import (
+from mateai.interfaces.websocket.realtime_voice_ws import (
     VoiceRequestTrace,
     RealtimeVoiceSession,
     RealtimeVoiceRegistry,

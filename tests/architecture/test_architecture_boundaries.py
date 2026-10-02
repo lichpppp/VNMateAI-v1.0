@@ -118,7 +118,9 @@ class ArchitectureValidator:
         for py_file in self.interfaces_dir.glob("**/*.py"):
             content = py_file.read_text(encoding="utf-8")
             for lineno, line in enumerate(content.splitlines(), start=1):
-                clean_line = line.strip().upper()
+                # So khớp ĐÚNG CHỮ HOA (quy ước SQL trong repo) — `.upper()` từng bắt nhầm
+                # câu tiếng Anh trong docstring ("amplitude update from …").
+                clean_line = line.strip()
                 for kw in sql_keywords:
                     if kw in clean_line and not clean_line.startswith("#"):
                         violations.append(

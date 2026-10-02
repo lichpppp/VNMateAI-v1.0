@@ -46,7 +46,7 @@ def test_voice_runs_as_logged_in_user(monkeypatch):
         await websocket.accept()
         await websocket.close()
 
-    import core.realtime_voice_ws as rv
+    import mateai.interfaces.websocket.realtime_voice_ws as rv
     monkeypatch.setattr(rv, "handle_realtime_voice_endpoint", fake_handler)
     monkeypatch.setattr(server, "_authenticate_websocket", lambda _ws: {"username": "dan", "sub": "dan"})
     with TestClient(server.app).websocket_connect("/ws/voice"):

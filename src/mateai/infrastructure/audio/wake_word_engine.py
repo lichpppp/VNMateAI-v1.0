@@ -119,7 +119,9 @@ PAUSE_THRESHOLD_SEC: float = 0.8
 ENERGY_THRESHOLD: int = 300
 WAKE_COOLDOWN_SEC: float = 2.0
 
-_PATTERNS_FILE = os.path.join(os.path.dirname(__file__), "..", "wake_word_patterns.json")
+# Thư mục gốc dự án — không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+_PATTERNS_FILE = os.path.join(str(_settings.PROJECT_ROOT), "wake_word_patterns.json")
 
 
 def _load_dynamic_patterns() -> tuple[list[str], list[str]]:

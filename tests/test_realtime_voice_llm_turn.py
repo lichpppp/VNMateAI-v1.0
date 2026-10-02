@@ -1,7 +1,7 @@
 """
 tests/test_realtime_voice_llm_turn.py
 =====================================
-Chạy THẬT một lượt qua LLM của portal (`core.realtime_voice_ws._execute_voice_turn`
+Chạy THẬT một lượt qua LLM của portal (`mateai.interfaces.websocket.realtime_voice_ws._execute_voice_turn`
 → `mateai.application.voice.voice_turn.process_voice_turn` → `LLMEngine.stream_voice_response`).
 Chỉ giả lập client OpenAI (stream token), TTS và WebSocket — không gọi mạng.
 
@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.realtime_voice_ws as rvw  # noqa: E402
+import mateai.interfaces.websocket.realtime_voice_ws as rvw  # noqa: E402
 from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
 from mateai.application.conversation.memory_manager import memory_manager  # noqa: E402
 

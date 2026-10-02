@@ -18,7 +18,8 @@ Dành cho: chủ dự án / quản trị viên. Những việc dưới đây c�
 
 - [x] Token thật đã thêm. Lưu ý: token từng được lưu thành `••••••••<token>` (dán sau ký hiệu che trên giao diện) → đã sửa dữ liệu và sửa máy chủ để tự bỏ ký hiệu che khi lưu.
 - [x] `admin_chat_ids` (1 id) và `incident_group_id` đã điền; `enabled` = true; bot `@VNMateai_bot` polling chạy; tin thử gửi tới nhóm `-1003922961701` thành công.
-- [ ] Nếu muốn **ra lệnh / bấm duyệt từ trong nhóm** sự cố, thêm id nhóm (`-1003922961701`) vào `admin_chat_ids` — hiện chỉ chat trong danh sách mới được nhận lệnh.
+- [x] Id nhóm `-1003922961701` đã thêm vào `admin_chat_ids` (2026-10-02): mọi thành viên nhóm ra lệnh / bấm duyệt được (quyền admin của kênh Telegram) — chỉ giữ người được phép trong nhóm.
+- [ ] Kiểm tra: nhắn bot một câu trong nhóm (vd. "mấy giờ rồi") và thử bấm nút duyệt của một yêu cầu HITL.
 
 ## Robot ESP32 / Xiaozhi (mỗi robot)
 

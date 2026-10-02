@@ -33,7 +33,7 @@ import httpx
 import psutil
 
 from core.config_loader import settings
-from core.xiaozhi_gateway import xiaozhi_gateway
+from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
 logger = logging.getLogger("core.autonomous_sentinel")
 

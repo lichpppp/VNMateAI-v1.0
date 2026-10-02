@@ -48,7 +48,7 @@ from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_s
 from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 from core.config_loader import settings
 
-logger = logging.getLogger("core.xiaozhi_gateway")
+logger = logging.getLogger("mateai.interfaces.websocket.xiaozhi_gateway")
 
 
 def convert_to_pcm16_16k(audio_bytes: bytes) -> bytes:
@@ -159,7 +159,10 @@ class PairingCodeRegistry:
 # Singleton pairing registry — dùng chung toàn server
 pairing_registry = PairingCodeRegistry()
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
 # Reflex phrases pre-cached for 0ms latency
 REFLEX_BARGE_IN_TEXT = "Dạ, anh nói đi em nghe đây."

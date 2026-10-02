@@ -133,7 +133,7 @@ async def run_tool_with_policy(
             _result = await plugin_manager.execute_skill(fn_name, fn_args)
     else:
         logger.info("Diều phối kỹ năng '%s' → [%s]", fn_name, target_client)
-        from core.orchestrator import orchestrator
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
         _result = await asyncio.to_thread(orchestrator.execute_on_client_sync, target_client, fn_name, fn_args)
 
     _ok = _result.get("status") == "success" or _result.get("success") is True

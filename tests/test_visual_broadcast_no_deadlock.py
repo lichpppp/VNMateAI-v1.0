@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core.server as server  # noqa: E402
 import skills.visual_skills as vs  # noqa: E402
-from core.orchestrator import orchestrator  # noqa: E402
+from mateai.interfaces.websocket.client_orchestrator import orchestrator  # noqa: E402
 
 
 async def test_broadcast_reaches_online_client_without_blocking(monkeypatch):

@@ -191,7 +191,7 @@ class BackgroundWorkerManager:
     async def _play_filler(self, task: BackgroundTask) -> None:
         """Phát câu filler TTS ngay lập tức qua Audio Cache / VoiceController."""
         try:
-            from core.voice_controller import voice_controller
+            from mateai.interfaces.desktop.voice_controller import voice_controller
             from core.audio_cache import get_cached_audio_bytes
 
             filler_key = task.metadata.get("tts_filler_key")
@@ -279,7 +279,7 @@ class BackgroundWorkerManager:
     async def _notify_completion(self, task: BackgroundTask) -> None:
         """Phát TTS kết quả khi task xong."""
         try:
-            from core.voice_controller import voice_controller
+            from mateai.interfaces.desktop.voice_controller import voice_controller
 
             if task.status == TaskStatus.COMPLETED:
                 msg = f"Dạ, {task.description} đã xong. Kết quả đã sẵn sàng trên màn hình."
@@ -370,14 +370,14 @@ class FastAPIBackgroundHelper:
         # Play filler immediately
         if filler_key:
             from core.audio_cache import get_cached_audio_bytes
-            from core.voice_controller import voice_controller
+            from mateai.interfaces.desktop.voice_controller import voice_controller
             audio = get_cached_audio_bytes(filler_key)
             if audio:
                 voice_controller._play_cached_phrase_instant_async(filler_key)
             elif filler_text:
                 voice_controller._play_cached_phrase_instant_async(filler_text)
         elif filler_text:
-            from core.voice_controller import voice_controller
+            from mateai.interfaces.desktop.voice_controller import voice_controller
             voice_controller._play_cached_phrase_instant_async(filler_text)
 
         # Schedule background work

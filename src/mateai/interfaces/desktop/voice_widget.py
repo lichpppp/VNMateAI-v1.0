@@ -18,7 +18,7 @@ Ràng buộc kỹ thuật:
   - Tkinter PHẢI chạy trên main thread (macOS: NSThread restriction).
   - Trên Windows: có thể chạy trong thread bình thường nhưng khuyến nghị
     dùng process riêng (subprocess) tương tự popup_ui.py.
-  - File này được thiết kế để chạy ĐỘC LẬP qua: python -m core.voice_widget
+  - File này được thiết kế để chạy ĐỘC LẬP qua: python -m mateai.interfaces.desktop.voice_widget
     hoặc được import và gọi run_widget() từ main thread.
 
 IPC Protocol (stdin JSON lines):

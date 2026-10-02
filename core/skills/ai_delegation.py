@@ -109,7 +109,7 @@ def trigger_delegation_reflex() -> None:
     ngay khi quyết định ủy quyền cho Claude.
     """
     try:
-        from core.voice_controller import voice_controller
+        from mateai.interfaces.desktop.voice_controller import voice_controller
         if voice_controller:
             voice_controller.notify_delegation_started()
     except Exception as exc:

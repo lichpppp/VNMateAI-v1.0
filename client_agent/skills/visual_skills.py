@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 
 import psutil
 
-from core.orchestrator import orchestrator
+from mateai.interfaces.websocket.client_orchestrator import orchestrator
 from core.plugin_manager import export_skill
 
 logger = logging.getLogger("skills.visual_skills")

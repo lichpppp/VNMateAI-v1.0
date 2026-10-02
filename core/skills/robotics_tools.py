@@ -40,7 +40,7 @@ def _dispatch_robot_command(cmd_payload: Dict[str, Any]) -> int:
     """
     dispatched_count = 0
     try:
-        from core.xiaozhi_gateway import xiaozhi_gateway
+        from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
         from core.realtime_hub import active_audio_nodes
 
         nodes = xiaozhi_gateway.get_all_nodes()
@@ -80,7 +80,7 @@ def _dispatch_robot_command(cmd_payload: Dict[str, Any]) -> int:
         except RuntimeError:
             # Thread worker: WebSocket thuộc loop của server — phải gửi trên loop
             # đó (asyncio.run tạo loop mới, gửi trên socket của loop khác sẽ hỏng).
-            from core.orchestrator import orchestrator
+            from mateai.interfaces.websocket.client_orchestrator import orchestrator
             server_loop = orchestrator._loop
             if server_loop is not None and server_loop.is_running():
                 asyncio.run_coroutine_threadsafe(_send_all(), server_loop).result(timeout=10.0)

@@ -47,7 +47,7 @@ def _num(text: str, prefix: str) -> float:
 
 # ══ 1. Kho lời đệm ════════════════════════════════════════════════════════
 section("Kho lời đệm")
-from core.voice_controller import (  # noqa: E402
+from mateai.interfaces.desktop.voice_controller import (  # noqa: E402
     CONTEXTUAL_FILLERS,
     _pick_filler,
     get_contextual_filler,
@@ -69,7 +69,7 @@ check("câu đệm không rỗng",
   all(p.strip() for g in CONTEXTUAL_FILLERS.values() for p in g.get("phrases", [])))
 
 section("Không lặp lại câu liền kề")
-import core.voice_controller as vc  # noqa: E402
+import mateai.interfaces.desktop.voice_controller as vc  # noqa: E402
 
 vc._last_filler = ""
 a = _pick_filler(CONTEXTUAL_FILLERS["general"]["phrases"])

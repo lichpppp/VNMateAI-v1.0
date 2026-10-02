@@ -28,7 +28,10 @@ from mateai.infrastructure.database.db_manager import db_manager
 logger = logging.getLogger(__name__)
 
 # Base directory for logs
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _LOGS_DIR = _PROJECT_ROOT / "logs"
 _KPI_CSV_PATH = _LOGS_DIR / "kpi_logs.csv"
 _CSV_HEADERS = ["Timestamp", "Client_ID", "Task_Message", "Status"]
@@ -80,7 +83,7 @@ class TaskManager:
         Dispatch a task to a worker node via WebSocket.
         Saves task to in-memory dict and returns dispatch confirmation.
         """
-        from core.orchestrator import orchestrator
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
         if not orchestrator.is_client_online(client_id):
             return {

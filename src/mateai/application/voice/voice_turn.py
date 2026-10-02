@@ -140,7 +140,7 @@ async def process_voice_turn(
         if filler_text is not None:
             phrase = filler_text(query)
         else:
-            from core.voice_controller import get_contextual_filler
+            from mateai.interfaces.desktop.voice_controller import get_contextual_filler
             phrase = get_contextual_filler(query)
         audio = get_cached_audio_bytes(phrase) or await get_tts_engine().synthesise(phrase)
         if audio and not first_sentence.is_set():
