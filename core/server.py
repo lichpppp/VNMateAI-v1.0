@@ -50,6 +50,7 @@ from pydantic import BaseModel, Field
 
 from core.auth_manager import auth_manager, get_current_user, require_roles
 from core.audio.sentence_streamer import sanitise_for_tts, shorten_for_speech
+from core.plugin_manager import run_blocking
 import sys
 
 # Silence Windows WinError 10054 in asyncio Proactor _call_connection_lost
@@ -625,7 +626,10 @@ _ws_log_handler: Optional["_WebSocketLogHandler"] = None
 # có thể lọt bí mật ra. Nên che TẠI MỘT CHỖ: mọi bản ghi log đi qua bộ lọc này
 # trước khi tới handler nào.
 _SECRET_LOG_PATTERNS = (
-    # Token bot Telegram nằm trong URL API.
+    # Token bot Telegram nằm trong URL API. Che MỌI giá trị sau
+    # "api.telegram.org/bot" chứ không chỉ đúng dạng token chuẩn: giá trị lệch
+    # dạng (gõ nhầm, token kiểu cũ) vẫn là bí mật và từng lọt ra nguyên vẹn.
+    re.compile(r"(api\.telegram\.org/(?:file/)?bot)([^/\s\"']+)"),
     re.compile(r"(bot)(\d{5,}:[A-Za-z0-9_\-]{20,})"),
     # Khoá dạng phổ biến.
     re.compile(r"\b(sk|gsk|rk|pk|xoxb|xoxp)[-_][A-Za-z0-9_\-]{16,}"),
@@ -5080,7 +5084,11 @@ async def broadcast_visual_endpoint(
 ) -> Dict[str, Any]:
     """Kích hoạt hiển thị giao diện HUD thị giác (network_map, metric_chart, image, alert)."""
     from skills.visual_skills import display_visual_data
-    return display_visual_data(
+    # Skill đồng bộ, bên trong chờ coroutine trên loop server (gửi tới máy trạm,
+    # portal). Gọi thẳng trên loop thì nó chờ chính loop đang bị nó chặn: tự
+    # khoá tới hết timeout (12 s/máy trạm) và visual không bao giờ tới nơi.
+    return await run_blocking(
+        display_visual_data,
         type=payload.type,
         context_data=payload.data or {},
         title=payload.title,
@@ -5941,7 +5949,7 @@ async def fs_list_endpoint(
 
     target = req.target_client_id or req.target_client or "master"
     if target.lower() in ("master", "local", "server", "chính", "cục bộ"):
-        res = list_directory(path=req.path)
+        res = await run_blocking(list_directory, path=req.path)
         security_engine.log_audit("master", "list_directory", "SAFE", "SUCCESS", {"path": req.path})
         return res
     else:
@@ -5963,7 +5971,7 @@ async def fs_read_endpoint(
 
     target = req.target_client_id or req.target_client or "master"
     if target.lower() in ("master", "local", "server", "chính", "cục bộ"):
-        res = read_file(file_path=req.file_path, lines=req.lines)
+        res = await run_blocking(read_file, file_path=req.file_path, lines=req.lines)
         security_engine.log_audit("master", "read_file", "SAFE", "SUCCESS", {"file_path": req.file_path, "lines": req.lines})
         return res
     else:
@@ -6006,7 +6014,7 @@ async def fs_write_endpoint(
         }
 
     if target.lower() in ("master", "local", "server", "chính", "cục bộ"):
-        res = write_file(file_path=req.file_path, content=req.content, mode=req.mode)
+        res = await run_blocking(write_file, file_path=req.file_path, content=req.content, mode=req.mode)
         security_engine.log_audit("master", "write_file", "NEED_CONFIRM", "SUCCESS" if res.get("status") == "success" else "FAILED", {"file_path": req.file_path})
         return res
     else:
@@ -6049,7 +6057,7 @@ async def fs_delete_endpoint(
         }
 
     if target.lower() in ("master", "local", "server", "chính", "cục bộ"):
-        res = delete_item(path=req.path, is_folder=req.is_folder)
+        res = await run_blocking(delete_item, path=req.path, is_folder=req.is_folder)
         security_engine.log_audit("master", "delete_item", "NEED_CONFIRM", "SUCCESS" if res.get("status") == "success" else "FAILED", {"path": req.path})
         return res
     else:
@@ -6567,7 +6575,6 @@ async def test_telegram_alert(
         incident_group_id = payload.incident_group_id if payload else None
         target_chat_id = payload.target_chat_id if payload else None
 
-        from core.plugin_manager import run_blocking
         # Gọi Telegram API đồng bộ (timeout tới 20 s) — chạy ngoài event loop.
         result = await run_blocking(
             telegram_gateway.test_connection,
@@ -6604,7 +6611,6 @@ async def detect_telegram_chat(
     try:
         from core.telegram_gateway import telegram_gateway
         bot_token = payload.bot_token if payload else None
-        from core.plugin_manager import run_blocking
         chats = await run_blocking(telegram_gateway.get_recent_chats, bot_token=bot_token)
         return {
             "status": "success",
@@ -6848,7 +6854,7 @@ async def api_create_ticket(
 ) -> Dict[str, Any]:
     """Tạo phiếu công việc ITSM và ghi audit trail bất biến."""
     from skills.itsm_skills import create_system_ticket
-    return create_system_ticket(
+    return await run_blocking(create_system_ticket,
         title=payload.title,
         category=payload.category,
         severity=payload.severity,
@@ -6874,7 +6880,7 @@ async def api_get_tickets(
 ) -> Dict[str, Any]:
     """Lấy danh sách phiếu ITSM với bộ lọc."""
     from skills.itsm_skills import get_tickets
-    return get_tickets(status_filter=status_filter, ai_only=ai_only, limit=limit)
+    return await run_blocking(get_tickets, status_filter=status_filter, ai_only=ai_only, limit=limit)
 
 
 @app.put(
@@ -6889,7 +6895,7 @@ async def api_update_ticket(
 ) -> Dict[str, Any]:
     """Cập nhật trạng thái và ghi chú giải quyết cho phiếu ITSM."""
     from skills.itsm_skills import update_ticket_status
-    return update_ticket_status(
+    return await run_blocking(update_ticket_status,
         ticket_id=ticket_id,
         status=payload.status,
         resolution_notes=payload.resolution_notes,
@@ -6940,16 +6946,16 @@ async def api_roi_dashboard(
     from core.database import erp_db
 
     # Báo cáo ngày
-    report = generate_daily_report(
+    report = await run_blocking(generate_daily_report,
         report_date=report_date,
         include_audit_details=True,
     )
 
     # Tickets đang mở (pending + in_progress)
     from skills.itsm_skills import get_tickets
-    open_tickets = get_tickets(status_filter="pending", limit=20)
-    inprogress_tickets = get_tickets(status_filter="in_progress", limit=20)
-    ai_tickets = get_tickets(ai_only=True, limit=10)
+    open_tickets = await run_blocking(get_tickets, status_filter="pending", limit=20)
+    inprogress_tickets = await run_blocking(get_tickets, status_filter="in_progress", limit=20)
+    ai_tickets = await run_blocking(get_tickets, ai_only=True, limit=10)
 
     # Audit stats tổng hợp
     audit_stats = erp_db.get_audit_stats()
@@ -7479,7 +7485,6 @@ async def api_enterprise_generate_chart(
         if not prompt:
             return {"status": "error", "error": "Thiếu tham số: prompt"}
         from core.analytics_engine import analytics_engine
-        from core.plugin_manager import run_blocking
         # Gọi LLM đồng bộ (tới 60 s/model) + SQL — không được chạy trên event loop.
         result = await run_blocking(analytics_engine.text_to_sql_and_chart, prompt=prompt)
 
@@ -7765,7 +7770,7 @@ async def api_enterprise_proactive_audit(
     """Kích hoạt Virtual C.O.O rà soát ngay tất cả task quá hạn và sắp đến hạn."""
     try:
         from core.skills.proactive_manager import proactive_manager
-        result = proactive_manager.execute_task_audit_sync(trigger_source="api_manual")
+        result = await run_blocking(proactive_manager.execute_task_audit_sync, trigger_source="api_manual")
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}

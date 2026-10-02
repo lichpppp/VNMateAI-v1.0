@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -88,6 +89,20 @@ class TelegramBotService:
         self._ready: bool = False
         self._chat_histories: Dict[str, List[Dict[str, str]]] = {}
         self._recent_chats: Dict[str, Dict[str, Any]] = {}
+
+    # Token thật của Telegram: "<số>:<chuỗi>". Giá trị mẫu (YOUR_..._HERE) hay
+    # chuỗi gõ nhầm không được đem đi gọi API — vừa vô ích, vừa ghi nó vào log.
+    _BOT_TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{20,}$")
+
+    def _outbound_config(self) -> Optional[Any]:
+        """Cấu hình để GỬI tin chủ động — chỉ khi gateway đang BẬT và token đúng dạng."""
+        from core.config_loader import get_config_section
+        if not get_config_section("telegram").get("enabled", False):
+            return None
+        cfg = self._get_config()
+        if not cfg or not self._BOT_TOKEN_RE.match((cfg.bot_token or "").strip()):
+            return None
+        return cfg
 
     def _get_config(self) -> Optional[Any]:
         """Lazily load telegram config from settings, reloading if needed or falling back to config.json."""
@@ -280,9 +295,9 @@ class TelegramBotService:
             )
             return False
 
-        cfg = self._get_config()
-        if not cfg or not cfg.bot_token:
-            logger.debug("[TelegramGateway] HITL %s: chưa cấu hình bot_token.", approval_id)
+        cfg = self._outbound_config()
+        if cfg is None:
+            logger.debug("[TelegramGateway] HITL %s: Telegram đang tắt hoặc chưa có bot_token hợp lệ.", approval_id)
             return False
 
         chat_id = cfg.incident_group_id or (str(cfg.admin_chat_ids[0]) if cfg.admin_chat_ids else "")
@@ -807,9 +822,9 @@ class TelegramBotService:
             logger.warning("[TelegramGateway] Alert skipped: library not installed.")
             return False
 
-        cfg = self._get_config()
-        if not cfg or not cfg.bot_token:
-            logger.debug("[TelegramGateway] Alert skipped: bot_token not configured.")
+        cfg = self._outbound_config()
+        if cfg is None:
+            logger.debug("[TelegramGateway] Alert skipped: Telegram disabled or bot_token invalid.")
             return False
 
         if target == "incident_group":

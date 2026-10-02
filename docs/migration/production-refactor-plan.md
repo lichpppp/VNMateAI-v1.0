@@ -445,3 +445,22 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 | `workers/remote_worker_daemon` | 1 | tiến trình riêng |
 
 **Test toàn bộ:** 239 pass / 0 fail.
+
+## 20. Báo cáo — rà lỗi async/sync toàn repo, tự khoá loop, Telegram gửi khi đang tắt (2026-10-02)
+
+**STATUS:** XONG
+
+**Rà bằng AST (core/skills/src/workers):**
+- `await` hàm đồng bộ: 22 kết quả theo tên — đều dương tính giả (`asyncio.Queue.put/get`, `httpx.AsyncClient.get/request`); 9 tên vừa sync vừa async — đều trỏ đúng bản async. Lỗi computer-use (§19) là trường hợp duy nhất.
+- Gọi hàm async không `await`: không có coroutine bị bỏ rơi (mọi lời gọi nằm trong `await`/`create_task`/`gather`/`run_coroutine_threadsafe`/`async for`).
+- Hàm `async def` gọi thẳng hàm skill đồng bộ: 13 chỗ trong `server.py`.
+
+**Tự khoá event loop — `/api/v1/visual/broadcast`:** endpoint async gọi thẳng skill `display_visual_data`, skill này chờ coroutine gửi visual trên CHÍNH loop đang bị chặn → mỗi máy trạm online đứng tới 12 s, visual không tới. Test mới: code cũ đứng 19,7 s rồi fail; code mới < 3 s. Runtime: 12 ms.
+**12 chỗ còn lại** (fs list/read/write/delete — `delete_item` thư mục có thể mất vài giây; ticket; báo cáo ROI; audit đôn đốc) → `run_blocking`. `run_blocking` import một lần ở đầu `server.py` (bỏ 7 import cục bộ).
+
+**Telegram:**
+- Gửi chủ động (`send_hitl_request`, `send_incident_alert`) chỉ kiểm "có token": gateway `enabled: false` vẫn gọi `api.telegram.org`, bằng token giá trị mẫu `YOUR_TELEGRAM_BOT_TOKEN_HERE`. Nay qua `_outbound_config()`: phải bật VÀ token đúng dạng `<số>:<chuỗi>`.
+- Bộ lọc che log chỉ khớp token đúng dạng chuẩn → giá trị lệch dạng trong URL `/bot…/` lọt ra `/api/v1/logs/recent` (test Phase 80 quét server thật bắt được: giá trị là placeholder, không phải token thật). Nay che mọi giá trị sau `api.telegram.org/bot`.
+- Test mới `test_telegram_outbound_guard.py` (5; 3 fail trên code cũ). Runtime: tạo yêu cầu HITL → 0 request Telegram trong log, không giá trị token trong log; yêu cầu đã bị từ chối sau kiểm tra.
+
+**Test toàn bộ:** 245 pass / 0 fail.
