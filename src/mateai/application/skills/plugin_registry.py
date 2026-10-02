@@ -397,7 +397,7 @@ class PluginRegistry:
 
         # Phase 88: Phát tín hiệu Topology Real-time visual data flow
         try:
-            from core.realtime_hub import broadcast_topology_event
+            from mateai.interfaces.websocket.realtime_hub import broadcast_topology_event
             def _map_tool_to_node(name: str) -> str:
                 n = name.lower()
                 if any(k in n for k in ("9router", "ninerouter", "router", "search", "fetch", "images", "speech", "embeddings")):

@@ -90,7 +90,7 @@ _REGISTRY_PATH = _PROJECT_ROOT / "skills" / "registry.json"
 _CLIENT_AGENT_DIR = _PROJECT_ROOT / "client_agent"
 
 # Trạng thái kết nối + phát sóng: core/realtime_hub.py (module lõi dùng trực tiếp).
-from core.realtime_hub import (  # noqa: E402
+from mateai.interfaces.websocket.realtime_hub import (  # noqa: E402
     active_audio_nodes,
     active_hud_websockets,
     active_portal_websockets,
@@ -354,7 +354,7 @@ def _get_hud_metrics_payload() -> Dict[str, Any]:
     Số đo thiếu được trả `None` (JSON null) để giao diện hiện "chờ kết nối",
     tuyệt đối không bịa giá trị thay thế.
     """
-    from core.health_monitor import SYSTEM_HEALTH_CACHE
+    from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
     from core.plugin_manager import plugin_manager
     from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
@@ -820,11 +820,11 @@ else:
     logger.warning("web/ directory not found at %s — portal will be unavailable.", _WEB_DIR)
 
 # ─── Mount ERP Organization & Bulk Import Router (Phase 47) ────────────────
-from core.api_erp import router as erp_router
+from mateai.interfaces.http.api_erp import router as erp_router
 app.include_router(erp_router)
 
 # ─── Mount Enterprise Admin & Elastic Standby Grid Router ──────────────────
-from core.api_admin import router as admin_router
+from mateai.interfaces.http.api_admin import router as admin_router
 app.include_router(admin_router)
 
 
@@ -1207,7 +1207,7 @@ async def _on_startup() -> None:
 
     # Phase 24.5: Start Zero-Overhead Observability Background Async Workers
     try:
-        from core.health_monitor import start_observability_workers
+        from mateai.application.operations.health_monitor import start_observability_workers
         asyncio.create_task(start_observability_workers())
         logger.info("Phase 24.5: Zero-Overhead Observability async workers launched.")
     except Exception as hm_exc:
@@ -1222,7 +1222,7 @@ async def _on_startup() -> None:
 
     # Phase 43: Start Autonomous Sentinel Background Incident Monitor
     try:
-        from core.autonomous_sentinel import autonomous_sentinel
+        from mateai.application.operations.autonomous_sentinel import autonomous_sentinel
         autonomous_sentinel.start()
         logger.info("Phase 43: Autonomous Sentinel background monitor started.")
     except Exception as _sentinel_exc:
@@ -1339,7 +1339,7 @@ async def _on_startup() -> None:
 
     # Phase 60: Start Background Worker Manager
     try:
-        from core.background_workers import background_worker_manager
+        from mateai.application.operations.background_workers import background_worker_manager
         asyncio.create_task(background_worker_manager.start())
         logger.info("Phase 60: Background Worker Manager started.")
     except Exception as bw_exc:
@@ -2547,7 +2547,7 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
     thay vì gọi thêm nhiều endpoint nặng. Tất cả chỉ đọc trạng thái đã có
     sẵn trong bộ nhớ — không thêm worker, không thêm request mạng.
     """
-    from core.health_monitor import SYSTEM_HEALTH_CACHE
+    from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
     from core.plugin_manager import plugin_manager
 
     # Inject live websocket & node counts in O(1)
@@ -2584,7 +2584,7 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
 
     # Worker nền: đang chạy / tổng / số slot tối đa
     try:
-        from core.background_workers import background_worker_manager as bg
+        from mateai.application.operations.background_workers import background_worker_manager as bg
         counters["bg_running"] = len(bg._running_tasks)
         counters["bg_total"] = len(bg._tasks)
         counters["bg_max_concurrent"] = bg.max_concurrent
@@ -5287,7 +5287,7 @@ async def sentinel_check_endpoint(
     user: dict = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
     """Thực hiện quét tức thời mạng LAN, đồng bộ AD, SQLite DB lock, và tài nguyên phần cứng."""
-    from core.autonomous_sentinel import autonomous_sentinel
+    from mateai.application.operations.autonomous_sentinel import autonomous_sentinel
     incidents = await autonomous_sentinel.scan_all()
     dispatched = []
     for inc in incidents:
@@ -5317,7 +5317,7 @@ async def sentinel_simulate_endpoint(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Mô phỏng phát hiện sự cố máy chủ và kích hoạt đánh thức Desktop Robot + Telegram alert."""
-    from core.autonomous_sentinel import autonomous_sentinel
+    from mateai.application.operations.autonomous_sentinel import autonomous_sentinel
     sent = await autonomous_sentinel.dispatch_incident(
         title=payload.title,
         message=payload.message,
@@ -7386,7 +7386,7 @@ async def api_enterprise_rag_ingest(
             )
             raise HTTPException(status_code=400, detail=path_error)
 
-        from core.background_workers import background_worker_manager
+        from mateai.application.operations.background_workers import background_worker_manager
 
         # Task name theo tên tệp: cùng một tệp đang nạp thì dedupe (trả lại task
         # cũ), tệp khác thì chạy song song.
@@ -8294,7 +8294,7 @@ def _safe_int(value: Any, default: int, lo: int, hi: int) -> int:
         return default
 
 
-from core.file_export import (  # noqa: E402
+from mateai.infrastructure.files.file_export import (  # noqa: E402
     _cell_value,
     _content_disposition,
     _rows_to_csv,
@@ -8507,7 +8507,7 @@ async def api_background_tasks(
 ) -> Dict[str, Any]:
     """Liệt kê tác vụ nền (Phase 60) kèm tiến độ. Chỉ đọc bộ nhớ."""
     try:
-        from core.background_workers import TaskStatus, background_worker_manager
+        from mateai.application.operations.background_workers import TaskStatus, background_worker_manager
 
         tasks = background_worker_manager.list_tasks()
         return {
@@ -8711,7 +8711,7 @@ async def _on_shutdown() -> None:
 
     # Phase 60: Stop Background Worker Manager
     try:
-        from core.background_workers import background_worker_manager
+        from mateai.application.operations.background_workers import background_worker_manager
         await background_worker_manager.stop(timeout=10.0)
         logger.info("Phase 60: Background Worker Manager stopped.")
     except Exception as e:
@@ -8719,7 +8719,7 @@ async def _on_shutdown() -> None:
 
     # Phase 57: Stop Autonomous Sentinel
     try:
-        from core.autonomous_sentinel import autonomous_sentinel
+        from mateai.application.operations.autonomous_sentinel import autonomous_sentinel
         autonomous_sentinel.stop()
         logger.info("Phase 57: Autonomous Sentinel stopped.")
     except Exception:

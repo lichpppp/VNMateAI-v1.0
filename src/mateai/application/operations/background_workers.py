@@ -289,7 +289,7 @@ class BackgroundWorkerManager:
             voice_controller._play_cached_phrase_instant_async(msg)
 
             # Also broadcast to HUD/Portal
-            from core.realtime_hub import broadcast_portal_ui
+            from mateai.interfaces.websocket.realtime_hub import broadcast_portal_ui
             try:
                 await broadcast_portal_ui("background_task_complete", task.to_dict())
             except Exception:

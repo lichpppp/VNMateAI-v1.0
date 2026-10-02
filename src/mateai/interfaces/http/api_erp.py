@@ -28,7 +28,7 @@ from fastapi import Depends
 from mateai.interfaces.http.auth_dependencies import get_current_user
 from mateai.infrastructure.database.erp_database import erp_db
 
-logger = logging.getLogger("core.api_erp")
+logger = logging.getLogger("mateai.interfaces.http.api_erp")
 
 router = APIRouter(prefix="/api/erp", tags=["ERP Organization"])
 

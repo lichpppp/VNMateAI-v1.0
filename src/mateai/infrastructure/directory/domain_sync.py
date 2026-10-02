@@ -351,3 +351,37 @@ class WindowsDomainManager:
 
 # Module singleton
 domain_manager = WindowsDomainManager()
+
+
+def probe_hr_database(db_path: "Path | str", timeout: float = 1.5) -> Dict[str, Any]:
+    """
+    Thăm dò CSDL đồng bộ AD (hr_kpi.db) cho giám sát: đọc được không, lần đồng bộ
+    gần nhất và số bản ghi. Không ném lỗi.
+
+    Trả: {"reachable": bool, "tables": bool, "last_sync": str|None,
+          "employees": int, "computers": int, "error": str|None}
+    `tables` = False khi file mở được nhưng chưa có bảng (chưa từng đồng bộ).
+    """
+    out: Dict[str, Any] = {"reachable": False, "tables": False, "last_sync": None,
+                           "employees": 0, "computers": 0, "error": None}
+    try:
+        with open_sqlite(db_path, timeout=timeout, wal=False) as conn:
+            row = conn.execute("SELECT 1").fetchone()
+            out["reachable"] = bool(row and row[0] == 1)
+            try:
+                r = conn.execute(
+                    "SELECT MAX(synced_at) FROM ("
+                    "  SELECT synced_at FROM employees "
+                    "  UNION ALL "
+                    "  SELECT synced_at FROM computers"
+                    ")"
+                ).fetchone()
+                out["last_sync"] = r[0] if r and r[0] else None
+                out["employees"] = conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0]
+                out["computers"] = conn.execute("SELECT COUNT(*) FROM computers").fetchone()[0]
+                out["tables"] = True
+            except sqlite3.OperationalError:
+                out["tables"] = False
+    except Exception as exc:  # pylint: disable=broad-except
+        out["error"] = str(exc)
+    return out

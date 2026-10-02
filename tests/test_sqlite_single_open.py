@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.autonomous_sentinel as sentinel  # noqa: E402
+import mateai.application.operations.autonomous_sentinel as sentinel  # noqa: E402
 from mateai.infrastructure.database.erp_database import open_sqlite  # noqa: E402
 
 
@@ -75,3 +75,25 @@ def test_sentinel_reports_quick_check_problems(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "open_sqlite", lambda *a, **k: Wrapped(real(*a, **k)))
     res = sentinel.autonomous_sentinel.check_sql_health()
     assert res and "quick_check" in res["message"] and "missing from index" in res["message"]
+
+
+def test_probe_hr_database_states(tmp_path):
+    """Thăm dò hr_kpi.db (ở tầng dữ liệu): chưa có bảng / có dữ liệu / không mở được."""
+    from mateai.infrastructure.directory.domain_sync import probe_hr_database
+    empty = tmp_path / "empty.db"
+    sqlite3.connect(empty).close()
+    r = probe_hr_database(empty)
+    assert r["reachable"] and not r["tables"] and r["error"] is None
+
+    full = tmp_path / "hr.db"
+    c = sqlite3.connect(full)
+    c.execute("CREATE TABLE employees(synced_at TEXT)")
+    c.execute("CREATE TABLE computers(synced_at TEXT)")
+    c.execute("INSERT INTO employees VALUES ('2026-10-01T00:00:00')")
+    c.commit(); c.close()
+    r = probe_hr_database(full)
+    assert r["tables"] and r["employees"] == 1 and r["computers"] == 0 and r["last_sync"] == "2026-10-01T00:00:00"
+
+    bad = tmp_path / "notadb.db"
+    bad.write_bytes(b"this is not a sqlite database at all" * 10)
+    assert probe_hr_database(bad)["error"]

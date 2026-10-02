@@ -543,7 +543,7 @@ class XiaozhiGateway:
 
         # Phase 71: Đồng bộ thị giác sang HUD & Web Portal (âm thanh chỉ phát ở loa robot)
         try:
-            from core.realtime_hub import broadcast_hud, broadcast_portal_ui
+            from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_portal_ui
             await broadcast_hud({
                 "type": "voice_active",
                 "status": "listening",
@@ -582,7 +582,7 @@ class XiaozhiGateway:
                     "text": result.reply_text,
                 }))
                 try:
-                    from core.realtime_hub import broadcast_hud
+                    from mateai.interfaces.websocket.realtime_hub import broadcast_hud
                     await broadcast_hud({
                         "type": "voice_active",
                         "status": "idle",
@@ -642,7 +642,7 @@ class XiaozhiGateway:
             self._nodes[device_id] = node
 
         # Sync with global active_audio_nodes for server compatibility
-        from core.realtime_hub import active_audio_nodes
+        from mateai.interfaces.websocket.realtime_hub import active_audio_nodes
         active_audio_nodes[device_id] = {
             "websocket": websocket,
             "client_host": client_host,
@@ -830,7 +830,7 @@ class XiaozhiGateway:
                         
                         # Broadcast alert to Web Portal & Standby HUD
                         try:
-                            from core.realtime_hub import broadcast_portal_ui, broadcast_hud
+                            from mateai.interfaces.websocket.realtime_hub import broadcast_portal_ui, broadcast_hud
                             await broadcast_portal_ui("system_alert", {
                                 "level": "WARNING",
                                 "title": "ToF Safety Alert",
@@ -1004,7 +1004,7 @@ class XiaozhiGateway:
                 self._nodes.pop(device_id, None)
             # Xoá pairing code khi robot offline
             await pairing_registry.unregister(device_id)
-            from core.realtime_hub import active_audio_nodes
+            from mateai.interfaces.websocket.realtime_hub import active_audio_nodes
             active_audio_nodes.pop(device_id, None)
             logger.info("[Xiaozhi] Đã dọn dẹp kết nối [%s]. Còn lại: %d thiết bị.", device_id, len(self._nodes))
             try:
@@ -1062,7 +1062,7 @@ class _XiaozhiSink:
             self.spoken.append(text)
             display = getattr(self, "display_text", "") or " ".join(self.spoken)
             try:
-                from core.realtime_hub import broadcast_hud, broadcast_portal_ui
+                from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_portal_ui
                 await broadcast_hud({
                     "type": "voice_active",
                     "status": "speaking",

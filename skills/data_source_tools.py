@@ -333,7 +333,7 @@ async def prepare_data_source_export(
 
     async def _executor() -> Dict[str, Any]:
         from mateai.infrastructure.connectors.generic_connector import GenericConnector
-        from core.file_export import (
+        from mateai.infrastructure.files.file_export import (
             _content_disposition,
             _rows_to_csv,
             _rows_to_xlsx,

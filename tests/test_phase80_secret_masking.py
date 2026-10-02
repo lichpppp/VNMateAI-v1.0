@@ -601,7 +601,7 @@ hardcoded: list[tuple[str, list[str]]] = []
 for _rel in ("src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
              "core/config_loader.py", "core/server.py",
              "src/mateai/infrastructure/audio/audio_processor.py", "src/mateai/application/skills/meta_architect.py",
-             "core/health_monitor.py", "core/skills/integration_tools.py",
+             "src/mateai/application/operations/health_monitor.py", "core/skills/integration_tools.py",
              "core/skills/ai_delegation.py", "web/app.js", "web/index.html"):
     _raw = (ROOT / _rel).read_text(encoding="utf-8")
     _hits = _key_like_hits(_raw.replace("sk-dummy", ""))

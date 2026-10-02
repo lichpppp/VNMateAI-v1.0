@@ -205,7 +205,7 @@ const LOGS = {
   logs: [
     { event: 'log_entry', level: 'ERROR', color: 'text-rose-400', logger: 'core.connector',
       message: 'aws: Authentication failed', timestamp: '2026-09-28T06:18:55.177419' },
-    { event: 'log_entry', level: 'WARNING', color: 'text-amber-400', logger: 'core.health_monitor',
+    { event: 'log_entry', level: 'WARNING', color: 'text-amber-400', logger: 'mateai.application.operations.health_monitor',
       message: 'HealthWorker-3 slow response', timestamp: '2026-09-28T06:18:56.177419' },
     { event: 'log_entry', level: 'INFO', color: 'text-emerald-400', logger: 'httpx',
       message: 'HTTP Request: GET http://localhost:20128/v1/models "HTTP/1.1 200 OK"',

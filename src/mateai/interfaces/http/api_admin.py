@@ -24,7 +24,7 @@ from mateai.application.enterprise.department_engine import department_engine
 from mateai.application.devices.elastic_grid_manager import elastic_grid_manager
 from mateai.application.agent.agent_orchestrator import multi_agent_system
 
-logger = logging.getLogger("core.api_admin")
+logger = logging.getLogger("mateai.interfaces.http.api_admin")
 
 router = APIRouter(prefix="/api/v1", tags=["Enterprise Admin & Elastic Grid"])
 
@@ -306,7 +306,7 @@ async def receive_worknode_heartbeat(req: WorknodeHeartbeatRequest) -> Dict[str,
 
     # Phát sóng sự kiện WebSocket Topology để Web UI cập nhật ngay mà không cần reload trang
     try:
-        from core.realtime_hub import broadcast_topology_event
+        from mateai.interfaces.websocket.realtime_hub import broadcast_topology_event
         await broadcast_topology_event(
             source=f"worknode_{req.node_id}",
             target="worker_grid_cluster",

@@ -41,7 +41,7 @@ def _dispatch_robot_command(cmd_payload: Dict[str, Any]) -> int:
     dispatched_count = 0
     try:
         from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
-        from core.realtime_hub import active_audio_nodes
+        from mateai.interfaces.websocket.realtime_hub import active_audio_nodes
 
         nodes = xiaozhi_gateway.get_all_nodes()
         ws_list = []

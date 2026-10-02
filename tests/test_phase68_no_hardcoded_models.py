@@ -95,7 +95,7 @@ section("Mã nguồn không còn tên model chết")
 TARGETS = [
     "src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
     "core/config_loader.py", "core/server.py",
-    "core/health_monitor.py", "src/mateai/application/skills/meta_architect.py",
+    "src/mateai/application/operations/health_monitor.py", "src/mateai/application/skills/meta_architect.py",
     "web/app.js", "web/index.html",
     # Phase 82: template theo dõi bởi git — nếu nó chứa tên model chết thì
     # người dùng copy template làm config.json mới là khởi đầu với model hỏng.

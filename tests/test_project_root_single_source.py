@@ -19,8 +19,8 @@ from core.config_loader import settings  # noqa: E402
 
 CASES = [
     ("mateai.infrastructure.tts.audio_cache", "PROJECT_ROOT"),
-    ("core.autonomous_sentinel", "_PROJECT_ROOT"),
-    ("core.health_monitor", "_PROJECT_ROOT"),
+    ("mateai.application.operations.autonomous_sentinel", "_PROJECT_ROOT"),
+    ("mateai.application.operations.health_monitor", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.graph_rag", "_PROJECT_ROOT"),
     ("mateai.application.knowledge.rag_engine", "_PROJECT_ROOT"),
     ("core.server", "_PROJECT_ROOT"),

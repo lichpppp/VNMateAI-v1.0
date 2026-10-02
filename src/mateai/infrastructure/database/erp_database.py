@@ -54,6 +54,32 @@ def open_sqlite(
     return conn
 
 
+def check_sqlite_integrity(path: "Path | str", timeout: float = 0.8) -> "tuple[str, str]":
+    """
+    Kiểm tra một file SQLite: toàn vẹn (`PRAGMA quick_check`) và khoá ghi
+    (`BEGIN IMMEDIATE`). Trả (trạng thái, chi tiết) với trạng thái:
+    "ok" | "corrupt" (quick_check báo lỗi) | "locked" (đang bị khoá/bận) | "error".
+
+    quick_check KHÔNG ném lỗi khi file hỏng — nó trả các dòng mô tả lỗi ("ok"
+    nếu lành), nên phải đọc kết quả.
+    """
+    try:
+        with open_sqlite(path, timeout=timeout, wal=False) as conn:
+            problems = [str(r[0]) for r in conn.execute("PRAGMA quick_check").fetchall()]
+            if problems != ["ok"]:
+                return "corrupt", "; ".join(problems)
+            conn.execute("BEGIN IMMEDIATE")
+            conn.rollback()
+        return "ok", ""
+    except sqlite3.OperationalError as exc:
+        msg = str(exc).lower()
+        if "locked" in msg or "busy" in msg:
+            return "locked", str(exc)
+        return "error", str(exc)
+    except Exception as exc:  # pylint: disable=broad-except
+        return "error", str(exc)
+
+
 def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
     """
     Tạo / di trú bảng `tasks` — nơi DUY NHẤT định nghĩa schema của bảng này.

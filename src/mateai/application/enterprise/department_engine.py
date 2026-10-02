@@ -200,7 +200,7 @@ class DepartmentEngine:
                 logger.warning("[DepartmentEngine] Lỗi thu thập Cloud costs: %s", e)
 
             try:
-                from core.health_monitor import health_monitor
+                from mateai.application.operations.health_monitor import health_monitor
                 system_health = health_monitor.get_current_metrics()
                 infra_metrics["system_health"] = system_health
             except Exception:

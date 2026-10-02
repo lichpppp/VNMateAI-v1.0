@@ -316,7 +316,7 @@ def display_visual_data(
     # gửi trên loop của server.
     try:
         import asyncio
-        from core.realtime_hub import broadcast_portal_ui
+        from mateai.interfaces.websocket.realtime_hub import broadcast_portal_ui
         coro = broadcast_portal_ui("show_visual", {
             "type": visual_type,
             "visual_type": visual_type,

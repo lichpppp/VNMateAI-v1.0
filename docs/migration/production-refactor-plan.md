@@ -758,3 +758,19 @@ Xoá `core/knowledge/__init__.py`, `core/agents/__init__.py` (chỉ re-export; k
 
 Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-export, không ai import dạng package). 32 file đổi import; danh sách miễn trừ RULE-011 cập nhật đường dẫn `audio_processor`.
 **Test:** 267 pass. **Runtime:** computer-use đăng ký 1 tool + status success; sweeper của ephemeral cache khởi động, API 200; heartbeat worker 200 và node lên grid; TTS engine chunk đầu 2,0 s; voice fast path 258 ms (audio 1,4 s), LLM 3,0 s.
+
+## 40. Phase 4 — lô vận hành + giao diện (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/health_monitor.py`, `core/autonomous_sentinel.py`, `core/background_workers.py` | `mateai/application/operations/` |
+| `core/api_admin.py`, `core/api_erp.py` | `mateai/interfaces/http/` |
+| `core/realtime_hub.py` | `mateai/interfaces/websocket/realtime_hub.py` |
+| `core/file_export.py` | `mateai/infrastructure/files/file_export.py` |
+
+**RULE-003 (test ranh giới bắt được):** sentinel và health monitor (tầng ứng dụng) chạy SQL trực tiếp trên `hr_kpi.db` → chuyển vào tầng dữ liệu: `domain_sync.probe_hr_database()` (đọc được không, lần đồng bộ gần nhất, số bản ghi; phân biệt "chưa có bảng" với "lỗi") và `erp_database.check_sqlite_integrity()` (quick_check + thử khoá ghi → ok/corrupt/locked/error). Cùng câu SQL, cùng thông điệp cảnh báo. Test `test_probe_hr_database_states` (chưa có bảng / có dữ liệu / file không phải SQLite).
+
+**Còn trong `core/`:** `config_loader` (nơi định nghĩa PROJECT_ROOT, hơn 100 nơi import), `plugin_manager` (API plugin công khai — giữ nguyên chỗ có chủ đích), `core/skills/*` (cài đặt skill, được shim trong `skills/` import), `server.py` (8.700 dòng route HTTP/WS).
+**Test:** 268 pass. **Runtime:** sentinel chạy từ module mới; health cache: `active_directory` OK (chưa đồng bộ), `database_sqlite` OK; `/admin/departments/overview`, `/api/erp/structure`, `/system/topology` 200.

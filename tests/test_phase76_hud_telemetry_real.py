@@ -90,7 +90,7 @@ check(
 
 # Cache health khởi tạo mọi trường phần cứng bằng 0.0, nên `hw.get(k, 0.0)`
 # KHÔNG phải "chưa đo" mà là "đo được 0" — phải xử lý riêng.
-import core.health_monitor as health_monitor  # noqa: E402
+import mateai.application.operations.health_monitor as health_monitor  # noqa: E402
 
 hw_default = health_monitor.SYSTEM_HEALTH_CACHE.get("hardware", {})
 for key in ("disk_free_gb", "disk_total_gb", "cpu_freq_mhz"):

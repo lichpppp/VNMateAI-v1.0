@@ -37,7 +37,7 @@ def section(title: str) -> None:
     print(f"\n▸ {title}")
 
 
-from core.file_export import (  # noqa: E402
+from mateai.infrastructure.files.file_export import (  # noqa: E402
     BOM_UTF8,
     _cell_value,
     _content_disposition,

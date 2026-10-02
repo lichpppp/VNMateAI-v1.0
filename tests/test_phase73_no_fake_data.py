@@ -209,7 +209,7 @@ for ok_raw in ("google", "groq", "whisper", "local_whisper", "GROQ"):
 # ──────────────────────────────────────────────────────────────────────
 section("File Excel mẫu chỉ có hàng tiêu đề, không có dữ liệu bịa")
 
-from core.api_erp import download_erp_template  # noqa: E402
+from mateai.interfaces.http.api_erp import download_erp_template  # noqa: E402
 
 
 async def _get_template_bytes() -> bytes:

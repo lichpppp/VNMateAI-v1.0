@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -148,51 +147,35 @@ def _check_db_and_ad() -> Tuple[bool, Dict[str, Any]]:
         "detail": "Chưa có dữ liệu",
     }
 
-    try:
-        from mateai.infrastructure.database.erp_database import open_sqlite
-        with open_sqlite(_DB_PATH, timeout=1.5, wal=False) as conn:
-            # Test query
-            res = conn.execute("SELECT 1").fetchone()
-            if res and res[0] == 1:
-                db_ok = True
-
-            # Query AD sync info
-            try:
-                row = conn.execute(
-                    "SELECT MAX(synced_at) FROM ("
-                    "  SELECT synced_at FROM employees "
-                    "  UNION ALL "
-                    "  SELECT synced_at FROM computers"
-                    ")"
-                ).fetchone()
-                last_sync_raw = row[0] if row and row[0] else None
-                human_ago = _format_relative_time(last_sync_raw)
-                cnt_emp = conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0]
-                cnt_comp = conn.execute("SELECT COUNT(*) FROM computers").fetchone()[0]
-
-                ad_data = {
-                    "status": "OK",
-                    "last_sync": human_ago,
-                    "employees_count": cnt_emp,
-                    "computers_count": cnt_comp,
-                    "detail": f"Đồng bộ: {human_ago} · {cnt_emp} NV",
-                }
-            except Exception:
-                ad_data = {
-                    "status": "OK",
-                    "last_sync": "Chưa có bảng dữ liệu",
-                    "employees_count": 0,
-                    "computers_count": 0,
-                    "detail": "Chưa đồng bộ AD",
-                }
-    except Exception as exc:
+    from mateai.infrastructure.directory.domain_sync import probe_hr_database
+    info = probe_hr_database(_DB_PATH, timeout=1.5)
+    if info["error"]:
         ad_data = {
             "status": "FAIL",
             "last_sync": "Lỗi kết nối",
             "employees_count": 0,
             "computers_count": 0,
-            "detail": str(exc)[:60],
+            "detail": info["error"][:60],
         }
+    else:
+        db_ok = info["reachable"]
+        if info["tables"]:
+            human_ago = _format_relative_time(info["last_sync"])
+            ad_data = {
+                "status": "OK",
+                "last_sync": human_ago,
+                "employees_count": info["employees"],
+                "computers_count": info["computers"],
+                "detail": f"Đồng bộ: {human_ago} · {info['employees']} NV",
+            }
+        else:
+            ad_data = {
+                "status": "OK",
+                "last_sync": "Chưa có bảng dữ liệu",
+                "employees_count": 0,
+                "computers_count": 0,
+                "detail": "Chưa đồng bộ AD",
+            }
 
     return db_ok, ad_data
 

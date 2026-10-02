@@ -742,7 +742,7 @@ def test_summarise_failure() -> None:
 # ══════════════════════════════════════════════════════════════════════════
 def test_worker_manager() -> None:
     section("── BackgroundWorkerManager: nhận cả hàm sync lẫn async ──")
-    from core.background_workers import background_worker_manager as M, TaskStatus
+    from mateai.application.operations.background_workers import background_worker_manager as M, TaskStatus
 
     def sync_heavy(x):
         time.sleep(0.3)

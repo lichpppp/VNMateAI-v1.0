@@ -22,7 +22,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sqlite3
 import sys
 import time
 from datetime import datetime, timezone
@@ -35,7 +34,7 @@ import psutil
 from core.config_loader import settings
 from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
-logger = logging.getLogger("core.autonomous_sentinel")
+logger = logging.getLogger("mateai.application.operations.autonomous_sentinel")
 
 # Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
 # không suy từ vị trí file mã nguồn.
@@ -116,38 +115,28 @@ class AutonomousSentinel:
         if not _DB_PATH.exists():
             return None
 
-        try:
-            from mateai.infrastructure.database.erp_database import open_sqlite
-            with open_sqlite(_DB_PATH, timeout=2.0, wal=False) as conn:
-                try:
-                    row = conn.execute(
-                        "SELECT MAX(synced_at) FROM ("
-                        "  SELECT synced_at FROM employees "
-                        "  UNION ALL "
-                        "  SELECT synced_at FROM computers"
-                        ")"
-                    ).fetchone()
-                    last_sync_raw = row[0] if row and row[0] else None
-                    if not last_sync_raw:
-                        # Chưa từng đồng bộ AD (môi trường mới hoặc chưa cấu hình) - không phải sự cố khẩn cấp
-                        return None
-
-                    # Check if last sync is older than 24 hours
-                    dt = datetime.fromisoformat(last_sync_raw.replace("Z", "+00:00"))
-                    diff_hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
-                    if diff_hours > 24.0:
-                        return {
-                            "category": "ad_sync",
-                            "title": "Lỗi Đồng Bộ Active Directory",
-                            "message": f"Dữ liệu Active Directory đã quá hạn {int(diff_hours)} giờ chưa được đồng bộ lại.",
-                        }
-                except sqlite3.OperationalError:
-                    pass
-        except Exception as exc:
+        from mateai.infrastructure.directory.domain_sync import probe_hr_database
+        info = probe_hr_database(_DB_PATH, timeout=2.0)
+        if info["error"]:
             return {
                 "category": "ad_sync",
                 "title": "Lỗi Truy Vấn Dữ Liệu AD",
-                "message": f"Lỗi truy cập cơ sở dữ liệu nhân sự AD: {str(exc)[:60]}.",
+                "message": f"Lỗi truy cập cơ sở dữ liệu nhân sự AD: {info['error'][:60]}.",
+            }
+        last_sync_raw = info["last_sync"]
+        if not info["tables"] or not last_sync_raw:
+            # Chưa từng đồng bộ AD (môi trường mới hoặc chưa cấu hình) - không phải sự cố khẩn cấp
+            return None
+        try:
+            dt = datetime.fromisoformat(last_sync_raw.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        diff_hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+        if diff_hours > 24.0:
+            return {
+                "category": "ad_sync",
+                "title": "Lỗi Đồng Bộ Active Directory",
+                "message": f"Dữ liệu Active Directory đã quá hạn {int(diff_hours)} giờ chưa được đồng bộ lại.",
             }
         return None
 
@@ -156,36 +145,25 @@ class AutonomousSentinel:
         if not _DB_PATH.exists():
             return None
 
-        try:
-            # Attempt immediate transaction lock test with short timeout
-            from mateai.infrastructure.database.erp_database import open_sqlite
-            with open_sqlite(_DB_PATH, timeout=0.8, wal=False) as conn:
-                # quick_check KHÔNG ném lỗi khi file hỏng — nó trả các dòng mô tả
-                # lỗi ("ok" nếu lành). Trước đây kết quả bị bỏ qua nên CSDL hỏng
-                # không bao giờ bị phát hiện.
-                problems = [str(r[0]) for r in conn.execute("PRAGMA quick_check").fetchall()]
-                if problems != ["ok"]:
-                    return {
-                        "category": "sql_deadlock",
-                        "title": "Lỗi Toàn Vẹn Cơ Sở Dữ Liệu SQL",
-                        "message": f"PRAGMA quick_check báo lỗi: {'; '.join(problems)[:120]}",
-                    }
-                # Test write-lock availability
-                conn.execute("BEGIN IMMEDIATE")
-                conn.rollback()
-        except sqlite3.OperationalError as exc:
-            err_msg = str(exc).lower()
-            if "locked" in err_msg or "busy" in err_msg:
-                return {
-                    "category": "sql_deadlock",
-                    "title": "Kẹt Tiến Trình SQL Database!",
-                    "message": "Cơ sở dữ liệu SQLite bị khóa (Database Locked/Busy). Đang có tiến trình ghi bị tắc nghẽn.",
-                }
-        except Exception as exc:
+        from mateai.infrastructure.database.erp_database import check_sqlite_integrity
+        state, detail = check_sqlite_integrity(_DB_PATH, timeout=0.8)
+        if state == "corrupt":
+            return {
+                "category": "sql_deadlock",
+                "title": "Lỗi Toàn Vẹn Cơ Sở Dữ Liệu SQL",
+                "message": f"PRAGMA quick_check báo lỗi: {detail[:120]}",
+            }
+        if state == "locked":
+            return {
+                "category": "sql_deadlock",
+                "title": "Kẹt Tiến Trình SQL Database!",
+                "message": "Cơ sở dữ liệu SQLite bị khóa (Database Locked/Busy). Đang có tiến trình ghi bị tắc nghẽn.",
+            }
+        if state == "error" and "locked" not in detail.lower():
             return {
                 "category": "sql_deadlock",
                 "title": "Lỗi Cơ Sở Dữ Liệu SQL",
-                "message": f"Kiểm tra tính toàn vẹn dữ liệu SQLite phát hiện lỗi: {str(exc)[:60]}.",
+                "message": f"Kiểm tra tính toàn vẹn dữ liệu SQLite phát hiện lỗi: {detail[:60]}.",
             }
         return None
 
@@ -285,7 +263,7 @@ class AutonomousSentinel:
 
         # 3. Log to recent events in SYSTEM_HEALTH_CACHE
         try:
-            from core.health_monitor import SYSTEM_HEALTH_CACHE
+            from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
             SYSTEM_HEALTH_CACHE.setdefault("recent_events", []).insert(0, {
                 "time": datetime.now().strftime("%H:%M:%S"),
                 "action": f"SENTINEL_{category.upper()}",
@@ -324,7 +302,7 @@ class AutonomousSentinel:
             logger.debug("[AutonomousSentinel] Telegram resolution dispatch error: %s", tg_err)
 
         try:
-            from core.health_monitor import SYSTEM_HEALTH_CACHE
+            from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
             SYSTEM_HEALTH_CACHE.setdefault("recent_events", []).insert(0, {
                 "time": datetime.now().strftime("%H:%M:%S"),
                 "action": f"SENTINEL_{category.upper()}_RESOLVED",

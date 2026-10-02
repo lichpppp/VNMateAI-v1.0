@@ -280,7 +280,7 @@ class VoiceController:
 
         logger.info("VoiceController: Wake detected! Starting command flow...")
         try:
-            from core.realtime_hub import broadcast_hud, broadcast_portal_ui
+            from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_portal_ui
             if self._loop and self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(
                     broadcast_hud({
@@ -398,7 +398,7 @@ class VoiceController:
 
                 # Phase 47: Broadcast full detailed results to HUD & Web Portal so screen displays immediately!
                 try:
-                    from core.realtime_hub import broadcast_hud, broadcast_portal_ui
+                    from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_portal_ui
                     if self._loop and self._loop.is_running():
                         asyncio.run_coroutine_threadsafe(
                             broadcast_hud({
