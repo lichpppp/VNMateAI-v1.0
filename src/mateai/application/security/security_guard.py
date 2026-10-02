@@ -255,6 +255,10 @@ class SecurityGuard:
 
     # ─── Internal helpers ────────────────────────────────────────────────────
 
+    def resolve_role(self, employee_id: Optional[str]) -> str:
+        """Role RBAC hiệu lực của một danh tính (fail-closed, xem `_resolve_role`)."""
+        return self._resolve_role(employee_id)
+
     def _resolve_role(self, employee_id: Optional[str]) -> str:
         """
         Xác định role của người dùng từ employee_id. **Fail-closed.**

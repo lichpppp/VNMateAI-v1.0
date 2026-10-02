@@ -5459,35 +5459,46 @@ async def get_pending_action_endpoint(
 )
 async def confirm_action_endpoint(
     payload: ConfirmActionRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """
-    Phase 25: Handle emergency approval for actions in the NEED_CONFIRM tier.
-    Automatically resolves skill_name / args from StateManager if not provided in payload.
+    Phase 25: Duyệt / huỷ một tác vụ NEED_CONFIRM đang nằm trong hàng đợi.
+
+    Chỉ admin. Chỉ thực thi ĐÚNG tác vụ đang chờ (tên tool, tham số, máy đích
+    lấy từ StateManager) — `skill_name` / `args` / `client_id` trong body chỉ
+    để đối chiếu. Trước đây mọi người đã đăng nhập (kể cả viewer) gửi
+    `{approved: true, skill_name, args}` là chạy thẳng skill bất kỳ trên máy
+    chủ, không qua Zero-Trust/RBAC. Nay tác vụ đã duyệt chạy qua cổng tool
+    chung với `approved=True`; RBAC áp theo người YÊU CẦU tác vụ.
     """
     from mateai.application.security.safety_guard import security_engine
-    from mateai.interfaces.websocket.client_orchestrator import orchestrator
-    from core.plugin_manager import plugin_manager
     from mateai.application.agent.state_manager import state_manager
+    from mateai.application.agent.tool_gate import run_tool_with_policy
 
     # ── Phase 25: Auto-resolve from StateManager ─────────────────────────
     lookup_key = payload.action_id or payload.user_id or current_user.get("username", "admin")
     pending = state_manager.get_pending_action(lookup_key)
-    if not pending and not payload.skill_name:
+    # Chỉ lấy "tác vụ đang chờ đầu tiên" khi request KHÔNG chỉ định action_id.
+    # Có action_id mà không thấy (đã xử lý / hết hạn) thì không được duyệt nhầm
+    # sang một tác vụ khác trong hàng đợi.
+    if not pending and not payload.action_id and not payload.skill_name:
         all_pending = state_manager.list_pending_actions()
         if all_pending:
             pending = all_pending[0]
             lookup_key = pending.get("id") or "admin"
 
-    # If payload is incomplete, fill from pending action
-    skill_name   = payload.skill_name   or (pending.get("tool_name")     if pending else None)
-    raw_args     = payload.args         or (pending.get("arguments", {}) if pending else {})
-    client_id    = payload.client_id    or (pending.get("target_client", "master") if pending else "master")
-
-    if not skill_name:
+    if not pending:
         raise HTTPException(
-            status_code=400,
-            detail="Không tìm thấy tác vụ đang chờ phê duyệt. Vui lòng cung cấp skill_name hoặc action_id.",
+            status_code=404,
+            detail="Không tìm thấy tác vụ đang chờ phê duyệt (có thể đã được xử lý hoặc hết hạn).",
+        )
+    skill_name = pending.get("tool_name") or ""
+    raw_args = dict(pending.get("arguments") or {})
+    client_id = pending.get("target_client") or "master"
+    if payload.skill_name and payload.skill_name != skill_name:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Tác vụ đang chờ là '{skill_name}', không phải '{payload.skill_name}'.",
         )
 
     if not payload.approved:
@@ -5520,23 +5531,26 @@ async def confirm_action_endpoint(
             "message": rej_msg,
         }
 
-    # Approved ── pop from queue then execute with confirmed=True flag
+    # Approved ── pop from queue then execute through the single tool gate
     state_manager.get_and_clear_pending_action(lookup_key)
-    args = dict(raw_args or {})
-    args["confirmed"] = True
+    args = raw_args
+    approver = str(current_user.get("username") or "admin")
 
-    security_engine.log_audit(client_id, skill_name, "NEED_CONFIRM", "USER_APPROVED", args)
-    logger.info("[Phase 25] Admin '%s' phê duyệt tác vụ '%s' trên '%s'.", lookup_key, skill_name, client_id)
+    security_engine.log_audit(client_id, skill_name, "NEED_CONFIRM", "USER_APPROVED", {**args, "approved_by": approver})
+    logger.info("[Phase 25] Admin '%s' phê duyệt tác vụ '%s' trên '%s'.", approver, skill_name, client_id)
 
-    if (client_id or "").lower() in ("master", "local", "server", ""):
-        res = await plugin_manager.execute_skill(skill_name, args)
-    else:
-        if not orchestrator.is_client_online(client_id):
-            raise HTTPException(status_code=404, detail=f"Máy trạm '{client_id}' hiện không trực tuyến.")
-        res = await orchestrator.execute_on_client(client_id, skill_name, args)
+    orig_q = pending.get("query") or f"Thực thi {skill_name}"
+    _gate = await run_tool_with_policy(
+        skill_name,
+        {**args, "target_client": client_id},
+        caller=str(pending.get("user_id") or approver),
+        source_device=pending.get("source_device") or "http:approval",
+        query=orig_q,
+        approved=True,
+    )
+    res = _gate["result"]
 
     # ── Phase 25: Synthesize natural AI response & record completed action ────
-    orig_q = (pending.get("query") if pending else "") or f"Thực thi {skill_name}"
     masked_res = security_engine.mask_sensitive_data(json.dumps(res, ensure_ascii=False, default=str))
     synth_reply = ""
     try:
@@ -5552,20 +5566,11 @@ async def confirm_action_endpoint(
         logger.warning("[Phase 25] Lỗi synthesize câu trả lời sau duyệt: %s", e)
         synth_reply = f"Dạ, tác vụ '{skill_name}' đã được phê duyệt và thực thi thành công."
 
-    completed_data = dict(pending) if pending else {
-        "id": lookup_key,
-        "tool_name": skill_name,
-        "arguments": args,
-        "target_client": client_id,
-        "query": orig_q,
-        "user_id": lookup_key,
-        "source_device": "web",
-    }
-    state_manager.record_completed_action(completed_data, res, synth_reply)
+    state_manager.record_completed_action(dict(pending), res, synth_reply)
 
     # ── Phase 25: Nếu tác vụ xuất phát từ Telegram, gửi thông báo về Telegram ──
-    tg_chat_id = pending.get("chat_id") if pending else None
-    if not tg_chat_id and pending:
+    tg_chat_id = pending.get("chat_id")
+    if not tg_chat_id:
         src = pending.get("source_device", "")
         if "telegram:" in src:
             parts = src.split(":")

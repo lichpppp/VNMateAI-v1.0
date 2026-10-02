@@ -29,7 +29,10 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 - Một hàng đợi duy nhất: `mateai.application.security.zero_trust.hitl_manager`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút.
 - Tác vụ chỉ chạy **sau khi** được duyệt (callback), kể cả computer-use mức 4 (`test_phase90_computer_use`). Không tạo được yêu cầu duyệt → không chạy.
-- Duyệt qua: portal/HUD (admin, manager), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý" trong hội thoại của chính người yêu cầu.
+- Duyệt qua: portal/HUD (`POST /api/v1/security/confirm-action`, `/api/v1/enterprise/hitl/approve` — **chỉ admin**), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý"/"huỷ" trong hội thoại: tác vụ của chính người nói, hoặc của người khác nếu người nói có role admin.
+- Duyệt chỉ chạy **đúng** tác vụ trong hàng đợi (tên tool, tham số, máy đích lấy từ hàng đợi; body không thay được), qua cổng tool chung với `approved=True`. Cờ `confirmed` trong tham số tool/body bị bỏ qua — LLM và client tự đặt được nó (`test_confirm_action_endpoint`, `test_tool_policy_gate`).
+- "Đồng ý"/"huỷ" nhận theo ranh giới từ, ý phủ định thắng, chỉ câu ngắn ("hủy" từng bị hiểu là đồng ý — `test_approval_reply_classifier`).
+- `/api/v1/fs/*` chỉ admin; tool `read_file` từ chối tệp chứa bí mật (`config.json`, `.env*`, khoá, chứng chỉ, CSDL) cho mọi kênh (`test_fs_routes_policy`).
 
 ## 4. Audit
 
@@ -58,3 +61,6 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | State trong bộ nhớ (HITL, phiên thoại, trí nhớ model) | Vận hành | Khởi động lại = mất yêu cầu duyệt đang chờ (pending action vẫn khôi phục từ audit) |
 | Connector M365/eInvoice/Paperless/OCI chưa chạy thật | Chưa kiểm chứng | Bật từng connector trong môi trường thử trước |
 | Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
+| Hai hàng đợi chờ duyệt: `StateManager` (hội thoại, portal, `fs/*`) và `hitl_manager` (`/skills/execute`, Plugin Registry, Telegram) | Trung bình | Cả hai đều chỉ admin duyệt; gộp làm một ở phase Security tiếp theo |
+| `POST /api/v1/clients/{id}/execute` (admin) tự xác nhận bằng `args.confirmed`, gọi thẳng máy trạm không qua cổng tool | Thấp–TB | Chỉ admin; chuyển qua cổng tool khi tách router `clients` |
+| `GET /api/v1/security/pending-action` cho mọi người đã đăng nhập xem tham số tác vụ đang chờ (có thể chứa nội dung tệp sắp ghi) | Thấp–TB | Cân nhắc giới hạn admin khi tách router `security` |

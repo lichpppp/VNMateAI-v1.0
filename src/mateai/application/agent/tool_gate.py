@@ -29,6 +29,7 @@ async def run_tool_with_policy(
     query: str = "",
     session_id: Optional[str] = None,
     registry_names: Optional[Set[str]] = None,
+    approved: bool = False,
 ) -> Dict[str, Any]:
     """
     Cổng DUY NHẤT thực thi một tool do LLM yêu cầu (mọi kênh voice + agent).
@@ -44,12 +45,18 @@ async def run_tool_with_policy(
     realtime dùng một bản riêng import `zero_trust.evaluate_risk` (không tồn
     tại) nên mọi tool chạy KHÔNG qua kiểm tra nào.
 
+    `approved`: True CHỈ khi người có quyền đã duyệt tác vụ này (đường resume
+    sau "Đồng ý"). Cờ `confirmed` trong `fn_args` bị bỏ đi và không có hiệu
+    lực: tham số tool do LLM hoặc client gửi lên, nên ai cũng tự đặt được —
+    trước đây `{"confirmed": true}` trong tham số là đủ để bỏ qua HITL.
+
     Trả về {"target_client", "args", "result"}.
     """
     from mateai.application.security.zero_trust import evaluate_action_risk
     from core.plugin_manager import plugin_manager
 
     fn_args = dict(fn_args or {})
+    fn_args.pop("confirmed", None)
     target_client = str(
         fn_args.pop("target_client_id", None)
         or fn_args.pop("target_client", "master")
@@ -60,7 +67,7 @@ async def run_tool_with_policy(
     _device = str(source_device or "anonymous")
     _is_admin = (
         any(k in _device.lower() for k in ["esp32", "xiaozhi", "telegram", "hud", "console", "portal", "admin"])
-        or fn_args.get("confirmed")
+        or approved
     )
 
     def _done(result: Dict[str, Any]) -> Dict[str, Any]:

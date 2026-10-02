@@ -195,29 +195,21 @@ class StateManager:
     def get_pending_action(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
         Inspect pending action for a user without removing it.
-        Supports lookup by action_id, chat_id, username, and global/admin fallback.
+
+        Chỉ khớp CHÍNH XÁC: action_id, user_id / chat_id / source_device đã
+        lưu (kể cả dạng chuẩn hoá). Trước đây còn khớp chuỗi con (khoá "u" khớp
+        "requester_u") và cuối cùng trả tác vụ mới nhất của BẤT KỲ ai — nên
+        "đồng ý" của một người, hay một action_id đã xử lý, duyệt nhầm tác vụ
+        của người khác. Ai được xử lý tác vụ của người khác là quyết định của
+        nơi gọi (admin), không phải của phép tra cứu.
         """
         norm_key = self._normalize_key(user_id)
         with self._lock:
             self._cleanup_expired()
-
-            # 1. Exact or action_id lookup
             if str(user_id) in self._pending_actions:
                 return self._pending_actions[str(user_id)]
             if norm_key in self._pending_actions:
                 return self._pending_actions[norm_key]
-
-            # 2. Check if any key contains norm_key or vice versa
-            for k, v in self._pending_actions.items():
-                if norm_key and (norm_key in k or k in norm_key):
-                    return v
-
-            # 3. Admin / Global fallback: Return the most recent action
-            unique_actions = self.list_pending_actions()
-            if unique_actions:
-                # Return most recent pending action
-                return unique_actions[0]
-
             return None
 
     def get_and_clear_pending_action(self, user_id: str) -> Optional[Dict[str, Any]]:

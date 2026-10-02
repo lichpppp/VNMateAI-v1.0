@@ -50,6 +50,26 @@ def _resolve_path(raw_path: str) -> Path:
     return p
 
 
+# Tệp chứa bí mật (khoá LLM, token Telegram, khoá ký JWT/thiết bị, khoá TLS,
+# CSDL có hash mật khẩu). `read_file` là tool rủi ro thấp, chạy không cần
+# duyệt — nếu đọc được các tệp này thì bất kỳ ai ra lệnh được cho agent đều
+# lấy được toàn bộ bí mật của máy chủ.
+_SECRET_FILE_NAMES = {"config.json", "credentials.json", "token.json"}
+_SECRET_SUFFIXES = {".key", ".pem", ".crt", ".p12", ".pfx", ".kdbx", ".db", ".sqlite", ".sqlite3"}
+
+
+def _is_secret_file(p: Path) -> bool:
+    name = p.name.lower()
+    if name in _SECRET_FILE_NAMES or name == ".env" or name.startswith(".env."):
+        return True
+    if p.suffix.lower() in _SECRET_SUFFIXES:
+        return True
+    try:
+        return p.resolve().is_relative_to((_PROJECT_ROOT / "data").resolve()) and p.suffix.lower() in {".key", ".json"}
+    except (OSError, ValueError):
+        return False
+
+
 def _format_size(size_bytes: int) -> str:
     """Convert bytes to human-readable format."""
     if size_bytes < 1024:
@@ -221,6 +241,14 @@ def read_file(file_path: str, lines: int = 500, **kwargs: Any) -> Dict[str, Any]
             return {
                 "status": "error",
                 "error": f"Đường dẫn đã cho là thư mục, không thể đọc dưới dạng tệp tin: '{file_path}'",
+                "file_path": str(target_path),
+            }
+
+        if _is_secret_file(target_path.resolve()):
+            logger.warning("[FileSystem] Từ chối đọc tệp chứa bí mật: %s", target_path)
+            return {
+                "status": "error",
+                "error": f"Tệp '{target_path.name}' chứa bí mật hệ thống, không được đọc qua công cụ này.",
                 "file_path": str(target_path),
             }
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
@@ -330,6 +331,74 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
         pass
 
     return system_content
+
+
+# ── Phân loại câu trả lời "đồng ý" / "huỷ" cho tác vụ đang chờ duyệt ─────────
+# Chỉ câu NGẮN mới được hiểu là lệnh duyệt/huỷ; câu dài là hội thoại thường.
+# So khớp theo RANH GIỚI TỪ và ý phủ định luôn thắng. Bản cũ dùng
+# startswith/endswith trên chuỗi: "hủy" kết thúc bằng "y" → bị hiểu là ĐỒNG Ý
+# và chạy tác vụ; "không đồng ý" kết thúc bằng "đồng ý" → cũng chạy; câu bất kỳ
+# mở đầu bằng "y…" ("yêu cầu…") → chạy; "không biết…" → huỷ tác vụ.
+_APPROVAL_MAX_LEN = 35
+_CONFIRM_PHRASES = (
+    "đồng ý", "dong y", "xác nhận", "xac nhan", "ok", "okay", "chạy đi", "chay di", "chạy luôn",
+    "duyệt", "duyet", "phê duyệt", "phe duyet", "yes", "confirm", "approve", "run",
+    "tiến hành", "tien hanh", "chấp nhận", "chap nhan", "cho phép", "cho phep", "cho chạy",
+    "tiếp tục", "tiep tuc", "thực hiện", "thuc hien", "đã ấn", "đã bấm",
+)
+# Có mặt bất kỳ từ nào dưới đây thì KHÔNG BAO GIỜ là đồng ý.
+_NEGATION_WORDS = (
+    "không", "khong", "đừng", "dung", "chưa", "chua", "hủy", "huỷ", "huy", "từ chối", "tu choi",
+    "cancel", "reject", "no", "not", "dừng", "thôi", "thoi", "bỏ qua", "bo qua", "stop",
+)
+_REJECT_PHRASES = (
+    "hủy", "huỷ", "huy", "hủy bỏ", "huy bo", "từ chối", "tu choi", "cancel", "reject", "no",
+    "không", "khong", "dừng", "dừng lại", "dung lai", "thôi", "thoi", "bỏ qua", "bo qua", "stop",
+)
+# Một ký tự chỉ có nghĩa khi đứng MỘT MÌNH.
+_CONFIRM_EXACT = {"y", "ok", "yes"}
+_REJECT_EXACT = {"n", "no"}
+
+
+def _has_phrase(text: str, phrases) -> bool:
+    return any(re.search(rf"(?<!\w){re.escape(p)}(?!\w)", text) for p in phrases)
+
+
+def classify_approval_reply(text: str) -> Optional[str]:
+    """Trả "confirm", "reject" hoặc None (không phải lệnh duyệt/huỷ)."""
+    clean = re.sub(r"\s+", " ", str(text or "").strip().lower()).strip(" .,!?…")
+    if not clean or len(clean) > _APPROVAL_MAX_LEN:
+        return None
+    if clean in _CONFIRM_EXACT:
+        return "confirm"
+    if clean in _REJECT_EXACT:
+        return "reject"
+    if _has_phrase(clean, _NEGATION_WORDS):
+        return "reject" if _has_phrase(clean, _REJECT_PHRASES) else None
+    if _has_phrase(clean, _CONFIRM_PHRASES):
+        return "confirm"
+    return None
+
+
+def _take_pending_action(caller_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Lấy (và gỡ khỏi hàng đợi) tác vụ chờ duyệt mà `caller_id` được phép
+    "đồng ý" / "huỷ" trong hội thoại: tác vụ của chính người đó; nếu không có
+    thì tác vụ mới nhất của người khác — CHỈ khi người nói có role admin.
+    Trước đây ai nói "đồng ý" cũng duyệt được tác vụ của người khác.
+    """
+    from mateai.application.agent.state_manager import state_manager
+    from mateai.application.security.security_guard import security_guard
+
+    pending = state_manager.get_and_clear_pending_action(caller_id)
+    if pending:
+        return pending
+    if security_guard.resolve_role(caller_id) != "admin":
+        return None
+    all_p = state_manager.list_pending_actions()
+    if not all_p or not all_p[0].get("id"):
+        return None
+    return state_manager.get_and_clear_pending_action(all_p[0]["id"])
 
 
 def _make_client() -> AsyncOpenAI:
@@ -695,53 +764,16 @@ class LLMEngine:
         # pending action, nếu không "Đồng ý" sẽ không bao giờ tìm thấy tác vụ.
         caller_id = str(caller or source_device or "anonymous")
         active_session = str(session_id or source_device or "default")
-        clean_q = query.strip().lower().rstrip(".,!?")
-
-        CONFIRM_KEYWORDS = (
-            "đồng ý", "dong y", "xác nhận", "xac nhan", "ok", "chạy đi", "chay di",
-            "duyệt", "duyet", "yes", "confirm", "tiến hành", "tien hanh", "chấp nhận",
-            "chap nhan", "cho phép", "cho phep", "run", "approve", "y", "tiếp tục", "tiep tuc",
-            "thực hiện", "thuc hien", "ok em", "duyệt đi", "chạy luôn", "xác nhận đi", "ok anh",
-            "chạy đi em", "anh đồng ý", "em đồng ý", "duyệt lệnh", "cho chạy", "đã duyệt", "đã xác nhận",
-            "ấn xác nhận", "bấm xác nhận", "đã phê duyệt", "phê duyệt rồi", "duyệt rồi", "đã ấn", "đã bấm"
-        )
-        REJECT_KEYWORDS = (
-            "hủy", "huy", "hủy bỏ", "huy bo", "không", "khong", "từ chối", "tu choi",
-            "cancel", "no", "dừng", "dung", "dừng lại", "dung lai", "reject", "n", "thôi", "thoi",
-            "thôi khỏi", "bỏ qua", "bo qua"
-        )
-
-        has_confirm_intent = any(k in clean_q for k in (
-            "đồng ý", "dong y", "xác nhận", "xac nhan", "phê duyệt", "phe duyet",
-            "chấp nhận", "chap nhan", "cho phép", "cho phep", "tiến hành", "tien hanh",
-            "chạy đi", "duyệt đi", "đã duyệt", "duyệt rồi",
-            "đã xác nhận", "xác nhận rồi", "ấn xác nhận", "bấm xác nhận"
-            # NOTE: "tiếp tục" / "tiep tuc" removed — too ambiguous in general conversation
-        ))
-        has_negative_intent = any(k in clean_q for k in (
-            "không", "khong", "hủy", "huy", "đừng", "dung", "chưa", "chua", "từ chối", "tu choi"
-        ))
-        # Bug #3 fix: Only treat as confirm when query is short (<= 35 chars).
-        # Long sentences containing these words are likely general conversation, not approval.
-        _is_short_command = len(clean_q) <= 35
-        is_confirm = (
-            clean_q in CONFIRM_KEYWORDS
-            or any(clean_q.startswith(k) or clean_q.endswith(k) for k in CONFIRM_KEYWORDS)
-            or (_is_short_command and has_confirm_intent and not has_negative_intent)
-        )
-        is_reject = clean_q in REJECT_KEYWORDS or any(clean_q.startswith(k) for k in REJECT_KEYWORDS)
+        _approval = classify_approval_reply(query)
+        is_confirm = _approval == "confirm"
+        is_reject = _approval == "reject"
 
         if is_confirm:
-            pending = state_manager.get_and_clear_pending_action(caller_id)
-            if not pending:
-                all_p = state_manager.list_pending_actions()
-                if all_p:
-                    pending = state_manager.get_and_clear_pending_action(all_p[0].get("id") or "admin")
+            pending = _take_pending_action(caller_id)
 
             if pending:
                 tool_name = pending.get("tool_name", "")
                 args = dict(pending.get("arguments", {}))
-                args["confirmed"] = True
                 target_client = pending.get("target_client", "master")
                 orig_query = pending.get("query", "")
 
@@ -751,7 +783,7 @@ class LLMEngine:
                 )
                 security_engine.log_audit(target_client, tool_name, "NEED_CONFIRM", "USER_APPROVED", args)
 
-                # Thực thi qua cổng chung (RBAC + audit; confirmed=True nên không hỏi
+                # Thực thi qua cổng chung (RBAC + audit; approved=True nên không hỏi
                 # lại). Trước Phase 6: asyncio.to_thread(plugin_manager.execute_skill)
                 # — execute_skill là async nên tác vụ đã duyệt không bao giờ chạy.
                 from mateai.application.agent.tool_gate import run_tool_with_policy
@@ -761,6 +793,7 @@ class LLMEngine:
                     caller=caller_id,
                     source_device=source_device,
                     query=orig_query,
+                    approved=True,
                 )
                 tool_res = _gate["result"]
 
@@ -852,11 +885,7 @@ class LLMEngine:
                 }
 
         if is_reject:
-            pending = state_manager.get_and_clear_pending_action(caller_id)
-            if not pending:
-                all_p = state_manager.list_pending_actions()
-                if all_p:
-                    pending = state_manager.get_and_clear_pending_action(all_p[0].get("id") or "admin")
+            pending = _take_pending_action(caller_id)
 
             if pending:
                 tool_name = pending.get("tool_name", "")

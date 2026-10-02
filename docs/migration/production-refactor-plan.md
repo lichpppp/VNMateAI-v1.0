@@ -804,3 +804,28 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **Test:** 271 pass. **Runtime:** hai listener khởi động; cổng 8000 vẫn lọc (login 404, livez 200); `/readyz` ok; danh sách nhân viên, portal, `/admin` 200; voice fast path 267 ms, LLM 8,4 s (lượt đầu sau khởi động).
 
 **Tổng kết Phase 4:** mọi code chạy thật nằm trong `src/mateai` (domain / application / infrastructure / interfaces / config). `core/` chỉ còn `plugin_manager.py` — API plugin công khai (`from core.plugin_manager import export_skill`), giữ chỗ có chủ đích cho skill của người dùng và skill do AI sinh trên các bản cài khác. Các bản viết lại song song không dùng trong `src/mateai` đã xoá theo từng context. Việc tiếp theo hợp lý: tách `server.py` thành các router theo nhóm (HTTP routes vẫn nằm chung một file 8.700 dòng).
+
+## 44. Tách `server.py` thành router + vá 5 lỗ hổng phê duyệt lộ ra khi kiểm tra (2026-10-02)
+
+**STATUS:** ĐANG LÀM (tách router) / XONG (bảo mật bên dưới)
+
+**FILES CHANGED:** `interfaces/http/routers/{users,files,itsm,memory,domain}.py` (mới, chuyển nguyên văn `@app`→`@router`, `include_router` đặt đúng vị trí route đầu tiên nên thứ tự route trùng mẫu không đổi — so bảng route với HEAD: 187/187, OK); `interfaces/http/server.py`; `application/agent/{tool_gate,llm_engine,state_manager}.py`; `application/security/security_guard.py` (`resolve_role` công khai); `application/skills/builtin/file_system.py`; test mới `test_fs_routes_policy`, `test_confirm_action_endpoint`, `test_pending_action_lookup`, `test_approval_reply_classifier`; `test_tool_policy_gate`, `test_confirm_pending_action` theo hợp đồng mới; `test_phase80_secret_masking` tra route cả trong `routers/*.py`.
+
+**Lỗ hổng (đều có từ trước, tái hiện trên máy chủ thật rồi mới sửa):**
+
+| # | Lỗ hổng | Sửa |
+|---|---|---|
+| 1 | `/api/v1/fs/read` chỉ cần đăng nhập → **viewer đọc được `config.json`** (khoá LLM, token Telegram); `_resolve_path` không giới hạn thư mục | `fs/*` chỉ admin, đi qua cổng tool chung; `read_file` (dùng chung cho HTTP + agent) từ chối tệp bí mật: `config.json`, `.env*`, `*.key/.pem/.crt/.p12/.pfx/.db/.sqlite*/.kdbx`, `data/*.key|*.json` |
+| 2 | `fs/write`, `fs/delete` nhận `confirmed: true` trong body → bỏ qua HITL | Bỏ trường; NEED_CONFIRM luôn vào hàng đợi |
+| 3 | `run_tool_with_policy` coi `fn_args["confirmed"]` là "đã duyệt" — tham số do LLM sinh, nên prompt injection bỏ qua được HITL | Cổng luôn bỏ `confirmed` khỏi tham số; chỉ tham số `approved=True` (đường resume sau duyệt) có hiệu lực |
+| 4 | `POST /api/v1/security/confirm-action` chỉ cần đăng nhập và chạy `skill_name`/`args` **do client gửi** qua `plugin_manager.execute_skill` — viewer chạy được skill bất kỳ, không Zero-Trust/RBAC, không cần tác vụ nào đang chờ | Chỉ admin (như `/enterprise/hitl/approve`); chỉ chạy đúng tác vụ trong hàng đợi (body chỉ để đối chiếu, sai tên → 409); chạy qua cổng tool với `approved=True`, RBAC theo người yêu cầu; `action_id` đã xử lý/không có → 404 (trước đó rơi sang tác vụ khác — tái hiện khi gửi lại cùng id) |
+| 5 | `StateManager.get_pending_action` khớp chuỗi con rồi trả "tác vụ mới nhất của bất kỳ ai"; vòng agent cũng tự rơi về tác vụ đầu hàng đợi → ai nói "đồng ý" cũng duyệt tác vụ của người khác | Tra cứu chỉ khớp chính xác; chạm tác vụ của người khác chỉ khi người nói có role RBAC `admin` (`_take_pending_action`) |
+| 6 | Phân loại "đồng ý"/"huỷ" dùng `startswith/endswith`: **"hủy" kết thúc bằng "y" → bị hiểu là đồng ý và CHẠY tác vụ** (tái hiện: admin nói "hủy", tệp vẫn được ghi); "không đồng ý" → chạy; "yêu cầu…" → chạy; "không biết…" → huỷ | `classify_approval_reply`: so khớp theo ranh giới từ, ý phủ định thắng, chỉ câu ≤ 35 ký tự, ký tự đơn (`y`/`n`) chỉ khi đứng một mình |
+
+**TESTS:** 337 pass (trước: 271). **RUNTIME (máy chủ thật):** viewer đọc `config.json` → 403; admin đọc → bị từ chối là tệp bí mật; `fs/write` có `confirmed:true` → `need_confirm`; viewer `confirm-action` → 403; duyệt đúng id → chạy + audit `USER_APPROVED`; gửi lại id → 404; sai tên tool → 409; từ chối `delete_item` → xoá khỏi hàng đợi; admin nói "hủy" → huỷ, tệp không được tạo; "đồng ý" → chạy. Tệp thử đã xoá.
+
+**ARCHITECTURAL IMPACT:** mọi đường thực thi tool sau duyệt (hội thoại, portal, `fs/*`) đi qua `run_tool_with_policy`. Hợp đồng "đã duyệt" chuyển từ dữ liệu (`confirmed` trong args) sang tham số tin cậy (`approved`).
+
+**RISKS / CÒN LẠI (ghi trong `docs/production/security.md` §6):** hai hàng đợi chờ duyệt (`StateManager` cho hội thoại/portal và `hitl_manager` cho `/skills/execute`, Plugin Registry, Telegram) — gộp ở phase Security sau; `/clients/{id}/execute` (admin) vẫn tự xác nhận bằng `args.confirmed` và gọi thẳng máy trạm; `GET /security/pending-action` cho mọi người đã đăng nhập xem tham số tác vụ đang chờ; khởi động lại có lúc khôi phục 2 bản cùng một tác vụ từ audit (quan sát 1 lần, chưa tái hiện).
+
+**NEXT STEP:** tách tiếp nhóm router còn lại (enterprise, security, xiaozhi, telegram, skills, clients, voice, system, config, computer-use, …).

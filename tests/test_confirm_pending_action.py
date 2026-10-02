@@ -7,7 +7,7 @@ Trước Phase 6, tác vụ được duyệt chạy bằng
 `asyncio.to_thread(plugin_manager.execute_skill, ...)` — nhưng execute_skill là
 hàm async, nên to_thread trả về một coroutine chưa chạy và dòng sau gọi .get()
 trên nó: tác vụ đã duyệt KHÔNG BAO GIỜ chạy. Nay tác vụ đi qua cổng chung
-run_tool_with_policy (RBAC + audit), kèm confirmed=True. Không gọi mạng.
+run_tool_with_policy (RBAC + audit), kèm approved=True. Không gọi mạng.
 """
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ async def test_confirm_runs_the_approved_tool_through_the_gate(monkeypatch):
 
     assert gate_calls, f"tác vụ đã duyệt không được thực thi: {res}"
     name, args, kw = gate_calls[0]
-    assert name == "kill_process" and args["pid"] == 4242 and args["confirmed"] is True
+    assert name == "kill_process" and args["pid"] == 4242 and kw["approved"] is True
     assert kw["caller"] == caller
 
 
