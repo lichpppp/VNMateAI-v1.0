@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Coroutine, Dict, List, Optional, Tuple
 import psutil
 
-from src.mateai.domain.identity.entities import ClearanceLevel, UserIdentity
+from mateai.domain.identity.entities import ClearanceLevel, UserIdentity
 
 logger = logging.getLogger(__name__)
 

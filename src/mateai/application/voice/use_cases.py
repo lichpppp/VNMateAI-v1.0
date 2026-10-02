@@ -16,15 +16,15 @@ import logging
 import time
 from typing import AsyncGenerator, Dict, Any, Optional
 
-from src.mateai.domain.voice.entities import (
+from mateai.domain.voice.entities import (
     VoiceSession,
     VoiceState,
     AudioFrame,
     AudioEncoding,
     VoiceInterruption,
 )
-from src.mateai.application.voice.sentence_buffer import SentenceBuffer
-from src.mateai.application.voice.barge_in_controller import barge_in_controller
+from mateai.application.voice.sentence_buffer import SentenceBuffer
+from mateai.application.voice.barge_in_controller import barge_in_controller
 
 logger = logging.getLogger(__name__)
 

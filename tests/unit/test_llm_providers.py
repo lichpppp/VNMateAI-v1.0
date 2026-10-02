@@ -13,17 +13,17 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mateai.infrastructure.llm.provider_interface import (
+from mateai.infrastructure.llm.provider_interface import (
     LLMProvider,
     LLMResponse,
     StreamChunk,
     ToolCall,
 )
-from src.mateai.infrastructure.llm.deepseek_adapter import DeepSeekAdapter
-from src.mateai.infrastructure.llm.groq_adapter import GroqAdapter
-from src.mateai.infrastructure.llm.router_adapter import NineRouterAdapter
-from src.mateai.infrastructure.llm.factory import get_llm_provider
-from src.mateai.application.agent.llm_orchestrator import LLMOrchestrator
+from mateai.infrastructure.llm.deepseek_adapter import DeepSeekAdapter
+from mateai.infrastructure.llm.groq_adapter import GroqAdapter
+from mateai.infrastructure.llm.router_adapter import NineRouterAdapter
+from mateai.infrastructure.llm.factory import get_llm_provider
+from mateai.application.agent.llm_orchestrator import LLMOrchestrator
 
 
 class MockLLMProvider(LLMProvider):

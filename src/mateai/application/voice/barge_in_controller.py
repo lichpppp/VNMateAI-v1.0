@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from typing import Dict, Optional, Set
-from src.mateai.domain.voice.entities import VoiceInterruption
+from mateai.domain.voice.entities import VoiceInterruption
 
 
 class BargeInController:

@@ -20,12 +20,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.mateai.config.settings import settings
-from src.mateai.domain.identity.entities import ClearanceLevel, UserIdentity, UserRole
-from src.mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
-from src.mateai.domain.tasks.entities import BackgroundTask, TaskStatus
-from src.mateai.domain.devices.entities import Device, DeviceType, DeviceStatus
-from src.mateai.domain.repository_ports import (
+from mateai.config.settings import settings
+from mateai.domain.identity.entities import ClearanceLevel, UserIdentity, UserRole
+from mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
+from mateai.domain.tasks.entities import BackgroundTask, TaskStatus
+from mateai.domain.devices.entities import Device, DeviceType, DeviceStatus
+from mateai.domain.repository_ports import (
     UserRepositoryPort,
     AuditRepositoryPort,
     TaskRepositoryPort,

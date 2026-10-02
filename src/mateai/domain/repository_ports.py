@@ -12,10 +12,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
-from src.mateai.domain.identity.entities import UserIdentity
-from src.mateai.domain.audit.entities import AuditEvent
-from src.mateai.domain.tasks.entities import BackgroundTask
-from src.mateai.domain.devices.entities import Device
+from mateai.domain.identity.entities import UserIdentity
+from mateai.domain.audit.entities import AuditEvent
+from mateai.domain.tasks.entities import BackgroundTask
+from mateai.domain.devices.entities import Device
 
 
 class UserRepositoryPort(ABC):

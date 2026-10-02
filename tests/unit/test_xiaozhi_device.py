@@ -11,17 +11,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mateai.domain.voice.entities import VoiceState
-from src.mateai.infrastructure.websocket.xiaozhi_protocol import (
+from mateai.domain.voice.entities import VoiceState
+from mateai.infrastructure.websocket.xiaozhi_protocol import (
     XiaoZhiProtocol,
     XiaoZhiState,
     XiaoZhiEmotion,
 )
-from src.mateai.application.devices.xiaozhi_service import (
+from mateai.application.devices.xiaozhi_service import (
     XiaoZhiDeviceService,
     xiaozhi_device_service,
 )
-from src.mateai.application.voice.barge_in_controller import barge_in_controller
+from mateai.application.voice.barge_in_controller import barge_in_controller
 
 
 def test_xiaozhi_protocol_serialization():

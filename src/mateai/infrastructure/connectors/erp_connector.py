@@ -10,7 +10,7 @@ import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
-from src.mateai.infrastructure.connectors.base_connector import BaseEnterpriseConnector
+from mateai.infrastructure.connectors.base_connector import BaseEnterpriseConnector
 
 logger = logging.getLogger(__name__)
 

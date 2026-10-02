@@ -12,11 +12,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mateai.domain.identity.entities import ClearanceLevel, UserIdentity, UserRole
-from src.mateai.domain.skills.entities import SkillDomain, ToolDefinition, ToolRiskLevel
-from src.mateai.domain.skills.registry import ToolRegistry
-from src.mateai.application.skills.skill_resolver import SkillResolver
-from src.mateai.application.skills.tool_executor import (
+from mateai.domain.identity.entities import ClearanceLevel, UserIdentity, UserRole
+from mateai.domain.skills.entities import SkillDomain, ToolDefinition, ToolRiskLevel
+from mateai.domain.skills.registry import ToolRegistry
+from mateai.application.skills.skill_resolver import SkillResolver
+from mateai.application.skills.tool_executor import (
     ToolExecutor,
     ToolPermissionDenied,
     ToolExecutionError,

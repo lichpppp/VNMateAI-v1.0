@@ -18,7 +18,7 @@ import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 
-from src.mateai.infrastructure.llm.provider_interface import (
+from mateai.infrastructure.llm.provider_interface import (
     LLMProvider,
     LLMResponse,
     StreamChunk,

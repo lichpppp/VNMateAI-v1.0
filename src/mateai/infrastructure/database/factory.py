@@ -7,14 +7,14 @@ Factory cung cấp Repository instances theo cấu hình hệ thống (Database 
 from __future__ import annotations
 
 from typing import Optional
-from src.mateai.config.settings import settings
-from src.mateai.domain.repository_ports import (
+from mateai.config.settings import settings
+from mateai.domain.repository_ports import (
     UserRepositoryPort,
     AuditRepositoryPort,
     TaskRepositoryPort,
     DeviceRepositoryPort,
 )
-from src.mateai.infrastructure.database.sqlite_repository import (
+from mateai.infrastructure.database.sqlite_repository import (
     SQLiteUserRepository,
     SQLiteAuditRepository,
     SQLiteTaskRepository,

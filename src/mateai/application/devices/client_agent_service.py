@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 import uuid
 
-from src.mateai.infrastructure.websocket.client_agent_protocol import (
+from mateai.infrastructure.websocket.client_agent_protocol import (
     ClientAgentProtocol,
     ClientAgentMessageType,
 )

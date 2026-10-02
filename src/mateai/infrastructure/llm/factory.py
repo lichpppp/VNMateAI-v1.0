@@ -7,12 +7,12 @@ Factory khởi tạo LLM Provider Adapter dựa trên cấu hình hệ thống (
 from __future__ import annotations
 
 from typing import Optional
-from src.mateai.config.settings import settings
-from src.mateai.infrastructure.llm.provider_interface import LLMProvider
-from src.mateai.infrastructure.llm.openai_compatible_adapter import OpenAICompatibleAdapter
-from src.mateai.infrastructure.llm.deepseek_adapter import DeepSeekAdapter
-from src.mateai.infrastructure.llm.groq_adapter import GroqAdapter
-from src.mateai.infrastructure.llm.router_adapter import NineRouterAdapter
+from mateai.config.settings import settings
+from mateai.infrastructure.llm.provider_interface import LLMProvider
+from mateai.infrastructure.llm.openai_compatible_adapter import OpenAICompatibleAdapter
+from mateai.infrastructure.llm.deepseek_adapter import DeepSeekAdapter
+from mateai.infrastructure.llm.groq_adapter import GroqAdapter
+from mateai.infrastructure.llm.router_adapter import NineRouterAdapter
 
 
 def get_llm_provider(

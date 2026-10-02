@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Optional
 import httpx
 
-from src.mateai.infrastructure.llm.openai_compatible_adapter import OpenAICompatibleAdapter
+from mateai.infrastructure.llm.openai_compatible_adapter import OpenAICompatibleAdapter
 
 
 class NineRouterAdapter(OpenAICompatibleAdapter):

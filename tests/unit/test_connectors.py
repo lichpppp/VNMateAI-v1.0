@@ -13,17 +13,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mateai.infrastructure.connectors.circuit_breaker import (
+from mateai.infrastructure.connectors.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerOpenError,
     CircuitState,
 )
-from src.mateai.infrastructure.connectors.base_connector import (
+from mateai.infrastructure.connectors.base_connector import (
     BaseEnterpriseConnector,
     ConnectorStatus,
 )
-from src.mateai.infrastructure.connectors.telegram_connector import TelegramConnector
-from src.mateai.infrastructure.connectors.erp_connector import ERPConnector
+from mateai.infrastructure.connectors.telegram_connector import TelegramConnector
+from mateai.infrastructure.connectors.erp_connector import ERPConnector
 
 
 async def test_circuit_breaker_trip_and_recover():

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeVar
 
-from src.mateai.infrastructure.connectors.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from mateai.infrastructure.connectors.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 
 logger = logging.getLogger(__name__)
 

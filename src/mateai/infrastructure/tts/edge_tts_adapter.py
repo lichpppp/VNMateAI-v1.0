@@ -18,7 +18,7 @@ import logging
 from typing import AsyncGenerator, Optional
 import edge_tts
 
-from src.mateai.config.settings import settings
+from mateai.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

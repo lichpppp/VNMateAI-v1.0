@@ -91,3 +91,6 @@ pypdf>=4.2.0
 python-docx>=1.1.0
 # BM25 keyword search để ghép với vector similarity thành Hybrid Search.
 rank-bm25>=0.2.2
+
+# Gói kiến trúc đích src/mateai (code chạy thật được chuyển dần từ core/) — cài editable.
+-e .

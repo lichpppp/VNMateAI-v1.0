@@ -17,8 +17,8 @@ import time
 import unicodedata
 from typing import Dict, List, Optional, Set, Tuple
 
-from src.mateai.domain.skills.entities import SkillDomain, ToolDefinition
-from src.mateai.domain.skills.registry import ToolRegistry, tool_registry
+from mateai.domain.skills.entities import SkillDomain, ToolDefinition
+from mateai.domain.skills.registry import ToolRegistry, tool_registry
 
 # Regex nhận diện các câu đàm thoại thông thường cần bỏ qua tools
 _CASUAL_CHAT_RE = re.compile(

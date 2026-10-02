@@ -17,9 +17,9 @@ import logging
 import time
 from typing import Any, Callable, Coroutine, Dict, Optional
 
-from src.mateai.domain.identity.entities import ClearanceLevel, UserIdentity, UserRole
-from src.mateai.domain.skills.entities import ToolDefinition, ToolRiskLevel
-from src.mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
+from mateai.domain.identity.entities import ClearanceLevel, UserIdentity, UserRole
+from mateai.domain.skills.entities import ToolDefinition, ToolRiskLevel
+from mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
 
 logger = logging.getLogger(__name__)
 

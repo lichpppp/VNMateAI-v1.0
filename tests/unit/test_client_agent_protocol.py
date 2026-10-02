@@ -12,11 +12,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mateai.infrastructure.websocket.client_agent_protocol import (
+from mateai.infrastructure.websocket.client_agent_protocol import (
     ClientAgentProtocol,
     ClientAgentMessageType,
 )
-from src.mateai.application.devices.client_agent_service import (
+from mateai.application.devices.client_agent_service import (
     ClientAgentService,
     client_agent_service,
 )

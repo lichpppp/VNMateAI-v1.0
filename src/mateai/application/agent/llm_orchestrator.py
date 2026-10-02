@@ -15,7 +15,7 @@ import asyncio
 import logging
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
-from src.mateai.infrastructure.llm.provider_interface import LLMProvider, StreamChunk, LLMResponse
+from mateai.infrastructure.llm.provider_interface import LLMProvider, StreamChunk, LLMResponse
 
 logger = logging.getLogger(__name__)
 

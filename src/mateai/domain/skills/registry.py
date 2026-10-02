@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
-from src.mateai.domain.skills.entities import SkillDomain, ToolDefinition, ToolRiskLevel
+from mateai.domain.skills.entities import SkillDomain, ToolDefinition, ToolRiskLevel
 
 logger = logging.getLogger(__name__)
 

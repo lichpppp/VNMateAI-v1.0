@@ -14,7 +14,7 @@ Cung cấp các thực thể nghiệp vụ tinh khiết (Pure Python Entities & 
 - Audit: AuditEvent, AuditAction, AuditRiskLevel
 """
 
-from src.mateai.domain.voice.entities import (
+from mateai.domain.voice.entities import (
     VoiceSession,
     VoiceState,
     VoiceCommand,
@@ -22,40 +22,40 @@ from src.mateai.domain.voice.entities import (
     AudioFrame,
     AudioEncoding,
 )
-from src.mateai.domain.conversation.entities import (
+from mateai.domain.conversation.entities import (
     Message,
     MessageRole,
     ConversationContext,
 )
-from src.mateai.domain.agent.entities import (
+from mateai.domain.agent.entities import (
     BrainType,
     AgentState,
     AgentTask,
     ExecutionStep,
 )
-from src.mateai.domain.skills.entities import (
+from mateai.domain.skills.entities import (
     SkillDomain,
     ToolRiskLevel,
     ToolDefinition,
     SkillDefinition,
 )
-from src.mateai.domain.identity.entities import (
+from mateai.domain.identity.entities import (
     UserIdentity,
     UserRole,
     ClearanceLevel,
     DepartmentContext,
 )
-from src.mateai.domain.devices.entities import (
+from mateai.domain.devices.entities import (
     Device,
     DeviceType,
     DeviceStatus,
 )
-from src.mateai.domain.tasks.entities import (
+from mateai.domain.tasks.entities import (
     BackgroundTask,
     TaskPriority,
     TaskStatus,
 )
-from src.mateai.domain.audit.entities import (
+from mateai.domain.audit.entities import (
     AuditEvent,
     AuditAction,
     AuditRiskLevel,

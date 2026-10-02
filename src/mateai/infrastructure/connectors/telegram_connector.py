@@ -11,7 +11,7 @@ import logging
 from typing import Any, Dict, Optional
 import httpx
 
-from src.mateai.infrastructure.connectors.base_connector import BaseEnterpriseConnector
+from mateai.infrastructure.connectors.base_connector import BaseEnterpriseConnector
 
 logger = logging.getLogger(__name__)
 

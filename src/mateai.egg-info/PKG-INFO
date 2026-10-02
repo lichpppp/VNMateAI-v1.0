@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: mateai
+Version: 1.0.0
+Summary: VN-MateAI — gói kiến trúc đích (src/mateai). Code chạy thật được chuyển dần từ core/.
+Requires-Python: >=3.11

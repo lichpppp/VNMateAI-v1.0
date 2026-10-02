@@ -14,10 +14,10 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 import tempfile
 
-from src.mateai.domain.identity.entities import UserIdentity, UserRole, ClearanceLevel
-from src.mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
-from src.mateai.domain.tasks.entities import BackgroundTask, TaskStatus
-from src.mateai.infrastructure.database.factory import get_repository_registry
+from mateai.domain.identity.entities import UserIdentity, UserRole, ClearanceLevel
+from mateai.domain.audit.entities import AuditEvent, AuditAction, AuditRiskLevel
+from mateai.domain.tasks.entities import BackgroundTask, TaskStatus
+from mateai.infrastructure.database.factory import get_repository_registry
 from core.database import ERPDatabase
 from core.db_manager import DatabaseManager
 

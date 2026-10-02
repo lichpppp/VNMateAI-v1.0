@@ -13,10 +13,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.mateai.domain.voice.entities import VoiceSession, VoiceState
-from src.mateai.application.voice.sentence_buffer import SentenceBuffer, sanitize_text_for_speech
-from src.mateai.application.voice.barge_in_controller import barge_in_controller
-from src.mateai.application.voice.use_cases import ProcessVoiceTurnUseCase, InterruptVoiceSessionUseCase
+from mateai.domain.voice.entities import VoiceSession, VoiceState
+from mateai.application.voice.sentence_buffer import SentenceBuffer, sanitize_text_for_speech
+from mateai.application.voice.barge_in_controller import barge_in_controller
+from mateai.application.voice.use_cases import ProcessVoiceTurnUseCase, InterruptVoiceSessionUseCase
 
 
 def test_sanitize_text():

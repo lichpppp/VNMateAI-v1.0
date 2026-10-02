@@ -17,14 +17,14 @@ import logging
 import uuid
 from typing import Any, Dict, Optional, Tuple
 
-from src.mateai.domain.devices.entities import Device, DeviceType, DeviceStatus
-from src.mateai.domain.voice.entities import VoiceSession, VoiceState
-from src.mateai.infrastructure.websocket.xiaozhi_protocol import (
+from mateai.domain.devices.entities import Device, DeviceType, DeviceStatus
+from mateai.domain.voice.entities import VoiceSession, VoiceState
+from mateai.infrastructure.websocket.xiaozhi_protocol import (
     XiaoZhiProtocol,
     XiaoZhiState,
     XiaoZhiEmotion,
 )
-from src.mateai.application.voice.barge_in_controller import barge_in_controller
+from mateai.application.voice.barge_in_controller import barge_in_controller
 
 logger = logging.getLogger(__name__)
 
