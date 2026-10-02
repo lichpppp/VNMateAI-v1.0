@@ -402,6 +402,12 @@ async def _on_startup() -> None:
 
     orchestrator.set_event_loop(loop)
     task_manager.set_tts_notifier(broadcast_tts_notification)
+
+    # Hàng đợi duyệt duy nhất: khôi phục yêu cầu còn hạn (tác vụ từ cổng tool)
+    # sau khi khởi động lại. Executor "tool" đăng ký khi import tool_gate.
+    import mateai.application.agent.tool_gate  # noqa: F401
+    from mateai.application.security.zero_trust import hitl_manager
+    hitl_manager.restore_pending_from_audit()
     count = await loop.run_in_executor(None, plugin_manager.load_plugins)
     logger.info("FastAPI startup: loaded %d skill(s). Orchestrator & TaskManager ready.", count)
 

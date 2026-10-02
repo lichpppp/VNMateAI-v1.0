@@ -19,7 +19,6 @@ import mateai.interfaces.http.server as server
 from mateai.interfaces.http import speech
 import mateai.interfaces.http.routers.security as sec
 from mateai.application.agent.llm_engine import llm_engine
-from mateai.application.agent.state_manager import state_manager
 from mateai.application.security.auth_manager import auth_manager
 from mateai.interfaces.http.auth_dependencies import get_current_user
 
@@ -46,10 +45,13 @@ def env(monkeypatch):
     monkeypatch.setattr(sec, "broadcast_hud", noop)
     monkeypatch.setattr(sec, "broadcast_portal_ui", noop)
     monkeypatch.setattr(speech, "tts_bytes", no_tts)
-    created = []
-    yield calls, created
-    for act_id in created:
-        state_manager.cancel_pending_action(act_id)
+    # Hàng đợi duyệt duy nhất, riêng cho mỗi test.
+    import mateai.application.security.zero_trust as zt
+    q = zt.HumanInTheLoopManager()
+    q.register_executor(tool_gate.TOOL_KIND, tool_gate.execute_approved_tool)
+    monkeypatch.setattr(zt, "hitl_manager", q)
+    monkeypatch.setattr(tool_gate, "hitl_manager", q)
+    yield calls, q
     server.app.dependency_overrides.pop(get_current_user, None)
 
 
@@ -60,12 +62,11 @@ def _client(role: str) -> TestClient:
     return TestClient(server.app, headers={"Authorization": f"Bearer {tok}"})
 
 
-def _pending(created, tool="write_file", args=None, user="requester_u"):
-    saved = state_manager.save_pending_action(
-        user_id=user, tool_name=tool, arguments=args or {"file_path": "a.txt", "content": "x"},
-        target_client="master", query="ghi tệp", source_device="http:fs",
+def _pending(q, tool="write_file", args=None, user="requester_u"):
+    saved = q.request_approval(
+        action_name=tool, params=args or {"file_path": "a.txt", "content": "x"}, requested_by=user,
+        kind=tool_gate.TOOL_KIND, context={"target_client": "master", "query": "ghi tệp", "source_device": "http:fs"},
     )
-    created.append(saved["id"])
     return saved["id"]
 
 
@@ -79,9 +80,7 @@ def test_non_admin_cannot_approve_or_run_arbitrary_skill(env, role):
 
 
 def test_without_pending_action_nothing_runs(env, monkeypatch):
-    calls, _ = env
-    monkeypatch.setattr(state_manager, "list_pending_actions", lambda: [])
-    monkeypatch.setattr(state_manager, "get_pending_action", lambda key: None)
+    calls, _ = env  # hàng đợi rỗng
     r = _client("admin").post("/api/v1/security/confirm-action",
                               json={"approved": True, "skill_name": "delete_item", "args": {"path": "C:/"}})
     assert r.status_code == 404
@@ -100,7 +99,7 @@ def test_approval_runs_exactly_the_queued_action_through_the_gate(env):
     assert args["file_path"] == "a.txt" and args["content"] == "x"
     assert kw["approved"] is True
     assert kw["caller"] == "requester_u"
-    assert state_manager.get_pending_action(act_id) is None
+    assert created.get_pending(act_id) is None
 
 
 def test_skill_name_mismatch_is_rejected(env):

@@ -374,25 +374,33 @@ def classify_approval_reply(text: str) -> Optional[str]:
     return None
 
 
-def _take_pending_action(caller_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Lấy (và gỡ khỏi hàng đợi) tác vụ chờ duyệt mà `caller_id` được phép
-    "đồng ý" / "huỷ" trong hội thoại: tác vụ của chính người đó; nếu không có
-    thì tác vụ mới nhất của người khác — CHỈ khi người nói có role admin.
-    Trước đây ai nói "đồng ý" cũng duyệt được tác vụ của người khác.
-    """
-    from mateai.application.agent.state_manager import state_manager
-    from mateai.application.security.security_guard import security_guard
+def _is_own_request(item: Dict[str, Any], caller_id: str) -> bool:
+    """Yêu cầu do chính `caller_id` tạo (cùng danh tính, cùng kênh, hoặc cùng chat Telegram)."""
+    ctx = item.get("context") or {}
+    if caller_id in (str(item.get("requested_by") or ""), str(ctx.get("source_device") or "")):
+        return True
+    chat_id = str(ctx.get("chat_id") or "")
+    parts = str(caller_id).split(":")
+    return bool(chat_id) and len(parts) >= 2 and parts[0] == "telegram" and parts[1] == chat_id
 
-    pending = state_manager.get_and_clear_pending_action(caller_id)
-    if pending:
-        return pending
-    if security_guard.resolve_role(caller_id) != "admin":
-        return None
-    all_p = state_manager.list_pending_actions()
-    if not all_p or not all_p[0].get("id"):
-        return None
-    return state_manager.get_and_clear_pending_action(all_p[0]["id"])
+
+def _find_pending_for(caller_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Yêu cầu đang chờ duyệt mà `caller_id` được phép "đồng ý" / "huỷ" trong hội
+    thoại: yêu cầu mới nhất của chính người đó; nếu không có thì yêu cầu mới
+    nhất của người khác — CHỈ khi người nói có role admin. Hàng đợi là
+    `hitl_manager` (duy nhất) nên tác vụ chờ từ bất kỳ kênh nào đều thấy ở đây.
+    """
+    from mateai.application.security.security_guard import security_guard
+    from mateai.application.security.zero_trust import hitl_manager
+
+    pending = hitl_manager.get_pending_list()
+    own = [it for it in pending if _is_own_request(it, caller_id)]
+    if own:
+        return own[-1]
+    if pending and security_guard.resolve_role(caller_id) == "admin":
+        return pending[-1]
+    return None
 
 
 def _make_client() -> AsyncOpenAI:
@@ -763,33 +771,31 @@ class LLMEngine:
         is_reject = _approval == "reject"
 
         if is_confirm:
-            pending = _take_pending_action(caller_id)
+            _item = _find_pending_for(caller_id)
+            _approval = None
+            if _item:
+                from mateai.application.security.zero_trust import hitl_manager
+                # Duyệt qua hàng đợi chung: executor của yêu cầu chạy tool qua cổng
+                # với approved=True, audit HITL_APPROVED_* ghi người duyệt.
+                _approval = await hitl_manager.approve_async(_item["id"], approved_by=caller_id)
+                if _approval.get("status") == "error":  # vừa được duyệt/huỷ ở kênh khác
+                    _approval = None
 
-            if pending:
-                tool_name = pending.get("tool_name", "")
-                args = dict(pending.get("arguments", {}))
-                target_client = pending.get("target_client", "master")
-                orig_query = pending.get("query", "")
+            if _approval:
+                from mateai.application.agent.tool_gate import pending_view
+                pending = pending_view(_item)
+                tool_name = pending["tool_name"]
+                args = dict(pending["arguments"])
+                target_client = pending["target_client"]
+                orig_query = pending["query"]
 
                 logger.info(
-                    "[Phase 25] Resuming pending action '%s' on '%s' for caller '%s' (orig_query='%s')",
+                    "[Phase 25] Đã duyệt '%s' trên '%s' bởi '%s' (orig_query='%s')",
                     tool_name, target_client, caller_id, orig_query,
                 )
-                security_engine.log_audit(target_client, tool_name, "NEED_CONFIRM", "USER_APPROVED", args)
-
-                # Thực thi qua cổng chung (RBAC + audit; approved=True nên không hỏi
-                # lại). Trước Phase 6: asyncio.to_thread(plugin_manager.execute_skill)
-                # — execute_skill là async nên tác vụ đã duyệt không bao giờ chạy.
-                from mateai.application.agent.tool_gate import run_tool_with_policy
-                _gate = await run_tool_with_policy(
-                    tool_name,
-                    {**args, "target_client": target_client},
-                    caller=caller_id,
-                    source_device=source_device,
-                    query=orig_query,
-                    approved=True,
-                )
-                tool_res = _gate["result"]
+                tool_res = _approval.get("execution_result")
+                if tool_res is None:
+                    tool_res = {"status": "error", "error": _approval.get("execution_error") or _approval.get("message")}
 
                 tool_res_str = json.dumps(tool_res, ensure_ascii=False, default=str)
                 masked_res = security_engine.mask_sensitive_data(tool_res_str)
@@ -879,12 +885,16 @@ class LLMEngine:
                 }
 
         if is_reject:
-            pending = _take_pending_action(caller_id)
+            _item = _find_pending_for(caller_id)
+            pending = None
+            if _item:
+                from mateai.application.security.zero_trust import hitl_manager
+                if hitl_manager.reject(_item["id"], rejected_by=caller_id,
+                                       reason="Huỷ trong hội thoại").get("status") == "success":
+                    pending = _item
 
             if pending:
-                tool_name = pending.get("tool_name", "")
-                target_client = pending.get("target_client", "master")
-                security_engine.log_audit(target_client, tool_name, "NEED_CONFIRM", "USER_REJECTED", pending.get("arguments", {}))
+                tool_name = pending.get("action_name", "")
                 logger.info("[Phase 25] Người dùng '%s' hủy bỏ tác vụ '%s'", caller_id, tool_name)
                 rej_msg = f"Dạ, em đã hủy bỏ tác vụ '{tool_name}' theo yêu cầu của bạn."
                 from mateai.application.conversation.memory_manager import memory_manager

@@ -95,7 +95,15 @@ class TelegramBotService:
     _BOT_TOKEN_RE = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{20,}$")
 
     def _outbound_config(self) -> Optional[Any]:
-        """Cấu hình để GỬI tin chủ động — chỉ khi gateway đang BẬT và token đúng dạng."""
+        """Cấu hình để GỬI tin chủ động — chỉ khi gateway đang BẬT và token đúng dạng.
+
+        `VNMATEAI_TELEGRAM_OUTBOUND=off` tắt mọi tin chủ động (cảnh báo, yêu cầu
+        duyệt) bất kể config.json — bộ test đặt biến này cho cả phiên, vì config
+        thật có token bot thật và từng có tin thử lọt vào nhóm vận hành.
+        """
+        import os
+        if os.environ.get("VNMATEAI_TELEGRAM_OUTBOUND", "").strip().lower() == "off":
+            return None
         from mateai.config.loader import get_config_section
         if not get_config_section("telegram").get("enabled", False):
             return None

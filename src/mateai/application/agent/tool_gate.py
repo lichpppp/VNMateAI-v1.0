@@ -1,7 +1,11 @@
 """
-core/agent_voice_loop.py
-========================
+mateai/application/agent/tool_gate.py
+=====================================
 Cổng DUY NHẤT thực thi tool do LLM yêu cầu: `run_tool_with_policy`.
+
+Tác vụ cần duyệt nằm trong hàng đợi HITL duy nhất (`zero_trust.hitl_manager`,
+`kind="tool"`); `execute_approved_tool` là executor chạy lại tool qua cổng này
+với `approved=True` sau khi người có quyền duyệt — ở bất kỳ kênh nào.
 
 Dùng bởi vòng agent `LLMEngine.ask_async` — vòng mà mọi kênh voice đi qua khi
 câu hỏi cần tool (core/voice_turn.py). Phase 3 đã gỡ vòng tool 1-bước riêng của
@@ -16,8 +20,12 @@ import logging
 from typing import Any, Dict, Optional, Set
 
 from mateai.application.security.safety_guard import security_engine
+from mateai.application.security.zero_trust import hitl_manager
 
 logger = logging.getLogger(__name__)
+
+#: Loại yêu cầu HITL do cổng tool tạo — chạy lại bằng `execute_approved_tool`.
+TOOL_KIND = "tool"
 
 
 async def run_tool_with_policy(
@@ -87,20 +95,30 @@ async def run_tool_with_policy(
 
     if risk_level == "NEED_CONFIRM" and not _is_admin:
         logger.warning("Zero-Trust Security: Tác vụ '%s' yêu cầu phê duyệt.", fn_name)
-        security_engine.log_audit(target_client, fn_name, "NEED_CONFIRM", "PENDING_CONFIRMATION", fn_args)
-        from mateai.application.agent.state_manager import state_manager as _sm
         _chat_id = None
         if source_device and "telegram:" in str(source_device):
             _parts = str(source_device).split(":")
             if len(_parts) >= 2:
                 _chat_id = _parts[1]
-        _sm.save_pending_action(
-            user_id=caller, tool_name=fn_name, arguments=dict(fn_args),
-            target_client=target_client, query=query,
-            chat_id=_chat_id, source_device=source_device,
+        # Yêu cầu tự ghi audit (HITL_APPROVAL_REQUEST_*, status pending) và báo
+        # Telegram cho người duyệt — không ghi thêm dòng PENDING riêng ở đây.
+        _req = hitl_manager.request_approval(
+            action_name=fn_name,
+            params=dict(fn_args),
+            requested_by=caller,
+            description=query or f"Tác vụ '{fn_name}' trên [{target_client}]",
+            kind=TOOL_KIND,
+            context={
+                "target_client": target_client,
+                "query": query,
+                "chat_id": _chat_id,
+                "source_device": source_device,
+                "session_id": session_id,
+            },
         )
         return _done({
             "status": "need_confirm",
+            "approval_id": _req.get("id"),
             "message": f"Tác vụ '{fn_name}' yêu cầu phê duyệt. Nhắn 'Đồng ý' để em chạy tiếp.",
             "skill": fn_name, "target_client": target_client,
             "args": fn_args, "requires_confirmation": True,
@@ -155,3 +173,44 @@ async def run_tool_with_policy(
     _ok = _result.get("status") == "success" or _result.get("success") is True
     security_engine.log_audit(target_client, fn_name, risk_level, "SUCCESS" if _ok else "FAILED", fn_args)
     return _done(_result)
+
+
+async def execute_approved_tool(item: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Executor của hàng đợi HITL cho `kind="tool"`: chạy lại đúng tool + tham số
+    + máy đích đã lưu, qua cổng này với `approved=True`. RBAC áp theo người
+    YÊU CẦU (không phải người duyệt) — duyệt không mở rộng quyền của người hỏi.
+    """
+    ctx = item.get("context") or {}
+    gate = await run_tool_with_policy(
+        str(item.get("action_name") or ""),
+        {**dict(item.get("params") or {}), "target_client": ctx.get("target_client") or "master"},
+        caller=str(item.get("requested_by") or "anonymous"),
+        source_device=ctx.get("source_device"),
+        query=str(ctx.get("query") or ""),
+        session_id=ctx.get("session_id"),
+        approved=True,
+    )
+    return gate["result"]
+
+
+def pending_view(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Dạng hiển thị của một yêu cầu đang chờ (portal, HUD, hội thoại)."""
+    ctx = item.get("context") or {}
+    return {
+        "id": item.get("id"),
+        "tool_name": item.get("action_name"),
+        "arguments": item.get("params") or {},
+        "target_client": ctx.get("target_client") or "master",
+        "query": ctx.get("query") or "",
+        "description": item.get("description") or "",
+        "requested_by": item.get("requested_by"),
+        "risk_level": item.get("risk_level"),
+        "kind": item.get("kind"),
+        "chat_id": ctx.get("chat_id"),
+        "source_device": ctx.get("source_device"),
+        "created_at": item.get("created_at"),
+    }
+
+
+hitl_manager.register_executor(TOOL_KIND, execute_approved_tool)

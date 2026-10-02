@@ -922,3 +922,25 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME:** ảnh chụp toàn bộ 81 route GET × 4 vai trước–sau: không khác. WS `/ws/voice`, `/ws/v1/voice-stream`, `/ws/topology`, `/ws/portal-ui`: không token 403, có token nhận. Lệnh thoại REST 5,1 s; lượt nói HUD qua WS: thinking → voice_active, 3 khung audio, câu đầu sau 1,0 s. Robot qua cổng 8000: không token bị từ chối, token thiết bị → nhận. Worker cục bộ chạy `get_system_info` qua `/ws/client`.
 
 **NEXT STEP:** Phase Security tiếp: gộp hai hàng đợi duyệt (StateManager ↔ hitl_manager), gộp hai endpoint audit.
+
+## 51. Security: MỘT hàng đợi duyệt (hitl_manager) — gỡ hàng đợi thứ hai trong StateManager (2026-10-03)
+
+**STATUS:** XONG
+
+**Trước:** hai hàng đợi chờ duyệt. `StateManager` (cổng tool: hội thoại, portal, `fs/*`, máy trạm) và `zero_trust.hitl_manager` (`/skills/execute`, Plugin Registry, computer-use, nút Telegram, panel HITL). Duyệt ở panel HITL/Telegram không thấy tác vụ từ hội thoại và ngược lại; hai cơ chế loại trùng, hết hạn, audit, khôi phục khác nhau.
+
+**Sau:**
+- `hitl_manager` là hàng đợi duy nhất. Yêu cầu có `kind` + `context`; `register_executor(kind, fn)` — cổng tool đăng ký `kind="tool"` → `tool_gate.execute_approved_tool` chạy lại đúng tool/tham số/máy đích qua cổng với `approved=True`, RBAC theo NGƯỜI YÊU CẦU. Duyệt ở đâu cũng qua `approve_async` (portal `confirm-action`, HUD, panel `/enterprise/hitl/approve`, nút Telegram, câu "đồng ý").
+- `restore_pending_from_audit()` (gọi lúc startup): yêu cầu `kind` còn hạn, chưa duyệt/huỷ được dựng lại từ bản ghi `HITL_APPROVAL_REQUEST_*` (payload nay có action, kind, context, requested_by, created_ts). Yêu cầu dùng closure không khôi phục được — ghi rõ ở security.md.
+- Loại trùng có tính máy đích (cùng tool + tham số, khác máy = hai việc).
+- `StateManager` chỉ còn ký ức tác vụ đã duyệt + chạy xong; nạp lại từ `HITL_APPROVED_*`. **Sửa rò chéo người dùng:** `get_recent_completed_action` trước đây không khớp người hỏi thì trả tác vụ (kèm kết quả) gần nhất của BẤT KỲ ai — nay chỉ của đúng người.
+- Bỏ các dòng audit trùng (`PENDING_CONFIRMATION`/`USER_APPROVED`/`USER_REJECTED` ghi thêm bên cạnh `HITL_*`).
+- Bộ test: `VNMATEAI_TELEGRAM_OUTBOUND=off` cho cả phiên (conftest) — config thật có token bot thật; gateway tôn trọng biến này. Trước đây chỉ vài test tự patch.
+
+**Thay đổi hành vi:** tác vụ cần duyệt từ hội thoại/portal/`fs/*` nay cũng gửi thẻ duyệt có nút bấm tới Telegram người duyệt (như các tác vụ HITL khác). Id yêu cầu đổi dạng `act_…` → `HITL-…` (UI chỉ chuyển tiếp id).
+
+**TESTS:** 370 pass (`test_pending_action_lookup` viết lại cho hàng đợi mới; test executor, loại trùng theo máy đích, khôi phục, huỷ trong hội thoại, ký ức theo người dùng, công tắc Telegram).
+
+**RUNTIME** (server chạy với Telegram tắt để không bắn tin thử vào nhóm thật, sau đó chạy lại bình thường): `fs/write` → `need_confirm` id `HITL-…`; cùng id ở `/security/pending-action` và `/enterprise/hitl/pending`; duyệt qua panel doanh nghiệp → tệp được ghi; duyệt qua portal → tệp được ghi; gửi lại id → 404; từ chối → không ghi; tạo yêu cầu, khởi động lại máy chủ → yêu cầu còn trong danh sách, duyệt → tệp được ghi. Tệp thử đã xoá, hàng đợi rỗng.
+
+**NEXT STEP:** gộp hai endpoint audit; rà các phase còn lại (Data, Connectors, Deployment).

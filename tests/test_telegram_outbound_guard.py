@@ -54,9 +54,18 @@ def test_no_outbound_send_when_disabled_or_placeholder(monkeypatch, no_network, 
 
 
 def test_sends_when_enabled_with_real_token(monkeypatch, no_network):
+    # conftest tắt gửi ra ngoài cho cả phiên; mạng ở test này đã bị no_network chặn.
+    monkeypatch.delenv("VNMATEAI_TELEGRAM_OUTBOUND", raising=False)
     _cfg(monkeypatch, True, REAL_SHAPE)
     assert telegram_gateway.send_incident_alert("x") is True
     assert no_network, "phải khởi chạy thread gửi"
+
+
+def test_outbound_kill_switch_blocks_even_when_enabled(monkeypatch, no_network):
+    monkeypatch.setenv("VNMATEAI_TELEGRAM_OUTBOUND", "off")
+    _cfg(monkeypatch, True, REAL_SHAPE)
+    assert telegram_gateway.send_incident_alert("x") is False
+    assert not no_network
 
 
 def test_log_redaction_masks_any_value_after_bot():

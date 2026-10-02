@@ -311,38 +311,21 @@ async def get_pending_action_endpoint(
     user_id: str = Query(default="admin", description="User/session ID để tra StateManager"),
     current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
-    """Tác vụ đang chờ duyệt (kèm tham số). Chỉ admin — người duy nhất duyệt được,
-    và tham số có thể chứa nội dung nhạy cảm (vd nội dung tệp sắp ghi)."""
-    from mateai.application.agent.state_manager import state_manager
-    all_pending = state_manager.list_pending_actions()
-    action = state_manager.get_pending_action(user_id)
-    if not action and all_pending:
-        action = all_pending[0]
+    """Tác vụ đang chờ duyệt (kèm tham số), từ hàng đợi HITL duy nhất. Chỉ admin —
+    người duy nhất duyệt được, và tham số có thể chứa nội dung nhạy cảm (vd nội
+    dung tệp sắp ghi). `action` = yêu cầu mới nhất của `user_id`, nếu không có
+    thì yêu cầu mới nhất."""
+    from mateai.application.agent.tool_gate import pending_view
+    from mateai.application.security.zero_trust import hitl_manager
 
+    all_pending = [pending_view(it) for it in hitl_manager.get_pending_list()]
+    own = [p for p in all_pending if user_id in (p.get("requested_by"), p.get("source_device"))]
+    action = (own or all_pending or [None])[-1]
     return {
         "has_pending": bool(action),
         "count": len(all_pending),
-        "action": {
-            "id": action.get("id"),
-            "tool_name": action.get("tool_name"),
-            "target_client": action.get("target_client"),
-            "arguments": action.get("arguments", {}),
-            "description": action.get("description", ""),
-            "query": action.get("query", ""),
-            "timestamp": action.get("timestamp"),
-        } if action else None,
-        "pending_list": [
-            {
-                "id": p.get("id"),
-                "tool_name": p.get("tool_name"),
-                "target_client": p.get("target_client"),
-                "arguments": p.get("arguments", {}),
-                "description": p.get("description", ""),
-                "query": p.get("query", ""),
-                "timestamp": p.get("timestamp"),
-            }
-            for p in all_pending
-        ],
+        "action": action,
+        "pending_list": list(reversed(all_pending)),
     }
 
 
@@ -356,10 +339,10 @@ async def confirm_action_endpoint(
     current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """
-    Phase 25: Duyệt / huỷ một tác vụ NEED_CONFIRM đang nằm trong hàng đợi.
+    Phase 25: Duyệt / huỷ một tác vụ đang nằm trong hàng đợi HITL duy nhất.
 
     Chỉ admin. Chỉ thực thi ĐÚNG tác vụ đang chờ (tên tool, tham số, máy đích
-    lấy từ StateManager) — `skill_name` / `args` / `client_id` trong body chỉ
+    lấy từ hàng đợi) — `skill_name` / `args` / `client_id` trong body chỉ
     để đối chiếu. Trước đây mọi người đã đăng nhập (kể cả viewer) gửi
     `{approved: true, skill_name, args}` là chạy thẳng skill bất kỳ trên máy
     chủ, không qua Zero-Trust/RBAC. Nay tác vụ đã duyệt chạy qua cổng tool
@@ -367,28 +350,30 @@ async def confirm_action_endpoint(
     """
     from mateai.application.security.safety_guard import security_engine
     from mateai.application.agent.state_manager import state_manager
-    from mateai.application.agent.tool_gate import run_tool_with_policy
+    from mateai.application.agent.tool_gate import pending_view
+    from mateai.application.security.zero_trust import hitl_manager
 
-    # ── Phase 25: Auto-resolve from StateManager ─────────────────────────
-    lookup_key = payload.action_id or payload.user_id or current_user.get("username", "admin")
-    pending = state_manager.get_pending_action(lookup_key)
-    # Chỉ lấy "tác vụ đang chờ đầu tiên" khi request KHÔNG chỉ định action_id.
-    # Có action_id mà không thấy (đã xử lý / hết hạn) thì không được duyệt nhầm
-    # sang một tác vụ khác trong hàng đợi.
-    if not pending and not payload.action_id and not payload.skill_name:
-        all_pending = state_manager.list_pending_actions()
-        if all_pending:
-            pending = all_pending[0]
-            lookup_key = pending.get("id") or "admin"
+    approver = str(current_user.get("username") or "admin")
+    # Có action_id → đúng yêu cầu đó (đã xử lý / hết hạn → 404, KHÔNG duyệt nhầm
+    # sang yêu cầu khác). Không có → yêu cầu mới nhất (modal cũ của portal).
+    if payload.action_id:
+        item = hitl_manager.get_pending(payload.action_id)
+    elif not payload.skill_name:
+        _all = hitl_manager.get_pending_list()
+        item = _all[-1] if _all else None
+    else:
+        _match = [it for it in hitl_manager.get_pending_list() if it.get("action_name") == payload.skill_name]
+        item = _match[-1] if _match else None
 
-    if not pending:
+    if not item:
         raise HTTPException(
             status_code=404,
             detail="Không tìm thấy tác vụ đang chờ phê duyệt (có thể đã được xử lý hoặc hết hạn).",
         )
-    skill_name = pending.get("tool_name") or ""
-    raw_args = dict(pending.get("arguments") or {})
-    client_id = pending.get("target_client") or "master"
+    pending = pending_view(item)
+    lookup_key = pending["id"]
+    skill_name = pending["tool_name"] or ""
+    client_id = pending["target_client"]
     if payload.skill_name and payload.skill_name != skill_name:
         raise HTTPException(
             status_code=409,
@@ -396,9 +381,9 @@ async def confirm_action_endpoint(
         )
 
     if not payload.approved:
-        # User rejected — clear from queue
-        state_manager.cancel_pending_action(lookup_key)
-        security_engine.log_audit(client_id, skill_name, "NEED_CONFIRM", "USER_REJECTED", raw_args)
+        rej = hitl_manager.reject(lookup_key, rejected_by=approver, reason="Từ chối trên Cổng Web")
+        if rej.get("status") != "success":
+            raise HTTPException(status_code=409, detail=rej.get("message"))
         rej_msg = f"Tác vụ '{skill_name}' đã bị người quản trị hủy bỏ."
 
         # Broadcast rejection to HUD
@@ -425,24 +410,16 @@ async def confirm_action_endpoint(
             "message": rej_msg,
         }
 
-    # Approved ── pop from queue then execute through the single tool gate
-    state_manager.get_and_clear_pending_action(lookup_key)
-    args = raw_args
-    approver = str(current_user.get("username") or "admin")
-
-    security_engine.log_audit(client_id, skill_name, "NEED_CONFIRM", "USER_APPROVED", {**args, "approved_by": approver})
+    # Duyệt qua hàng đợi chung: executor chạy tool qua cổng với approved=True,
+    # RBAC theo người YÊU CẦU; audit HITL_APPROVED_* ghi người duyệt.
     logger.info("[Phase 25] Admin '%s' phê duyệt tác vụ '%s' trên '%s'.", approver, skill_name, client_id)
-
+    approval = await hitl_manager.approve_async(lookup_key, approved_by=approver)
+    if approval.get("status") == "error":
+        raise HTTPException(status_code=409, detail=approval.get("message"))
+    res = approval.get("execution_result")
+    if res is None:
+        res = {"status": "error", "error": approval.get("execution_error") or approval.get("message")}
     orig_q = pending.get("query") or f"Thực thi {skill_name}"
-    _gate = await run_tool_with_policy(
-        skill_name,
-        {**args, "target_client": client_id},
-        caller=str(pending.get("user_id") or approver),
-        source_device=pending.get("source_device") or "http:approval",
-        query=orig_q,
-        approved=True,
-    )
-    res = _gate["result"]
 
     # ── Phase 25: Synthesize natural AI response & record completed action ────
     masked_res = security_engine.mask_sensitive_data(json.dumps(res, ensure_ascii=False, default=str))
@@ -460,7 +437,7 @@ async def confirm_action_endpoint(
         logger.warning("[Phase 25] Lỗi synthesize câu trả lời sau duyệt: %s", e)
         synth_reply = f"Dạ, tác vụ '{skill_name}' đã được phê duyệt và thực thi thành công."
 
-    state_manager.record_completed_action(dict(pending), res, synth_reply)
+    state_manager.record_completed_action(pending, res, synth_reply)
 
     # ── Phase 25: Nếu tác vụ xuất phát từ Telegram, gửi thông báo về Telegram ──
     tg_chat_id = pending.get("chat_id")

@@ -46,8 +46,13 @@ def gate(monkeypatch):
     monkeypatch.setattr(pr.plugin_registry, "get_tool_names", lambda: [])
     monkeypatch.setattr(avl.security_engine, "log_audit",
                         lambda *a, **k: calls["audit"].append(a[1:3]))
-    import mateai.application.agent.state_manager as smod
-    monkeypatch.setattr(smod.state_manager, "save_pending_action", lambda **kw: None)
+    calls["requests"] = []
+
+    def fake_request(**kw):
+        calls["requests"].append(kw)
+        return {"id": "HITL-TEST", **kw}
+
+    monkeypatch.setattr(avl.hitl_manager, "request_approval", fake_request)
     return calls, state
 
 
@@ -137,3 +142,26 @@ async def test_tool_arg_values_are_not_logged(gate, caplog):
                                        caller="admin", source_device="portal")
     assert "BÍ-MẬT-NỘI-DUNG" not in caplog.text
     assert "content" in caplog.text
+
+
+
+async def test_need_confirm_goes_to_the_single_hitl_queue(gate):
+    """Yêu cầu duyệt từ cổng tool nằm trong hàng đợi HITL chung (kind="tool")."""
+    calls, state = gate
+    state["risk"] = "NEED_CONFIRM"
+    out = await avl.run_tool_with_policy("kill_process", {"pid": 7, "target_client": "pc-01"},
+                                         caller="bob", source_device="web-widget", query="dừng tiến trình 7")
+    req = calls["requests"][0]
+    assert req["kind"] == "tool" and req["requested_by"] == "bob"
+    assert req["params"] == {"pid": 7} and req["context"]["target_client"] == "pc-01"
+    assert out["result"]["approval_id"] == "HITL-TEST"
+
+
+async def test_executor_reruns_the_queued_tool_as_the_requester(gate):
+    calls, state = gate
+    state["risk"] = "NEED_CONFIRM"
+    item = {"id": "HITL-X", "action_name": "kill_process", "params": {"pid": 7}, "requested_by": "bob",
+            "kind": "tool", "context": {"target_client": "master", "source_device": "web-widget", "query": "q"}}
+    await avl.execute_approved_tool(item)
+    assert calls["executed"] == [("kill_process", {"pid": 7})]
+    assert calls["rbac"] == [("kill_process", "bob")]

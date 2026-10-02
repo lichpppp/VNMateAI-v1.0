@@ -115,12 +115,41 @@ RISK_LEVEL_MAP: Dict[str, int] = {
 
 
 class HumanInTheLoopManager:
-    """Quản lý các hành động cần sự phê duyệt của con người (HITL Queue)."""
+    """
+    Hàng đợi phê duyệt DUY NHẤT (Human-in-the-Loop).
+
+    Mọi tác vụ rủi ro cao chờ duyệt ở đây — từ `/skills/execute`, Plugin
+    Registry, computer-use, và cổng tool chung (hội thoại, portal, `fs/*`,
+    máy trạm). Duyệt ở đâu cũng đi qua `approve_async`: portal, HUD, nút
+    Telegram, panel HITL doanh nghiệp, câu "đồng ý" trong hội thoại.
+
+    Yêu cầu có `kind` (vd "tool") được thực thi bằng executor đã đăng ký cho
+    loại đó (`register_executor`) thay vì closure — nên khôi phục được từ
+    audit_logs sau khi máy chủ khởi động lại (`restore_pending_from_audit`).
+    Trước đây cổng tool có hàng đợi riêng (StateManager): duyệt ở panel HITL
+    không thấy tác vụ từ hội thoại và ngược lại.
+    """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._pending_approvals: Dict[str, Dict[str, Any]] = {}
         self._action_callbacks: Dict[str, Callable] = {}
+        self._executors: Dict[str, Callable[[Dict[str, Any]], Any]] = {}
+
+    def register_executor(self, kind: str, executor: Callable[[Dict[str, Any]], Any]) -> None:
+        """Hàm async chạy một yêu cầu loại `kind` sau khi được duyệt: `await executor(item)`."""
+        self._executors[kind] = executor
+
+    def get_pending(self, approval_id: str) -> Optional[Dict[str, Any]]:
+        """Bản sao yêu cầu ĐANG CHỜ theo id (None nếu không có / đã xử lý / hết hạn)."""
+        with self._lock:
+            item = self._pending_approvals.get(str(approval_id or ""))
+            if not item or item.get("status") != "pending":
+                return None
+            if time.time() - item.get("_created_ts", 0) >= _APPROVAL_TTL_SECONDS:
+                item["status"] = "expired"
+                return None
+            return {k: v for k, v in item.items() if not k.startswith("_")}
 
     def get_risk_level(
         self,
@@ -202,9 +231,15 @@ class HumanInTheLoopManager:
         description: str = "",
         action_callback: Optional[Callable] = None,
         risk_level: Optional[int] = None,
+        kind: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Tạo yêu cầu phê duyệt Human-in-the-Loop và gửi thông báo tới CEO.
+
+        `kind` + `context`: yêu cầu được chạy bằng executor đã đăng ký cho
+        `kind` (không cần closure); `context` là dữ liệu executor cần (máy
+        đích, câu hỏi gốc, chat nguồn). Cả hai được ghi vào audit để khôi phục.
 
         `risk_level` là mức đã đánh giá từ cổng (`execute_with_hitl`). Truyền
         vào để số hiển thị trên tin nhắn Telegram và cổng web khớp đúng mức
@@ -231,7 +266,9 @@ class HumanInTheLoopManager:
         #   - Yêu cầu PENDING quá TTL (15 phút) → tự hủy (status = expired),
         #     KHÔNG bắn cảnh báo hết hạn. Thao tác sau đó mới tạo yêu cầu MỚI
         #     + tin MỚI — hệ thống không bao giờ tự nhắc lại.
-        fp = _token_for(action_name, params)
+        # Cùng tool + tham số nhưng khác máy đích là hai việc khác nhau.
+        fp = _token_for(action_name, params) if not context else _token_for(
+            action_name, {"p": params, "k": kind, "t": (context or {}).get("target_client")})
         now_ts = time.time()
         with self._lock:
             for _item in self._pending_approvals.values():
@@ -258,6 +295,8 @@ class HumanInTheLoopManager:
             "created_at": now_str,
             "reviewed_by": None,
             "reviewed_at": None,
+            "kind": kind,
+            "context": dict(context or {}),
             # Trường nội bộ phục vụ loại trùng Phase 83 — không xuất ra API.
             "_fp": fp,
             "_created_ts": now_ts,
@@ -285,7 +324,12 @@ class HumanInTheLoopManager:
             erp_db.log_audit_action(
                 employee_id=requested_by,
                 action_type=f"HITL_APPROVAL_REQUEST_{action_name.upper()}",
-                payload=json.dumps({"approval_id": approval_id, "risk_level": risk_level, "params": params}, ensure_ascii=False),
+                payload=json.dumps({
+                    "approval_id": approval_id, "risk_level": risk_level, "params": params,
+                    "action": action_name, "kind": kind, "context": item["context"],
+                    "requested_by": requested_by, "description": item["description"],
+                    "created_ts": now_ts,
+                }, ensure_ascii=False, default=str),
                 status="pending",
             )
         except Exception:
@@ -378,6 +422,12 @@ class HumanInTheLoopManager:
             item["reviewed_by"] = approved_by
             item["reviewed_at"] = now_str
             cb = self._action_callbacks.pop(approval_id, None)
+            executor = self._executors.get(item.get("kind") or "")
+        if cb is None and executor is not None:
+            snapshot = {k: v for k, v in item.items() if not k.startswith("_")}
+
+            async def cb() -> Any:  # executor theo loại yêu cầu
+                return await executor(snapshot)
         return item, cb, None
 
     def _build_approve_result(
@@ -424,10 +474,13 @@ class HumanInTheLoopManager:
                 payload=json.dumps({
                     "approval_id": approval_id,
                     "action": item["action_name"],
+                    "params": item.get("params"),
+                    "context": item.get("context"),
+                    "requested_by": item.get("requested_by"),
                     "executed": executed,
                     "execution_error": execution_error,
                     "result": str(execution_result),
-                }, ensure_ascii=False),
+                }, ensure_ascii=False, default=str),
                 status=audit_status,
                 approved_by=approved_by,
             )
@@ -636,6 +689,71 @@ class HumanInTheLoopManager:
             "message": f"Đã từ chối và ngăn chặn thực thi yêu cầu {approval_id}.",
             "item": item,
         }
+
+    def restore_pending_from_audit(self, limit: int = 2000) -> int:
+        """
+        Khôi phục yêu cầu đang chờ có `kind` (chạy được bằng executor) từ
+        audit_logs sau khi máy chủ khởi động lại. Yêu cầu dùng closure không
+        khôi phục được (closure mất theo tiến trình) — bỏ qua. Không gửi lại
+        tin Telegram. Trả về số yêu cầu đã khôi phục.
+        """
+        try:
+            from mateai.infrastructure.database.erp_database import erp_db
+            rows = erp_db.get_audit_logs(limit=limit, action_type="HITL_")
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning("[ZeroTrust HITL] Không đọc được audit để khôi phục: %s", exc)
+            return 0
+
+        requests: Dict[str, Dict[str, Any]] = {}
+        resolved: Set[str] = set()
+        for row in rows:
+            atype = str(row.get("action_type") or "")
+            try:
+                payload = json.loads(row.get("payload") or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            aid = str(payload.get("approval_id") or "")
+            if not aid:
+                continue
+            if atype.startswith("HITL_APPROVAL_REQUEST_"):
+                requests.setdefault(aid, payload)
+            elif atype.startswith(("HITL_APPROVED_", "HITL_REJECTED_")):
+                resolved.add(aid)
+
+        now_ts = time.time()
+        restored = 0
+        with self._lock:
+            for aid, p in requests.items():
+                kind = p.get("kind")
+                created = float(p.get("created_ts") or 0)
+                if (aid in resolved or aid in self._pending_approvals or not kind
+                        or now_ts - created >= _APPROVAL_TTL_SECONDS):
+                    continue
+                action = str(p.get("action") or "")
+                params = p.get("params") or {}
+                context = p.get("context") or {}
+                self._pending_approvals[aid] = {
+                    "id": aid,
+                    "action_name": action,
+                    "params": params,
+                    "requested_by": p.get("requested_by") or "unknown",
+                    "description": p.get("description") or f"Tác vụ '{action}'",
+                    "risk_level": p.get("risk_level"),
+                    "status": "pending",
+                    "created_at": datetime.fromtimestamp(created).strftime("%Y-%m-%d %H:%M:%S"),
+                    "reviewed_by": None,
+                    "reviewed_at": None,
+                    "kind": kind,
+                    "context": context,
+                    "_fp": _token_for(action, {"p": params, "k": kind, "t": context.get("target_client")}),
+                    "_created_ts": created,
+                }
+                restored += 1
+        if restored:
+            logger.info("[ZeroTrust HITL] Đã khôi phục %d yêu cầu đang chờ từ audit_logs.", restored)
+        return restored
 
 
 hitl_manager = HumanInTheLoopManager()

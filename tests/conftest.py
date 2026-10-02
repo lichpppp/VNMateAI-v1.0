@@ -35,6 +35,9 @@ ROOT = Path(__file__).resolve().parents[1]
 _TEST_DATA_DIR = Path(tempfile.mkdtemp(prefix="vnmateai-test-data-"))
 os.environ["VNMATEAI_DB_PATH"] = str(_TEST_DATA_DIR / "vnmateai.db")
 os.environ["VNMATEAI_HR_DB_PATH"] = str(_TEST_DATA_DIR / "hr_kpi.db")
+# config.json thật có token bot Telegram thật: test không được gửi tin chủ động
+# (cảnh báo, yêu cầu duyệt) vào nhóm vận hành. Tiến trình con kế thừa biến này.
+os.environ["VNMATEAI_TELEGRAM_OUTBOUND"] = "off"
 
 #: File cấu hình thật mà test có thể ghi vào. DB SQLite KHÔNG nằm trong danh
 #: sách: server có thể đang mở DB, chép đè lên DB đang mở sẽ làm hỏng dữ liệu.

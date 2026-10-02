@@ -27,7 +27,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 ## 3. Phê duyệt (HITL)
 
-- Một hàng đợi duy nhất: `mateai.application.security.zero_trust.hitl_manager`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút.
+- Một hàng đợi duy nhất: `mateai.application.security.zero_trust.hitl_manager` — cả tác vụ từ cổng tool (hội thoại, portal, `fs/*`, máy trạm; `kind="tool"`) lẫn `/skills/execute`, Plugin Registry, computer-use. Duyệt ở portal, HUD, panel HITL, nút Telegram hay câu "đồng ý" đều đi qua `approve_async`. Tool mức rủi ro ≥ 3 (hoặc `NEED_CONFIRM`) cần duyệt; yêu cầu hết hạn sau 15 phút; yêu cầu `kind="tool"` còn hạn được khôi phục từ audit khi khởi động lại (`test_pending_action_lookup`).
 - Tác vụ chỉ chạy **sau khi** được duyệt (callback), kể cả computer-use mức 4 (`test_phase90_computer_use`). Không tạo được yêu cầu duyệt → không chạy.
 - Duyệt qua: portal/HUD (`POST /api/v1/security/confirm-action`, `/api/v1/enterprise/hitl/approve`, lệnh `confirm_action` trên `/ws/hud` — **chỉ admin**), Telegram (chat trong `admin_chat_ids`), lệnh "đồng ý"/"huỷ" trong hội thoại: tác vụ của chính người nói, hoặc của người khác nếu người nói có role admin.
 - Duyệt chỉ chạy **đúng** tác vụ trong hàng đợi (tên tool, tham số, máy đích lấy từ hàng đợi; body không thay được), qua cổng tool chung với `approved=True`. Cờ `confirmed` trong tham số tool/body bị bỏ qua — LLM và client tự đặt được nó (`test_confirm_action_endpoint`, `test_tool_policy_gate`).
@@ -58,9 +58,8 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | Token CHUNG cho thiết bị vẫn được nhận (tương thích firmware cũ) | Trung bình → Thấp khi tắt | Đã có token riêng theo từng thiết bị. Sau khi nạp token riêng cho mọi robot, bật `security.require_per_device_token` (xem owner-todo.md) |
 | Cổng 8000 không TLS | Thấp–TB | Chỉ còn đường thiết bị; giới hạn bằng VLAN/tường lửa |
 | Hai mô hình role (portal ↔ RBAC) | Thấp | Ánh xạ cố định ở trên; gộp cần đổi role trong CSDL |
-| State trong bộ nhớ (HITL, phiên thoại, trí nhớ model) | Vận hành | Khởi động lại = mất yêu cầu duyệt đang chờ (pending action vẫn khôi phục từ audit) |
+| State trong bộ nhớ (HITL, phiên thoại, trí nhớ model) | Vận hành | Khởi động lại: yêu cầu từ cổng tool được khôi phục từ audit; yêu cầu dùng closure (`/skills/execute`, Plugin Registry, computer-use) bị mất — phải gửi lại |
 | Connector M365/eInvoice/Paperless/OCI chưa chạy thật | Chưa kiểm chứng | Bật từng connector trong môi trường thử trước |
 | Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
-| Hai hàng đợi chờ duyệt: `StateManager` (hội thoại, portal, `fs/*`) và `hitl_manager` (`/skills/execute`, Plugin Registry, Telegram) | Trung bình | Cả hai đều chỉ admin duyệt; gộp làm một ở phase Security tiếp theo |
 | `POST /api/v1/clients/{id}/kill-process` và `/deploy-skill` (admin) chạy thẳng trên máy trạm, không qua HITL | Thấp–TB | Chỉ admin, nay có audit (deploy ghi tên tệp + SHA-256 mã). Đưa qua HITL nếu cần duyệt hai người |
 | Hai endpoint đọc cùng bảng audit (`/api/v1/audit-logs` và `/api/v1/security/audit-logs`), UI gọi cả hai | Thấp | Cả hai chỉ admin (§4); gộp làm một ở phase Security |

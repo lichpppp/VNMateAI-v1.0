@@ -41,17 +41,21 @@ def test_rbac_rows_show_in_the_same_view():
 
 
 def test_pending_action_is_restored_from_audit_logs():
-    from mateai.application.agent.state_manager import StateManager
+    """Yêu cầu duyệt của cổng tool nằm trong audit_logs và khôi phục được; đã huỷ thì không."""
+    from mateai.application.security.zero_trust import HumanInTheLoopManager
 
-    security_engine.log_audit("pc-restore", "restart_service", "NEED_CONFIRM",
-                              "PENDING_CONFIRMATION", {"name": "spooler"})
-    sm = StateManager()
-    restored = [a for a in sm.list_pending_actions() if a.get("tool_name") == "restart_service"]
-    assert restored and restored[0]["target_client"] == "pc-restore"
+    m = HumanInTheLoopManager()
+    req = m.request_approval(action_name="restart_service", params={"name": "spooler"}, requested_by="ops",
+                             kind="tool", context={"target_client": "pc-restore"})
+    restored = HumanInTheLoopManager()
+    restored.restore_pending_from_audit()
+    got = restored.get_pending(req["id"])
+    assert got and got["action_name"] == "restart_service" and got["context"]["target_client"] == "pc-restore"
 
-    security_engine.log_audit("pc-restore", "restart_service", "NEED_CONFIRM", "USER_REJECTED", {})
-    sm2 = StateManager()
-    assert not [a for a in sm2.list_pending_actions() if a.get("tool_name") == "restart_service"]
+    m.reject(req["id"], rejected_by="admin")
+    again = HumanInTheLoopManager()
+    again.restore_pending_from_audit()
+    assert again.get_pending(req["id"]) is None
 
 
 def test_audit_log_cannot_be_cleared_over_http():
