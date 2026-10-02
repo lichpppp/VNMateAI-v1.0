@@ -56,15 +56,37 @@ class LLMStreamChunk:
 #: Phase 5 mỗi lượt thử lại từ đầu cả danh sách: 6 model hỏng × tới 5s mỗi cái
 #: = chữ đầu tiên sau ~22s (đo 2026-10-01).
 MODEL_COOLDOWN_S = 120.0
+#: Model nhà cung cấp báo "đã ngừng" không tự sống lại — xếp cuối lâu hơn để
+#: mỗi lượt không mất thêm một vòng gọi vô ích (đo được: 3 model ngừng + timeout
+#: làm một lượt REST mất 88 s). Vẫn thử lại sau đó phòng khi cấu hình đổi model.
+MODEL_RETIRED_COOLDOWN_S = 3600.0
 _model_down_until: Dict[str, float] = {}
 
 #: Giá trị mẫu còn sót trong config (vd. YOUR_MODEL_NAME_HERE) — không phải model.
 _PLACEHOLDER_RE = re.compile(r"^YOUR_[A-Z0-9_]*_HERE$", re.IGNORECASE)
 
 
-def _mark_model_failed(model: str, reason: Any) -> None:
-    _model_down_until[model] = time.monotonic() + MODEL_COOLDOWN_S
-    logger.warning("[LLMProvider] Tạm xếp cuối model '%s' trong %.0fs: %s", model, MODEL_COOLDOWN_S, reason)
+# Một số cổng (9Router) báo model đã ngừng bằng một câu trả lời BÌNH THƯỜNG
+# (HTTP 200), vd. "Gemini 3.5 Flash is no longer available. Please switch to
+# ...". Không nhận ra thì câu đó được đọc nguyên văn cho người dùng. Chỉ so ở
+# đầu câu trả lời và chỉ các cụm của nhà cung cấp (tiếng Anh).
+_RETIRED_MODEL_RE = re.compile(
+    r"\b(?:is|are|has been|have been) (?:no longer (?:available|supported)|deprecated|retired|discontinued)\b"
+    r"|\bplease (?:switch|upgrade|migrate) to\b",
+    re.IGNORECASE,
+)
+#: Số ký tự đầu của stream được giữ lại để kiểm tra trước khi phát ra.
+RETIRED_PROBE_CHARS = 60
+
+
+def looks_like_retired_model_reply(text: str) -> bool:
+    """Câu trả lời là thông báo "model đã ngừng" của nhà cung cấp, không phải nội dung."""
+    return bool(text) and bool(_RETIRED_MODEL_RE.search(text[:240]))
+
+
+def _mark_model_failed(model: str, reason: Any, cooldown_s: float = MODEL_COOLDOWN_S) -> None:
+    _model_down_until[model] = time.monotonic() + cooldown_s
+    logger.warning("[LLMProvider] Tạm xếp cuối model '%s' trong %.0fs: %s", model, cooldown_s, reason)
 
 
 def _mark_model_ok(model: str) -> None:
@@ -280,6 +302,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
         used_model = models[0]
         last_err = None
         t0 = time.monotonic()
+        primed: List[Any] = []
 
         for model_name in models:
             kwargs_api: Dict[str, Any] = {
@@ -296,10 +319,17 @@ class NineRouterLLMProvider(BaseLLMProvider):
 
             try:
                 logger.info("[NineRouterLLMProvider] Thử kết nối stream: role=%s, model=%s", brain_role, model_name)
-                stream = await asyncio.wait_for(
+                candidate = await asyncio.wait_for(
                     self.client.chat.completions.create(**kwargs_api),
                     timeout=5.0,
                 )
+                iterator = candidate.__aiter__()  # duyệt MỘT lần: đọc trước rồi đọc tiếp
+                primed, retired_text = await self._probe_retired(iterator, candidate)
+                if retired_text is not None:
+                    last_err = RuntimeError(f"Model {model_name} đã ngừng: {retired_text[:120]}")
+                    _mark_model_failed(model_name, f"đã ngừng: {retired_text[:120]}", MODEL_RETIRED_COOLDOWN_S)
+                    continue
+                stream = iterator
                 used_model = model_name
                 break
             except asyncio.TimeoutError:
@@ -319,7 +349,14 @@ class NineRouterLLMProvider(BaseLLMProvider):
             raise RuntimeError(f"Tất cả model {models} đều không phản hồi streaming: {last_err}")
 
         t_first_token: Optional[float] = None
-        async for chunk in stream:
+
+        async def _chunks():
+            for c in primed:
+                yield c
+            async for c in stream:  # cùng iterator đã đọc trước — không lặp lại chunk
+                yield c
+
+        async for chunk in _chunks():
             choice = chunk.choices[0] if chunk.choices else None
             if not choice:
                 continue
@@ -352,6 +389,39 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 reasoning=reasoning,
                 ttft_ms=ttft,
             )
+
+    @staticmethod
+    async def _probe_retired(iterator: Any, stream: Any) -> "tuple[List[Any], Optional[str]]":
+        """
+        Đọc trước vài chunk đầu (tới RETIRED_PROBE_CHARS ký tự, tool call, hoặc
+        hết stream) để nhận ra câu "model đã ngừng". Trả (chunk đã đọc, text nếu
+        là model đã ngừng). Chunk đã đọc được phát lại nguyên vẹn cho người gọi.
+        """
+        buffered: List[Any] = []
+        text = ""
+        while True:
+            try:
+                chunk = await iterator.__anext__()
+            except StopAsyncIteration:
+                break
+            buffered.append(chunk)
+            choice = chunk.choices[0] if chunk.choices else None
+            if not choice:
+                continue
+            if getattr(choice.delta, "tool_calls", None):
+                return buffered, None
+            text += getattr(choice.delta, "content", "") or ""
+            if len(text) >= RETIRED_PROBE_CHARS or getattr(choice, "finish_reason", None):
+                break
+        if looks_like_retired_model_reply(text):
+            close = getattr(stream, "close", None)
+            if close is not None:
+                try:
+                    await close()
+                except Exception:  # pylint: disable=broad-except
+                    pass
+            return buffered, text
+        return buffered, None
 
     async def complete(
         self,
@@ -386,6 +456,13 @@ class NineRouterLLMProvider(BaseLLMProvider):
                     self.client.chat.completions.create(**kwargs_api),
                     timeout=timeout_s,
                 )
+                msg = response.choices[0].message if getattr(response, "choices", None) else None
+                content = getattr(msg, "content", "") or ""
+                if msg is not None and not getattr(msg, "tool_calls", None) \
+                        and looks_like_retired_model_reply(content):
+                    last_err = RuntimeError(f"Model {model_name} đã ngừng: {content[:120]}")
+                    _mark_model_failed(model_name, f"đã ngừng: {content[:120]}", MODEL_RETIRED_COOLDOWN_S)
+                    continue
                 _mark_model_ok(model_name)
                 return response
             except asyncio.TimeoutError:

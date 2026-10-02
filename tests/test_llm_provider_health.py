@@ -81,3 +81,77 @@ async def test_all_cooling_still_tried():
     resp = await p.complete(messages=[])  # cả hai đang bị xếp cuối nhưng vẫn được thử
     assert resp.model == "a"
     assert lp.model_health() == {"b": pytest.approx(lp.MODEL_COOLDOWN_S, abs=1)}
+
+
+RETIRED = ("Gemini 3.5 Flash is no longer available. Please switch to Gemini 3.7 Flash "
+           "in the latest version of Antigravity.")
+
+
+class ChattyClient:
+    """Model trả lời bằng chữ (HTTP 200); `replies[model]` là nội dung trả về."""
+
+    def __init__(self, replies, chunk=7):
+        self.replies = replies
+        self.chunk = chunk
+        self.calls = []
+        self.closed = []
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+    async def _create(self, **kw):
+        model = kw["model"]
+        self.calls.append(model)
+        text = self.replies[model]
+        if kw.get("stream"):
+            parts = [text[i:i + self.chunk] for i in range(0, len(text), self.chunk)]
+            closed = self.closed
+
+            class S:
+                # Như AsyncStream của openai: chỉ duyệt MỘT lần trên cùng response.
+                def __init__(self):
+                    self._it = self._gen()
+
+                def __aiter__(self):
+                    return self._it
+
+                async def _gen(self):
+                    for i, part in enumerate(parts):
+                        delta = SimpleNamespace(content=part, tool_calls=None, reasoning=None, reasoning_content=None)
+                        yield SimpleNamespace(choices=[SimpleNamespace(
+                            delta=delta, finish_reason="stop" if i == len(parts) - 1 else None)])
+
+                async def close(self):
+                    closed.append(model)
+
+            return S()
+        msg = SimpleNamespace(content=text, tool_calls=None)
+        return SimpleNamespace(model=model, choices=[SimpleNamespace(message=msg, finish_reason="stop")])
+
+
+async def test_complete_skips_retired_model_reply():
+    client = ChattyClient({"old": RETIRED, "new": "Dạ, RAID 1 là nhân bản ổ đĩa."})
+    p = lp.NineRouterLLMProvider(client, "old", ["new"])
+    res = await p.complete(messages=[])
+    assert res.model == "new" and client.calls == ["old", "new"]
+    assert lp.model_health()["old"] > lp.MODEL_COOLDOWN_S, "model đã ngừng phải xếp cuối lâu hơn lỗi tạm thời"
+
+
+async def test_stream_skips_retired_model_and_keeps_full_reply():
+    good = "Dạ, RAID 1 là nhân bản dữ liệu sang hai ổ đĩa giống hệt nhau để chống mất dữ liệu ạ."
+    client = ChattyClient({"old": RETIRED, "new": good})
+    p = lp.NineRouterLLMProvider(client, "old", ["new"])
+    chunks = [c async for c in p.stream(messages=[])]
+    assert "".join(c.content for c in chunks) == good, "chunk đã đọc trước phải được phát lại đủ"
+    assert {c.model for c in chunks} == {"new"}
+    assert client.closed == ["old"]
+
+
+async def test_normal_and_short_replies_are_not_flagged():
+    for text in ("Dạ.", "Dạ, máy chủ đang chạy ổn định ạ.",
+                 "The printer is no longer in the office, sếp ạ"):
+        lp._model_down_until.clear()
+        client = ChattyClient({"m": text})
+        p = lp.NineRouterLLMProvider(client, "m", [])
+        out = "".join([c.content async for c in p.stream(messages=[])])
+        assert out == text and client.calls == ["m"]
+    assert lp.looks_like_retired_model_reply(RETIRED)
+    assert lp.looks_like_retired_model_reply("This model has been deprecated.")

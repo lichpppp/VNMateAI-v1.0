@@ -348,3 +348,21 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Sự cố trong lúc làm:** chạy tay `python tests/test_phase60_sot_bao_mat.py` (không qua pytest → không có cô lập DB của conftest) đã ghi 14 dòng `HITL_*` vào `audit_logs` thật (id 55–68). Bảng là bất biến; chưa xoá — chờ chủ dự án quyết định.
 
 **Còn lại (Security):** gộp hai mô hình role (quyết định sản phẩm).
+
+## 15. Báo cáo LLM (tiếp) — nhận ra model đã ngừng (2026-10-02)
+
+**PHASE:** LLM/Agent (bổ sung, ưu tiên vì ảnh hưởng trực tiếp người dùng)
+**STATUS:** XONG
+
+**Lỗi:** 9Router báo model đã ngừng bằng một câu trả lời HTTP 200 bình thường ("Gemini 3.5 Flash is no longer available. Please switch to …"). Provider coi là thành công → câu đó được hiển thị/đọc cho người dùng và tool không bao giờ chạy (gặp thật trên server lúc kiểm tra §14).
+
+**Sửa (`core/llm_provider.py`, một chỗ cho mọi kênh):**
+- `complete()`: câu trả lời không có tool call mà khớp mẫu thông báo ngừng của nhà cung cấp → coi là model hỏng, thử model kế tiếp.
+- `stream()`: đọc trước tối đa 60 ký tự đầu (hoặc tới tool call / hết stream) trên CÙNG iterator, kiểm tra, rồi phát lại nguyên vẹn các chunk đã đọc. SentenceBuffer vốn cần ~8 từ mới phát câu đầu nên không thêm trễ đáng kể (không đo riêng).
+- Model đã ngừng xếp cuối 1 giờ (`MODEL_RETIRED_COOLDOWN_S`), lỗi tạm thời giữ 120 s.
+- Mẫu chỉ khớp cụm của nhà cung cấp (tiếng Anh: "is no longer available/supported", "has been deprecated", "please switch to") ở 240 ký tự đầu; câu trả lời tiếng Việt bình thường không bị bắt nhầm (có test).
+
+**Test:** 228 pass / 0 fail. Thêm 3 test trong `test_llm_provider_health.py` (fail trên code cũ).
+**Runtime:** trước khi sửa: REST trả nguyên câu "Gemini 3.5 Flash is no longer available", không chạy tool. Sau khi sửa: log ghi 3 model `ag/gemini-*` bị bỏ qua vì "đã ngừng", tool `get_system_info` chạy thật và có trong `audit_logs` (người gọi `admin`); lượt đó 88 s do các model khác timeout. Sau khi tăng cooldown: 2 lượt liên tiếp 9,1 s và 6,8 s — nhưng lần chạy này 9Router không trả câu "ngừng" nào, nên không quy được mức cải thiện cho thay đổi.
+
+**Cần làm ở cấu hình (không sửa thay chủ dự án):** danh sách model trong cấu hình còn các model `ag/gemini-3.5-*` / `ag/gemini-3-flash-agent` đã ngừng — cần thay bằng model đang chạy trong trang cấu hình LLM.
