@@ -203,7 +203,7 @@ console.log('\n── 3. Lọc nhiễu nhật ký ──');
   check('log khởi động KHÔNG bị coi là nhiễu',
     M._isOpsNoise({ logger: 'core.server', message: 'FastAPI startup: loaded 76 skill(s).' }) === false);
   check('cảnh báo nghiêm trọng KHÔNG bị coi là nhiễu',
-    M._isOpsNoise({ logger: 'core.llm_engine', message: 'All models failed' }) === false);
+    M._isOpsNoise({ logger: 'mateai.application.agent.llm_engine', message: 'All models failed' }) === false);
 }
 
 // ═══ 4. Phân mức rủi ro ══════════════════════════════════════════════════

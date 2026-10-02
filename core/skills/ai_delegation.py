@@ -156,9 +156,9 @@ async def delegate_to_specialist_async(
     ]
 
     # Phase 5: thử model + nhớ model hỏng do provider chung đảm nhận
-    # (core.llm_provider). Client tạo trong event loop hiện tại vì
+    # (mateai.infrastructure.llm.llm_provider). Client tạo trong event loop hiện tại vì
     # delegate_to_specialist() đồng bộ chạy hàm này trong một loop riêng.
-    from core.llm_provider import NineRouterLLMProvider
+    from mateai.infrastructure.llm.llm_provider import NineRouterLLMProvider
     models = cfg["specialist_models"]
     client = AsyncOpenAI(
         base_url=base_url,

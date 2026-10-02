@@ -29,7 +29,7 @@ from core.config_loader import settings
 from mateai.application.voice.speech_text import sanitise_for_tts
 
 # RBAC (Phase 48) áp dụng trong cổng thực thi tool chung:
-# core.agent_voice_loop.run_tool_with_policy
+# mateai.application.agent.tool_gate.run_tool_with_policy
 
 logger = logging.getLogger(__name__)
 
@@ -168,8 +168,9 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
 
     # Phase 50: Inject Core Identity (identity_core.md) into System Prompt
     try:
-        from pathlib import Path
-        id_path = Path(__file__).resolve().parent.parent / "identity_core.md"
+        from core.config_loader import settings as _settings
+        # Thư mục gốc dự án (đúng cả khi chạy bản đóng gói) — không dựa vào vị trí file này.
+        id_path = _settings.PROJECT_ROOT / "identity_core.md"
         if id_path.is_file():
             id_text = id_path.read_text(encoding="utf-8").strip()
             if id_text:
@@ -517,7 +518,7 @@ class LLMEngine:
         """
         Phase 2: Lấy LLM Provider chuẩn hóa theo vai trò Tri-Brain và routing_mode.
         """
-        from core.llm_provider import DirectLLMProvider, NineRouterLLMProvider, TriBrainLLMProvider
+        from mateai.infrastructure.llm.llm_provider import DirectLLMProvider, NineRouterLLMProvider, TriBrainLLMProvider
         cfg = settings.llm
         direct_prov = None
         if self._direct_client and cfg.direct_url:
@@ -583,7 +584,7 @@ class LLMEngine:
         brain_role: str = "controller",
     ) -> Any:
         """
-        Gọi LLM không stream (vòng agent) qua provider chung (core.llm_provider).
+        Gọi LLM không stream (vòng agent) qua provider chung (mateai.infrastructure.llm.llm_provider).
 
         routing_mode: 'router' (9Router, có danh sách dự phòng) | 'direct' (gọi thẳng
         LM Studio / Ollama / DeepSeek) | 'auto' (direct trước, lỗi thì router).
@@ -753,7 +754,7 @@ class LLMEngine:
                 # Thực thi qua cổng chung (RBAC + audit; confirmed=True nên không hỏi
                 # lại). Trước Phase 6: asyncio.to_thread(plugin_manager.execute_skill)
                 # — execute_skill là async nên tác vụ đã duyệt không bao giờ chạy.
-                from core.agent_voice_loop import run_tool_with_policy
+                from mateai.application.agent.tool_gate import run_tool_with_policy
                 _gate = await run_tool_with_policy(
                     tool_name,
                     {**args, "target_client": target_client},
@@ -990,7 +991,7 @@ class LLMEngine:
 
                     # Cổng thực thi tool dùng chung (Zero-Trust, HITL, RBAC, audit) —
                     # cùng một implementation với đường voice realtime.
-                    from core.agent_voice_loop import run_tool_with_policy
+                    from mateai.application.agent.tool_gate import run_tool_with_policy
                     _gate = await run_tool_with_policy(
                         fn_name, fn_args,
                         caller=caller_id,
@@ -1277,7 +1278,7 @@ class LLMEngine:
             tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
 
         # Phase 5: mở stream + thử model dự phòng do provider chung đảm nhận
-        # (core.llm_provider — nhớ model hỏng, bỏ qua giá trị mẫu trong cấu hình).
+        # (mateai.infrastructure.llm.llm_provider — nhớ model hỏng, bỏ qua giá trị mẫu trong cấu hình).
         # Mọi model đều lỗi -> ngoại lệ ở lần lặp đầu, khối except bên dưới phát
         # câu xin lỗi như trước.
         provider = self.get_provider(brain_role=role)

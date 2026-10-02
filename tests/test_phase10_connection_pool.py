@@ -28,7 +28,7 @@ from core.connection_pool import (
     get_tts_http_client,
     get_general_http_client,
 )
-from core.llm_engine import llm_engine
+from mateai.application.agent.llm_engine import llm_engine
 
 
 async def test_pool_singleton_and_identity():
@@ -82,7 +82,7 @@ async def test_pool_configuration_and_diagnostics():
 async def test_llm_engine_integration():
     print("\n▸ 3. Kiểm thử Tích Hợp LLMEngine (LLMEngine Integration)")
 
-    from core.llm_engine import _get_shared_http_client
+    from mateai.application.agent.llm_engine import _get_shared_http_client
     shared_client = await _get_shared_http_client()
     llm_pool = await get_llm_http_client()
 

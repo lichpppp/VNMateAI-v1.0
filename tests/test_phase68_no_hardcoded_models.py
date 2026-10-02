@@ -93,7 +93,8 @@ def dead_hits(text: str) -> list[str]:
 section("Mã nguồn không còn tên model chết")
 
 TARGETS = [
-    "core/llm_engine.py", "core/config_loader.py", "core/server.py",
+    "src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
+    "core/config_loader.py", "core/server.py",
     "core/health_monitor.py", "core/meta_architect.py",
     "web/app.js", "web/index.html",
     # Phase 82: template theo dõi bởi git — nếu nó chứa tên model chết thì
@@ -246,7 +247,7 @@ check("không ghi cứng model chết trong ai_delegation", not dead_hits(deleg)
 
 # ══ 6. Báo lỗi rõ ràng khi chưa cấu hình model ══════════════════════════
 section("Không cấu hình model thì báo lỗi rõ ràng")
-lle = (ROOT / "core" / "llm_engine.py").read_text(encoding="utf-8")
+lle = (ROOT / "src" / "mateai" / "application" / "agent" / "llm_engine.py").read_text(encoding="utf-8")
 check("ask_async chặn danh sách model rỗng", "if not models:" in lle)
 check("stream_voice_response chặn danh sách model rỗng",
       lle.count("if not models:") >= 2,

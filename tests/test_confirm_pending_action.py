@@ -17,12 +17,12 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.llm_engine import llm_engine  # noqa: E402
+from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
 from core.state_manager import state_manager  # noqa: E402
 
 
 async def test_confirm_runs_the_approved_tool_through_the_gate(monkeypatch):
-    import core.agent_voice_loop as avl
+    import mateai.application.agent.tool_gate as avl
 
     gate_calls = []
 
@@ -59,7 +59,7 @@ async def test_confirm_finds_action_saved_under_logged_in_caller(monkeypatch):
     Trước đây ask_async tra pending theo source_device nên "Đồng ý" không bao
     giờ tìm thấy tác vụ của người dùng đã đăng nhập.
     """
-    import core.agent_voice_loop as avl
+    import mateai.application.agent.tool_gate as avl
 
     gate_calls = []
 

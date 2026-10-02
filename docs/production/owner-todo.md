@@ -11,6 +11,7 @@ Dành cho: chủ dự án / quản trị viên. Những việc dưới đây c�
   - Bỏ giá trị mẫu `YOUR_MODEL_NAME_HERE` trong danh sách model chuyên gia.
   - Đặt model đang chạy lên đầu (đã chạy được khi kiểm tra: `ag/gemini-3-flash`).
   - Kiểm: hỏi một câu trên portal; log không còn dòng `Tạm xếp cuối model …`.
+- [ ] **Kiểm tra dịch vụ 9Router** (`http://localhost:20128`): lúc 2026-10-02 15:50 *mọi* model trả timeout 8 s hoặc lỗi 400 — trợ lý trả câu "hệ thống xử lý ngôn ngữ đang quá tải". Lệnh thoại nhanh (giờ, thời tiết…) không bị ảnh hưởng.
 
 ## Khi bật Telegram
 

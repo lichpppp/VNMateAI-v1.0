@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core.server as server  # noqa: E402
-from core.llm_engine import llm_engine  # noqa: E402
+from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
 
 SENTENCES = [f"Đây là câu số {i} của câu trả lời." for i in range(1, 6)]
 # Câu 1 sinh TTS chậm nhất, câu sau nhanh dần -> nếu phát theo thứ tự hoàn

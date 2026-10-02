@@ -1,7 +1,7 @@
 """
 tests/test_tool_policy_gate.py
 ==============================
-Cổng thực thi tool chung `core.agent_voice_loop.run_tool_with_policy`.
+Cổng thực thi tool chung `mateai.application.agent.tool_gate.run_tool_with_policy`.
 
 Trước Phase 3, đường voice realtime (portal) gọi tool qua một bản riêng import
 `zero_trust.evaluate_risk` — hàm không tồn tại — rồi nuốt lỗi, nên mọi tool chạy
@@ -17,7 +17,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.agent_voice_loop as avl  # noqa: E402
+import mateai.application.agent.tool_gate as avl  # noqa: E402
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ async def test_safe_tool_runs_and_is_audited(gate):
 async def test_caller_identity_reaches_rbac_from_agent_loop(gate, monkeypatch):
     """ask_async truyền `caller` (portal: username) tới cổng — không dùng tên kênh."""
     calls, _ = gate
-    from core.llm_engine import llm_engine
+    from mateai.application.agent.llm_engine import llm_engine
     import inspect
     assert "caller" in inspect.signature(llm_engine.ask_async).parameters
     assert "caller" in inspect.signature(llm_engine.stream_voice_response).parameters

@@ -1,7 +1,7 @@
 """
 tests/test_llm_provider_health.py
 =================================
-Provider LLM chung (core.llm_provider.NineRouterLLMProvider) nhớ model hỏng.
+Provider LLM chung (mateai.infrastructure.llm.llm_provider.NineRouterLLMProvider) nhớ model hỏng.
 
 Trước Phase 5 mỗi lượt thử lại từ đầu danh sách model: đo được 6 model hỏng/chậm
 × tới 5 s trước khi gặp model chạy được (chữ đầu tiên sau ~22 s). Không gọi mạng.
@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.llm_provider as lp  # noqa: E402
+import mateai.infrastructure.llm.llm_provider as lp  # noqa: E402
 
 
 class FakeClient:

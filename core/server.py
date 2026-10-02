@@ -2613,7 +2613,7 @@ async def voice_command(
     proper StateManager matching and multi-turn conversation continuity.
     Optionally includes base64-encoded audio in the response.
     """
-    from core.llm_engine import llm_engine
+    from mateai.application.agent.llm_engine import llm_engine
 
     source_device = payload.source_device or "web"
 
@@ -5701,7 +5701,7 @@ async def confirm_action_endpoint(
     masked_res = security_engine.mask_sensitive_data(json.dumps(res, ensure_ascii=False, default=str))
     synth_reply = ""
     try:
-        from core.llm_engine import llm_engine
+        from mateai.application.agent.llm_engine import llm_engine
         synth_messages = [
             {"role": "system", "content": "Bạn là trợ lý AI Ly Ly (VN-MateAI). Hãy tổng hợp kết quả công cụ để trả lời súc tích, tự nhiên, kính cẩn bằng tiếng Việt cho người dùng."},
             {"role": "user", "content": orig_q},

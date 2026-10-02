@@ -24,7 +24,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core.realtime_voice_ws as rvw  # noqa: E402
-from core.llm_engine import llm_engine  # noqa: E402
+from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
 from core.memory_manager import memory_manager  # noqa: E402
 
 REPLY = "Dạ, RAID 1 ghi cùng dữ liệu lên **hai ổ**. Một ổ hỏng thì ổ kia vẫn còn nguyên."

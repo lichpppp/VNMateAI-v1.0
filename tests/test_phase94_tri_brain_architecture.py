@@ -16,7 +16,7 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.llm_engine import llm_engine
+from mateai.application.agent.llm_engine import llm_engine
 from core.config_loader import settings
 
 

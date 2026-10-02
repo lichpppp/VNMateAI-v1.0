@@ -694,7 +694,7 @@ class VoiceController:
         Fallback: synchronous LLM call with history (no streaming).
         Used when streaming fails or produces empty output.
         """
-        from core.llm_engine import llm_engine
+        from mateai.application.agent.llm_engine import llm_engine
         try:
             from core.memory_manager import memory_manager
             return llm_engine.process_voice_command_sync(
@@ -712,7 +712,7 @@ class VoiceController:
         return self._get_llm_response_with_history_sync(text)
 
     async def _get_llm_response_async(self, text: str) -> str:
-        from core.llm_engine import llm_engine
+        from mateai.application.agent.llm_engine import llm_engine
         try:
             response = await llm_engine.chat(
                 messages=[{"role": "user", "content": text}],

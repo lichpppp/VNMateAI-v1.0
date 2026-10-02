@@ -61,7 +61,7 @@ def section(title: str) -> None:
 # 1. _compact_reasoning — hàm thuần
 # ─────────────────────────────────────────────────────────────────────────────
 def test_compact_reasoning() -> None:
-    from core.llm_engine import LLMEngine
+    from mateai.application.agent.llm_engine import LLMEngine
 
     section("_compact_reasoning: gọn mà không bỏ nội dung")
 
@@ -153,7 +153,7 @@ async def _noop_ensure() -> None:
 
 
 def test_stream_reasoning() -> None:
-    from core.llm_engine import llm_engine
+    from mateai.application.agent.llm_engine import llm_engine
 
     section("stream_voice_response: gom suy nghĩ, giữ câu trả lời sạch")
 
@@ -220,7 +220,7 @@ def _fake_response(content: str, reasoning: str):
 
 
 def test_agentic_reasoning() -> None:
-    from core.llm_engine import llm_engine
+    from mateai.application.agent.llm_engine import llm_engine
 
     section("ask_async: kết quả kèm reasoning, content sạch")
 

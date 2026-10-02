@@ -121,7 +121,7 @@ class MetaArchitect:
                 "Quản Lý Trợ Lý AI > Bộ Não & Xử Lý Ngôn Ngữ."
             )
 
-        from core.llm_provider import complete_text_blocking
+        from mateai.infrastructure.llm.llm_provider import complete_text_blocking
         try:
             raw_response, used_model = complete_text_blocking(
                 base_url, api_key or "sk-dummy", candidate_models,

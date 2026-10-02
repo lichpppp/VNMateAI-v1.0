@@ -116,7 +116,7 @@ async def process_voice_turn(
     await sink.on_status("thinking")
 
     # ── 2. Câu đệm cho tác vụ cần tool (từ cache, trước khi gọi LLM) ───────
-    from core.llm_engine import llm_engine
+    from mateai.application.agent.llm_engine import llm_engine
     acked = False
     if pre_ack:
         intent = llm_engine.classify_intent(query)

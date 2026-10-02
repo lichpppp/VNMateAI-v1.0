@@ -182,7 +182,7 @@ if tb:
 
 # ══ 4. Không phát filler trùng ở đường tool ═══════════════════════════════
 section("Đường tool không phát filler lần thứ hai")
-lle = Path(__file__).resolve().parents[1] / "core" / "llm_engine.py"
+lle = Path(__file__).resolve().parents[1] / "src" / "mateai" / "application" / "agent" / "llm_engine.py"
 l_src = lle.read_text(encoding="utf-8")
 check("stream_voice_response không tự phát filler",
       "_play_cached_phrase_instant_async" not in l_src,

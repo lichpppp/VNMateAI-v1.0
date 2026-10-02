@@ -586,3 +586,22 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime:** khởi động không lỗi import, `/readyz` ok; bench thật qua `/ws/v1/voice-stream`: fast path chữ đầu 258 ms, audio đầu 3,0 s; TTS engine chunk đầu 1,96 s. Lượt LLM 88,9 s chữ đầu — do danh sách model 9Router (hỏng/hết quota, xem owner-todo.md), không liên quan việc chuyển code.
 
 **Còn lại của Phase 4 (theo thứ tự D1):** LLM/Agent (`llm_provider`, `llm_engine`, `agent_voice_loop`), Skills (`plugin_manager`, `plugin_registry`), Security (`security_guard`, `zero_trust`, `safety_guard`, `auth_manager`), Data (`database`, `db_manager`), Connectors, rồi interfaces (`server.py`).
+
+## 29. Phase 4 — LLM/Agent vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/llm_provider.py` | `mateai/infrastructure/llm/llm_provider.py` |
+| `core/llm_engine.py` | `mateai/application/agent/llm_engine.py` |
+| `core/agent_voice_loop.py` (cổng tool `run_tool_with_policy`) | `mateai/application/agent/tool_gate.py` |
+
+27 file đổi import, không shim. **Đã xoá** bản viết lại song song không có caller: `infrastructure/llm/{provider_interface,openai_compatible_adapter,router_adapter,groq_adapter,deepseek_adapter,factory}.py`, `application/agent/llm_orchestrator.py`, `tests/unit/test_llm_providers.py`.
+
+**Bẫy đường dẫn đã xử lý trước khi chuyển:**
+- `build_system_prompt` tìm `identity_core.md` bằng `Path(__file__).parent.parent` → đổi sang `settings.PROJECT_ROOT`; thêm `test_system_prompt_identity.py` (đạt cả trước và sau khi chuyển).
+- `test_phase66_persona_pronoun` suy thư mục gốc từ vị trí `llm_engine` → sau khi chuyển nó GHI một bản sao `config.json` (kèm khoá) vào `src/mateai/application/`. File đã xoá (bị `.gitignore` chặn, chưa từng vào git); test nay lấy thư mục gốc từ vị trí của chính nó.
+- `test_phase68`, `test_phase80` (quét model chết / khoá trong mã) cập nhật đường dẫn và quét thêm `llm_provider.py`.
+
+**Test:** 269 pass. **Runtime:** khởi động không lỗi import, `/readyz` ok; log do `mateai.infrastructure.llm.llm_provider` / `mateai.application.agent.llm_engine` ghi (code ở vị trí mới đang chạy). Lúc kiểm tra 9Router timeout/400 với mọi model → trợ lý trả câu báo quá tải (đúng hành vi, đã ghi vào owner-todo). Voice fast path: chữ đầu 261 ms, audio đầu 1,7 s.

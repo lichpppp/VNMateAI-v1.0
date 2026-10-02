@@ -70,7 +70,7 @@ def _ask_llm_for_sql(question: str) -> Tuple[str, str, str]:
     """
     try:
         from core.skills.ai_delegation import _get_llm_config
-        from core.llm_provider import complete_text_blocking
+        from mateai.infrastructure.llm.llm_provider import complete_text_blocking
     except Exception as exc:
         return "", "", f"không import được LLM provider: {exc}"
 

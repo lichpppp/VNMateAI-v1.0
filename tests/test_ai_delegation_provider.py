@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.llm_provider as lp  # noqa: E402
+import mateai.infrastructure.llm.llm_provider as lp  # noqa: E402
 import core.skills.ai_delegation as deleg  # noqa: E402
 
 
@@ -75,7 +75,7 @@ async def test_all_models_fail_returns_error_not_exception(fake):
 # ── cầu nối đồng bộ dùng chung (analytics_engine, meta_architect) ────────────
 def test_sync_bridge_skips_retired_model_and_returns_text(monkeypatch):
     """Code trong thread worker dùng cùng provider: model đã ngừng bị bỏ qua."""
-    import core.llm_provider as lp
+    import mateai.infrastructure.llm.llm_provider as lp
     from types import SimpleNamespace
 
     calls = []
@@ -103,7 +103,7 @@ def test_sync_bridge_skips_retired_model_and_returns_text(monkeypatch):
 
 
 def test_analytics_and_meta_architect_use_the_shared_bridge(monkeypatch):
-    import core.llm_provider as lp
+    import mateai.infrastructure.llm.llm_provider as lp
     import core.analytics_engine as ae
     from core.meta_architect import meta_architect
 

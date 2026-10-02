@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import mateai.application.voice.voice_turn as vt  # noqa: E402
-from core.llm_engine import llm_engine  # noqa: E402
+from mateai.application.agent.llm_engine import llm_engine  # noqa: E402
 
 
 class RecSink(vt.VoiceSink):

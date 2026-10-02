@@ -114,17 +114,17 @@ async def main():
 
     # 7. Dual-Mode Routing Config Fields
     section("7. Dual-Mode Routing Engine Check")
-    from core.llm_engine import llm_engine
+    from mateai.application.agent.llm_engine import llm_engine
     from core.config_loader import settings
 
     check("Hỗ trợ routing_mode trong config", hasattr(settings.llm, "routing_mode"))
     check("Hỗ trợ direct_url trong config", hasattr(settings.llm, "direct_url"))
     check("Hỗ trợ direct_model trong config", hasattr(settings.llm, "direct_model"))
-    # Phase 5: direct / router / auto do provider chung (core.llm_provider) xử lý.
+    # Phase 5: direct / router / auto do provider chung (mateai.infrastructure.llm.llm_provider) xử lý.
     import inspect as _inspect
     _src = _inspect.getsource(llm_engine._call_llm)
     check("LLMEngine._call_llm đi qua provider chung", "get_provider(" in _src and "routing_mode" in _src)
-    from core.llm_provider import DirectLLMProvider, NineRouterLLMProvider  # noqa: F401
+    from mateai.infrastructure.llm.llm_provider import DirectLLMProvider, NineRouterLLMProvider  # noqa: F401
     check("provider có chế độ direct và router", True)
 
     # ── Tổng kết ─────────────────────────────────────────────────────────────

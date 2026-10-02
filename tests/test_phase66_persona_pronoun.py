@@ -71,9 +71,9 @@ base_cfg["persona"] = PERSONA
 _TMP.write_text(json.dumps(base_cfg, ensure_ascii=False), encoding="utf-8")
 
 # Trỏ build_system_prompt vào file tạm
-import core.llm_engine as lll  # noqa: E402
+import mateai.application.agent.llm_engine as lll  # noqa: E402
 
-_real_root = Path(lll.__file__).resolve().parent.parent
+_real_root = Path(__file__).resolve().parents[1]  # thư mục gốc dự án (không suy từ vị trí module)
 _ccc = _real_root / "config.json"
 _ccc_backup = _ccc.read_text(encoding="utf-8") if _ccc.is_file() else None
 _TMP2 = _real_root / "config.json"
@@ -175,7 +175,7 @@ check("giá trị cũ không còn sót lại", f"tự gọi mình: dùng '{AI_PR
 
 # ══ 4. Chịu được config hỏng ═════════════════════════════════════════════
 section("Config hỏng / thiếu — không được làm sập hội thoại")
-import core.llm_engine as lll2  # noqa: E402
+import mateai.application.agent.llm_engine as lll2  # noqa: E402
 
 if _ccc_backup is not None:
     _ccc.write_text("{ khong phai json hop le", encoding="utf-8")

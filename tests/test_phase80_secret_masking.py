@@ -598,7 +598,8 @@ for marker in ("YOUR_9ROUTER_KEY_HERE", "YOUR_GROQ_API_KEY_HERE", "YOUR_TELEGRAM
 # Mã nguồn cũng vậy: ghi khoá thẳng vào core/ hay web/ là khoá "cố định trong
 # core" — đổi khoá phải sửa code. `sk-dummy` là mặc định rõ ràng, được phép.
 hardcoded: list[tuple[str, list[str]]] = []
-for _rel in ("core/llm_engine.py", "core/config_loader.py", "core/server.py",
+for _rel in ("src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
+             "core/config_loader.py", "core/server.py",
              "core/audio_processor.py", "core/meta_architect.py",
              "core/health_monitor.py", "core/skills/integration_tools.py",
              "core/skills/ai_delegation.py", "web/app.js", "web/index.html"):

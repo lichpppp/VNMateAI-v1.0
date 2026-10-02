@@ -181,7 +181,7 @@ class TelegramBotService:
 
             # Forward to LLM engine with conversation history
             try:
-                from core.llm_engine import llm_engine
+                from mateai.application.agent.llm_engine import llm_engine
                 result: Dict[str, Any] = await llm_engine.ask_async(
                     query=text,
                     source_device=source_device,

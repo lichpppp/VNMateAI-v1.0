@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.llm_provider import (
+from mateai.infrastructure.llm.llm_provider import (
     BaseLLMProvider,
     LLMStreamChunk,
     DirectLLMProvider,
@@ -26,7 +26,7 @@ from core.llm_provider import (
     TriBrainLLMProvider,
     LLMStreamEventBus,
 )
-from core.llm_engine import llm_engine
+from mateai.application.agent.llm_engine import llm_engine
 
 
 def test_stream_chunk_model():
