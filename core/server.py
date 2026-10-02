@@ -1190,6 +1190,33 @@ def _check_database() -> None:
         conn.execute("SELECT 1;").fetchone()
 
 
+# ── Listener IoT không TLS (cổng 8000) ─────────────────────────────────────
+# ESP32/Xiaozhi nói WS thường (TLS làm tràn heap của chip). Trước đây cổng này
+# phục vụ NGUYÊN app: đăng nhập, mọi API, portal — mật khẩu và JWT đi qua LAN
+# dạng rõ. Nay chỉ cho qua đường của thiết bị + health probe; còn lại dùng HTTPS.
+_IOT_PORT_PREFIXES = ("/api/v1/xiaozhi/ws", "/ws/audio-stream")
+_IOT_PORT_EXACT = {"/livez", "/readyz", "/startupz"}
+
+
+def _iot_port_allows(path: str) -> bool:
+    return path in _IOT_PORT_EXACT or any(path == p or path.startswith(p + "/") for p in _IOT_PORT_PREFIXES)
+
+
+async def iot_listener_app(scope: Dict[str, Any], receive: Any, send: Any) -> None:
+    """ASGI app cho listener cổng 8000: lọc đường dẫn rồi chuyển cho `app`."""
+    if scope["type"] in ("http", "websocket") and not _iot_port_allows(scope.get("path", "")):
+        if scope["type"] == "http":
+            await send({"type": "http.response.start", "status": 404,
+                        "headers": [(b"content-type", b"text/plain; charset=utf-8")]})
+            await send({"type": "http.response.body",
+                        "body": "Không phục vụ trên cổng IoT không mã hoá — dùng HTTPS.".encode("utf-8")})
+        else:
+            await receive()  # websocket.connect
+            await send({"type": "websocket.close", "code": 1008})
+        return
+    await app(scope, receive, send)
+
+
 @app.get("/readyz", include_in_schema=False)
 async def readyz() -> JSONResponse:
     """Sẵn sàng nhận việc: startup xong, DB đọc được, đã nạp skill."""

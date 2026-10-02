@@ -263,8 +263,11 @@ def _start_uvicorn() -> None:
         loop="asyncio",
         reload=False,
     )
+    from core.server import iot_listener_app
+
     config_iot = uvicorn.Config(
-        app=app,
+        # Cổng không TLS: chỉ đường WS của thiết bị + health probe (xem server.iot_listener_app).
+        app=iot_listener_app,
         host="0.0.0.0",
         port=8000,
         log_level="warning",

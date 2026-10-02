@@ -510,3 +510,15 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 
 **Test:** 255 pass / 0 fail. Mới: `test_sqlite_single_open.py` (4: tuỳ chọn + đóng khi thoát; probe không đổi journal mode; CSDL lành → không cảnh báo; quick_check báo lỗi → có cảnh báo — fail trên code cũ).
 **Runtime:** `/readyz` ok (database ok); `/domain/employees`, `/roi-dashboard`, `/users` 200; log không có lỗi SQLite.
+
+## 24. Dọn dữ liệu theo yêu cầu + cổng IoT không TLS (2026-10-02)
+
+**Dọn dữ liệu (chủ dự án yêu cầu):**
+- Xoá 14 dòng audit test (id 55–68, khớp action `HITL_*`, người gọi `ceo/AI_Agent/T/test`, thời điểm 03:02:39–42 UTC) khỏi `audit_logs` của `vnmateai.db`. Sao lưu CSDL trước khi xoá (scratchpad). Còn lại 22 dòng — sự kiện thật.
+- Xoá `users.json` (không còn được dùng, chứa hash mật khẩu cũ; không bị git theo dõi). Đã đối chiếu trước: 3 tài khoản có đủ trong bảng users với mật khẩu khớp. Sau khi xoá và khởi động lại: đăng nhập 3 tài khoản 200, file không bị tạo lại, 255 test pass. Mã di trú một lần trong `db_manager` được giữ cho máy cài bản cũ còn file này.
+
+**Lỗ hổng: cổng 8000 (không TLS) phục vụ nguyên app.** Listener IoT (cho ESP32 — TLS làm tràn heap chip) chạy cùng `app` với cổng 443: đo trên server thật, `POST http://…:8000/api/v1/login` trả **200** → mật khẩu và JWT đi qua LAN dạng rõ; mọi API/portal truy cập được không qua TLS.
+**Sửa:** `core.server.iot_listener_app` (ASGI) bọc `app` cho listener 8000: chỉ cho qua `/api/v1/xiaozhi/ws…`, `/ws/audio-stream…` (đường firmware dùng — `esp32_firmware/src/config.h` `DEFAULT_WS_PATH`) và `/livez|/readyz|/startupz`; HTTP khác 404, WebSocket khác đóng 1008. Cổng 443 không đổi.
+**Test:** `test_iot_port_filter.py` (10). **Runtime:** cổng 8000: login 404, `/livez` 200, WS portal bị từ chối 403; WS thiết bị hành xử giống hệt qua cổng 443 (nhận gói `ui` idle) — bộ lọc không ảnh hưởng thiết bị. Cổng 443: login 200. Toàn bộ: 265 pass.
+
+**Ghi chú cấu hình:** `memory_db.microservice_port` mặc định 8000 (server ChromaDB riêng) trùng cổng listener IoT — chỉ ảnh hưởng nếu bật chế độ `microservice`.
