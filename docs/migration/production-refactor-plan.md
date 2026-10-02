@@ -657,3 +657,9 @@ Xoá package rỗng `core/security/` (còn lại sau khi gộp HITL). 32 file đ
 **Đã xoá (bản song song không có caller):** `infrastructure/database/{sqlite_repository,factory}.py`, `domain/repository_ports.py`, `tests/unit/test_repositories.py`. RULE-014 baseline: vi phạm của `sqlite_repository` mất theo.
 **Test:** 265 pass.
 **Runtime (CSDL thật):** chỉ có `vnmateai.db`, `hr_kpi.db` ở thư mục gốc, không file CSDL mới; số dòng trước/sau: users 3/3, tasks 0/0, device_tokens 0/0, audit_logs 31/32 (+1 = sự kiện thật `PROACTIVE_TASK_AUDIT` lúc khởi động, ghi vào đúng CSDL cũ); JWT cũ hợp lệ, danh sách user đúng; `/readyz`, ROI, domain 200.
+
+## 33. Kích hoạt LLM + Telegram thật (2026-10-02)
+
+**Lỗi tìm thấy:** token Telegram người dùng nhập được lưu thành `••••••••` + token (dán khoá mới vào SAU ký hiệu che của ô bí mật). `_restore_masked_secrets` chỉ nhận đúng chuỗi ký hiệu → coi chuỗi ghép là giá trị thật → token sai dạng → gateway (đúng thiết kế) không gửi gì. **Sửa:** `_strip_mask_chars` bỏ ký tự `•` khỏi mọi trường bí mật gửi lên (kể cả trong danh sách, khối lồng); còn rỗng = giữ giá trị cũ. Test `test_secret_mask_paste.py` (3; fail trên code cũ). Dữ liệu: bỏ ký hiệu khỏi `telegram.bot_token` đang lưu (sao lưu config trước) → token đúng dạng (46 ký tự). Quét: không trường bí mật nào khác dính ký hiệu.
+**LLM:** đo thật 23 model trong cấu hình (1 lượt, rồi 2 lượt nữa cho model chạy được) → 10 model chạy 3/3; danh sách mới theo độ trễ (owner-todo.md).
+**Runtime:** Telegram polling chạy, tin thử tới nhóm sự cố thành công, token được che trong log; REST + tool 14,6 s với số liệu thật; voice qua LLM chữ đầu 8,5 s / 2,8 s (trước 88,9 s); fast path 157 ms.

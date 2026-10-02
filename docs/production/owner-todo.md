@@ -5,19 +5,20 @@ Dành cho: chủ dự án / quản trị viên. Những việc dưới đây c�
 ## Bắt buộc trước khi dùng thật
 
 - [ ] **Đổi mật khẩu 3 tài khoản mặc định** (`admin/admin123`, `manager/manager123`, `viewer/viewer123`) trong trang quản trị → Người dùng.
-- [ ] **LLM model** — trong trang Cấu hình LLM (`llm.model_name`, `router_models`, `specialist_models`):
-  - Bỏ các model **đã ngừng** (máy chủ nhận câu "Gemini 3.5 Flash is no longer available"): `ag/gemini-3-flash-agent`, `ag/gemini-3.5-flash-extra-low`, `ag/gemini-3.5-flash-low`.
-  - `ag/claude-opus-4-6-thinking`, `ag/claude-sonnet-4-6` **hết quota tới 2026-10-06 09:22 UTC** — giữ cuối danh sách hoặc bỏ.
-  - Bỏ giá trị mẫu `YOUR_MODEL_NAME_HERE` trong danh sách model chuyên gia.
-  - Đặt model đang chạy lên đầu (đã chạy được khi kiểm tra: `ag/gemini-3-flash`).
-  - Kiểm: hỏi một câu trên portal; log không còn dòng `Tạm xếp cuối model …`.
-- [ ] **Kiểm tra dịch vụ 9Router** (`http://localhost:20128`): lúc 2026-10-02 15:50 *mọi* model trả timeout 8 s hoặc lỗi 400 — trợ lý trả câu "hệ thống xử lý ngôn ngữ đang quá tải". Lệnh thoại nhanh (giờ, thời tiết…) không bị ảnh hưởng.
+- [x] **LLM model** (2026-10-02, đo thật từng model qua 9Router — 3 lượt cho model chạy được):
+  - Chính: `ag/gemini-3.8-flash-low` (trung vị 2,7 s, 3/3).
+  - Dự phòng theo độ trễ: `ag/claude-sonnet-4-6`, `ag/claude-opus-4-6-thinking`, `ag/gemini-3.7-flash-low`, `ag/gemini-3.7-flash-medium`, `ag/gemini-3.8-flash-medium`, `ag/gemini-3.7-flash-high`, `ag/gemini-3.6-flash-low`, `ag/gemini-3.8-flash`, `ag/gemini-3.6-flash-high`.
+  - Chuyên gia: `ag/claude-sonnet-4-6`, `ag/claude-opus-4-6-thinking`, `ag/gemini-3.8-flash-medium`.
+  - Đã bỏ (thêm lại trong trang Cấu hình LLM nếu 9Router sửa): **đã ngừng** `ag/gemini-3-flash-agent`, `ag/gemini-3.5-flash-low`, `ag/gemini-3.5-flash-extra-low`; **trả rỗng** `ag/gpt-oss-120b-medium`, `ag/gemini-3.1-pro-low`, `ag/gemini-pro-agent`, `ag/gemini-3-flash`; **lỗi 400/503** `oc/ling-3.0-flash-fin-free`, `ag/gemini-3.5-flash-high`, `openrouter/typesafe/jev-1.13`; **timeout 15 s** `ag/gemini-3.6-flash-medium`, `ag/gemini-3.8-flash-high`; giá trị mẫu `YOUR_MODEL_NAME_HERE`.
+  - Kết quả: lượt thoại qua LLM chữ đầu 8,5 s (lượt đầu) / 2,8 s (lượt sau) — trước đó 88,9 s.
+  - Còn lại: khối cũ `router.primary.provider_model` = `oc/ling-3.0-flash-fin-free` (lỗi 400) — KHÔNG được dùng khi đã có khối `llm`; có thể xoá khỏi config.json cho gọn.
+- [x] **9Router** đã hoạt động lại (chủ dự án sửa 2026-10-02).
 
-## Khi bật Telegram
+## Telegram
 
-- [ ] `telegram.bot_token`: token thật từ @BotFather (dạng `123456789:AA…`). Hiện là giá trị mẫu.
-- [ ] `telegram.admin_chat_ids`: chat id thật của người được ra lệnh/duyệt (hiện là `YOUR_TELEGRAM_ADMIN_CHAT_ID_HERE`). Nhắn bot một tin rồi dùng nút "Dò chat" trong trang Telegram để lấy id.
-- [ ] Bật `telegram.enabled`, bấm "Kiểm tra kết nối".
+- [x] Token thật đã thêm. Lưu ý: token từng được lưu thành `••••••••<token>` (dán sau ký hiệu che trên giao diện) → đã sửa dữ liệu và sửa máy chủ để tự bỏ ký hiệu che khi lưu.
+- [x] `admin_chat_ids` (1 id) và `incident_group_id` đã điền; `enabled` = true; bot `@VNMateai_bot` polling chạy; tin thử gửi tới nhóm `-1003922961701` thành công.
+- [ ] Nếu muốn **ra lệnh / bấm duyệt từ trong nhóm** sự cố, thêm id nhóm (`-1003922961701`) vào `admin_chat_ids` — hiện chỉ chat trong danh sách mới được nhận lệnh.
 
 ## Robot ESP32 / Xiaozhi (mỗi robot)
 

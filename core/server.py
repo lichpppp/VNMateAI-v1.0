@@ -3230,6 +3230,21 @@ def _has_secret_value(value: Any) -> bool:
     return value is not None
 
 
+def _strip_mask_chars(value: Any) -> Any:
+    """
+    Bỏ ký hiệu che (•) khỏi một giá trị bí mật người dùng gửi lên.
+
+    Ô bí mật trên giao diện hiện sẵn `••••••••`; người dùng dán khoá mới vào SAU
+    ký hiệu thay vì xoá nó trước → gửi lên `••••••••<khoá>` và trước đây chuỗi đó
+    được lưu nguyên (token Telegram hỏng, gateway không gửi được). Ký tự • không
+    bao giờ có trong khoá/token thật. Còn rỗng sau khi bỏ = "giữ giá trị cũ".
+    """
+    if isinstance(value, str) and "•" in value:
+        cleaned = value.replace("•", "").strip()
+        return cleaned or _SECRET_MASK
+    return value
+
+
 def _restore_masked_secrets(payload: Any, existing: Any) -> Any:
     """
     Trả về `payload` với bí mật đang lưu được giữ lại.
@@ -3260,6 +3275,11 @@ def _restore_masked_secrets(payload: Any, existing: Any) -> Any:
     if isinstance(payload, dict):
         if not isinstance(existing, dict):
             existing = {}
+        payload = {
+            k: (_strip_mask_chars(v) if _is_secret_field(k) and not isinstance(v, list)
+                else ([_strip_mask_chars(i) for i in v] if _is_secret_field(k) and isinstance(v, list) else v))
+            for k, v in payload.items()
+        }
         # (1)+(2) Bí mật nào KHÔNG bị người dùng ghi đè bằng giá trị có
         # thật thì lấy lại từ bản lưu. Ghi đè ở đây nghĩa là: payload có
         # field đó VÀ giá trị gửi lên là thật (không phải rỗng, không phải
