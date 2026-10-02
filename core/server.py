@@ -4303,10 +4303,15 @@ def _authenticate_device(websocket: WebSocket) -> bool:
     """
     Xác thực thiết bị ESP32 trước khi cho stream âm thanh.
 
-    Hỗ trợ:
-      1. Header Authorization: Bearer <token> (chuẩn của firmware xiaozhi-esp32).
-      2. Query param ?token=<token>.
-      3. Thiết bị trong mạng nội bộ LAN (192.168.x.x, 10.x.x.x, localhost) kết nối trực tiếp.
+    Chấp nhận (một trong hai):
+      1. Device enrollment secret — header `Authorization: Bearer <token>` (chuẩn
+         firmware xiaozhi-esp32) hoặc `?token=`. Lấy ở /api/v1/security/device-enrollment-token,
+         dán vào DEFAULT_DEVICE_TOKEN của firmware.
+      2. JWT của tài khoản admin/manager (debug thủ công).
+
+    Không còn nhánh "Zero-Config LAN": trước đây mọi IP nội bộ được nhận KHÔNG cần
+    token, lại tự đặt device_id trên URL (id `esp32*`/`xiaozhi*` được quyền admin)
+    → mọi máy trong LAN/Wi-Fi văn phòng ra lệnh được với quyền admin.
     """
     token = websocket.query_params.get("token")
     if not token:
@@ -4328,23 +4333,6 @@ def _authenticate_device(websocket: WebSocket) -> bool:
                     return True
         except Exception:
             pass
-
-    # 2. Hỗ trợ cắm-và-chạy (Zero-config) cho Robot trong mạng nội bộ LAN gia đình/văn phòng
-    client_ip = websocket.client.host if websocket.client else "unknown"
-    is_lan = (
-        client_ip.startswith("192.168.")
-        or client_ip.startswith("10.")
-        or client_ip.startswith("172.16.")
-        or client_ip.startswith("172.17.")
-        or client_ip.startswith("172.18.")
-        or client_ip.startswith("172.19.")
-        or client_ip.startswith("172.2")
-        or client_ip.startswith("172.3")
-        or client_ip in ("127.0.0.1", "::1", "localhost", "testclient")
-    )
-    if is_lan:
-        logger.info("[Xiaozhi] Tự động chấp nhận kết nối Robot ESP32 từ mạng LAN %s (Zero-Config).", client_ip)
-        return True
 
     return False
 

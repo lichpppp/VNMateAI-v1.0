@@ -522,3 +522,11 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Test:** `test_iot_port_filter.py` (10). **Runtime:** cổng 8000: login 404, `/livez` 200, WS portal bị từ chối 403; WS thiết bị hành xử giống hệt qua cổng 443 (nhận gói `ui` idle) — bộ lọc không ảnh hưởng thiết bị. Cổng 443: login 200. Toàn bộ: 265 pass.
 
 **Ghi chú cấu hình:** `memory_db.microservice_port` mặc định 8000 (server ChromaDB riêng) trùng cổng listener IoT — chỉ ảnh hưởng nếu bật chế độ `microservice`.
+
+## 25. Thiết bị IoT bắt buộc device token (2026-10-02)
+
+**Quyết định của chủ dự án:** bắt buộc token (bỏ "Zero-Config LAN").
+**Lỗ hổng:** `_authenticate_device` nhận mọi IP nội bộ (192.168/10/172.16–31/loopback) KHÔNG cần token; `device_id` lấy từ URL do client đặt; id `esp32*`/`xiaozhi*` được admin (RBAC theo tiền tố, f389bbe) → mọi máy trong LAN/Wi-Fi ra lệnh tool với quyền admin. Chú thích firmware (`config.h`) vốn ghi "server chặn kết nối nếu thiếu token".
+**Sửa:** chỉ nhận device enrollment secret (query `?token=` hoặc header `Authorization: Bearer`) hoặc JWT admin/manager.
+**Test:** `test_device_auth_requires_token.py` (5 — fail trên code cũ). **Runtime (cả cổng 8000 và 443):** không token / token sai → HTTP 403; device token (query hoặc Bearer) → nhận, thiết bị nhận gói `ui`. Toàn bộ: 270 pass.
+**Ảnh hưởng vận hành:** robot/ESP32 nạp firmware với `DEFAULT_DEVICE_TOKEN ""` sẽ bị từ chối cho tới khi nạp token (lấy ở `GET /api/v1/security/device-enrollment-token`, quyền admin).
