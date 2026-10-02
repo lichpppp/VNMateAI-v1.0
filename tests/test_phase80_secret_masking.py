@@ -63,7 +63,7 @@ def section(title: str) -> None:
 
 ROOT = Path(__file__).resolve().parents[1]
 
-from mateai.interfaces.http.server import (  # noqa: E402
+from mateai.interfaces.http.secret_masking import (  # noqa: E402
     _SECRET_FIELD_NAMES,
     _SECRET_MASK,
     _has_secret_value,
@@ -72,7 +72,12 @@ from mateai.interfaces.http.server import (  # noqa: E402
     _restore_masked_secrets,
 )
 
-SRC = (ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
+# Tầng HTTP: server.py + các router tách ra + module che bí mật dùng chung.
+_HTTP_DIR = ROOT / "src" / "mateai" / "interfaces" / "http"
+SRC = "\n\n".join(
+    p.read_text(encoding="utf-8")
+    for p in [_HTTP_DIR / "server.py", _HTTP_DIR / "secret_masking.py", *sorted((_HTTP_DIR / "routers").glob("*.py"))]
+)
 SRC_CODE = re.sub(r"\"\"\"[\s\S]*?\"\"\"", "", SRC)
 SRC_CODE = re.sub(r"^\s*#.*$", "", SRC_CODE, flags=re.M)
 JS = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -499,7 +504,7 @@ section("Ghép sâu: không mất trường mà form không gửi")
 # Lỗi đã xảy ra thật: `{**existing, **payload}` ghép nông, `payload["telegram"]`
 # thay trọn khối telegram — bấm "Lưu" ở tab Cấu Hình xoá token bot VÀ tắt
 # cờ `enabled`, trong khi người dùng chỉ định sửa một trường khác.
-from mateai.interfaces.http.server import _deep_merge  # noqa: E402
+from mateai.interfaces.http.routers.config import _deep_merge  # noqa: E402
 
 base = {
     "telegram": {"bot_token": REAL_TG, "enabled": True, "admin_chat_ids": ["1"]},

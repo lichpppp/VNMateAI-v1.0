@@ -137,6 +137,23 @@ def get_config_section(name: str) -> dict:
     return section if isinstance(section, dict) else {}
 
 
+def get_assistant_name() -> str:
+    """
+    Tên trợ lý AI — MỘT nguồn cho prompt, HUD, lời chào, robot.
+
+    Đọc thẳng config.json vì `AppSettings` bỏ khoá lạ (`extra="ignore"`): trước
+    đây `settings.AI_NAME` luôn None nên server và lời chào luôn nói "Ly Ly" dù
+    người dùng đã đổi tên. Thứ tự giống giao diện: `persona.ai_name` → `AI_NAME`
+    → `ASSISTANT_NAME` → "Ly Ly".
+    """
+    raw = read_raw_config()
+    persona = raw.get("persona") if isinstance(raw.get("persona"), dict) else {}
+    for value in (persona.get("ai_name"), raw.get("AI_NAME"), raw.get("ASSISTANT_NAME")):
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return "Ly Ly"
+
+
 def write_raw_config(raw: dict) -> None:
     """
     Ghi config.json NGUYÊN TỬ: ghi file tạm cùng thư mục rồi os.replace. Mất điện

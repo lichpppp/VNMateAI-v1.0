@@ -14,26 +14,26 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import mateai.interfaces.http.server as server  # noqa: E402
+from mateai.interfaces.http import secret_masking  # noqa: E402
 
-MASK = server._SECRET_MASK
+MASK = secret_masking._SECRET_MASK
 TOKEN = "123456789:AAHf0abcdefghijklmnopqrstuvwxyz012"
 
 
 def test_mask_prefix_is_stripped_from_new_secret():
-    out = server._restore_masked_secrets({"bot_token": MASK + TOKEN}, {"bot_token": "old-token"})
+    out = secret_masking._restore_masked_secrets({"bot_token": MASK + TOKEN}, {"bot_token": "old-token"})
     assert out["bot_token"] == TOKEN
 
 
 def test_mask_alone_keeps_existing_and_normal_values_untouched():
-    assert server._restore_masked_secrets({"bot_token": MASK}, {"bot_token": "old"})["bot_token"] == "old"
-    assert server._restore_masked_secrets({"bot_token": "  " + MASK + "  "}, {"bot_token": "old"})["bot_token"] == "old"
-    assert server._restore_masked_secrets({"bot_token": TOKEN}, {"bot_token": "old"})["bot_token"] == TOKEN
+    assert secret_masking._restore_masked_secrets({"bot_token": MASK}, {"bot_token": "old"})["bot_token"] == "old"
+    assert secret_masking._restore_masked_secrets({"bot_token": "  " + MASK + "  "}, {"bot_token": "old"})["bot_token"] == "old"
+    assert secret_masking._restore_masked_secrets({"bot_token": TOKEN}, {"bot_token": "old"})["bot_token"] == TOKEN
     # trường không phải bí mật: không động vào
-    assert server._restore_masked_secrets({"ai_name": "Ly • Ly"}, {})["ai_name"] == "Ly • Ly"
+    assert secret_masking._restore_masked_secrets({"ai_name": "Ly • Ly"}, {})["ai_name"] == "Ly • Ly"
 
 
 def test_nested_and_list_secrets():
-    out = server._restore_masked_secrets({"llm": {"api_key": MASK + "sk-new-key-1234567890"}},
+    out = secret_masking._restore_masked_secrets({"llm": {"api_key": MASK + "sk-new-key-1234567890"}},
                                          {"llm": {"api_key": "sk-old"}})
     assert out["llm"]["api_key"] == "sk-new-key-1234567890"

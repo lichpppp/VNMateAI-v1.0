@@ -866,3 +866,17 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME:** ảnh chụp GET `clients`/`skills` 4 vai trước–sau giống hệt; 80 skill; `skills/execute get_system_info` thành công. Bật worker cục bộ: trước khi sửa `execute` → "máy trạm đã ngắt kết nối trong khi thực thi"; sau khi sửa → `success` 530 ms, worker vẫn online; `delete_item` kèm `confirmed:true` → `need_confirm` (đích đúng máy trạm), từ chối được. Log worker: `token=***`. Đã tắt worker và xoá log thử.
 
 **NEXT STEP:** tách xiaozhi, telegram, voice, system, config, computer-use, pairing, …
+
+## 47. Router `xiaozhi`, `system`, `computer_use`, `config` (+llm, routing), `telegram`; `secret_masking`; tên trợ lý một nguồn (2026-10-03)
+
+**STATUS:** XONG
+
+**FILES CHANGED:** 5 router mới (`config.py` gồm `/api/v1/config*`, `/api/v1/llm/*`, `/api/v1/routing`); `interfaces/http/secret_masking.py` (`_SECRET_MASK`, `_mask_secrets`, `_restore_masked_secrets`, … — dùng chung cho config, telegram, bộ lọc log, nút thử kết nối); `config/loader.py` thêm `get_assistant_name()`; `llm_engine.py`, `acoustic_ack.py` dùng hàm đó. Test trỏ module mới; `test_phase80` quét nguồn toàn tầng HTTP (server + routers + secret_masking). RULE-011 baseline: 3 vi phạm có lý do (nút "thử kết nối LLM") chỉ đổi file server.py → routers/config.py. `server.py` còn ~4.000 dòng; 187 route, thứ tự route trùng mẫu giữ nguyên.
+
+**Sửa:** tên trợ lý có 4 cách đọc khác nhau — server và lời chào đọc `settings.AI_NAME` (luôn None vì `AppSettings` bỏ khoá lạ) nên luôn "Ly Ly" dù giao diện đã đổi `persona.ai_name`; prompt LLM đọc persona. Nay một hàm, cùng thứ tự với giao diện (`persona.ai_name` → `AI_NAME` → `ASSISTANT_NAME` → "Ly Ly"); sự kiện HUD `assistant_name_updated` gửi tên đã đọc lại từ file thay vì đoán từ payload.
+
+**TESTS:** 359 pass (+ `test_assistant_name_single_source`).
+
+**RUNTIME:** ảnh chụp GET 4 vai trước–sau: 13/13 route giống hệt. `GET /api/v1/config` và `/telegram/config` che khoá; gửi lại nguyên cấu hình đã che qua `POST /api/v1/config` → `config.json` không đổi (khoá thật được giữ). Routing, models, system, xiaozhi, computer-use, telegram status 200.
+
+**NEXT STEP:** nhóm còn lại: voice, pairing, wake-word, tts, tasks, sentinel, orchestrator, logs, report-templates, trang tĩnh/admin, health, các WebSocket.

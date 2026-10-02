@@ -142,14 +142,8 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
     system_content = _AGENT_SYSTEM_PROMPT
 
     try:
-        from mateai.config.loader import settings
-        persona = _read_persona()
-        ai_name = (
-            getattr(settings, "AI_NAME", None)
-            or getattr(settings, "ai_name", None)
-            or persona.get("ai_name")
-        )
-        ai_name = str(ai_name or "Ly Ly").strip()
+        from mateai.config.loader import get_assistant_name
+        ai_name = get_assistant_name()
         system_content = f"[TÊN TRỢ LÝ AI: {ai_name}]\nTên của bạn là Trợ lý AI {ai_name}. Khi tự giới thiệu hoặc xưng hô, hãy xưng là {ai_name}.\n\n" + system_content
 
     except Exception:

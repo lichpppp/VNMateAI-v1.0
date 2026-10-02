@@ -77,7 +77,7 @@ from mateai.interfaces.http.routers.enterprise import (  # noqa: E402
     _CONNECTOR_SECRET_FIELDS,
     _build_connector_config_schema,
 )
-from mateai.interfaces.http.server import _is_secret_field  # noqa: E402
+from mateai.interfaces.http.secret_masking import _is_secret_field  # noqa: E402
 
 # ──────────────────────────────────────────────────────────────────────
 section("Form không còn viết tay")

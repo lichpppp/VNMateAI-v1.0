@@ -39,7 +39,10 @@ def test_server_paths_derive_from_root():
     import mateai.interfaces.http.server as s
     root = Path(settings.PROJECT_ROOT).resolve()
     assert Path(s._ADMIN_OUT_DIR).resolve() == root / "admin" / "out"
-    assert Path(s._CUSTOM_TOPOLOGY_PATH).resolve() == root / "storage" / "custom_topology.json"
+    import mateai.interfaces.http.routers.system as system
+    assert Path(system._CUSTOM_TOPOLOGY_PATH).resolve() == root / "storage" / "custom_topology.json"
+    import mateai.interfaces.http.routers.skills as skills
+    assert Path(skills._REGISTRY_PATH).resolve() == root / "skills" / "registry.json"
 
 
 def test_no_module_derives_root_from_its_own_location():

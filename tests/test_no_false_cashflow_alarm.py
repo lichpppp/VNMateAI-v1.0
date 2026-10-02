@@ -140,9 +140,9 @@ check("đếm đúng số giao dịch", fin_full.get("transaction_count") == 2, 
 
 # ══ 4. Lỗi proxy: ký hiệu che không được làm sập request ══════════════════
 print("\n▸ Endpoint lấy model proxy")
-server_py = (Path(__file__).resolve().parent.parent / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
+server_py = (Path(__file__).resolve().parent.parent / "src" / "mateai" / "interfaces" / "http" / "routers" / "config.py").read_text(encoding="utf-8")
 body = server_py.split("async def proxy_models_endpoint", 1)[-1]
-body = body.split("\n@app.post", 1)[0]
+body = body.split("\n@router.", 1)[0]
 # BỎ COMMENT trước khi quét: bình luận giải thích lỗi lại nhắc lại đúng chuỗi
 # cần tìm, quét cả comment sẽ ra kết quả ngược.
 code = "\n".join(l.split("#", 1)[0] for l in body.split("\n"))

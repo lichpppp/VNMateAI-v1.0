@@ -2,7 +2,7 @@
   "RULE-011": {
     "src/mateai/application/agent/llm_engine.py": 3,
     "src/mateai/application/skills/builtin/ai_delegation.py": 1,
-    "src/mateai/interfaces/http/server.py": 3
+    "src/mateai/interfaces/http/routers/config.py": 3
   },
   "RULE-012": {
     "skills/ninerouter_skills.py": 1

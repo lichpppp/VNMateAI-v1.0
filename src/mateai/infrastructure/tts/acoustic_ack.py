@@ -82,11 +82,8 @@ async def warmup_acoustic_ack_cache() -> None:
     # Câu hệ thống hay nói (trước đây làm nóng ở `audio_processor.prewarm_tts_cache`
     # bằng một thread + event loop riêng — trùng chức năng và dùng nhầm HTTP
     # client của loop chính).
-    try:
-        from mateai.config.loader import settings
-        ai_name = getattr(settings, "AI_NAME", None) or getattr(settings, "ASSISTANT_NAME", "Ly Ly")
-    except Exception:
-        ai_name = "Ly Ly"
+    from mateai.config.loader import get_assistant_name
+    ai_name = get_assistant_name()
     system_phrases = [
         f"Xin chào, em là {ai_name}. Tất cả các hệ thống phòng thủ và mạng lưới đang hoạt động tối ưu.",
         "Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...",
