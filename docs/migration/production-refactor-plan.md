@@ -405,3 +405,20 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime/hiệu năng (9Router thật, `_ask_llm_for_sql`, 2 lượt liên tiếp sau khởi động):** 38,4 s → 5,0 s. Lượt đầu trả giá học 2 model hết quota (mỗi model ~18 s mới trả 503); từ lượt 2 hai model đó bị bỏ qua. REST `/enterprise/analytics/chart` trả SQL hợp lệ, `sql_source: llm`, có biểu đồ. Trí nhớ model hỏng nằm trong bộ nhớ tiến trình nên mỗi lần khởi động lại lượt đầu vẫn chậm; chưa lưu xuống đĩa.
 
 **Cần ở cấu hình:** `ag/claude-opus-4-6-thinking` và `ag/claude-sonnet-4-6` hết quota tới 2026-10-06 09:22 UTC; danh sách còn giá trị mẫu `YOUR_MODEL_NAME_HERE` (bị bỏ qua đúng). Nên đặt model chạy được (vd. `ag/gemini-3-flash`) lên đầu danh sách chuyên gia.
+
+## 18. Báo cáo Config — một cổng vào config.json (2026-10-02)
+
+**PHASE:** Connectors/Config (RULE-013)
+**STATUS:** XONG cho `core/`; connector `base_connector` xem "Còn lại"
+
+**Một implementation:** `core.config_loader` là nơi duy nhất mở `config.json`: `read_raw_config(strict)`, `get_config_section(name)`, `write_raw_config(raw)` (ghi nguyên tử: file tạm + `os.replace`, có khoá), `update_config_section(name, updates)` (đọc-sửa-ghi dưới khoá). 14 chỗ tự mở file (server 8, telegram 2, llm_engine 2, sentinel 1, cognitive_memory 1) chuyển sang các hàm này; `_CONFIG_PATH` của server bỏ. RULE-013: 14 → 0.
+
+**Lỗi đã loại bỏ:**
+- Ghi không nguyên tử: mất điện/lỗi giữa chừng để lại config.json cụt → lần khởi động sau `SystemExit`.
+- Đọc-sửa-ghi không khoá: hai request "Lưu" cùng lúc ghi đè nhau (test: 12 thread cập nhật 12 mục, không mất mục nào).
+- Mọi đường GHI đọc ở chế độ strict: config.json hỏng thì báo lỗi thay vì nuốt lỗi rồi ghi đè bằng bản chỉ có payload (trước đây `/api/v1/config` làm đúng việc đó, mất toàn bộ cấu hình). Đường chỉ ĐỌC vẫn dung sai (trả `{}`), một mục hỏng không làm sập hội thoại.
+
+**Test:** 237 pass / 0 fail. Mới: `test_config_single_access.py` (4: dung sai khi đọc, strict không ghi đè file hỏng, ghi lỗi không làm hỏng file cũ + không để file tạm, 12 thread không mất cập nhật). Baseline RULE-013 hạ về 0.
+**Runtime:** qua endpoint thật: `domain/config`, `telegram/config` đọc đúng; `domain/toggle` ghi, đọc lại, hoàn nguyên; phần còn lại của config.json giống hệt (so sánh dict), không file tạm sót.
+
+**Còn lại:** `core/connectors/base_connector.py` (14 lần nhắc config.json) chưa quét — rule hiện chưa đo vì dùng đường dẫn khác; cần rà khi làm nhóm Connectors. `client_agent/` có config.json riêng của máy con (khác file này) — không thuộc phạm vi.

@@ -86,7 +86,6 @@ else:
     _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 _WEB_DIR    = _PROJECT_ROOT / "web"
-_CONFIG_PATH = _PROJECT_ROOT / "config.json"
 _REGISTRY_PATH = _PROJECT_ROOT / "skills" / "registry.json"
 # Gói "Tải Agent" đóng từ chính client_agent/ (Phase 6: gỡ bản fork client_template/,
 # hai bản đã lệch nhau — mỗi bên sửa một lỗi mà bên kia vẫn còn).
@@ -1242,13 +1241,8 @@ async def _on_startup() -> None:
     # Phase 18: Start Telegram Gateway in background daemon thread (only if enabled)
     try:
         from core.telegram_gateway import telegram_gateway
-        import json as _jstart
-        from pathlib import Path as _Pstart
-        cfg_p = _Pstart(__file__).resolve().parent.parent / "config.json"
-        is_tg_enabled = False
-        if cfg_p.exists():
-            raw_c = _jstart.loads(cfg_p.read_text(encoding="utf-8"))
-            is_tg_enabled = raw_c.get("telegram", {}).get("enabled", False)
+        from core.config_loader import get_config_section
+        is_tg_enabled = get_config_section("telegram").get("enabled", False)
         if is_tg_enabled:
             started = telegram_gateway.start()
             if started:
@@ -1403,23 +1397,20 @@ async def _on_startup() -> None:
     # Phase 57: Start Email Gateway (IMAP listener if configured)
     try:
         from core.email_gateway import email_gateway
-        import json as _ej
-        from pathlib import Path as _ep
-        cfg_path = _ep(__file__).resolve().parent.parent / "config.json"
-        if cfg_path.exists():
-            email_cfg = _ej.loads(cfg_path.read_text(encoding="utf-8")).get("email_gateway", {})
-            if email_cfg.get("enabled") and email_cfg.get("username"):
-                email_gateway.configure(
-                    username=email_cfg["username"],
-                    password=email_cfg.get("password", ""),
-                    imap_host=email_cfg.get("imap_host", "imap.gmail.com"),
-                    smtp_host=email_cfg.get("smtp_host", "smtp.gmail.com"),
-                    enabled=True,
-                )
-                email_gateway.start()
-                logger.info("Phase 57: Email Gateway started — monitoring inbox: %s", email_cfg["username"])
-            else:
-                logger.info("Phase 57: Email Gateway is disabled or unconfigured in config.json.")
+        from core.config_loader import get_config_section
+        email_cfg = get_config_section("email_gateway")
+        if email_cfg.get("enabled") and email_cfg.get("username"):
+            email_gateway.configure(
+                username=email_cfg["username"],
+                password=email_cfg.get("password", ""),
+                imap_host=email_cfg.get("imap_host", "imap.gmail.com"),
+                smtp_host=email_cfg.get("smtp_host", "smtp.gmail.com"),
+                enabled=True,
+            )
+            email_gateway.start()
+            logger.info("Phase 57: Email Gateway started — monitoring inbox: %s", email_cfg["username"])
+        else:
+            logger.info("Phase 57: Email Gateway is disabled or unconfigured in config.json.")
     except Exception as eg_exc:
         logger.warning("Phase 57: Could not start Email Gateway: %s", eg_exc)
 
@@ -3136,7 +3127,8 @@ async def proxy_models_endpoint(
     api_key = payload.api_key
     if not api_key or api_key == _SECRET_MASK:
         try:
-            cfg_raw = _json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+            from core.config_loader import read_raw_config
+            cfg_raw = read_raw_config(strict=True)
             api_key = cfg_raw.get("llm", {}).get("api_key") or cfg_raw.get("API_KEY") or None
         except Exception:
             api_key = None
@@ -3392,8 +3384,8 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
     Đảm bảo khối 'llm' và cờ 'auto_execute' luôn có mặt.
     """
     try:
-        raw = _CONFIG_PATH.read_text(encoding="utf-8")
-        data = _json.loads(raw)
+        from core.config_loader import read_raw_config
+        data = read_raw_config(strict=True)
 
         # Phase 22: Ensure 'llm' block is present
         if "llm" not in data or not isinstance(data["llm"], dict):
@@ -3520,12 +3512,9 @@ async def save_config(
     Re-initialises in-memory settings so changes take effect without a restart.
     """
     try:
-        existing: Dict[str, Any] = {}
-        if _CONFIG_PATH.exists():
-            try:
-                existing = _json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-            except Exception:  # pylint: disable=broad-except
-                pass
+        from core.config_loader import read_raw_config, write_raw_config
+        # strict: config.json hỏng thì báo lỗi, KHÔNG ghi đè bằng bản chỉ có payload.
+        existing: Dict[str, Any] = read_raw_config(strict=True)
 
         # Thay ký hiệu chỗ trống bằng giá trị đang lưu TRƯỚC KHI chuẩn hoá.
         #
@@ -3616,10 +3605,7 @@ async def save_config(
         comment_keys = {k: v for k, v in existing.items() if k.startswith("_")}
         merged = _deep_merge({**existing, **comment_keys}, payload)
 
-        _CONFIG_PATH.write_text(
-            _json.dumps(merged, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        write_raw_config(merged)
         logger.info("config.json updated via Web Portal.")
 
         # Hot-reload in-memory settings
@@ -6242,13 +6228,8 @@ async def get_domain_config(
 ) -> Dict[str, Any]:
     """Return enabled status for Active Directory synchronization."""
     try:
-        from core.config_loader import settings
-        import json as _j
-        cfg_p = settings.PROJECT_ROOT / "config.json"
-        enabled = False
-        if cfg_p.exists():
-            raw = _j.loads(cfg_p.read_text(encoding="utf-8"))
-            enabled = raw.get("ad_sync", {}).get("enabled", False)
+        from core.config_loader import get_config_section
+        enabled = get_config_section("ad_sync").get("enabled", False)
         return {"status": "success", "enabled": enabled}
     except Exception as exc:
         return {"status": "error", "enabled": False, "message": str(exc)}
@@ -6267,15 +6248,8 @@ async def toggle_domain_sync(
     if current_user.get("role") not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Chỉ Admin hoặc Manager mới có quyền thay đổi trạng thái AD.")
     try:
-        from core.config_loader import settings
-        import json as _j
-        cfg_p = settings.PROJECT_ROOT / "config.json"
-        raw = {}
-        if cfg_p.exists():
-            raw = _j.loads(cfg_p.read_text(encoding="utf-8"))
-        raw.setdefault("ad_sync", {})
-        raw["ad_sync"]["enabled"] = bool(payload.enabled)
-        cfg_p.write_text(_j.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        from core.config_loader import update_config_section
+        update_config_section("ad_sync", {"enabled": bool(payload.enabled)})
 
         status_text = "ĐÃ BẬT" if payload.enabled else "ĐÃ TẮT"
         logger.info("Active Directory sync feature has been %s by %s", status_text, current_user.get("username", "?"))
@@ -6307,13 +6281,8 @@ async def get_telegram_config(
     cũ (xem `_restore_masked_secrets`).
     """
     try:
-        from core.config_loader import settings
-        import json as _j
-        cfg_p = settings.PROJECT_ROOT / "config.json"
-        tg_data = {}
-        if cfg_p.exists():
-            raw = _j.loads(cfg_p.read_text(encoding="utf-8"))
-            tg_data = raw.get("telegram", {})
+        from core.config_loader import get_config_section
+        tg_data = get_config_section("telegram")
 
         from core.telegram_gateway import telegram_gateway
         is_running = getattr(telegram_gateway, "is_running", False)
@@ -6345,17 +6314,10 @@ async def toggle_telegram_gateway(
     if current_user.get("role") not in ("admin",):
         raise HTTPException(status_code=403, detail="Chỉ Admin mới có quyền bật/tắt Telegram Gateway.")
     try:
-        from core.config_loader import settings
-        import json as _j
-        cfg_p = settings.PROJECT_ROOT / "config.json"
-        raw = {}
-        if cfg_p.exists():
-            raw = _j.loads(cfg_p.read_text(encoding="utf-8"))
-        raw.setdefault("telegram", {})
+        from core.config_loader import update_config_section
 
         enabled = bool(payload.get("enabled", False))
-        raw["telegram"]["enabled"] = enabled
-        cfg_p.write_text(_j.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        raw = update_config_section("telegram", {"enabled": enabled})
 
         from core.telegram_gateway import telegram_gateway
         if enabled:
@@ -6482,11 +6444,10 @@ async def update_telegram_config(
     try:
         import json as _json2
         from pathlib import Path as _Path
-        from core.config_loader import settings
+        from core.config_loader import read_raw_config, write_raw_config
 
-        # Load raw config file
-        cfg_path = settings.PROJECT_ROOT / "config.json"
-        raw = _json2.loads(cfg_path.read_text(encoding="utf-8"))
+        # Load raw config file (strict: file hỏng thì dừng, không ghi đè bằng bản rỗng)
+        raw = read_raw_config(strict=True)
 
         # Update telegram section
         raw.setdefault("telegram", {})
@@ -6516,7 +6477,7 @@ async def update_telegram_config(
         if incoming["incident_group_id"] is not None:
             raw["telegram"]["incident_group_id"] = incoming["incident_group_id"]
 
-        cfg_path.write_text(_json2.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_raw_config(raw)
 
         # Reload settings in-memory
         try:

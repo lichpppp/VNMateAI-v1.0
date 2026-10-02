@@ -16,6 +16,8 @@ import json
 import logging
 import os
 import sys
+import tempfile
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -83,6 +85,70 @@ def _load_raw_config() -> dict:
     except json.JSONDecodeError as exc:
         logger.critical("config.json is malformed JSON: %s", exc)
         raise SystemExit(1) from exc
+
+
+_CONFIG_LOCK = threading.RLock()
+
+
+def read_raw_config(strict: bool = False) -> dict:
+    """
+    Nội dung config.json hiện tại (đọc MỚI mỗi lần, để thấy thay đổi từ portal).
+
+    strict=False (mặc định, cho code chỉ ĐỌC): thiếu/hỏng file → {} — một mục cấu
+    hình hỏng không được làm sập hội thoại. strict=True (cho code sắp GHI lại):
+    ném lỗi thay vì trả {} — ghi đè file hỏng bằng bản rỗng sẽ mất toàn bộ cấu hình.
+    """
+    try:
+        raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("config.json must contain a JSON object at the top level.")
+        return raw
+    except FileNotFoundError:
+        if strict:
+            raise
+        return {}
+    except (OSError, ValueError) as exc:
+        if strict:
+            raise
+        logger.warning("Không đọc được config.json (%s) — dùng mặc định.", exc)
+        return {}
+
+
+def get_config_section(name: str) -> dict:
+    """Một mục cấp cao của config.json dưới dạng dict ({} nếu thiếu / không phải dict)."""
+    section = read_raw_config().get(name)
+    return section if isinstance(section, dict) else {}
+
+
+def write_raw_config(raw: dict) -> None:
+    """
+    Ghi config.json NGUYÊN TỬ: ghi file tạm cùng thư mục rồi os.replace. Mất điện
+    hay lỗi giữa chừng không để lại file cụt; hai thread không xen kẽ nhau.
+    """
+    with _CONFIG_LOCK:
+        fd, tmp = tempfile.mkstemp(dir=str(CONFIG_PATH.parent), prefix=".config.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(raw, fh, ensure_ascii=False, indent=2)
+            os.replace(tmp, CONFIG_PATH)
+        except BaseException:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+            raise
+
+
+def update_config_section(name: str, updates: dict) -> dict:
+    """Đọc-sửa-ghi một mục dưới khoá (strict). Trả toàn bộ cấu hình sau khi ghi."""
+    with _CONFIG_LOCK:
+        raw = read_raw_config(strict=True)
+        section = raw.get(name)
+        section = dict(section) if isinstance(section, dict) else {}
+        section.update(updates)
+        raw[name] = section
+        write_raw_config(raw)
+        return raw
 
 
 # ---------------------------------------------------------------------------

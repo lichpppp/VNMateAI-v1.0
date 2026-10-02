@@ -104,13 +104,9 @@ class AutonomousSentinel:
         """Check for Active Directory sync staleness or sync errors in local DB."""
         # Nếu tính năng Đồng Bộ AD đang TẮT, bỏ qua hoàn toàn để không ghi log cảnh báo
         try:
-            from core.config_loader import settings
-            import json
-            cfg_p = settings.PROJECT_ROOT / "config.json"
-            if cfg_p.exists():
-                cfg_data = json.loads(cfg_p.read_text(encoding="utf-8"))
-                if not cfg_data.get("ad_sync", {}).get("enabled", False):
-                    return None
+            from core.config_loader import get_config_section
+            if not get_config_section("ad_sync").get("enabled", False):
+                return None
         except Exception:
             pass
 

@@ -125,15 +125,10 @@ def _get_config_dict() -> dict:
     except Exception:
         pass
 
-    cfg_file = PROJECT_ROOT / "config.json"
-    if cfg_file.is_file():
-        try:
-            with open(cfg_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if "memory_db" in data:
-                    return data
-        except Exception:
-            pass
+    from core.config_loader import read_raw_config
+    data = read_raw_config()
+    if "memory_db" in data:
+        return data
 
     return {
         "memory_db": {

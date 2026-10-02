@@ -127,15 +127,8 @@ def _read_persona() -> Dict[str, Any]:
     connector, với đúng lý do này.
     """
     try:
-        import json as _json
-        from pathlib import Path as _Path
-
-        cfg = _Path(__file__).resolve().parent.parent / "config.json"
-        if not cfg.is_file():
-            return {}
-        data = _json.loads(cfg.read_text(encoding="utf-8"))
-        persona = data.get("persona") if isinstance(data, dict) else None
-        return persona if isinstance(persona, dict) else {}
+        from core.config_loader import get_config_section
+        return get_config_section("persona")
     except Exception:  # config hỏng -> dùng mặc định, không làm sập hội thoại
         return {}
 
@@ -221,12 +214,8 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
         templates = getattr(settings, "report_templates", {}) or {}
         # Fallback to direct config.json if needed
         if not templates:
-            import json
-            from pathlib import Path
-            cfg_file = Path(__file__).resolve().parent.parent / "config.json"
-            if cfg_file.exists():
-                raw = json.loads(cfg_file.read_text(encoding="utf-8"))
-                templates = raw.get("report_templates", {})
+            from core.config_loader import get_config_section
+            templates = get_config_section("report_templates")
 
         if templates and isinstance(templates, dict):
             formatted_templates = []

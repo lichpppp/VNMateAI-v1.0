@@ -105,15 +105,10 @@ class TelegramBotService:
 
         # Resilient fallback: read directly from config.json
         try:
-            import json
-            from pathlib import Path
-            cfg_path = Path(__file__).resolve().parent.parent / "config.json"
-            if cfg_path.exists():
-                raw = json.loads(cfg_path.read_text(encoding="utf-8"))
-                tg_data = raw.get("telegram", {})
-                if tg_data.get("bot_token"):
-                    from core.config_loader import TelegramConfig
-                    return TelegramConfig(**tg_data)
+            from core.config_loader import TelegramConfig, get_config_section
+            tg_data = get_config_section("telegram")
+            if tg_data.get("bot_token"):
+                return TelegramConfig(**tg_data)
         except Exception as exc:
             logger.error("[TelegramGateway] Direct config.json read error: %s", exc)
 
@@ -575,14 +570,10 @@ class TelegramBotService:
 
         # Check if telegram is enabled in config
         try:
-            import json
-            from pathlib import Path
-            cfg_p = Path(__file__).resolve().parent.parent / "config.json"
-            if cfg_p.exists():
-                raw = json.loads(cfg_p.read_text(encoding="utf-8"))
-                if not raw.get("telegram", {}).get("enabled", False):
-                    logger.info("[TelegramGateway] Skipping startup: Telegram Gateway is disabled in config.")
-                    return False
+            from core.config_loader import get_config_section
+            if not get_config_section("telegram").get("enabled", False):
+                logger.info("[TelegramGateway] Skipping startup: Telegram Gateway is disabled in config.")
+                return False
         except Exception:
             pass
 
