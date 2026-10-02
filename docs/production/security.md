@@ -37,7 +37,7 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 ## 4. Audit
 
 - Một kho: bảng `audit_logs` (chỉ INSERT; không có API sửa/xoá — `DELETE /api/v1/security/audit-logs` trả 405). Ghi cả quyết định RBAC lẫn sự kiện Zero-Trust/HITL (`test_audit_single_store`).
-- Xem: portal → Bảo mật, hoặc `GET /api/v1/security/audit-logs` / `GET /api/v1/audit-logs` — **chỉ admin** (payload chứa tham số tác vụ, vd nội dung tệp ghi qua `fs/write`). Danh sách tác vụ chờ duyệt (`GET /api/v1/security/pending-action`) cũng chỉ admin.
+- Xem: portal → Bảo mật / Trung tâm chỉ huy / Giám sát — tất cả đọc MỘT endpoint `GET /api/v1/security/audit-logs` (**chỉ admin**; payload chứa tham số tác vụ). Mỗi dòng có `status` (tên sự kiện) và `outcome` (success / failed / pending / blocked). Danh sách tác vụ chờ duyệt (`GET /api/v1/security/pending-action`) cũng chỉ admin.
 
 ## 5. Bí mật
 
@@ -62,4 +62,3 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | Connector M365/eInvoice/Paperless/OCI chưa chạy thật | Chưa kiểm chứng | Bật từng connector trong môi trường thử trước |
 | Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
 | `POST /api/v1/clients/{id}/kill-process` và `/deploy-skill` (admin) chạy thẳng trên máy trạm, không qua HITL | Thấp–TB | Chỉ admin, nay có audit (deploy ghi tên tệp + SHA-256 mã). Đưa qua HITL nếu cần duyệt hai người |
-| Hai endpoint đọc cùng bảng audit (`/api/v1/audit-logs` và `/api/v1/security/audit-logs`), UI gọi cả hai | Thấp | Cả hai chỉ admin (§4); gộp làm một ở phase Security |

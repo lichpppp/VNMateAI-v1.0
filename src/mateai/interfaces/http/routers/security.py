@@ -298,6 +298,7 @@ async def get_audit_logs(
     return {
         "status": "success",
         "count": len(logs),
+        "total": len(logs),
         "logs": logs,
     }
 
@@ -520,28 +521,3 @@ async def confirm_action_endpoint(
         "result": res,
         "reply": synth_reply,
     }
-
-
-@router.get(
-    "/api/v1/audit-logs",
-    summary="Phase 48: Nhật ký kiểm toán bất biến",
-    tags=["Audit"],
-)
-async def api_audit_logs(
-    limit: int = 100,
-    employee_id: Optional[str] = None,
-    action_type: Optional[str] = None,
-    status: Optional[str] = None,
-    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Truy vấn nhật ký kiểm toán. Chỉ đọc — không thể sửa/xoá. Chỉ admin (cùng
-    quy tắc với /api/v1/security/audit-logs): payload audit chứa tham số tác vụ,
-    vd nội dung tệp ghi qua /api/v1/fs/write."""
-    from mateai.infrastructure.database.erp_database import erp_db
-    logs = erp_db.get_audit_logs(
-        limit=limit,
-        employee_id=employee_id,
-        action_type=action_type,
-        status=status,
-    )
-    return {"status": "success", "total": len(logs), "logs": logs}

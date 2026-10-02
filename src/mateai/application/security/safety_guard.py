@@ -69,6 +69,9 @@ def _audit_row_to_event(row: Dict[str, Any]) -> Dict[str, Any]:
         # Dòng ghi thẳng bằng write_audit_log (RBAC, HITL) không có mức rủi ro.
         "risk": payload.get("risk") if is_security_event else "-",
         "status": payload.get("event") if is_security_event else str(row.get("status") or "").upper(),
+        # Kết quả chuẩn hoá của bảng (success / failed / pending / blocked) —
+        # dùng cho thống kê; `status` ở trên là tên sự kiện chi tiết.
+        "outcome": str(row.get("status") or "").lower(),
         "details": payload.get("details", {}) if is_security_event else payload,
     }
 

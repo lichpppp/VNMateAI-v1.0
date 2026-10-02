@@ -189,10 +189,10 @@ const CONN_HEALTH = {
                 missing_fields: ['EINVOICE_TENANT_ID'] },
   },
 };
-// /api/v1/audit-logs — đúng phân bố quan sát được: failed 17, pending 48, success 35
+// /api/v1/security/audit-logs — đúng phân bố quan sát được: failed 17, pending 48, success 35
 const AUDIT = (() => {
-  const mk = (st, i) => ({ id: i, timestamp: '2026-09-28T06:00:00', action_type: 'X',
-                           status: st, approved_by: st === 'success' ? 'admin' : null });
+  const mk = (st, i) => ({ id: i, timestamp: '2026-09-28 06:00:00', action: 'X', client_id: 'admin',
+                           status: st.toUpperCase(), outcome: st });
   const logs = [];
   for (let i = 0; i < 35; i++) logs.push(mk('success', i));
   for (let i = 0; i < 17; i++) logs.push(mk('failed', 100 + i));
@@ -414,7 +414,7 @@ check('có thất bại → thái độ "Có thất bại"', txt('mon-sec-postur
 M.renderSecurityMonitor({ status: 'success', total: 0, logs: [] });
 check('rỗng → "Chưa có dữ liệu", không NaN',
   txt('mon-sec-posture') === 'Chưa có dữ liệu' && txt('mon-sec-rate') === '—');
-M.renderSecurityMonitor({ status: 'success', total: 5, logs: [{ status: 'success' }, { status: 'BLOCKED' }, { status: 'denied' }] });
+M.renderSecurityMonitor({ status: 'success', total: 5, logs: [{ outcome: 'success' }, { outcome: 'BLOCKED' }, { outcome: 'denied' }] });
 check('BLOCKED/denied (không phải chữ thường) vẫn bị tính là thất bại',
   txt('mon-sec-failed') === '2', txt('mon-sec-failed'));
 

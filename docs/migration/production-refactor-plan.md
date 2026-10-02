@@ -944,3 +944,11 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME** (server chạy với Telegram tắt để không bắn tin thử vào nhóm thật, sau đó chạy lại bình thường): `fs/write` → `need_confirm` id `HITL-…`; cùng id ở `/security/pending-action` và `/enterprise/hitl/pending`; duyệt qua panel doanh nghiệp → tệp được ghi; duyệt qua portal → tệp được ghi; gửi lại id → 404; từ chối → không ghi; tạo yêu cầu, khởi động lại máy chủ → yêu cầu còn trong danh sách, duyệt → tệp được ghi. Tệp thử đã xoá, hàng đợi rỗng.
 
 **NEXT STEP:** gộp hai endpoint audit; rà các phase còn lại (Data, Connectors, Deployment).
+
+## 52. Một endpoint đọc audit (2026-10-03)
+
+**STATUS:** XONG
+
+`GET /api/v1/audit-logs` (dòng thô) và `GET /api/v1/security/audit-logs` (dạng sự kiện) đọc cùng bảng `audit_logs` với hai định dạng; giao diện gọi cả hai. Giữ `/api/v1/security/audit-logs`, thêm `outcome` (trạng thái chuẩn hoá của bảng) và `total`; chuyển panel Giám sát (Panel 8) và cột cảnh báo của Trung tâm chỉ huy sang endpoint này (đọc `outcome`, `action`, `client_id`); gỡ `/api/v1/audit-logs` (không còn nơi gọi: web, admin, client_agent, test).
+
+**TESTS:** 370 pass; test JS phase61 112/112 với dữ liệu dạng mới. **RUNTIME:** `/api/v1/audit-logs` → 404; `/api/v1/security/audit-logs?limit=100` → 100 dòng, outcome {success 91, pending 4, blocked 2, failed 3}; `app.js` phục vụ đường mới.

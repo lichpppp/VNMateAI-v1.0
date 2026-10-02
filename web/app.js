@@ -1329,7 +1329,7 @@ async function loadExtendedMonitors() {
     ['memory', '/api/v1/memory/stats'],
     ['domain', '/api/v1/domain/stats'],
     ['conns', '/api/v1/enterprise/connectors/health'],
-    ['audit', '/api/v1/audit-logs'],
+    ['audit', '/api/v1/security/audit-logs?limit=100'],
     // Phase 79: bỏ `['logs', '/api/v1/logs/recent?limit=200']`. Bảng nhật ký
     // ở Bảng Điều Khiển đã gom vào tab Nhật Ký, nên vẫn nạp endpoint này ở
     // đây nghĩa là mỗi vòng poll mất một request mà không ai đọc kết quả.
@@ -1494,7 +1494,7 @@ function renderSecurityMonitor(d) {
 
   let success = 0, failed = 0, pending = 0;
   for (const r of logs) {
-    const st = String(r?.status || '').toLowerCase();
+    const st = String(r?.outcome || '').toLowerCase();
     if (st === 'success') success += 1;
     else if (st === 'failed' || st === 'error' || st === 'denied' || st === 'blocked') failed += 1;
     else pending += 1;
@@ -11440,7 +11440,7 @@ const CommandCenter = (() => {
 
   // ── Cột 3: cảnh báo an ninh ─────────────────────────────────────────────
   //
-  // Nguồn là nhật ký kiểm toán bất biến `/api/v1/audit-logs`, lọc ra các sự
+  // Nguồn là nhật ký kiểm toán bất biến `/api/v1/security/audit-logs`, lọc ra các sự
   // kiện bị từ chối hoặc thất bại. Không có endpoint "trạng thái an ninh"
   // riêng — trước đây có thể đã giả định một endpoint không tồn tại và mọi
   // lần gọi đều 404, khiến cột này trống trơn mà không ai biết vì sao.
@@ -11449,7 +11449,7 @@ const CommandCenter = (() => {
     const badge = $('cc-security-count');
     if (!box) return;
     try {
-      const res = await apiFetch(`${API_BASE}/api/v1/audit-logs?limit=50`);
+      const res = await apiFetch(`${API_BASE}/api/v1/security/audit-logs?limit=50`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const d = await res.json();
       const logs = d.logs || d.results || d.audit_logs || [];
@@ -11464,10 +11464,10 @@ const CommandCenter = (() => {
       // module khác thêm vào) sẽ lọt vào danh sách cảnh báo thay vì bị giấu.
       // Thừa một dòng còn hơn bỏ sót sự cố.
       const ANOMALY = new Set(['BLOCKED', 'FAILED', 'DENIED', 'ERROR', 'SUSPICIOUS']);
-      const alerts = logs.filter((l) => ANOMALY.has(String(l.status || '').toUpperCase()))
+      const alerts = logs.filter((l) => ANOMALY.has(String(l.outcome || '').toUpperCase()))
         .map((l) => ({
-          title: l.action_type || 'Sự kiện bất thường',
-          detail: `${l.employee_id || 'unknown'} · ${l.timestamp || ''}`,
+          title: l.action || 'Sự kiện bất thường',
+          detail: `${l.client_id || 'unknown'} · ${l.timestamp || ''}`,
           status: l.status,
         }));
 

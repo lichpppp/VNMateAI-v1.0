@@ -129,8 +129,15 @@ def test_pending_list_is_admin_only(env, role):
     assert _client("admin").get("/api/v1/security/pending-action").status_code == 200
 
 
-@pytest.mark.parametrize("path", ["/api/v1/audit-logs", "/api/v1/security/audit-logs"])
 @pytest.mark.parametrize("role", ["viewer", "manager"])
-def test_audit_logs_are_admin_only(env, path, role):
+def test_audit_logs_are_admin_only(env, role):
     """Payload audit chứa tham số tác vụ (vd nội dung tệp ghi qua fs/write)."""
-    assert _client(role).get(path).status_code == 403
+    assert _client(role).get("/api/v1/security/audit-logs").status_code == 403
+
+
+def test_single_audit_endpoint_with_normalised_outcome(env):
+    """Một endpoint đọc audit (trước có thêm /api/v1/audit-logs đọc cùng bảng, dạng khác)."""
+    c = _client("admin")
+    assert c.get("/api/v1/audit-logs").status_code == 404
+    logs = c.get("/api/v1/security/audit-logs").json()["logs"]
+    assert all(l["outcome"] in ("success", "failed", "pending", "blocked") for l in logs)
