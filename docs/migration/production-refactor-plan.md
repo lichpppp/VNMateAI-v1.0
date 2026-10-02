@@ -713,3 +713,12 @@ Cả package `core/connectors/` (base, aws, oci, paperless, einvoice, m365, gene
 
 **Lỗ hổng: webhook không chữ ký được chuyển vào nhóm Telegram admin.** `/api/webhooks/*` không cần đăng nhập; khi chưa cấu hình secret, webhook vẫn được nhận và chuyển thành tin nhắn Telegram + HUD (gắn nhãn "CHƯA XÁC THỰC"). Phát hiện khi kiểm tra runtime: một POST thử không chữ ký đã tạo tin nhắn thật trong nhóm (xem owner-todo). **Sửa:** mặc định trả 401 khi chưa có secret; chỉ nhận nếu bật `security.allow_unsigned_webhooks`. Test `test_webhook_unsigned_rejected.py` (mặc định 401 + không dispatch; bật cờ → nhận). Runtime: POST không chữ ký → 401, số lần `sendMessage` không đổi.
 **Test:** 267 pass.
+
+## 37. Một nguồn cho thư mục gốc dự án (2026-10-02)
+
+**STATUS:** XONG (chuẩn bị cho các lô Phase 4 còn lại)
+
+10 chỗ còn tự tính thư mục gốc từ `__file__` (`audio_cache`, `autonomous_sentinel`, `health_monitor`, `knowledge/graph_rag`, `rag_engine`, `server` ×3 — gốc, `admin/out`, `custom_topology.json` —, `skills/file_system`, `skills/onboarding_workflow`) → `settings.PROJECT_ROOT`. `health_monitor` và `server` bỏ nhánh `frozen` riêng (đã có trong `config_loader`); ở bản đóng gói, `admin/out` và `custom_topology.json` của server từng tính theo thư mục giải nén tạm, lệch với phần còn lại.
+**Đã xoá:** `src/mateai/config/settings.py` — bộ nạp cấu hình viết lại, không caller, vi phạm RULE-013 cuối cùng (baseline RULE-013 → 0).
+**Test:** `test_project_root_single_source.py` (mọi module dùng `settings.PROJECT_ROOT`; không file nào trong `core/`, `src/mateai/` còn đi lên thư mục gốc bằng `Path(__file__).parent.parent`/`parents[n]`, trừ chính `config_loader`). Toàn bộ 270 pass.
+**Runtime:** `/admin/topology` + chunk JS 200, `/static/app.js` 200, API topology 200, audit đọc được, `/readyz` ok.

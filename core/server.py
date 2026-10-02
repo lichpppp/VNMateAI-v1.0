@@ -78,10 +78,10 @@ import sys
 from pathlib import Path
 from urllib.parse import quote
 
-if getattr(sys, "frozen", False):
-    _PROJECT_ROOT = Path(sys.executable).parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
+# không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
 _WEB_DIR    = _PROJECT_ROOT / "web"
 _REGISTRY_PATH = _PROJECT_ROOT / "skills" / "registry.json"
@@ -1473,7 +1473,7 @@ async def serve_portal() -> HTMLResponse:
 # ═══════════════════════════════════════════════════════════════════════════
 # ── Phase 88: VISUAL WORKFLOW TOPOLOGY (n8n-style Node Graph) ───────────────
 # ═══════════════════════════════════════════════════════════════════════════
-_ADMIN_OUT_DIR = Path(__file__).resolve().parent.parent / "admin" / "out"
+_ADMIN_OUT_DIR = _PROJECT_ROOT / "admin" / "out"
 
 
 @app.get("/admin/topology", response_class=HTMLResponse, include_in_schema=True,
@@ -1862,7 +1862,7 @@ async def get_system_stats(user: dict = Depends(require_roles(["manager", "admin
 # ═══════════════════════════════════════════════════════════════════════════
 # ── Phase 88: TOPOLOGY API (<10ms, in-memory, zero blocking) ────────────────
 # ═══════════════════════════════════════════════════════════════════════════
-_CUSTOM_TOPOLOGY_PATH = Path(__file__).resolve().parent.parent / "storage" / "custom_topology.json"
+_CUSTOM_TOPOLOGY_PATH = _PROJECT_ROOT / "storage" / "custom_topology.json"
 
 
 @app.get(

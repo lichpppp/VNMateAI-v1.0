@@ -29,7 +29,10 @@ from core.knowledge.lexical import lexical_evidence_gate
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
+# không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _CHROMA_DIR = _PROJECT_ROOT / "storage" / "chroma_db"
 _DOCS_DIR = _PROJECT_ROOT / "storage" / "knowledge_docs"
 _SEED_DOC_PATH = _DOCS_DIR / "Quy_che_va_chinh_sach_nhan_su_2026.md"

@@ -32,10 +32,10 @@ from core.config_loader import settings
 logger = logging.getLogger(__name__)
 
 # Resolve database path
-if getattr(sys, "frozen", False):
-    _PROJECT_ROOT = Path(sys.executable).parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
+# không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
 _DB_PATH = Path(os.environ.get("VNMATEAI_HR_DB_PATH") or _PROJECT_ROOT / "hr_kpi.db")
 _START_TIME = time.time()

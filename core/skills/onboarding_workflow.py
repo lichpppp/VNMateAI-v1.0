@@ -25,7 +25,10 @@ from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
+# không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
 
 def _generate_username(name: str) -> str:

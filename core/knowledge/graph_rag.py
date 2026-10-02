@@ -30,7 +30,10 @@ from core.knowledge.lexical import (
 logger = logging.getLogger(__name__)
 
 
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
+# không suy từ vị trí file mã nguồn.
+from core.config_loader import settings as _settings  # noqa: E402
+_PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _GRAPH_STORE_PATH = _PROJECT_ROOT / "storage" / "enterprise_graph.json"
 
 # ── Từ điển trích xuất Triplet (nghiệp vụ doanh nghiệp Việt Nam) ───────────────
