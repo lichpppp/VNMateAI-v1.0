@@ -471,7 +471,7 @@ root.handlers = [handler]
 root.setLevel(logging.DEBUG)
 
 try:
-    from mateai.interfaces.http.server import _install_secret_redaction
+    from mateai.interfaces.http.log_stream import _install_secret_redaction
 
     _install_secret_redaction()
     # Ghi từ LOGGER CON — đúng trường hợp của httpx. Bộ lọc gắn lên logger

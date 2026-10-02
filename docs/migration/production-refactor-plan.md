@@ -880,3 +880,17 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME:** ảnh chụp GET 4 vai trước–sau: 13/13 route giống hệt. `GET /api/v1/config` và `/telegram/config` che khoá; gửi lại nguyên cấu hình đã che qua `POST /api/v1/config` → `config.json` không đổi (khoá thật được giữ). Routing, models, system, xiaozhi, computer-use, telegram status 200.
 
 **NEXT STEP:** nhóm còn lại: voice, pairing, wake-word, tts, tasks, sentinel, orchestrator, logs, report-templates, trang tĩnh/admin, health, các WebSocket.
+
+## 48. Router nhóm nhỏ + `workers`; `log_stream`; log không ghi giá trị tham số tool (2026-10-03)
+
+**STATUS:** XONG
+
+**FILES CHANGED:** router `pairing`, `sentinel`, `tasks`, `report_templates`, `tts`, `wake_word`, `analytics` (ROI, nhân viên ERP), `logs`, `workers` (bật/tắt worker cục bộ, `download-agent`, `_resolve_master_endpoint` / `_master_ws_url` / `_local_worker_ws_url`); `interfaces/http/log_stream.py` (handler bộ đệm log + bộ lọc che bí mật; `install(loop)`, `get_handler()` — thay biến toàn cục `server._ws_log_handler` mà router không đọc được nếu không import ngược server). Test trỏ module mới. `server.py` còn ~2.400 dòng; 187 route, thứ tự route trùng mẫu giữ nguyên.
+
+**Sửa:** cổng tool ghi `tham số=<toàn bộ dict>` ra log ở mức INFO — gồm nội dung tệp sắp ghi, câu lệnh… — và `/api/v1/logs/recent` phục vụ log cho cả viewer (cùng loại dữ liệu đã giới hạn admin ở audit, §45). Nay log chỉ ghi TÊN tham số; giá trị đầy đủ vẫn ở `audit_logs` (admin). Không đổi quyền endpoint log (bảng nhật ký của viewer vẫn hoạt động).
+
+**TESTS:** 360 pass (+ test log không chứa giá trị tham số).
+
+**RUNTIME:** ảnh chụp GET 4 vai trước–sau: 10/10 route giống hệt. `POST /api/v1/tts` → MP3 7.632 byte; 322 giọng; `download-agent` → zip 18 tệp có `agent.py`; bật worker cục bộ → chạy `get_system_info` thành công → tắt; log gần đây không còn dòng tham số dạng dict.
+
+**NEXT STEP:** phần lõi còn trong `server.py`: voice-command + phiên thoại, HUD (simulate, telemetry), các WebSocket (`/ws/hud`, `/ws/portal-ui`, `/ws/topology`, `/ws/voice`, `/ws/client`, audio-stream/xiaozhi), trang tĩnh/admin, health/login, middleware và startup.

@@ -140,7 +140,10 @@ async def run_tool_with_policy(
                     "message": "Tác vụ này đang chờ phê duyệt. CHƯA được thực thi.",
                 }
         else:
-            logger.info("Thực thi kỹ năng cục bộ: '%s' tham số=%s", fn_name, fn_args)
+            # Chỉ ghi TÊN tham số: giá trị có thể là nội dung tệp sắp ghi, câu lệnh,
+            # dữ liệu nhân sự… và `/api/v1/logs/recent` phục vụ log cho cả viewer.
+            # Giá trị đầy đủ nằm trong audit_logs (chỉ admin đọc).
+            logger.info("Thực thi kỹ năng cục bộ: '%s' tham số=%s", fn_name, sorted(fn_args))
             _result = await plugin_manager.execute_skill(fn_name, fn_args)
     else:
         logger.info("Diều phối kỹ năng '%s' → [%s]", fn_name, target_client)

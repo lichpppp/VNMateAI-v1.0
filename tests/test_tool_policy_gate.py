@@ -127,3 +127,13 @@ async def test_client_timeout_reaches_workstation_call(gate, monkeypatch):
     await avl.run_tool_with_policy("get_cpu", {"target_client": "pc-01"}, caller="admin",
                                    source_device="portal", client_timeout=20)
     assert seen == {"client": "pc-01", "timeout": 20}
+
+
+async def test_tool_arg_values_are_not_logged(gate, caplog):
+    """`/api/v1/logs/recent` phục vụ log cho cả viewer — chỉ ghi TÊN tham số."""
+    import logging
+    with caplog.at_level(logging.INFO):
+        await avl.run_tool_with_policy("write_note", {"content": "BÍ-MẬT-NỘI-DUNG"},
+                                       caller="admin", source_device="portal")
+    assert "BÍ-MẬT-NỘI-DUNG" not in caplog.text
+    assert "content" in caplog.text

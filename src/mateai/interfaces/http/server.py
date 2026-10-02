@@ -84,9 +84,6 @@ from mateai.config.loader import settings as _settings  # noqa: E402
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
 _WEB_DIR    = _PROJECT_ROOT / "web"
-# Gói "Tải Agent" đóng từ chính client_agent/ (Phase 6: gỡ bản fork client_template/,
-# hai bản đã lệch nhau — mỗi bên sửa một lỗi mà bên kia vẫn còn).
-_CLIENT_AGENT_DIR = _PROJECT_ROOT / "client_agent"
 
 # Trạng thái kết nối + phát sóng: core/realtime_hub.py (module lõi dùng trực tiếp).
 from mateai.interfaces.websocket.realtime_hub import (  # noqa: E402
@@ -407,191 +404,7 @@ async def _hud_telemetry_loop() -> None:
 # Real-time WebSocket Log Handler (Phase 21)
 # ---------------------------------------------------------------------------
 
-class _WebSocketLogHandler(logging.Handler):
-    """
-    Python log handler that stores recent log records in an in-memory ring buffer
-    and pushes every log record to all connected Portal UI & HUD WebSocket clients
-    as a 'log_entry' event in real-time.
-    Thread-safe: uses threading.Lock and run_coroutine_threadsafe.
-    """
-    _LEVEL_COLOR = {
-        "DEBUG":    "text-slate-400",
-        "INFO":     "text-emerald-400",
-        "WARNING":  "text-amber-400",
-        "ERROR":    "text-red-400",
-        "CRITICAL": "text-red-600 font-bold",
-    }
-
-    def __init__(self, maxlen: int = 600) -> None:
-        super().__init__()
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._buffer: collections.deque = collections.deque(maxlen=maxlen)
-        self._lock = threading.Lock()
-
-    def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Store the running event loop so emit() can schedule safely."""
-        self._loop = loop
-
-    def get_recent_logs(self, limit: int = 200) -> List[Dict[str, Any]]:
-        """Lấy danh sách log gần nhất từ buffer."""
-        with self._lock:
-            return list(self._buffer)[-limit:]
-
-    def clear_buffer(self) -> None:
-        """Làm trống buffer."""
-        with self._lock:
-            self._buffer.clear()
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            level = record.levelname
-            raw_msg = record.getMessage()
-            now_iso = datetime.utcnow().isoformat()
-
-            entry = {
-                "event":     "log_entry",
-                "level":     level,
-                "color":     self._LEVEL_COLOR.get(level, "text-slate-300"),
-                "logger":    record.name,
-                "message":   raw_msg,
-                "timestamp": now_iso,
-            }
-
-            # Luôn lưu vào in-memory ring buffer để client mới vào xem được ngay lịch sử
-            with self._lock:
-                self._buffer.append(entry)
-
-            # Skip WebSocket broadcast if loop not ready or no clients
-            if not self._loop or not self._loop.is_running():
-                return
-            if not active_portal_websockets and not active_hud_websockets:
-                return
-
-            # 1. Send to Portal UI
-            if active_portal_websockets:
-                msg = _json.dumps(entry, ensure_ascii=False)
-                asyncio.run_coroutine_threadsafe(
-                    self._send_to_all(msg), self._loop
-                )
-
-            # 2. Phase 33: Send to VN-MateAI Standby HUD
-            if active_hud_websockets:
-                hud_payload = {
-                    "type":      "system_log",
-                    "level":     level,
-                    "logger":    record.name,
-                    "message":   raw_msg,
-                    "timestamp": now_iso,
-                }
-                asyncio.run_coroutine_threadsafe(
-                    broadcast_hud(hud_payload), self._loop
-                )
-        except Exception:
-            pass  # never let logging errors crash the server
-
-    @staticmethod
-    async def _send_to_all(msg: str) -> None:
-        dead: set = set()
-        for ws in list(active_portal_websockets):
-            try:
-                await ws.send_text(msg)
-            except Exception:
-                dead.add(ws)
-        for ws in dead:
-            active_portal_websockets.discard(ws)
-
-
-# Module-level reference so startup can configure it
-_ws_log_handler: Optional["_WebSocketLogHandler"] = None
-
-
-# Bí mật nằm trong URL mà thư viện HTTP tự ghi ra log.
-#
-# PHÁT HIỆN KHI QUÉT RÒ RỈ (Phase 80): `httpx` ở mức INFO ghi lại nguyên dòng
-# request, mà URL của Telegram Bot API có dạng `/bot<token>/sendMessage`. Nên
-# mỗi lần bot gửi tin là token bot thật nằm trong dòng log — và
-# `GET /api/v1/logs/recent` phục vụ chính dòng log đó cho MỌI tài khoản đã
-# đăng nhập, kể cả `viewer`. Che bí mật ở endpoint cấu hình không có tác dụng
-# với đường rò này.
-#
-# Tắt logger của httpx không đủ: bất kỳ thư viện hay dòng log nào khác cũng
-# có thể lọt bí mật ra. Nên che TẠI MỘT CHỖ: mọi bản ghi log đi qua bộ lọc này
-# trước khi tới handler nào.
-_SECRET_LOG_PATTERNS = (
-    # Token bot Telegram nằm trong URL API. Che MỌI giá trị sau
-    # "api.telegram.org/bot" chứ không chỉ đúng dạng token chuẩn: giá trị lệch
-    # dạng (gõ nhầm, token kiểu cũ) vẫn là bí mật và từng lọt ra nguyên vẹn.
-    re.compile(r"(api\.telegram\.org/(?:file/)?bot)([^/\s\"']+)"),
-    re.compile(r"(bot)(\d{5,}:[A-Za-z0-9_\-]{20,})"),
-    # Khoá dạng phổ biến.
-    re.compile(r"\b(sk|gsk|rk|pk|xoxb|xoxp)[-_][A-Za-z0-9_\-]{16,}"),
-)
-
-
-class _SecretRedactingFilter(logging.Filter):
-    """Thay bí mật trong mọi dòng log bằng ký hiệu, trước khi ghi ra."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            text = record.getMessage()
-        except Exception:  # noqa: BLE001 — lỗi format không được làm hỏng log
-            return True
-        cleaned = text
-        for pat in _SECRET_LOG_PATTERNS:
-            if pat.groups == 2:
-                cleaned = pat.sub(lambda m: m.group(1) + _SECRET_MASK, cleaned)
-            else:
-                cleaned = pat.sub(_SECRET_MASK, cleaned)
-        if cleaned != text:
-            record.msg = cleaned
-            record.args = ()
-        return True
-
-
-def _install_secret_redaction() -> None:
-    """Gắn bộ lọc che bí mật vào MỌI handler của logger gốc (một lần).
-
-    Phải gắn vào HANDLER chứ không gắn vào logger. Python chỉ chạy
-    `Logger.filter()` cho đúng logger được gọi tới; bản ghi của logger con
-    (`httpx`, `uvicorn.access`…) đi lên bằng `callHandlers()` và chỉ bị lọc
-    bởi filter của handler. Gắn lên logger gốc sẽ tưởng đã che mà thực ra
-    dòng log của httpx vẫn lộ nguyên vẹn.
-    """
-    root = logging.getLogger()
-    # Handler của chính logger con cũng phải gắn — record đi qua handler ở
-    # đâu thì bị lọc ở đó.
-    targets = list(root.handlers)
-    for name in ("httpx", "httpx.httpcore", "httpcore", "uvicorn.access", "asyncio"):
-        targets.extend(logging.getLogger(name).handlers)
-    for h in targets:
-        if not any(isinstance(f, _SecretRedactingFilter) for f in h.filters):
-            h.addFilter(_SecretRedactingFilter())
-
-
-def _install_ws_log_handler(loop: asyncio.AbstractEventLoop) -> None:
-    """Attach WebSocket log handler to the root logger (once)."""
-    global _ws_log_handler
-    _install_secret_redaction()
-    root = logging.getLogger()
-    for h in root.handlers:
-        if isinstance(h, _WebSocketLogHandler):
-            h.set_loop(loop)
-            _ws_log_handler = h
-            return  # already installed, just update loop
-    handler = _WebSocketLogHandler()
-    handler.set_loop(loop)
-    handler.setLevel(logging.DEBUG)
-    fmt = logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-                            datefmt="%H:%M:%S")
-    handler.setFormatter(fmt)
-    # Handler MỚI thì chưa qua `_install_secret_redaction()` (hàm đó chỉ
-    # gắn bộ lọc lên handler có sẵn lúc nó chạy). Bỏ dòng này thì nhật ký
-    # đẩy qua WebSocket lại chứa bí mật — và `/api/v1/logs/recent` đọc thẳng
-    # từ bộ đệm của handler này.
-    handler.addFilter(_SecretRedactingFilter())
-    root.addHandler(handler)
-    _ws_log_handler = handler
-    logger.info("WebSocket real-time log handler installed (thread-safe).")
+from mateai.interfaces.http import log_stream  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -851,13 +664,6 @@ class VoiceCommandResponse(BaseModel):
     )
 
 
-class TTSRequest(BaseModel):
-    """Payload for POST /api/v1/tts."""
-    text: str = Field(..., min_length=1, max_length=2000)
-    voice: Optional[str] = Field(default="vi-VN-HoaiMyNeural")
-    rate: Optional[str] = Field(default=None)
-
-
 class HudSimulateRequest(BaseModel):
     """Payload for POST /api/v1/hud/simulate."""
     type: str = Field(default="voice_active", description="voice_active | system_log | metrics_update")
@@ -866,13 +672,6 @@ class HudSimulateRequest(BaseModel):
     level: Optional[str] = Field(default="INFO")
     message: Optional[str] = Field(default="Sentinel Guard: Kiểm tra an ninh định kỳ hoàn tất.")
     data: Optional[Dict[str, Any]] = None
-
-
-class TaskDispatchRequest(BaseModel):
-    """Payload for POST /api/v1/tasks/send."""
-    client_id: str = Field(..., description="ID máy trạm đích")
-    message: str = Field(..., min_length=1, description="Nội dung công việc cần nhắc")
-    sender: Optional[str] = Field(default="Ban Giám Đốc", description="Tên người hoặc phòng ban gửi")
 
 
 class HealthResponse(BaseModel):
@@ -887,13 +686,6 @@ class HealthResponse(BaseModel):
     routing_primary: Optional[str] = None
     routing_fallback_1: Optional[str] = None
     routing_fallback_2: Optional[str] = None
-
-
-class SentinelSimulateRequest(BaseModel):
-    """Payload for POST /api/v1/sentinel/simulate."""
-    category: str = Field(default="network", description="network | ad_sync | sql_deadlock | hardware")
-    title: str = Field(default="IIS Server 503 Error!", description="Tiêu đề sự cố")
-    message: str = Field(default="Dịch vụ máy chủ IIS bị dừng hoặc trả về mã lỗi 503 Service Unavailable.", description="Mô tả sự cố chi tiết")
 
 
 # ---------------------------------------------------------------------------
@@ -1000,7 +792,7 @@ async def _on_startup() -> None:
     loop = asyncio.get_event_loop()
 
     # Phase 21: Install real-time WebSocket log streamer (thread-safe)
-    _install_ws_log_handler(loop)
+    log_stream.install(loop)
 
     orchestrator.set_event_loop(loop)
     task_manager.set_tts_notifier(broadcast_tts_notification)
@@ -1772,105 +1564,18 @@ from mateai.interfaces.http.routers import memory as _r_memory  # noqa: E402
 app.include_router(_r_memory.router)
 
 
-@app.post(
-    "/api/v1/tts",
-    summary="Synthesise Vietnamese TTS audio (REST, full buffer)",
-    tags=["Audio"],
-    response_class=Response,
-)
-async def tts_endpoint(
-    payload: TTSRequest,
-    user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
-) -> Response:
-    """
-    Convert text to speech using edge-tts.
-    Returns raw MP3 bytes (Content-Type: audio/mpeg).
-    Assembles entire audio in-memory (io.BytesIO) — no disk I/O.
-    """
-
-    try:
-        from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
-        audio_bytes = await get_tts_engine().synthesise(
-            shorten_for_speech(sanitise_for_tts(payload.text)), voice=payload.voice, rate=payload.rate
-        )
-        if not audio_bytes:
-            raise HTTPException(status_code=500, detail="TTS engine returned empty audio.")
-        return Response(content=audio_bytes, media_type="audio/mpeg")
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.error("TTS endpoint error: %s", exc)
-        raise HTTPException(status_code=500, detail=f"TTS error: {exc}")
+from mateai.interfaces.http.routers import tts as _r_tts  # noqa: E402
+app.include_router(_r_tts.router)
 
 
 
 # In-memory cache for voice list (populated on first request)
-_TTS_VOICES_CACHE: list = []
-
-@app.get(
-    "/api/v1/tts/voices",
-    summary="Lấy danh sách toàn bộ giọng đọc Edge-TTS (322 giọng, 70+ ngôn ngữ)",
-    tags=["Audio"],
-)
-async def tts_voices_endpoint(user: dict = Depends(require_roles(["viewer", "manager", "admin"]))) -> Dict[str, Any]:
-    """
-    Trả về danh sách đầy đủ các giọng đọc Edge-TTS từ Microsoft.
-    Kết quả được cache trong RAM — chỉ gọi edge_tts.list_voices() một lần duy nhất.
-    """
-    global _TTS_VOICES_CACHE
-    if not _TTS_VOICES_CACHE:
-        try:
-            import edge_tts as _edge_tts
-            raw = await _edge_tts.list_voices()
-            _TTS_VOICES_CACHE = [
-                {
-                    "short_name": v["ShortName"],
-                    "friendly_name": v["FriendlyName"],
-                    "locale": v["Locale"],
-                    "gender": v.get("Gender", ""),
-                }
-                for v in raw
-            ]
-            logger.info("Đã tải %d giọng Edge-TTS vào cache.", len(_TTS_VOICES_CACHE))
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Lỗi tải danh sách giọng Edge-TTS: %s", exc)
-            return {"success": False, "error": str(exc), "voices": []}
-
-    return {"success": True, "total": len(_TTS_VOICES_CACHE), "voices": _TTS_VOICES_CACHE}
-
-
 # ---------------------------------------------------------------------------
 # System Logs Endpoints (Phase 21.1)
 # ---------------------------------------------------------------------------
 
-@app.get(
-    "/api/v1/logs/recent",
-    summary="Lấy danh sách nhật ký hệ thống gần đây từ ring buffer",
-    tags=["System Logs"],
-)
-async def get_recent_logs(
-    limit: int = Query(default=200, ge=1, le=600),
-    user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
-) -> Dict[str, Any]:
-    """Trả về danh sách log mới nhất đang được lưu trong RAM."""
-    logs = _ws_log_handler.get_recent_logs(limit=limit) if _ws_log_handler else []
-    return {
-        "status": "success",
-        "count": len(logs),
-        "logs": logs,
-    }
-
-
-@app.delete(
-    "/api/v1/logs",
-    summary="Xóa bộ đệm nhật ký hệ thống trong RAM",
-    tags=["System Logs"],
-)
-async def clear_logs_buffer(
-    user: dict = Depends(require_roles(["manager", "admin"])),
-) -> Dict[str, Any]:
-    """Xóa toàn bộ các dòng log trong bộ nhớ đệm RAM."""
-    if _ws_log_handler:
-        _ws_log_handler.clear_buffer()
-    return {"status": "success", "message": "Đã xóa sạch bộ đệm nhật ký máy chủ."}
+from mateai.interfaces.http.routers import logs as _r_logs  # noqa: E402
+app.include_router(_r_logs.router)
 
 
 
@@ -1904,116 +1609,8 @@ app.include_router(_r_skills.router)
 # Pairing Code Endpoints (6-Digit Dynamic Robot Sync)
 # ---------------------------------------------------------------------------
 
-class PairingVerifyRequest(BaseModel):
-    code: str = Field(..., min_length=4, max_length=10, description="Mã 6 số hiển thị trên màn hình Robot")
-
-class PairingUnpairRequest(BaseModel):
-    device_id: str
-
-@app.post(
-    "/api/v1/pairing/verify",
-    summary="Xác nhận mã 6 số để ghép đôi Robot với Web Portal/HUD",
-    tags=["Robotics Pairing"],
-)
-async def verify_pairing_code(
-    payload: PairingVerifyRequest,
-    user: dict = Depends(get_current_user),
-) -> Dict[str, Any]:
-    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
-
-    clean_code = payload.code.strip()
-    device_id = pairing_registry.lookup(clean_code)
-    if not device_id:
-        for d_id, node in xiaozhi_gateway.get_all_nodes().items():
-            if pairing_registry.get_code_for_device(d_id) == clean_code:
-                device_id = d_id
-                break
-
-    if not device_id:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Mã '{clean_code}' không hợp lệ hoặc robot chưa trực tuyến. Hãy kiểm tra màn hình OLED của Robot!",
-        )
-
-    node = xiaozhi_gateway.get_node(device_id)
-    # Gửi tín hiệu xác nhận thành công tới Robot để hiển thị trên OLED
-    await xiaozhi_gateway.send_ui_payload(
-        device_id=device_id,
-        state="idle",
-        emotion="happy",
-        text="Ghep doi thanh cong!",
-    )
-
-    # Thông báo cho HUD và Portal UI
-    try:
-        await broadcast_portal_ui("robot_paired", {
-            "device_id": device_id,
-            "pairing_code": clean_code,
-            "user": user.get("username"),
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        await broadcast_hud({
-            "type": "robot_status",
-            "status": "paired",
-            "device_id": device_id,
-            "pairing_code": clean_code,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-    except Exception:
-        pass
-
-    return {
-        "success": True,
-        "device_id": device_id,
-        "pairing_code": clean_code,
-        "message": f"Ghép đôi robot [{device_id}] thành công!",
-        "telemetry": node.to_dict() if node else None,
-    }
-
-
-@app.get(
-    "/api/v1/pairing/status",
-    summary="Kiểm tra trạng thái các robot và mã pairing đang hoạt động",
-    tags=["Robotics Pairing"],
-)
-async def get_pairing_status(
-    user: dict = Depends(get_current_user),
-) -> Dict[str, Any]:
-    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
-
-    active_codes = pairing_registry.list_all()
-    nodes_telemetry = xiaozhi_gateway.get_nodes_telemetry()
-
-    for node_info in nodes_telemetry:
-        d_id = node_info.get("device_id")
-        node_info["pairing_code"] = pairing_registry.get_code_for_device(d_id) if d_id else None
-
-    return {
-        "active_codes": active_codes,
-        "connected_robots": nodes_telemetry,
-        "robot_count": len(nodes_telemetry),
-    }
-
-
-@app.post(
-    "/api/v1/pairing/unpair",
-    summary="Huỷ ghép đôi robot",
-    tags=["Robotics Pairing"],
-)
-async def unpair_robot(
-    payload: PairingUnpairRequest,
-    user: dict = Depends(require_roles(["manager", "admin"])),
-) -> Dict[str, Any]:
-    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway, pairing_registry
-
-    await pairing_registry.unregister(payload.device_id)
-    await xiaozhi_gateway.send_ui_payload(
-        payload.device_id,
-        state="idle",
-        emotion="sleeping",
-        text="Da huy ket noi.",
-    )
-    return {"success": True, "message": f"Đã huỷ ghép đôi robot [{payload.device_id}]."}
+from mateai.interfaces.http.routers import pairing as _r_pairing  # noqa: E402
+app.include_router(_r_pairing.router)
 
 
 # ---------------------------------------------------------------------------
@@ -2097,8 +1694,9 @@ async def websocket_portal_ui(websocket: WebSocket) -> None:
         }, ensure_ascii=False))
 
         # Push recent log entries so client immediately gets history
-        if _ws_log_handler:
-            recent_logs = _ws_log_handler.get_recent_logs(limit=150)
+        _h = log_stream.get_handler()
+        if _h:
+            recent_logs = _h.get_recent_logs(limit=150)
             if recent_logs:
                 await websocket.send_text(_json.dumps({
                     "event": "log_history",
@@ -2535,231 +2133,10 @@ async def websocket_client_endpoint(websocket: WebSocket) -> None:
         await orchestrator.unregister_client(client_id)
 
 
-_local_worker_process: Optional[subprocess.Popen] = None
-
 # Bao lâu thì coi worker là "không lên được" rồi tự dừng. Đủ dài cho tiến
 # trình Python khởi động, import thư viện và mở WebSocket trên máy này.
-_LOCAL_WORKER_READY_TIMEOUT = 8.0
-
-
-def _resolve_master_endpoint(request: Request) -> tuple[str, str, int]:
-    """Trả về `(scheme, host, port)` mà một Client Agent phải nối tới.
-
-    Đọc từ chính yêu cầu đang đến (`request.url`), không đọc `config.json`.
-    Lý do: `config.json` để lại `PORT: 443` từ lâu trong khi máy chủ thật
-    được khởi chạy bằng `uvicorn ... --port 8000` — cấu hình lệch với thực tế
-    là nguồn của URL không bắt tay được. Yêu cầu thì không thể lệch: nó phản
-    ánh đúng cổng và scheme mà trình duyệt vừa dùng để mở trang này.
-
-    `loopback_only=True` ép về 127.0.0.1 — dùng cho worker chạy ngay trên
-    máy chủ. Worker tải về chạy ở máy khác nên KHÔNG ép (xem
-    `_local_worker_ws_url` và `download_agent`).
-    """
-    url = request.url
-    scheme = "wss" if url.scheme in ("https", "wss") else "ws"
-    host = url.hostname or "127.0.0.1"
-    # `0.0.0.0` / `::` là địa chỉ "mọi giao diện", không phải địa chỉ nào để
-    # kết nối tới. Ở đây coi như loopback; nếu sau reverse proxy bị rơi vào
-    # giá trị này thì thà chỉ loopback còn hơn sinh ra URL không dùng được.
-    if host in ("0.0.0.0", "::", "[::]", ""):
-        host = "127.0.0.1"
-    port = url.port or (443 if scheme == "wss" else 80)
-    return scheme, host, port
-
-
-def _master_ws_url(request: Request) -> str:
-    """URL WebSocket cho Client Agent ở MÁY KHÁC (gói tải về).
-
-    Khác `_local_worker_ws_url` ở chỗ không ép loopback: máy con ở trong LAN
-    phải nối tới địa chỉ mà máy chủ thực sự nghe, nên dùng IP mà người dùng
-    đang truy cập.
-    """
-    scheme, host, port = _resolve_master_endpoint(request)
-    return f"{scheme}://{host}:{port}/ws/client"
-
-
-def _local_worker_ws_url(request: Request) -> str:
-    """Dựng URL WebSocket mà worker cục bộ phải nối tới.
-
-    Trước đây URL này ghi cứng `"wss://127.0.0.1:443/ws/client"`, sai trên
-    hai điểm một lúc:
-
-      * Cổng. `config.json` để lại `PORT: 443` từ lâu, còn máy chủ thật được
-        khởi chạy bằng `uvicorn ... --port 8000`. Không có gì lắng nghe 443.
-      * Scheme. Máy chủ chạy HTTP thuần, nên `wss://` (WebSocket over TLS)
-        không bao giờ bắt tay được với nó.
-
-    Cả hai lỗi đều im lặng: tiến trình vẫn sinh ra, vẫn nhận PID, chỉ là
-    không bao giờ kết nối được.
-
-    Nay dựng URL từ chính yêu cầu đang đến: admin bấm nút trên cổng nào thì
-    worker nối về đúng cổng đó, đúng scheme đó — không đoán, không phụ thuộc
-    cấu hình lệch với thực tế. Worker này chạy cùng máy chủ nên quay về
-    loopback.
-    """
-    scheme, host, port = _resolve_master_endpoint(request)
-    return f"{scheme}://127.0.0.1:{port}/ws/client"
-
-
-@app.get(
-    "/api/v1/orchestrator/local-worker/status",
-    summary="Kiểm tra trạng thái Worker Node cục bộ",
-    tags=["Orchestrator"],
-)
-async def get_local_worker_status(
-    user: dict = Depends(require_roles(["viewer", "manager", "admin"])),
-) -> Dict[str, Any]:
-    """Kiểm tra xem Worker Node cục bộ có đang chạy hay không."""
-    global _local_worker_process
-    is_running = _local_worker_process is not None and _local_worker_process.poll() is None
-    return {
-        "active": is_running,
-        "pid": _local_worker_process.pid if is_running else None,
-        "client_id": "MASTER_LOCAL_WORKER",
-    }
-
-
-@app.post(
-    "/api/v1/orchestrator/local-worker/toggle",
-    summary="Bật hoặc tắt Worker Node cục bộ",
-    tags=["Orchestrator"],
-)
-async def toggle_local_worker_endpoint(
-    request: Request,
-    user: dict = Depends(require_roles(["manager", "admin"])),
-) -> Dict[str, Any]:
-    """Khởi chạy hoặc dừng Worker Node cục bộ trên máy chủ Master.
-
-    Chỉ báo "thành công" khi worker THỰC SỰ đăng ký, xem `_local_worker_ws_url`
-    và phần kiểm chứng bên dưới.
-    """
-    global _local_worker_process
-    # Import cục bộ: `orchestrator` là singleton sống ở mateai.interfaces.websocket.client_orchestrator, các
-    # endpoint khác cũng import kiểu này chứ không nằm ở phạm vi module.
-    from mateai.interfaces.websocket.client_orchestrator import orchestrator
-
-    if _local_worker_process is not None and _local_worker_process.poll() is None:
-        try:
-            _local_worker_process.terminate()
-            _local_worker_process.wait(timeout=3)
-        except Exception:
-            try:
-                _local_worker_process.kill()
-            except Exception:
-                pass
-        _local_worker_process = None
-        logger.info("Local Worker Node [MASTER_LOCAL_WORKER] đã dừng.")
-        return {"active": False, "message": "Đã dừng Worker Node cục bộ thành công."}
-    else:
-        agent_script = _PROJECT_ROOT / "client_agent" / "agent.py"
-        if not agent_script.exists():
-            return {
-                "active": False,
-                "message": f"Không tìm thấy {agent_script} — không thể khởi chạy worker.",
-            }
-
-        # Chặn khởi chạy trùng. `_local_worker_process` sống trong bộ nhớ của
-        # tiến trình máy chủ, nên sau mỗi lần restart nó về None — còn worker
-        # thì vẫn còn sống và tự nối lại. Bấm "Bật" lúc đó sẽ sinh ra worker
-        # thứ hai dùng chung một `client_id`, hai tiến trình tranh nhau đăng ký
-        # cùng một tên và danh sách client hiện ra loạn.
-        _already = any(
-            str((c or {}).get("client_id") or (c or {}).get("id") or "") == "MASTER_LOCAL_WORKER"
-            for c in orchestrator.get_connected_clients()
-        )
-        if _already:
-            return {
-                "active": True,
-                "message": (
-                    "Worker Node [MASTER_LOCAL_WORKER] đã có sẵn trong danh sách client — "
-                    "không khởi chạy thêm. Nếu đó là worker cũ sót lại từ lần chạy trước, "
-                    "hãy tắt nó ở máy đó rồi bấm Bật lại."
-                ),
-            }
-
-        ws_url = _local_worker_ws_url(request)
-        # Zero-Trust: truyền enrollment secret cho worker cục bộ qua env var.
-        _worker_env = os.environ.copy()
-        _worker_env["VNMATE_ENROLLMENT_TOKEN"] = enrollment.get_worker_enrollment_secret()
-        _local_worker_process = subprocess.Popen(
-            [
-                sys.executable,
-                str(agent_script),
-                "--server",
-                ws_url,
-                "--id",
-                "MASTER_LOCAL_WORKER",
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=_worker_env,
-        )
-        pid = _local_worker_process.pid
-        logger.info("Local Worker Node [MASTER_LOCAL_WORKER] đã khởi chạy (PID: %s) qua %s.", pid, ws_url)
-
-        # ── Kiểm chứng, đừng báo thành công bừa ────────────────────────────
-        #
-        # Trước đây hàm báo "khởi chạy thành công!" ngay sau `Popen`, tức là
-        # chỉ cần tiến trình được sinh ra là báo thành công — dù nó nối vào
-        # một cổng không ai lắng nghe. Đo thật: bấm "Bật", API trả về
-        # `active: true` kèm PID, nhưng sau 5 giây danh sách client vẫn rỗng
-        # và worker không bao giờ kết nối. Người dùng tin thông báo đó rồi
-        # tưởng hệ thống đã chạy, trong khi thực tế nó chết lặng lẽ.
-        #
-        # Nay đợi worker thật sự hiện trong registry rồi mới báo thành công.
-        deadline = time.time() + _LOCAL_WORKER_READY_TIMEOUT
-        registered = False
-        while time.time() < deadline:
-            await asyncio.sleep(0.25)
-            proc = _local_worker_process
-            if proc is None:
-                break
-            if proc.poll() is not None:
-                # Tiến trình tự tắt (lỗi kết nối, thiếu thư viện, ...)
-                _local_worker_process = None
-                logger.warning("Local Worker thoát ngay sau khi khởi chạy (mã %s).", proc.returncode)
-                return {
-                    "active": False,
-                    "message": (
-                        f"Worker không khởi động được: tiến trình thoát ngay (mã {proc.returncode}). "
-                        f"Kiểm tra tại sao bằng: python3 {agent_script} --server {ws_url} --id MASTER_LOCAL_WORKER"
-                    ),
-                }
-            if any(
-                str((c or {}).get("client_id") or (c or {}).get("id") or "") == "MASTER_LOCAL_WORKER"
-                for c in orchestrator.get_connected_clients()
-            ):
-                registered = True
-                break
-
-        if not registered:
-            # Dừng luôn: để một tiến trình nối vào hư không thì chỉ là rác.
-            try:
-                _local_worker_process.terminate()
-                _local_worker_process.wait(timeout=3)
-            except Exception:
-                try:
-                    _local_worker_process.kill()
-                except Exception:
-                    pass
-            _local_worker_process = None
-            logger.warning(
-                "Local Worker không đăng ký được sau %.1fs qua %s.", _LOCAL_WORKER_READY_TIMEOUT, ws_url
-            )
-            return {
-                "active": False,
-                "message": (
-                    f"Worker chạy được nhưng không kết nối được về máy chủ tại {ws_url} "
-                    f"trong {_LOCAL_WORKER_READY_TIMEOUT:.0f} giây — đã dừng tiến trình. "
-                    "Kiểm tra cổng này còn chạy không."
-                ),
-            }
-
-        return {
-            "active": True,
-            "pid": pid,
-            "message": "Worker Node cục bộ [MASTER_LOCAL_WORKER] đã kết nối thành công.",
-        }
+from mateai.interfaces.http.routers import workers as _r_workers  # noqa: E402
+app.include_router(_r_workers.router)
 
 
 from mateai.interfaces.http.routers import clients as _r_clients  # noqa: E402
@@ -2810,61 +2187,8 @@ from mateai.interfaces.http.routers import xiaozhi as _r_xiaozhi  # noqa: E402
 app.include_router(_r_xiaozhi.router)
 
 
-@app.post(
-    "/api/v1/sentinel/check",
-    summary="Phase 43: Quét kiểm tra sự cố toàn hệ thống qua Autonomous Sentinel",
-    tags=["Autonomous Sentinel"],
-)
-async def sentinel_check_endpoint(
-    user: dict = Depends(require_roles(["manager", "admin"])),
-) -> Dict[str, Any]:
-    """Thực hiện quét tức thời mạng LAN, đồng bộ AD, SQLite DB lock, và tài nguyên phần cứng."""
-    from mateai.application.operations.autonomous_sentinel import autonomous_sentinel
-    incidents = await autonomous_sentinel.scan_all()
-    dispatched = []
-    for inc in incidents:
-        sent = await autonomous_sentinel.dispatch_incident(
-            title=inc["title"],
-            message=inc["message"],
-            category=inc.get("category", "general"),
-            force=True,
-        )
-        if sent:
-            dispatched.append(inc["title"])
-    return {
-        "status": "success",
-        "incidents_found": len(incidents),
-        "incidents": incidents,
-        "dispatched_to_xiaozhi": dispatched,
-    }
-
-
-@app.post(
-    "/api/v1/sentinel/simulate",
-    summary="Phase 43: Mô phỏng sự cố để kiểm tra luồng Push Notification tới Xiaozhi",
-    tags=["Autonomous Sentinel"],
-)
-async def sentinel_simulate_endpoint(
-    payload: SentinelSimulateRequest,
-    user: dict = Depends(require_roles(["admin"])),
-) -> Dict[str, Any]:
-    """Mô phỏng phát hiện sự cố máy chủ và kích hoạt đánh thức Desktop Robot + Telegram alert."""
-    from mateai.application.operations.autonomous_sentinel import autonomous_sentinel
-    sent = await autonomous_sentinel.dispatch_incident(
-        title=payload.title,
-        message=payload.message,
-        category=payload.category,
-        force=True,
-    )
-    return {
-        "status": "success",
-        "simulated_incident": {
-            "category": payload.category,
-            "title": payload.title,
-            "message": payload.message,
-        },
-        "dispatched": sent,
-    }
+from mateai.interfaces.http.routers import sentinel as _r_sentinel  # noqa: E402
+app.include_router(_r_sentinel.router)
 
 
 # ---------------------------------------------------------------------------
@@ -2894,48 +2218,8 @@ app.include_router(_r_files.router)
 # ---------------------------------------------------------------------------
 
 
-@app.get(
-    "/api/v1/tasks/kpi-logs",
-    summary="Get recent KPI task logs and completion statistics",
-    tags=["Micro-Tasking"],
-)
-async def get_kpi_logs_endpoint(
-    limit: int = Query(default=100, ge=1, le=1000),
-    client_id: Optional[str] = Query(default=None),
-    status: Optional[str] = Query(default=None),
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Return historical task log from logs/kpi_logs.csv and aggregate KPI metrics."""
-    from mateai.application.devices.task_manager import task_manager
-    return task_manager.get_kpi_logs(limit=limit, client_id=client_id, status=status)
-
-
-@app.post(
-    "/api/v1/tasks/send",
-    summary="Dispatch a micro-task popup to a worker client node",
-    tags=["Micro-Tasking"],
-)
-async def send_task_endpoint(
-    payload: TaskDispatchRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Send interactive task popup to LAN worker node with role check."""
-    if current_user.get("role") == "viewer":
-        raise HTTPException(
-            status_code=403,
-            detail="Tài khoản Viewer chỉ có quyền xem, không được phát lệnh giao việc.",
-        )
-
-    from mateai.application.devices.task_manager import task_manager
-    sender = payload.sender or current_user.get("full_name", "Ban Giám Đốc")
-    result = await task_manager.dispatch_task(
-        client_id=payload.client_id,
-        message=payload.message,
-        sender=sender,
-    )
-    if result.get("status") != "success":
-        raise HTTPException(status_code=400, detail=result.get("message", "Gửi task thất bại"))
-    return result
+from mateai.interfaces.http.routers import tasks as _r_tasks  # noqa: E402
+app.include_router(_r_tasks.router)
 
 
 # ---------------------------------------------------------------------------
@@ -2943,87 +2227,8 @@ async def send_task_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@app.get(
-    "/api/v1/voice/mic-status",
-    summary="Truy vấn trạng thái phần cứng Microphone",
-    tags=["Voice"],
-)
-@app.get(
-    "/api/v1/wake-word/status",
-    summary="Truy vấn trạng thái phần cứng Microphone (Wake Word)",
-    tags=["Voice"],
-)
-async def get_mic_status(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Trả về trạng thái bật/tắt của Microphone background listening."""
-    try:
-        from mateai.infrastructure.audio.wake_word_engine import is_mic_enabled
-        enabled = is_mic_enabled()
-    except Exception:
-        enabled = False
-    return {
-        "status": "success",
-        "mic_enabled": enabled,
-        "is_listening": enabled,
-        "hardware_state": "listening" if enabled else "released",
-        "message": "Microphone đang lắng nghe ngầm." if enabled else "Microphone đã tắt hoàn toàn (phần cứng giải phóng).",
-    }
-
-
-class MicToggleRequest(BaseModel):
-    enabled: Optional[bool] = Field(None, description="True = Bật lắng nghe, False = Tắt và giải phóng phần cứng, None = Đảo trạng thái")
-
-
-@app.post(
-    "/api/v1/voice/mic-toggle",
-    summary="Bật/Tắt Microphone ở cấp độ phần cứng",
-    tags=["Voice"],
-)
-@app.post(
-    "/api/v1/wake-word/toggle",
-    summary="Bật/Tắt Microphone Wake Word ở cấp độ phần cứng",
-    tags=["Voice"],
-)
-async def toggle_mic(
-    payload: Optional[MicToggleRequest] = Body(default=None),
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """
-    Điều khiển phần cứng Microphone.
-    - enabled=true  → Bật lắng nghe ngầm, đèn Mic trên laptop sẽ sáng.
-    - enabled=false → Tắt hoàn toàn, giải phóng stream, đèn Mic TẮT HẲN.
-    Chỉ Admin và Manager được phép thay đổi.
-    """
-    if current_user.get("role") == "viewer":
-        raise HTTPException(
-            status_code=403,
-            detail="Tài khoản Viewer không có quyền điều khiển Microphone.",
-        )
-    try:
-        from mateai.infrastructure.audio.wake_word_engine import is_mic_enabled, set_mic_enabled
-        if payload is None or payload.enabled is None:
-            target_state = not is_mic_enabled()
-        else:
-            target_state = bool(payload.enabled)
-        new_state = set_mic_enabled(target_state)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Lỗi điều khiển Microphone: {exc}")
-
-    state_label = "BẬT" if new_state else "TẮT"
-    logger.info(
-        "Phase 16: Wake Word Mic toggle by user '%s' -> %s",
-        current_user.get("username", "?"),
-        state_label,
-    )
-    return {
-        "status": "success",
-        "mic_enabled": new_state,
-        "is_listening": new_state,
-        "hardware_state": "listening" if new_state else "released",
-        "message": f"Microphone đã {state_label} theo yêu cầu.",
-        "triggered_by": current_user.get("username"),
-    }
+from mateai.interfaces.http.routers import wake_word as _r_wake_word  # noqa: E402
+app.include_router(_r_wake_word.router)
 
 
 # ===========================================================================
@@ -3044,196 +2249,13 @@ app.include_router(_r_telegram.router)
 # ===========================================================================
 
 
-@app.get(
-    "/api/v1/report-templates",
-    summary="Phase 28: Lấy danh sách các biểu mẫu báo cáo tiêu chuẩn",
-    tags=["Reporting & Templates"],
-)
-async def get_report_templates(
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Retrieve all report templates from settings or config.json."""
-    from mateai.config.loader import settings
-    templates = getattr(settings, "report_templates", {}) or {}
-    if not templates:
-        from mateai.config.loader import _load_raw_config
-        templates = _load_raw_config().get("report_templates", {})
-    return {"status": "success", "templates": templates}
-
-
-@app.put(
-    "/api/v1/report-templates",
-    summary="Phase 28: Cập nhật kho biểu mẫu báo cáo tiêu chuẩn",
-    tags=["Reporting & Templates"],
-)
-async def update_report_templates(
-    payload: Dict[str, Any],
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Save report templates to config.json and reload in-memory settings."""
-    if current_user.get("role") not in ("admin", "manager"):
-        raise HTTPException(status_code=403, detail="Chỉ Admin hoặc Manager mới có quyền cập nhật biểu mẫu báo cáo.")
-
-    templates = payload.get("templates") if "templates" in payload else payload
-    if not isinstance(templates, dict):
-        raise HTTPException(status_code=400, detail="Dữ liệu biểu mẫu không hợp lệ, phải là một JSON object.")
-
-    from mateai.config.loader import read_raw_config, reload_settings, write_raw_config
-
-    try:
-        raw = read_raw_config(strict=True)
-        raw["report_templates"] = templates
-        write_raw_config(raw)
-        reload_settings()
-        return {
-            "status": "success",
-            "message": "Đã lưu kho biểu mẫu báo cáo tiêu chuẩn thành công. System Prompt đã được cập nhật.",
-            "templates": templates,
-        }
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Lỗi lưu biểu mẫu: {exc}")
+from mateai.interfaces.http.routers import report_templates as _r_report_templates  # noqa: E402
+app.include_router(_r_report_templates.router)
 
 
 # ===========================================================================
 # Phase 20: Dynamic Client Agent Distribution
 # ===========================================================================
-
-
-def _get_server_local_ip() -> str:
-    """Detect LAN IP of the Master Server for injecting into agent config."""
-    try:
-        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except Exception:
-        return "127.0.0.1"
-
-
-@app.get(
-    "/api/v1/download-agent",
-    summary="Phase 20: Tải xuống Client Agent được đóng gói động kèm config",
-    tags=["Distribution"],
-)
-async def download_agent(
-    request: Request,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Response:
-    """
-    Đóng gói động Client Agent thành file ZIP trên RAM (io.BytesIO).
-    File config.json được tự động điền IP Master và ghi đè vào ZIP.
-    Không tạo file .zip thừa trên ổ cứng máy chủ sau mỗi lần tải.
-    """
-    if current_user.get("role") not in ("admin", "manager"):
-        raise HTTPException(
-            status_code=403,
-            detail="Chỉ Admin hoặc Manager có quyền tải Client Agent.",
-        )
-
-    # Phase 85: dựng địa chỉ máy chủ từ chính yêu cầu đang đến.
-    #
-    # Trước đây endpoint này đọc `PORT` trong `config.json` (đang là 443) rồi
-    # ghi `wss://<ip>:443/ws/client` vào config.json của gói tải về. Gói đó KHÔNG
-    # BAO GIỜ kết nối được: máy chủ thật chạy cổng 8000, và chạy HTTP thuần nên
-    # `wss://` không bắt tay được. Người dùng tải Agent, chạy `python
-    # agent.py`, agent báo lỗi kết nối liên tục — mà trên máy chủ mọi thứ vẫn
-    # bình thường. Lỗi giống hệt mà `_local_worker_ws_url()` đã sửa từ trước,
-    # nhưng bản đóng gói bị bỏ sót.
-    #
-    # Nay cả hai cùng đọc `request.url` (xem `_resolve_master_endpoint`), nên
-    # IP/cổng/scheme luôn khớp với nơi người dùng đang xem trang này.
-    scheme, host, port = _resolve_master_endpoint(request)
-
-    # Nếu người dùng mở trang bằng localhost/loopback, máy con trong LAN không
-    # nối được vào 127.0.0.1 — lúc đó mới thay bằng IP LAN của máy chủ.
-    server_ip = host
-    if host in ("127.0.0.1", "localhost", "::1"):
-        server_ip = _get_server_local_ip()
-
-    default_port = 443 if scheme == "wss" else 80
-    port_suffix = "" if port == default_port else f":{port}"
-    ws_url = f"{scheme}://{server_ip}:{port}/ws/client"
-
-    dynamic_config = {
-        "server_url": f"{'https' if scheme == 'wss' else 'http'}://{server_ip}{port_suffix}",
-        "ws_url": ws_url,
-        "client_id": "auto_generate_on_first_run",
-        "master_ip": server_ip,
-        "master_port": port,
-        "downloaded_at": datetime.utcnow().isoformat() + "Z",
-        "downloaded_by": current_user.get("username", "unknown"),
-        # Zero-Trust: enrollment secret để agent đăng ký qua /ws/client.
-        # Chỉ phát cho tài khoản admin/manager (đã kiểm tra ở endpoint này).
-        "enrollment_token": enrollment.get_worker_enrollment_secret(),
-    }
-
-    # Build ZIP entirely in RAM — no temporary files written to disk
-    zip_buffer = io.BytesIO()
-
-    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        template_dir = _CLIENT_AGENT_DIR
-
-        if template_dir.exists() and template_dir.is_dir():
-            for file_path in sorted(template_dir.rglob("*")):
-                # Skip __pycache__ directories and compiled Python bytecode
-                if "__pycache__" in file_path.parts:
-                    continue
-                if file_path.suffix in (".pyc", ".pyo", ".log"):
-                    continue
-                if file_path.is_file():
-                    arc_name = file_path.relative_to(template_dir)
-                    # Skip any existing config.json or server_cert.pem from template — inject dynamic version below
-                    if str(arc_name) in ("config.json", "server_cert.pem"):
-                        continue
-                    try:
-                        zf.write(file_path, arcname=str(arc_name))
-                    except Exception as write_err:
-                        logger.warning("download-agent: Cannot add file %s: %s", file_path, write_err)
-        else:
-            logger.error("client_agent/ directory not found at %s", template_dir)
-            raise HTTPException(
-                status_code=500,
-                detail="Thư mục client_agent/ không tồn tại trên máy chủ. Liên hệ Admin.",
-            )
-
-        # Phase 29: Read certs/server.crt on server and embed directly into Client Agent ZIP as server_cert.pem
-        try:
-            from mateai.infrastructure.security.tls import CERT_FILE, ensure_ssl_certs
-            ensure_ssl_certs()
-            if CERT_FILE.exists() and CERT_FILE.stat().st_size > 0:
-                cert_bytes = CERT_FILE.read_bytes()
-                zf.writestr("server_cert.pem", cert_bytes)
-                logger.info("Phase 29: Embedded server_cert.pem (%d bytes) into agent zip.", len(cert_bytes))
-            else:
-                logger.warning("Phase 29: CERT_FILE not found at %s", CERT_FILE)
-        except Exception as cert_err:
-            logger.error("Phase 29: Failed to embed server_cert.pem into zip: %s", cert_err)
-
-        # Inject fresh dynamic config.json — OVERWRITES any existing config.json
-        zf.writestr("config.json", _json.dumps(dynamic_config, indent=4, ensure_ascii=False))
-
-    # Seek to beginning before reading
-    zip_buffer.seek(0)
-    zip_content = zip_buffer.read()
-
-    logger.info(
-        "Phase 85: gói Agent tải về bởi '%s' — cấu hình: %s, dung lượng %d bytes",
-        current_user.get("username"),
-        ws_url,
-        len(zip_content),
-    )
-
-    return Response(
-        content=zip_content,
-        media_type="application/x-zip-compressed",
-        headers={
-            "Content-Disposition": 'attachment; filename="VN-Mate_Agent.zip"',
-            "Content-Length": str(len(zip_content)),
-            "X-Agent-Server-IP": server_ip,
-            "X-Agent-Server-Port": str(port),
-        },
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -3245,78 +2267,8 @@ from mateai.interfaces.http.routers import itsm as _r_itsm  # noqa: E402
 app.include_router(_r_itsm.router)
 
 
-@app.get(
-    "/api/v1/roi-dashboard",
-    summary="Phase 48: ROI & KPI Dashboard Data",
-    tags=["Dashboard"],
-)
-async def api_roi_dashboard(
-    report_date: Optional[str] = None,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """
-    Tổng hợp toàn bộ dữ liệu cho ROI Dashboard:
-    - Phiếu ITSM theo trạng thái
-    - Nhật ký kiểm toán thống kê
-    - KPI AI (số task, giờ tiết kiệm)
-    - Thống kê tổ chức (nhân viên, phòng ban)
-    """
-    from skills.itsm_skills import generate_daily_report
-    from mateai.infrastructure.database.erp_database import erp_db
-
-    # Báo cáo ngày
-    report = await run_blocking(generate_daily_report,
-        report_date=report_date,
-        include_audit_details=True,
-    )
-
-    # Tickets đang mở (pending + in_progress)
-    from skills.itsm_skills import get_tickets
-    open_tickets = await run_blocking(get_tickets, status_filter="pending", limit=20)
-    inprogress_tickets = await run_blocking(get_tickets, status_filter="in_progress", limit=20)
-    ai_tickets = await run_blocking(get_tickets, ai_only=True, limit=10)
-
-    # Audit stats tổng hợp
-    audit_stats = erp_db.get_audit_stats()
-
-    return {
-        "status": "success",
-        "report_date": report.get("report_date"),
-        "report_text": report.get("report_text"),
-        "kpi": report.get("data", {}).get("kpi", {}),
-        "tickets": {
-            "today": report.get("data", {}).get("tickets", {}),
-            "open": open_tickets.get("tickets", []),
-            "in_progress": inprogress_tickets.get("tickets", []),
-            "ai_created": ai_tickets.get("tickets", []),
-        },
-        "audit": {
-            "stats": audit_stats,
-            "today": report.get("data", {}).get("audit", {}),
-            "recent": report.get("data", {}).get("recent_audits", []),
-        },
-        "org": report.get("data", {}).get("org", {}),
-    }
-
-
-@app.get(
-    "/api/v1/erp/employees",
-    summary="Phase 48: Danh sách nhân viên ERP",
-    tags=["ERP"],
-)
-async def api_erp_employees(
-    dept_id: Optional[int] = None,
-    role: Optional[str] = None,
-    limit: int = 100,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-) -> Dict[str, Any]:
-    """Trả về danh sách nhân viên từ ERP, lọc theo phòng ban hoặc role."""
-    from mateai.infrastructure.database.erp_database import erp_db
-    try:
-        employees = await run_blocking(erp_db.list_employees, dept_id=dept_id, role=role, limit=limit)
-        return {"status": "success", "total": len(employees), "employees": employees}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+from mateai.interfaces.http.routers import analytics as _r_analytics  # noqa: E402
+app.include_router(_r_analytics.router)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

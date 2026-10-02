@@ -60,7 +60,7 @@ def test_sends_when_enabled_with_real_token(monkeypatch, no_network):
 
 
 def test_log_redaction_masks_any_value_after_bot():
-    from mateai.interfaces.http.server import _SecretRedactingFilter
+    from mateai.interfaces.http.log_stream import _SecretRedactingFilter
     for tok in ("YOUR_TELEGRAM_BOT_TOKEN_HERE", REAL_SHAPE, "weird-token.with.dots"):
         rec = logging.LogRecord("httpx", logging.INFO, __file__, 1,
                                 f'HTTP Request: POST https://api.telegram.org/bot{tok}/sendMessage "HTTP/1.1 200 OK"',
