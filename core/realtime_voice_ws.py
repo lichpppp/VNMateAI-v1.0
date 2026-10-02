@@ -22,7 +22,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Dict, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -265,6 +265,79 @@ async def handle_realtime_voice_endpoint(
         await voice_ws_registry.unregister(session.session_id)
 
 
+class _RealtimeWsSink:
+    """Đầu ra của portal: sự kiện WebSocket theo giao thức /ws/v1/voice-stream."""
+
+    def __init__(self, session: "RealtimeVoiceSession", trace: VoiceRequestTrace) -> None:
+        self.session = session
+        self.trace = trace
+        self.request_id = trace.request_id
+        self._shown = ""  # phần chữ hiển thị đã gửi qua text_delta
+
+    async def on_status(self, status: str, **info: Any) -> None:
+        if status == "speaking":
+            self.trace.mark_first_token()
+            self.trace.mark_first_display()
+        self.trace.mark_status("fast_path" if info.get("fast_path") and status == "speaking" else status)
+        if status == "done":
+            return  # báo "done" sau khi tính metrics
+        payload = {"status": status, "request_id": self.request_id}
+        if info.get("fast_path"):
+            payload["fast_path"] = True
+        await self.session.send_event("status", payload)
+
+    async def on_sentence(self, seq: int, text: str, display_text: str, **info: Any) -> None:
+        # Portal hiển thị chữ GỐC (Markdown) — gửi phần mới so với lần trước.
+        if display_text.startswith(self._shown):
+            delta = display_text[len(self._shown):]
+        else:
+            delta = (" " if self._shown else "") + text
+        self._shown = display_text if display_text.startswith(self._shown) else self._shown + delta
+        if delta:
+            event = {"request_id": self.request_id, "text": delta, "content": delta}
+            if info.get("fast_path"):
+                event["is_fast_path"] = True
+            await self.session.send_event("text_delta", event)
+        await self.session.send_event("sentence_ready", {
+            "request_id": self.request_id, "sequence": seq, "text": text,
+        })
+
+    async def flush_display(self, display_text: str) -> None:
+        """Chữ hiển thị cuối cùng dài hơn phần đã gửi (vd. vòng agent) -> gửi nốt."""
+        if display_text and display_text.startswith(self._shown) and len(display_text) > len(self._shown):
+            delta = display_text[len(self._shown):]
+            self._shown = display_text
+            await self.session.send_event("text_delta", {
+                "request_id": self.request_id, "text": delta, "content": delta,
+            })
+
+    async def on_audio(self, seq: int, audio: bytes, text: str, kind: str, **info: Any) -> None:
+        if not audio:
+            return  # TTS câu này lỗi — portal đã có chữ qua text_delta
+        if not self.trace.t_first_audio:
+            self.trace.mark_first_audio()
+        event = {
+            "sequence": seq, "request_id": self.request_id, "format": "mp3", "text": text,
+        }
+        if kind == "ack":
+            event["is_ack"] = True
+        if kind == "filler":
+            event["is_filler"] = True
+        if info.get("fast_path"):
+            event["is_fast_path"] = True
+        if info.get("tts_latency_ms") is not None:
+            event["tts_latency_ms"] = info["tts_latency_ms"]
+        await self.session.send_event("audio_start", event)
+        from core.audio.binary_transport import dispatch_binary_audio
+        await dispatch_binary_audio(
+            session=self.session,
+            audio_bytes=audio,
+            sequence=seq,
+            is_ack=(kind == "ack"),
+            request_id=self.request_id,
+        )
+
+
 async def _execute_voice_turn(
     session: RealtimeVoiceSession,
     query: str,
@@ -272,389 +345,45 @@ async def _execute_voice_turn(
     trace: VoiceRequestTrace,
 ) -> None:
     """
-    Thực thi 1 lượt tương tác giọng nói với đầy đủ các sự kiện của Protocol.
-    NOTE (Phase 1): Sử dụng logic voice hiện tại mà không sửa đổi LLM hay TTS.
+    Một lượt nói của portal. Nghiệp vụ ở core.voice_turn.process_voice_turn
+    (dùng chung mọi kênh); hàm này chỉ là transport + đo latency.
     """
+    from core.voice_turn import process_voice_turn
+
     request_id = trace.request_id
+    sink = _RealtimeWsSink(session, trace)
     try:
-        # Báo nhận lệnh & chuyển trạng thái
         trace.mark_status("routing")
         await session.send_event("status", {"status": "routing", "request_id": request_id})
         trace.mark_first_display()
 
-        # Phase 5: Fast Command Router (Tất định không qua LLM, phản hồi tức thì < 1ms)
-        from core.fast_command_router import fast_command_router
-        fast_res = await fast_command_router.dispatch(query, synthesize_audio=False)
-        if fast_res and fast_res.is_matched:
-            trace.mark_status("fast_path")
-            trace.mark_first_token()
-            trace.mark_first_display()
-            await session.send_event("status", {"status": "speaking", "request_id": request_id, "fast_path": True})
+        result = await process_voice_turn(
+            query,
+            sink=sink,
+            session_id=session.session_id,
+            source_device="portal",
+            caller=str(session.user_info.get("sub") or session.user_info.get("username") or "anonymous"),
+            history=payload.get("history"),
+        )
+        await sink.flush_display(result.display_text)
 
-            # Hiển thị text_delta ngay lập tức (< 1ms visual latency)
-            await session.send_event("text_delta", {
-                "request_id": request_id,
-                "text": fast_res.reply_text,
-                "content": fast_res.reply_text,
-                "is_fast_path": True,
-            })
-            await session.send_event("sentence_ready", {
-                "request_id": request_id,
-                "sequence": 1,
-                "text": fast_res.reply_text,
-            })
-
-            # Lấy âm thanh từ RAM cache (0ms) hoặc tổng hợp nhanh
-            from core.audio_cache import get_cached_audio_bytes
-            from core.audio.tts_stream_engine import get_tts_engine
-            audio_bytes = get_cached_audio_bytes(fast_res.reply_text)
-            if not audio_bytes:
-                tts_engine = get_tts_engine()
-                audio_bytes = await tts_engine.synthesise(fast_res.reply_text)
-
-            # Phát Audio
-            trace.mark_first_audio()
-            await session.send_event("audio_start", {
-                "sequence": 1,
-                "request_id": request_id,
-                "format": "mp3",
-                "text": fast_res.reply_text,
-                "is_fast_path": True,
-            })
-            if audio_bytes:
-                from core.audio.binary_transport import dispatch_binary_audio
-                await dispatch_binary_audio(
-                    session=session,
-                    audio_bytes=audio_bytes,
-                    sequence=1,
-                    request_id=request_id,
-                )
-
-            # Lưu lịch sử hội thoại
-            from core.memory_manager import memory_manager
-            memory_manager.add_turn(session.session_id, query, fast_res.reply_text)
-
-            # Hoàn tất phiên tương tác
-            trace.mark_status("done")
-            await session.send_event("status", {"status": "done", "request_id": request_id})
-            metrics = trace.mark_completed()
-            metrics["fast_path"] = {
-                "command": fast_res.command_name,
-                "execution_latency_ms": fast_res.latency_ms,
-            }
-
-            await session.send_event("audio_stream_complete", {
-                "request_id": request_id,
-                "metrics": metrics,
-                "ttfa_ms": metrics.get("ttfa_ms"),
-            })
-            await session.send_event("session_ended", {
-                "request_id": request_id,
-                "metrics": metrics,
-            })
-            logger.info(
-                "[RealtimeVoiceWS/FastPath] Hoàn tất lệnh nhanh '%s' trong %.1fms (TTFT=%sms, TTFA=%sms, TTL=%sms)",
-                fast_res.command_name, fast_res.latency_ms, metrics.get("ttft_ms"), metrics.get("ttfa_ms"), metrics.get("ttl_ms")
-            )
-            return
-
-        trace.mark_status("thinking")
-        await session.send_event("status", {"status": "thinking", "request_id": request_id})
-
-        from core.llm_engine import llm_engine, build_system_prompt
-        from core.safety_guard import security_engine
-        from core.memory_manager import memory_manager
-        from core.audio.sentence_buffer import SentenceBuffer
-        from core.audio.tts_queue_pipeline import StreamingTTSWorkerPipeline
-        from core.audio.streaming_tts_pipeline import get_acoustic_ack_audio
-        from core.audio.sentence_streamer import sanitise_for_tts as _sanitise_for_tts
-        from core.audio.tts_stream_engine import _get_tts_voice
-
-        # Phân loại ý định qua Bộ Não Kiểm Soát
-        intent = llm_engine.classify_intent(query)
-        if intent["type"] == "conversation":
-            tools = None
-            active_brain = "voice"
-        else:
-            # Phase 7: Tool Schema Pruning — chỉ nạp tối đa 5 công cụ liên quan nhất
-            from core.agent_voice_loop import prune_tool_schemas
-            tools = prune_tool_schemas(query, max_tools=5)
-            active_brain = "ops"
-
-        # Nếu cần Acoustic ACK (câu đệm tức thì cho tác vụ kỹ thuật):
-        if intent.get("ack_needed"):
-            from core.audio.acoustic_ack_catalog import select_acoustic_ack
-            ack_phrase = select_acoustic_ack(query, domain=intent.get("target_brain"))
-            ack_audio = await get_acoustic_ack_audio(phrase=ack_phrase)
-            if ack_audio:
-                trace.mark_first_audio()
-                await session.send_event("audio_start", {
-                    "sequence": 0,
-                    "is_ack": True,
-                    "format": "mp3",
-                    "text": ack_phrase,
-                    "request_id": request_id,
-                })
-                # Phase 11: Binary Transport trực tiếp (Zero Base64 overhead)
-                from core.audio.binary_transport import dispatch_binary_audio
-                await dispatch_binary_audio(
-                    session=session,
-                    audio_bytes=ack_audio,
-                    sequence=0,
-                    is_ack=True,
-                    request_id=request_id,
-                )
-
-        # Xây dựng ngữ cảnh hội thoại
-        system_content = build_system_prompt()
-        # Phase 9: History & Context Pruning cho Voice (Sliding Window + Nén lược bỏ bảng/code rác)
-        from core.history_pruner import prune_history_for_voice
-        raw_history = payload.get("history") or memory_manager.get_history(session.session_id)
-        pruned_history = prune_history_for_voice(raw_history, max_turns=4, max_total_chars=1200)
-
-        # Che IP nội bộ / mật khẩu / token trước khi gửi lên LLM (như llm_engine).
-        # Commit 4f6464a dùng biến này mà không gán -> mọi lượt qua LLM NameError.
-        sanitized_query = security_engine.mask_sensitive_data(query)
-
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
-        if pruned_history:
-            messages.extend(pruned_history)
-        messages.append({"role": "user", "content": sanitized_query})
-
-        # Phase 4: Khởi chạy Streaming TTS Worker Pipeline gối đầu
-        pipeline = StreamingTTSWorkerPipeline(voice=_get_tts_voice(), num_workers=2)
-        pipeline.start()
-        sentence_buffer = SentenceBuffer(min_chars=8)
-        full_reply_text = ""
-        first_token = True
-
-        async def _stream_llm_and_feed_sentences() -> None:
-            nonlocal first_token, full_reply_text
-            seq = 0
-            pending_tool_calls: Dict[int, dict] = {}
-
-            # ── VÒNG 1 (ROUND 1): Stream LLM và thu thập Tool Calls ──
-            async for chunk in llm_engine.stream(messages, tools if tools else None, brain_role=active_brain):
-                if first_token:
-                    trace.mark_first_token()
-                    first_token = False
-                    trace.mark_status("speaking")
-                    await session.send_event("status", {"status": "speaking", "request_id": request_id})
-
-                # Thu thập tool_calls từ stream
-                if getattr(chunk, "tool_calls", None):
-                    for tc in chunk.tool_calls:
-                        idx = tc.get("index", 0)
-                        if idx not in pending_tool_calls:
-                            pending_tool_calls[idx] = {
-                                "id": tc.get("id") or f"call_{idx}",
-                                "name": tc.get("name") or "",
-                                "arguments": "",
-                            }
-                        if tc.get("name"):
-                            pending_tool_calls[idx]["name"] = tc["name"]
-                        if tc.get("arguments"):
-                            pending_tool_calls[idx]["arguments"] += tc["arguments"]
-
-                token = chunk.content
-                if token:
-                    full_reply_text += token
-                    # Phát sự kiện text_delta chuẩn cho UI render realtime (cả text và content)
-                    await session.send_event("text_delta", {
-                        "request_id": request_id,
-                        "text": token,
-                        "content": token,
-                    })
-
-                    # Ngắt câu thông minh tiếng Việt (Phase 3 SentenceBuffer)
-                    ready_sentences = sentence_buffer.add_token(token)
-                    for sent in ready_sentences:
-                        seq += 1
-                        await session.send_event("sentence_ready", {
-                            "request_id": request_id,
-                            "sequence": seq,
-                            "text": sent,
-                        })
-                        await pipeline.push_sentence(
-                            sequence=seq,
-                            text=sent,
-                            request_id=request_id,
-                        )
-
-            # ── XỬ LÝ TOOL CALLS (PHASE 7 OPTIMIZATION) ──
-            if pending_tool_calls:
-                from core.agent_voice_loop import execute_tool_call, prune_tool_payload_for_llm
-
-                tool_list = list(pending_tool_calls.values())
-                # Báo hiệu UI bắt đầu thực thi tools
-                for tc in tool_list:
-                    await session.send_event("tool_start", {"tool": tc["name"], "request_id": request_id})
-
-                # Thực thi các tool SONG SONG
-                tool_results = await asyncio.gather(
-                    *[execute_tool_call(tc, session.user_info) for tc in tool_list],
-                    return_exceptions=False,
-                )
-
-                for tr in tool_results:
-                    await session.send_event("tool_result", {
-                        "tool": tr.tool_name,
-                        "success": tr.success,
-                        "request_id": request_id,
-                    })
-
-                # Kiểm tra Direct Response Synthesis (Bỏ qua LLM Round 2 nếu kết quả tự giải thích)
-                all_direct = all(tr.direct_response is not None for tr in tool_results)
-                if all_direct:
-                    logger.info("[AgentVoiceLoop] Kích hoạt Direct Synthesis — Bỏ qua LLM Round 2 (~2.5s độ trễ saved)!")
-                    for tr in tool_results:
-                        direct_text = tr.direct_response
-                        if direct_text:
-                            full_reply_text += (" " if full_reply_text else "") + direct_text
-                            await session.send_event("text_delta", {
-                                "request_id": request_id,
-                                "text": direct_text,
-                                "content": direct_text,
-                            })
-                            seq += 1
-                            await session.send_event("sentence_ready", {
-                                "request_id": request_id,
-                                "sequence": seq,
-                                "text": direct_text,
-                            })
-                            await pipeline.push_sentence(
-                                sequence=seq,
-                                text=direct_text,
-                                request_id=request_id,
-                            )
-                else:
-                    # Kết quả phức tạp -> Chạy LLM Round 2 có giới hạn (Cắt gọt payload)
-                    logger.info("[AgentVoiceLoop] Kết quả dữ liệu phức tạp — Chạy LLM Round 2 với payload thu gọn...")
-                    messages.append({
-                        "role": "assistant",
-                        "content": full_reply_text or "",
-                        "tool_calls": [
-                            {
-                                "id": tc.get("id"),
-                                "type": "function",
-                                "function": {
-                                    "name": tc.get("name", ""),
-                                    "arguments": tc.get("arguments", "{}"),
-                                },
-                            }
-                            for tc in tool_list
-                        ],
-                    })
-
-                    for tr in tool_results:
-                        pruned_str = prune_tool_payload_for_llm(tr.data if tr.success else tr.error)
-                        messages.append({
-                            "role": "tool",
-                            "tool_call_id": tr.tool_call_id,
-                            "content": security_engine.mask_sensitive_data(pruned_str),
-                        })
-
-                    # Stream LLM Round 2 (Không truyền tools nữa để tránh vòng lặp lần 3)
-                    async for chunk2 in llm_engine.stream(messages, tools=None, brain_role=active_brain):
-                        token2 = chunk2.content
-                        if token2:
-                            full_reply_text += token2
-                            await session.send_event("text_delta", {
-                                "request_id": request_id,
-                                "text": token2,
-                                "content": token2,
-                            })
-                            for sent2 in sentence_buffer.add_token(token2):
-                                seq += 1
-                                await session.send_event("sentence_ready", {
-                                    "request_id": request_id,
-                                    "sequence": seq,
-                                    "text": sent2,
-                                })
-                                await pipeline.push_sentence(
-                                    sequence=seq,
-                                    text=sent2,
-                                    request_id=request_id,
-                                )
-
-            # Flush các câu còn lại trong buffer khi LLM kết thúc token
-            remaining = sentence_buffer.flush()
-            for sent in remaining:
-                seq += 1
-                await session.send_event("sentence_ready", {
-                    "request_id": request_id,
-                    "sequence": seq,
-                    "text": sent,
-                })
-                await pipeline.push_sentence(
-                    sequence=seq,
-                    text=sent,
-                    request_id=request_id,
-                )
-
-            # Báo hiệu pipeline đã đẩy hết tất cả các câu
-            await pipeline.mark_complete(seq)
-
-        async def _consume_and_stream_audio() -> None:
-            async for audio_item in pipeline.iterate_audio_results():
-                if not audio_item.audio_bytes:
-                    continue
-
-                if not trace.t_first_audio:
-                    trace.mark_first_audio()
-
-                await session.send_event("audio_start", {
-                    "sequence": audio_item.sequence,
-                    "request_id": request_id,
-                    "format": "mp3",
-                    "text": audio_item.text,
-                    "tts_latency_ms": audio_item.tts_latency_ms,
-                })
-                # Phase 11: Binary Transport trực tiếp
-                from core.audio.binary_transport import dispatch_binary_audio
-                await dispatch_binary_audio(
-                    session=session,
-                    audio_bytes=audio_item.audio_bytes,
-                    sequence=audio_item.sequence,
-                    request_id=request_id,
-                )
-
-        try:
-            await asyncio.gather(
-                _stream_llm_and_feed_sentences(),
-                _consume_and_stream_audio(),
-            )
-        finally:
-            pipeline.cancel()
-
-        # Lưu lịch sử hội thoại
-        if full_reply_text.strip():
-            clean_display = _sanitise_for_tts(full_reply_text)
-            memory_manager.add_turn(session.session_id, query, clean_display)
-
-        # Hoàn tất phiên tương tác và gửi metrics
         trace.mark_status("done")
         await session.send_event("status", {"status": "done", "request_id": request_id})
         metrics = trace.mark_completed()
-        metrics["pipeline"] = pipeline.metrics
+        if result.fast_command:
+            metrics["fast_path"] = {"command": result.fast_command}
+        else:
+            metrics["pipeline"] = result.pipeline_metrics
+            metrics["used_agent"] = result.used_agent
 
-        # Báo hiệu kết thúc cho cả giao diện web mới và cũ
         await session.send_event("audio_stream_complete", {
-            "request_id": request_id,
-            "metrics": metrics,
-            "ttfa_ms": metrics.get("ttfa_ms"),
+            "request_id": request_id, "metrics": metrics, "ttfa_ms": metrics.get("ttfa_ms"),
         })
-        await session.send_event("session_ended", {
-            "request_id": request_id,
-            "metrics": metrics,
-        })
+        await session.send_event("session_ended", {"request_id": request_id, "metrics": metrics})
         logger.info(
-            "[RealtimeVoiceWS] Lượt tương tác hoàn tất: %s (TTFA=%sms, TTL=%sms, Sentences=%d, PeakQueue=%d)",
-            request_id,
-            metrics.get("ttfa_ms"),
-            metrics.get("ttl_ms"),
-            pipeline.metrics.get("sentences_processed", 0),
-            pipeline.metrics.get("queue_depth_peak", 0),
+            "[RealtimeVoiceWS] Lượt %s xong (TTFT=%sms, TTFA=%sms, TTL=%sms, câu=%d, agent=%s)",
+            request_id, metrics.get("ttft_ms"), metrics.get("ttfa_ms"), metrics.get("ttl_ms"),
+            len(result.sentences), result.used_agent,
         )
 
     except asyncio.CancelledError:
@@ -669,3 +398,4 @@ async def _execute_voice_turn(
         })
     finally:
         await session.send_event("status", {"status": "idle"})
+

@@ -1003,9 +1003,13 @@ class LLMEngine:
         source_device: Optional[str] = None,
         history: Optional[List[Dict[str, Any]]] = None,
         session_id: Optional[str] = None,
+        caller: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Async implementation of the full agentic loop.
+
+        caller: danh tính dùng cho RBAC/audit khi chạy tool (mặc định source_device;
+        portal truyền username đã đăng nhập).
 
         Args:
             query: Current user query (this turn).
@@ -1387,7 +1391,7 @@ class LLMEngine:
                     from core.agent_voice_loop import run_tool_with_policy
                     _gate = await run_tool_with_policy(
                         fn_name, fn_args,
-                        caller=str(source_device or "anonymous"),
+                        caller=str(caller or source_device or "anonymous"),
                         source_device=source_device,
                         query=query,
                         session_id=getattr(assistant_msg, "id", None),
@@ -1608,6 +1612,10 @@ class LLMEngine:
         query: str,
         history: Optional[List[Dict[str, Any]]] = None,
         source_device: Optional[str] = None,
+        session_id: Optional[str] = None,
+        turn: Optional[Dict[str, Any]] = None,
+        tool_ack: bool = True,
+        caller: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """
         Phase 23: Stream LLM response sentence-by-sentence for voice TTS pipeline.
@@ -1626,10 +1634,20 @@ class LLMEngine:
         NOTE: This method does NOT affect ask_async(), chat(), or any other
         existing callers. It is exclusively used by VoiceController.
         """
+        # Phase 3: dùng chung cho mọi kênh voice (core/voice_turn.py).
+        #   session_id — khoá lịch sử trong memory_manager (mặc định source_device).
+        #   turn       — dict nhận kết quả CỦA LƯỢT NÀY: display_text, reasoning,
+        #                used_agent. Thuộc tính last_voice_* trên singleton vẫn được
+        #                ghi để tương thích, nhưng bị ghi đè khi nhiều phiên chạy song song.
+        #   tool_ack   — False khi bên gọi đã phát câu đệm trước khi gọi LLM.
         from core.safety_guard import security_engine
-
+        if turn is None:
+            turn = {}
+        _session = str(session_id or source_device or "voice")
+        if history is None:
+            from core.memory_manager import memory_manager as _mm_hist
+            history = _mm_hist.get_history(_session)
         sanitized_query = security_engine.mask_sensitive_data(query)
-
         system_content = build_system_prompt(source_device=source_device)
 
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
@@ -1739,10 +1757,13 @@ class LLMEngine:
         if stream is None:
             fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
             self.last_voice_display_text = fallback_msg
+            turn["display_text"] = fallback_msg
             yield fallback_msg
             return
 
         text_buffer = ""
+        # Toàn bộ chữ gốc của lượt (text_buffer chỉ giữ phần dư sau câu cuối).
+        raw_reply = ""
         # Phase 87: gom phần suy nghĩ của model. Router trả nó ở
         # `delta.reasoning` (đôi khi tên `reasoning_content`), tách hẳn khỏi
         # `delta.content` — nên câu trả lời bạn nghe không bị lẫn suy nghĩ, nhưng
@@ -1763,6 +1784,7 @@ class LLMEngine:
             có model xen kẽ suy nghĩ với câu trả lời trong cùng một stream.
             """
             self.last_voice_reasoning = self._compact_reasoning(reasoning_buffer)
+            turn["reasoning"] = self.last_voice_reasoning
 
         try:
             async for chunk in stream:
@@ -1794,7 +1816,7 @@ class LLMEngine:
                         detected_tools, _wasted,
                     )
                     # Phát câu xác nhận ngay lập tức (chỉ khi chưa nói gì)
-                    if not has_yielded_any_sentence:
+                    if tool_ack and not has_yielded_any_sentence:
                         import random as _rand
                         _ack = _rand.choice([
                             "Dạ, để em kiểm tra thông tin đó cho anh nhé.",
@@ -1819,6 +1841,8 @@ class LLMEngine:
                     first_token_logged = True
 
                 text_buffer += token
+                raw_reply += token
+                turn["display_text"] = raw_reply
 
                 # Flush complete sentences
                 sentences, text_buffer = self._extract_sentences(text_buffer)
@@ -1837,6 +1861,7 @@ class LLMEngine:
             if not has_yielded_any_sentence and not text_buffer.strip():
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
                 self.last_voice_display_text = fallback_msg
+                turn["display_text"] = fallback_msg
                 # Stream đứt giữa chừng: phần suy nghĩ đã nhận được vẫn còn
                 # giá trị hiển thị (nó có thật, không phải bịa) — giữ lại.
                 _publish_reasoning()
@@ -1852,12 +1877,15 @@ class LLMEngine:
                 yield clean
 
         # Save streamed conversation to MemoryManager
-        if not has_tool_calls and text_buffer.strip():
-            self.last_voice_display_text = text_buffer.strip()
+        # Trước Phase 3 đoạn này dùng `text_buffer` — chỉ còn phần dư sau câu
+        # cuối — nên câu trả lời kết thúc bằng dấu câu KHÔNG được lưu lịch sử và
+        # chữ hiển thị là của lượt trước.
+        if not has_tool_calls and raw_reply.strip():
+            self.last_voice_display_text = raw_reply.strip()
+            turn["display_text"] = raw_reply.strip()
             try:
                 from core.memory_manager import memory_manager as _mm
-                _session = str(source_device or "voice")
-                _mm.add_turn(_session, query, sanitise_for_tts(text_buffer))
+                _mm.add_turn(_session, query, sanitise_for_tts(raw_reply))
             except Exception:
                 pass
 
@@ -1865,13 +1893,18 @@ class LLMEngine:
         if has_tool_calls:
             logger.info("[LLMEngine] Executing full agentic loop for tool call...")
             self.last_voice_reasoning = ""
+            turn["used_agent"] = True
             try:
                 result = await self.ask_async(
                     query=query,
                     source_device=source_device,
                     history=history,
+                    session_id=_session,
+                    caller=caller,
                 )
                 self.last_voice_display_text = result.get("reply", "")
+                turn["display_text"] = self.last_voice_display_text
+                turn["reasoning"] = result.get("reasoning", "") or ""
                 speech_reply = result.get("speech_reply") or sanitise_for_tts(self.last_voice_display_text)
                 if speech_reply:
                     # Loại bỏ câu trùng với câu đã phát (acknowledgment)
@@ -1886,6 +1919,7 @@ class LLMEngine:
                 logger.error("[LLMEngine] Agentic fallback error: %s", exc)
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
                 self.last_voice_display_text = fallback_msg
+                turn["display_text"] = fallback_msg
                 yield fallback_msg
 
     @staticmethod

@@ -328,13 +328,17 @@ def test_server_wiring() -> None:
     check("gói có text", '"text": text' in src)
 
     # Đường WS (voice qua microphone HUD)
-    body = src[src.index("async def _process_hud_voice_command_body"):src.index("def _get_hud_metrics_payload")]
+    # Phase 3: phần riêng của HUD gồm đầu ra _HudVoiceSink + thân hàm.
+    _start = src.index("class _HudVoiceSink") if "class _HudVoiceSink" in src \
+        else src.index("async def _process_hud_voice_command_body")
+    body = src[_start:src.index("def _get_hud_metrics_payload")]
     check("đường WS: báo 'thinking' khi nhận lệnh",
           '_broadcast_thinking("thinking"' in body)
     check("đường WS: báo 'done' khi có câu trả lời",
           '_broadcast_thinking(\n                    "done"' in body
           or '_broadcast_thinking("done"' in body
-          or '"done",' in body)
+          or '"done",' in body
+          or '"done" if reasoning' in body)
     check("đường WS: báo 'empty' khi lỗi",
           '_broadcast_thinking("empty"' in body)
 

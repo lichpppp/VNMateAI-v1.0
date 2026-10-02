@@ -40,11 +40,9 @@ def _num(text: str, prefix: str) -> float:
     i = text.find(prefix)
     if i < 0:
         return -1.0
-    j = text.find("\n", i)
-    try:
-        return float(text[i + len(prefix): j if j > 0 else len(text)].strip())
-    except ValueError:
-        return -1.0
+    import re as _re
+    m = _re.match(r"\s*([0-9]+(?:\.[0-9]+)?)", text[i + len(prefix):])
+    return float(m.group(1)) if m else -1.0
 
 
 # ══ 1. Kho lời đệm ════════════════════════════════════════════════════════
@@ -131,28 +129,29 @@ fn = _hud_fns.get("_process_hud_voice_command_body") or _hud_fns.get("_process_h
 check("tìm thấy phần thân xử lý lệnh thoại HUD", fn is not None)
 
 fn_src = ast.get_source_segment(src, fn) or ""
+# Phase 3: lời đệm + hàng đợi TTS nằm ở use case chung core/voice_turn.py;
+# HUD chỉ đặt ngưỡng (filler_after_s). Hành vi thật: test_hud_voice_pipeline_behavior.py
+vt = (Path(__file__).resolve().parents[1] / "core" / "voice_turn.py").read_text(encoding="utf-8")
+tq = (Path(__file__).resolve().parents[1] / "core" / "audio" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
 check("KHÔNG phát filler ngay trước khi gọi LLM",
-      "await broadcast_hud" not in fn_src.split("FILLER_GRACE_SEC")[0].split("get_contextual_filler")[0][-400:],
+      "get_contextual_filler" not in fn_src and "await asyncio.sleep(filler_after_s" in vt,
       "vẫn còn filler đồng bộ trước LLM")
-check("có ngưỡng chờ FILLER_GRACE_SEC", "FILLER_GRACE_SEC" in fn_src)
+check("có ngưỡng chờ lời đệm cho HUD", "filler_after_s=" in fn_src)
 check("ngưỡng nằm trong khoảng hợp lý (0.5–4s)",
-      0.5 <= _num(fn_src, "FILLER_GRACE_SEC = ") <= 4.0,
-      str(_num(fn_src, "FILLER_GRACE_SEC = ")))
-check("filler chạy ở task riêng (không chặn)", "create_task(_play_filler_later())" in fn_src)
-check("có hàm hủy filler khi câu thật về", "_stop_filler()" in fn_src)
-check("ghi log khi bỏ filler", "bỏ lời đệm" in fn_src)
+      0.5 <= _num(fn_src, "filler_after_s=") <= 4.0,
+      str(_num(fn_src, "filler_after_s=")))
+check("filler chạy ở task riêng (không chặn)", "create_task(_filler())" in vt)
+check("có hàm hủy filler khi câu thật về", "filler_task.cancel()" in vt)
+check("ghi log khi phát lời đệm", "Phát lời đệm" in vt)
 
 section("TTS không chặn vòng lặp")
 # Phase 93 gửi audio HUD bằng binary frame; Phase 2 gộp TTS: `_tts_bytes(text)`
 # là hàm bọc có timeout duy nhất quanh engine TTS canonical.
-check("TTS chạy bằng task riêng", "create_task(_tts_bytes(" in fn_src)
-check("TTS qua hàm bọc có timeout", "_tts_bytes(" in fn_src)
-check("không còn gọi TTS trực tiếp không bọc trong hàm HUD",
-      "await audio_engine.text_to_speech_bytes(" not in fn_src,
-      "còn gọi thẳng, không qua hàm bọc timeout")
-check("mọi đường TTS của HUD đều qua hàm bọc",
-      fn_src.count("_tts_bytes(") >= 2,
-      f"{fn_src.count('_tts_bytes(')} lần _tts_bytes")
+check("TTS chạy ở worker riêng (hàng đợi gối đầu)", "StreamingTTSWorkerPipeline" in vt)
+check("TTS mỗi câu có timeout", "sentence_timeout_s" in tq and "wait_for(_collect()" in tq)
+check("không còn gọi TTS trực tiếp trong hàm HUD",
+      not any(k in fn_src for k in ("text_to_speech", ".synthesise(", "_tts_bytes(")),
+      "HUD phải đi qua use case chung")
 check("có log tổng thời gian lượt nói", "Hoàn tất lượt nói sau" in fn_src)
 check("log có số câu đệm đã phát", "câu đệm" in fn_src)
 

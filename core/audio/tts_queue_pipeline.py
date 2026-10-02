@@ -83,8 +83,12 @@ class StreamingTTSWorkerPipeline:
         max_queue_size: int = 5,
         num_workers: int = 2,
         tts_engine: Optional[Any] = None,
+        sentence_timeout_s: float = 14.0,
     ) -> None:
         self.voice = voice
+        # Một câu TTS treo không được giữ các câu sau (đang chờ đúng thứ tự)
+        # mãi mãi: quá hạn thì câu đó không có tiếng, các câu sau đi tiếp.
+        self.sentence_timeout_s = sentence_timeout_s
         self.max_queue_size = max_queue_size
         self.num_workers = num_workers
         self._tts_engine = tts_engine or TTSStreamEngine(voice=voice)
@@ -226,13 +230,21 @@ class StreamingTTSWorkerPipeline:
 
             # Thu thập audio bytes từ TTSStreamEngine
             audio_bytes_accum = bytearray()
-            try:
+
+            async def _collect() -> None:
                 async for chunk in self._tts_engine.stream(item.text):
                     if self._is_cancelled:
                         break
                     audio_bytes_accum.extend(chunk)
+
+            try:
+                await asyncio.wait_for(_collect(), timeout=self.sentence_timeout_s)
             except asyncio.CancelledError:
                 break
+            except asyncio.TimeoutError:
+                logger.warning("[TTSQueue] Câu #%d quá %.0fs — bỏ tiếng câu này, đi tiếp",
+                               item.sequence, self.sentence_timeout_s)
+                audio_bytes_accum.clear()
             except Exception as exc:
                 logger.warning("[TTSQueue] Lỗi tổng hợp câu #%d: %s", item.sequence, exc)
 

@@ -159,20 +159,27 @@ check("hiệu ứng chỉ bật trong onplay, không bật sớm",
       hud_js.index("player.onplay") < hud_js.index("isAudioPlaying = true;", hud_js.index("function drainSpeechQueue")) + 200)
 
 print("\n▸ Máy chủ không chờ TTS trong vòng lặp LLM")
-check("có hàng đợi task TTS", "_tts_pending" in server_py)
-body = server_py.split("async def _process_hud_voice_command_body", 1)[-1]
+# Phase 3: HUD dùng use case chung core/voice_turn.py; hàng đợi TTS gối đầu là
+# core/audio/tts_queue_pipeline.py (hành vi được kiểm tra thật trong
+# tests/test_hud_voice_pipeline_behavior.py).
+_root = Path(__file__).resolve().parents[1]
+voice_turn = (_root / "core" / "voice_turn.py").read_text(encoding="utf-8")
+tts_queue = (_root / "core" / "audio" / "tts_queue_pipeline.py").read_text(encoding="utf-8")
+body = server_py.split("async def _process_hud_voice_command_body", 1)[-1].split("def _get_hud_metrics_payload", 1)[0]
+check("HUD đi qua use case chung", "process_voice_turn(" in body)
+check("có hàng đợi task TTS", "StreamingTTSWorkerPipeline" in voice_turn)
 # BỎ COMMENT trước khi quét: bình luận giải thích lỗi cũ lại nhắc lại đúng dòng
 # đã xoá (`await s_task`), quét cả comment sẽ ra kết quả ngược.
 body_code = "\n".join(l.split("#", 1)[0] for l in body.split("\n"))
 check("TTS được đẩy vào hàng đợi thay vì chờ tại chỗ",
-      "_tts_pending.append(" in body_code)
-check("chỉ chờ khi hàng đợi vượt ngưỡng đệm",
-      "while len(_tts_pending) > _TTS_LOOKAHEAD" in body_code)
+      "pipeline.push_sentence(" in voice_turn)
+check("chỉ chờ khi hàng đợi vượt ngưỡng đệm (backpressure)",
+      "asyncio.Queue(maxsize=max_queue_size)" in tts_queue)
 check("không còn `await s_task` ngay lập tức",
       "await s_task" not in body_code,
       "tạo task rồi chờ ngay = không song song")
 check("rải nốt câu cuối sau khi vòng lặp kết thúc",
-      "for _pend_text, _pend_task in _tts_pending" in body_code,
+      "finally:\n            await pipeline.mark_complete(seq)" in voice_turn,
       "bỏ bước này thì câu cuối không bao giờ phát")
 
 print(f"\nTổng: {PASS + FAIL} | Pass: {PASS} | Fail: {FAIL}")

@@ -524,20 +524,21 @@ class XiaozhiGateway:
 
     async def _execute_pipeline(self, node: XiaozhiNode, text_query: str) -> None:
         """
-        Phase 50 Full-Duplex Pipeline:
-        Streams LLM tokens into sentence chunks (< 200ms) and immediately streams
-        Edge-TTS audio chunks directly down the WebSocket to ESP32 without waiting.
+        Một lượt nói của robot ESP32. Nghiệp vụ ở core.voice_turn.process_voice_turn
+        (dùng chung mọi kênh); ở đây chỉ còn phần thiết bị: biểu cảm LCD, gói tts
+        của firmware xiaozhi-esp32, PCM 16 kHz cho loa MAX98357A, phản chiếu chữ
+        lên HUD/portal (không phát tiếng ở đó), giữ mic mở khi robot vừa hỏi.
         """
-        from core.llm_engine import llm_engine
+        from core.voice_turn import process_voice_turn
+        from core.voice_session import looks_like_question
 
         device_id = node.device_id
         node.last_active = datetime.utcnow().isoformat()
 
-        # Update UI: processing / thinking
         await self.send_ui_payload(device_id, state="processing", emotion="thinking")
         await node.websocket.send_text(json.dumps({"type": "llm_start"}))
 
-        # Phase 71: Đồng bộ thị giác sang HUD & Web Portal (Visual-only, âm thanh phát độc quyền tại loa Robot)
+        # Phase 71: Đồng bộ thị giác sang HUD & Web Portal (âm thanh chỉ phát ở loa robot)
         try:
             from core.server import broadcast_hud, broadcast_portal_ui
             await broadcast_hud({
@@ -556,112 +557,26 @@ class XiaozhiGateway:
         except Exception:
             pass
 
-        full_reply_parts = []
-        is_first_sentence = True
-
+        sink = _XiaozhiSink(self, node, text_query)
         try:
             async with node.stream_lock:
-                async for sentence in llm_engine.stream_voice_response(
-                    query=text_query,
+                result = await process_voice_turn(
+                    text_query,
+                    sink=sink,
+                    session_id=device_id,
                     source_device=device_id,
-                ):
-                    if node.cancel_event.is_set():
-                        logger.info("[Xiaozhi] Pipeline bị huỷ bởi ngắt lời trên [%s]", device_id)
-                        return
+                )
 
-                    clean_sentence = shorten_for_speech(sanitise_for_tts(sentence))
-                    if not clean_sentence:
-                        continue
-
-                    full_reply_parts.append(clean_sentence)
-
-                    if is_first_sentence:
-                        # Update UI: speaking / happy immediately on first chunk!
-                        await self.send_ui_payload(
-                            device_id, state="speaking", emotion="happy", text=clean_sentence[:60]
-                        )
-                        # Phase 72: Gửi gói tin TTS start & LLM emotion chuẩn của firmware xiaozhi-esp32
-                        try:
-                            await node.websocket.send_text(json.dumps({
-                                "session_id": device_id,
-                                "type": "tts",
-                                "state": "start",
-                            }))
-                            await node.websocket.send_text(json.dumps({
-                                "session_id": device_id,
-                                "type": "llm",
-                                "emotion": "happy",
-                                "text": clean_sentence[:30],
-                            }))
-                        except Exception:
-                            pass
-                        is_first_sentence = False
-
-                    # Gửi sentence_start cho firmware hiển thị phụ đề chạy trên màn hình LCD
-                    try:
-                        await node.websocket.send_text(json.dumps({
-                            "session_id": device_id,
-                            "type": "tts",
-                            "state": "sentence_start",
-                            "text": clean_sentence,
-                        }))
-                    except Exception:
-                        pass
-
-                    # Phase 71: Cập nhật phụ đề thị giác trên HUD (KHÔNG gửi audio_base64 để không phát tiếng trên HUD)
-                    try:
-                        from core.server import broadcast_hud, broadcast_portal_ui
-                        await broadcast_hud({
-                            "type": "voice_active",
-                            "status": "speaking",
-                            "text": clean_sentence,
-                            "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_reply_parts),
-                            "source_device": device_id,
-                            "audio_base64": None,
-                            "timestamp": datetime.utcnow().isoformat(),
-                        })
-                        await broadcast_portal_ui("voice_response", {
-                            "query": text_query,
-                            "reply": clean_sentence,
-                            "display_text": getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_reply_parts),
-                            "source_device": device_id,
-                            "timestamp": datetime.utcnow().isoformat(),
-                        })
-                    except Exception:
-                        pass
-
-                    # Phase 70: Chuyển đổi TTS audio sang PCM 16kHz mono thuần cho loa MAX98357A
-                    try:
-                        mp3_chunks = []
-                        async for mp3_chunk in get_tts_engine().stream(clean_sentence):
-                            if node.cancel_event.is_set():
-                                break
-                            if mp3_chunk:
-                                mp3_chunks.append(mp3_chunk)
-
-                        if mp3_chunks and not node.cancel_event.is_set():
-                            sentence_pcm = convert_to_pcm16_16k(b"".join(mp3_chunks))
-                            for offset in range(0, len(sentence_pcm), 2048):
-                                if node.cancel_event.is_set():
-                                    break
-                                await node.websocket.send_bytes(sentence_pcm[offset : offset + 2048])
-                                await asyncio.sleep(0.045)
-                    except Exception as stream_err:
-                        logger.error("[Xiaozhi] Lỗi stream PCM tới [%s]: %s", device_id, stream_err)
-
-            # Signal completion: gửi cả tts stop chuẩn xiaozhi-esp32 lẫn tts_end legacy
             if not node.cancel_event.is_set():
                 try:
                     await node.websocket.send_text(json.dumps({
-                        "session_id": device_id,
-                        "type": "tts",
-                        "state": "stop",
+                        "session_id": device_id, "type": "tts", "state": "stop",
                     }))
                 except Exception:
                     pass
                 await node.websocket.send_text(json.dumps({
                     "type": "tts_end",
-                    "text": " ".join(full_reply_parts),
+                    "text": result.reply_text,
                 }))
                 try:
                     from core.server import broadcast_hud
@@ -687,49 +602,26 @@ class XiaozhiGateway:
             }))
             return
 
-        # If not cancelled, check if the last reply was a question.
-        # If yes → keep mic open (listening gate) for 8s to let user respond.
-        # If no  → return to idle after a brief 1s pause.
+        # Robot vừa đặt câu hỏi -> giữ mic mở 8s chờ trả lời; không thì về idle sau 1s.
         if not node.cancel_event.is_set():
-            last_reply = " ".join(full_reply_parts).strip()
-            _QUESTION_ENDINGS = ("?", "không?", "nào?", "chưa?", "nhé?", "nhỉ?", "sao?", "gì?", "đâu?")
-            _QUESTION_WORDS   = ("bạn cần", "anh cần", "bạn muốn", "anh muốn", "bạn có", "anh có",
-                                 "cần gì", "muốn gì", "hỏi gì", "thêm gì", "nữa không")
-            is_question = (
-                any(last_reply.endswith(e) for e in _QUESTION_ENDINGS)
-                or last_reply.endswith("?")
-                or any(kw in last_reply.lower() for kw in _QUESTION_WORDS)
-            )
-
-            if is_question:
-                # Listening gate: giữ mic mở 8 giây chờ user tiếp tục
-                logger.info(
-                    "[Xiaozhi] Robot vừa đặt câu hỏi → mở listening gate 8s trên [%s]", device_id
-                )
+            if looks_like_question(result.reply_text):
+                logger.info("[Xiaozhi] Robot vừa đặt câu hỏi → mở listening gate 8s trên [%s]", device_id)
                 await self.send_ui_payload(device_id, state="listening", emotion="focused")
                 try:
                     await node.websocket.send_text(json.dumps({
-                        "type": "listen",
-                        "state": "detect",
-                        "mode": "auto",
+                        "type": "listen", "state": "detect", "mode": "auto",
                     }))
                 except Exception:
                     pass
-                # Chờ tối đa 8 giây; nếu có barge-in/cancel thì thoát sớm
-                for _ in range(80):   # 80 × 0.1s = 8s
+                for _ in range(80):   # 80 × 0.1s = 8s, thoát sớm nếu bị ngắt lời
                     if node.cancel_event.is_set():
                         break
                     await asyncio.sleep(0.1)
-                # Sau 8 giây không ai nói → mới về idle
                 if not node.cancel_event.is_set():
                     await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
             else:
                 await asyncio.sleep(1.0)
                 await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
-
-    # -----------------------------------------------------------------------
-    # Main Connection Handler for WebSocket Endpoint
-    # -----------------------------------------------------------------------
 
     async def handle_client(self, websocket: WebSocket, device_id: str) -> None:
         """
@@ -1122,3 +1014,79 @@ class XiaozhiGateway:
 # Global Singleton Instance
 # ---------------------------------------------------------------------------
 xiaozhi_gateway = XiaozhiGateway()
+
+
+class _XiaozhiSink:
+    """Đầu ra của robot ESP32 cho core.voice_turn: chữ trên LCD + PCM ra loa."""
+
+    def __init__(self, gateway: "XiaozhiGateway", node: "XiaozhiNode", query: str) -> None:
+        self.gateway = gateway
+        self.node = node
+        self.query = query
+        self.started = False
+        self.spoken: list = []
+
+    async def on_status(self, status: str, **info: Any) -> None:
+        return None
+
+    async def on_sentence(self, seq: int, text: str, display_text: str, **info: Any) -> None:
+        self.display_text = display_text
+
+    async def on_audio(self, seq: int, audio: bytes, text: str, kind: str, **info: Any) -> None:
+        node = self.node
+        device_id = node.device_id
+        if node.cancel_event.is_set():
+            return
+        ws = node.websocket
+        if not self.started:
+            self.started = True
+            await self.gateway.send_ui_payload(device_id, state="speaking", emotion="happy", text=text[:60])
+            try:
+                await ws.send_text(json.dumps({"session_id": device_id, "type": "tts", "state": "start"}))
+                await ws.send_text(json.dumps({
+                    "session_id": device_id, "type": "llm", "emotion": "happy", "text": text[:30],
+                }))
+            except Exception:
+                pass
+        # Phụ đề trên LCD đúng lúc câu được đọc
+        try:
+            await ws.send_text(json.dumps({
+                "session_id": device_id, "type": "tts", "state": "sentence_start", "text": text,
+            }))
+        except Exception:
+            pass
+        if kind == "speech":
+            self.spoken.append(text)
+            display = getattr(self, "display_text", "") or " ".join(self.spoken)
+            try:
+                from core.server import broadcast_hud, broadcast_portal_ui
+                await broadcast_hud({
+                    "type": "voice_active",
+                    "status": "speaking",
+                    "text": text,
+                    "display_text": display,
+                    "source_device": device_id,
+                    "audio_base64": None,
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+                await broadcast_portal_ui("voice_response", {
+                    "query": self.query,
+                    "reply": text,
+                    "display_text": display,
+                    "source_device": device_id,
+                    "timestamp": datetime.utcnow().isoformat(),
+                })
+            except Exception:
+                pass
+        if not audio:
+            return
+        # Phase 70: PCM 16 kHz mono thuần cho loa MAX98357A, gửi theo nhịp
+        try:
+            pcm = convert_to_pcm16_16k(audio)
+            for offset in range(0, len(pcm), 2048):
+                if node.cancel_event.is_set():
+                    break
+                await ws.send_bytes(pcm[offset: offset + 2048])
+                await asyncio.sleep(0.045)
+        except Exception as stream_err:
+            logger.error("[Xiaozhi] Lỗi stream PCM tới [%s]: %s", device_id, stream_err)

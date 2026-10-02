@@ -12,7 +12,10 @@
 | C1 TTS của `AudioEngine`, C2 race gTTS trong `server.py` | **ĐÃ THAY** bằng `TTSStreamEngine`, bản cũ đã xoá |
 | C3 `llm_engine._sanitise_for_tts`, `clean_text_for_tts` | **ĐÃ THAY** bằng `sanitise_for_tts` + `shorten_for_speech`, bản cũ đã xoá |
 | Thêm: `SentenceStreamer`, `split_into_sentences`, `race_synthesise`, `_safe_tts`, `prewarm_tts_cache` | **ĐÃ XOÁ** (chỉ còn test / không caller) |
-| A2–A6, C4–C11, D1–D8, E1–E8 | chưa làm |
+| C7 pipeline HUD trong `server.py`, C8 `VoiceSessionStore` (lịch sử) + `voice_controller._session_history` | **ĐÃ THAY** bằng `core/voice_turn.py` + `memory_manager` (Phase 3) |
+| C4 `stream_voice_response` | **ĐẢO HƯỚNG** theo quyết định Phase 3: là bước LLM chung của voice; đường `llm_engine.stream` (provider) mất caller — Phase 5 chuyển `stream_voice_response` lên provider |
+| Thêm: vòng tool 1 bước của portal (`execute_tool_call` và phụ trợ) | **ĐÃ XOÁ** (Phase 3) |
+| A2–A6, C5, C6, C9–C11, D1–D8, E1–E8 | chưa làm |
 
 ## A. Xóa được ngay khi vào Phase C (không có caller)
 

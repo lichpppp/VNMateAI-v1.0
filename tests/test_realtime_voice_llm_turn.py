@@ -1,18 +1,23 @@
 """
 tests/test_realtime_voice_llm_turn.py
 =====================================
-Chạy THẬT một lượt qua LLM của pipeline voice canonical
-(`core.realtime_voice_ws._execute_voice_turn`), với LLM / TTS / WebSocket giả.
+Chạy THẬT một lượt qua LLM của portal (`core.realtime_voice_ws._execute_voice_turn`
+→ `core.voice_turn.process_voice_turn` → `LLMEngine.stream_voice_response`).
+Chỉ giả lập client OpenAI (stream token), TTS và WebSocket — không gọi mạng.
 
-Lý do có test này: commit 4f6464a để lọt `NameError: sanitized_query` ở đường
-LLM — mọi câu hỏi không phải lệnh nhanh đều lỗi — mà không test nào bắt được,
-vì các test cũ chỉ đi đường fast path hoặc kiểm tra từng mảnh riêng lẻ.
+Bắt các lỗi đã từng xảy ra:
+  * NameError `sanitized_query` (commit 4f6464a) — mọi lượt LLM ở portal lỗi.
+  * Lịch sử không được lưu khi câu trả lời kết thúc bằng dấu câu
+    (`stream_voice_response` dùng phần dư `text_buffer` thay cho toàn bộ câu).
+  * Mật khẩu / IP nội bộ lọt sang LLM.
 """
 from __future__ import annotations
 
 import json
 import sys
+import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,9 +25,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import core.realtime_voice_ws as rvw  # noqa: E402
 from core.llm_engine import llm_engine  # noqa: E402
-from core.llm_provider import LLMStreamChunk  # noqa: E402
+from core.memory_manager import memory_manager  # noqa: E402
 
-REPLY = "Dạ, RAID 1 ghi cùng dữ liệu lên hai ổ. Một ổ hỏng thì ổ kia vẫn còn nguyên."
+REPLY = "Dạ, RAID 1 ghi cùng dữ liệu lên **hai ổ**. Một ổ hỏng thì ổ kia vẫn còn nguyên."
 SECRET_QUERY = "máy 192.168.1.27 mật khẩu password=Abc12345 bị chậm, giải thích giúp em"
 
 
@@ -38,14 +43,38 @@ class FakeWebSocket:
         self.binary.append(data)
 
 
+class _FakeStream:
+    def __init__(self, text):
+        self._parts = [text[i:i + 6] for i in range(0, len(text), 6)]
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        for p in self._parts:
+            delta = SimpleNamespace(content=p, tool_calls=None, reasoning="", reasoning_content="")
+            yield SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+
+
 @pytest.fixture
 def turn(monkeypatch):
     seen_messages: list = []
 
-    async def fake_stream(messages, tools=None, brain_role="voice", **kw):
-        seen_messages.append(messages)
-        for i in range(0, len(REPLY), 7):
-            yield LLMStreamChunk(content=REPLY[i:i + 7])
+    async def fake_create(**kwargs):
+        seen_messages.append(kwargs["messages"])
+        return _FakeStream(REPLY)
+
+    fake_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fake_create)))
+
+    async def no_client():
+        return None
+
+    monkeypatch.setattr(llm_engine, "_ensure_shared_client", no_client)
+    monkeypatch.setattr(llm_engine, "_client", fake_client, raising=False)
+    monkeypatch.setattr(llm_engine, "_direct_client", None, raising=False)
+    monkeypatch.setattr(llm_engine, "classify_intent",
+                        staticmethod(lambda q: {"type": "conversation", "target_brain": "voice", "ack_needed": False}))
+    monkeypatch.setattr(llm_engine, "get_brain_model", lambda role: "fake-model")
 
     async def fake_tts_stream(self, text, *a, **k):
         yield ("MP3:" + text).encode("utf-8") * 20
@@ -53,18 +82,13 @@ def turn(monkeypatch):
     async def fake_synthesise(self, text, *a, **k):
         return ("MP3:" + text).encode("utf-8") * 20
 
-    async def no_ack(*a, **k):
-        return None
-
-    monkeypatch.setattr(llm_engine, "stream", fake_stream)
-    monkeypatch.setattr(llm_engine, "classify_intent",
-                        staticmethod(lambda q: {"type": "conversation", "ack_needed": False}))
     from core.audio.tts_stream_engine import TTSStreamEngine
     monkeypatch.setattr(TTSStreamEngine, "stream", fake_tts_stream)
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synthesise)
 
     ws = FakeWebSocket()
-    session = rvw.RealtimeVoiceSession(ws, {"username": "test-llm-turn"})
+    user = f"test-llm-turn-{uuid.uuid4().hex[:6]}"
+    session = rvw.RealtimeVoiceSession(ws, {"username": user})
     return {"ws": ws, "session": session, "seen_messages": seen_messages}
 
 
@@ -78,15 +102,27 @@ async def test_llm_turn_completes_without_error(turn):
     types = await _run(turn, "Giải thích ngắn gọn RAID 1 là gì.")
     errors = [e for e in turn["ws"].events if e["type"] == "error"]
     assert not errors, f"lượt LLM báo lỗi: {errors}"
-    assert "text_delta" in types
     assert "session_ended" in types, f"lượt không kết thúc: {types}"
-    text = "".join(e.get("text", "") for e in turn["ws"].events if e["type"] == "text_delta")
-    assert text == REPLY
 
 
-async def test_llm_turn_sends_audio(turn):
+async def test_portal_text_keeps_markdown(turn):
+    await _run(turn, "Giải thích ngắn gọn RAID 1 là gì.")
+    shown = "".join(e.get("content", "") for e in turn["ws"].events if e["type"] == "text_delta")
+    assert shown == REPLY, f"portal phải hiển thị nguyên chữ gốc (Markdown): {shown!r}"
+
+
+async def test_llm_turn_sends_audio_without_markdown(turn):
     await _run(turn, "Giải thích ngắn gọn RAID 1 là gì.")
     assert turn["ws"].binary, "không có frame audio nào được gửi"
+    spoken = " ".join(e["text"] for e in turn["ws"].events if e["type"] == "sentence_ready")
+    assert "**" not in spoken
+
+
+async def test_history_saved_when_reply_ends_with_punctuation(turn):
+    await _run(turn, "Giải thích ngắn gọn RAID 1 là gì.")
+    hist = memory_manager.get_history(turn["session"].session_id)
+    assistant = [m["content"] for m in hist if m.get("role") == "assistant"]
+    assert assistant and "Một ổ hỏng thì ổ kia vẫn còn nguyên" in assistant[-1], hist
 
 
 async def test_sensitive_data_masked_before_llm(turn):

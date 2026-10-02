@@ -5,8 +5,8 @@ Cổng thực thi tool chung `core.agent_voice_loop.run_tool_with_policy`.
 
 Trước Phase 3, đường voice realtime (portal) gọi tool qua một bản riêng import
 `zero_trust.evaluate_risk` — hàm không tồn tại — rồi nuốt lỗi, nên mọi tool chạy
-KHÔNG qua Zero-Trust, RBAC hay audit. Test này khoá lại: đường realtime đi đúng
-cùng cổng với vòng agent `ask_async`. Không chạy skill thật.
+KHÔNG qua Zero-Trust, RBAC hay audit. Nay mọi kênh đi qua vòng agent `ask_async`,
+và vòng đó chỉ chạy tool qua cổng này. Không chạy skill thật.
 """
 from __future__ import annotations
 
@@ -54,22 +54,20 @@ def gate(monkeypatch):
 async def test_blocked_tool_never_executes(gate):
     calls, state = gate
     state["risk"] = "BLOCKED"
-    res = await avl.execute_tool_call({"id": "c1", "name": "format_disk", "arguments": "{}"},
-                                      {"username": "admin"})
+    out = await avl.run_tool_with_policy("format_disk", {}, caller="admin", source_device="portal")
     assert calls["executed"] == []
-    assert res.success is False
-    assert "chính sách bảo mật" in (res.direct_response or "")
+    assert "chính sách bảo mật" in out["result"]["message"]
     assert ("format_disk", "BLOCKED") in calls["audit"]
 
 
 async def test_rbac_uses_logged_in_user_and_denies(gate):
     calls, state = gate
     state["rbac_ok"] = False
-    res = await avl.execute_tool_call({"id": "c2", "name": "kill_process", "arguments": '{"pid": 1}'},
-                                      {"username": "viewer_user"})
+    out = await avl.run_tool_with_policy("kill_process", {"pid": 1}, caller="viewer_user",
+                                         source_device="portal")
     assert calls["rbac"] == [("kill_process", "viewer_user")]
     assert calls["executed"] == []
-    assert res.success is False and res.direct_response == "không đủ quyền"
+    assert out["result"]["code"] == "RBAC_DENIED"
 
 
 async def test_need_confirm_from_non_admin_channel_waits_for_approval(gate):
@@ -83,9 +81,16 @@ async def test_need_confirm_from_non_admin_channel_waits_for_approval(gate):
 
 async def test_safe_tool_runs_and_is_audited(gate):
     calls, _ = gate
-    res = await avl.execute_tool_call({"id": "c3", "name": "get_cpu", "arguments": "{}"},
-                                      {"username": "admin"})
+    out = await avl.run_tool_with_policy("get_cpu", {}, caller="admin", source_device="portal")
     assert calls["executed"] == [("get_cpu", {})]
-    assert res.success is True
+    assert out["result"]["success"] is True
     assert ("get_cpu", "SAFE") in calls["audit"]
-    assert "không thực hiện được" not in (res.direct_response or "")
+
+
+async def test_caller_identity_reaches_rbac_from_agent_loop(gate, monkeypatch):
+    """ask_async truyền `caller` (portal: username) tới cổng — không dùng tên kênh."""
+    calls, _ = gate
+    from core.llm_engine import llm_engine
+    import inspect
+    assert "caller" in inspect.signature(llm_engine.ask_async).parameters
+    assert "caller" in inspect.signature(llm_engine.stream_voice_response).parameters

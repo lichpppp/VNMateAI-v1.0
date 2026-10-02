@@ -37,7 +37,6 @@ def section(title: str) -> None:
 
 
 from core.voice_session import (  # noqa: E402
-    MAX_TURNS,
     SESSION_TTL,
     VoiceSession,
     VoiceSessionStore,
@@ -47,41 +46,20 @@ from core.voice_session import (  # noqa: E402
 
 
 # ══ 1. Lịch sử hội thoại ═════════════════════════════════════════════════
-section("Lịch sử hội thoại (chống lặp lệnh)")
-s = VoiceSession("hud")
-check("phiên mới rỗng", s.turns == [] and s.history() == [])
+# Phase 3: một kho lịch sử cho mọi kênh — memory_manager, khoá phiên "hud".
+section("Lịch sử hội thoại (chống lặp lệnh) — memory_manager")
+from core.memory_manager import memory_manager  # noqa: E402
 
-s.add_turn("user", "Báo cáo tồn kho ERP")
-s.add_turn("assistant", "Anh muốn báo cáo tháng nào ạ?")
-s.add_turn("user", "tháng 9")
-h = s.history()
-check("lưu đủ 3 lượt", len(h) == 3, str(len(h)))
-check("đúng vai trò từng lượt",
-      [t["role"] for t in h] == ["user", "assistant", "user"], str([t["role"] for t in h]))
-check("nội dung lượt giữ nguyên", h[0]["content"] == "Báo cáo tồn kho ERP")
-
-# messages đúng định dạng API chat
-check("history() trả dict role/content",
-      all(set(t) == {"role", "content"} for t in h), str(h[0]))
-
-# Lượt rỗng -> bỏ, không gửi lên LLM
-s2 = VoiceSession("hud")
-s2.add_turn("user", "")
-s2.add_turn("user", "   ")
-check("lượt rỗng bị bỏ qua", s2.turns == [], str(s2.turns))
-
-# Lượt quá dài -> cắt, không phình ngữ cảnh
-s3 = VoiceSession("hud")
-s3.add_turn("user", "x" * 5000)
-check("lượt quá dài được cắt", len(s3.turns[0]["content"]) <= 1200, str(len(s3.turns[0]["content"])))
-
-# Giới hạn số lượt
-s4 = VoiceSession("hud")
-for i in range(60):
-    s4.add_turn("user" if i % 2 == 0 else "assistant", f"lượt {i}")
-check("giới hạn số lượt lưu", len(s4.turns) <= MAX_TURNS * 2, str(len(s4.turns)))
-check("giữ lượt MỚI NHẤT", "lượt 59" in s4.turns[-1]["content"], s4.turns[-1]["content"])
-check("bỏ lượt CŨ NHẤT", "lượt 0" not in "".join(t["content"] for t in s4.turns))
+_sid = "test-phase65-hud"
+memory_manager.clear_history(_sid)
+check("phiên mới rỗng", memory_manager.get_history(_sid) == [])
+memory_manager.add_turn(_sid, "Báo cáo tồn kho ERP", "Anh muốn báo cáo tháng nào ạ?")
+h = memory_manager.get_history(_sid)
+check("lưu đủ lượt user + assistant", len(h) == 2, str(len(h)))
+check("đúng vai trò từng lượt", [t["role"] for t in h] == ["user", "assistant"], str(h))
+check("history trả dict role/content", all({"role", "content"} <= set(t) for t in h), str(h[0]))
+check("VoiceSession không còn kho lịch sử riêng", not hasattr(VoiceSession("hud"), "turns"))
+memory_manager.clear_history(_sid)
 
 
 # ══ 2. Nhận diện câu hỏi ══════════════════════════════════════════════════
@@ -154,8 +132,6 @@ a = store.get("hud")
 check("cùng id -> cùng phiên", store.get("hud") is a)
 check("id khác -> phiên khác", store.get("khac") is not a)
 
-a.add_turn("user", "xin chào")
-check("phiên lưu lượt", len(store.get("hud").turns) == 1)
 check("drop phiên tồn tại", store.drop("hud") is True)
 check("drop phiên đã xoá -> False", store.drop("hud") is False)
 
@@ -179,7 +155,6 @@ errs: list = []
 def _w(i: int) -> None:
     try:
         sess = store2.get(f"s{i % 5}")
-        sess.add_turn("user", f"lượt {i}")
         sess.bump_reask()
     except Exception as exc:  # pragma: no cover
         errs.append(str(exc))
@@ -194,24 +169,21 @@ check("40 luồng ghi song song không lỗi", not errs, str(errs[:2]))
 
 section("Phiên bị chia tay")
 s9 = VoiceSession("hud")
-s9.add_turn("user", "lệnh một")
 s9.mark_expecting_reply("hỏi một?")
 s9.bump_reask()
 s9.clear_expecting_reply()
-check("đóng phiên -> vẫn giữ lịch sử", len(s9.turns) >= 1, str(len(s9.turns)))
 check("đóng phiên -> không còn chờ", s9.expecting_reply is False)
 check("đóng phiên -> bộ đếm về 0", s9.reask_count == 0)
 
 section("to_client")
 s10 = VoiceSession("hud")
-s10.add_turn("user", "xin chào")
 s10.mark_expecting_reply("Anh cần gì ạ?")
 c = s10.to_client()
 check("to_client đủ trường HUD cần",
       all(k in c for k in ("expecting_reply", "question" if False else "pending_question",
                            "reask_count", "waiting_seconds")),
       str(list(c)))
-check("to_client KHÔNG kèm lịch sử đầy đủ", "turns" not in c or c["turns"] <= 2, str(c.get("turns")))
+check("to_client KHÔNG kèm lịch sử", "turns" not in c, str(list(c)))
 
 
 # ── Tổng kết ─────────────────────────────────────────────────────────────

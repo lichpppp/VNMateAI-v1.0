@@ -181,3 +181,45 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Bị chặn, chưa làm:** sửa `psutil.cpu_percent(interval=0.05)` chặn event loop trong `core/fast_command_router.py` (dòng ~257 và ~281). Thao tác đọc đoạn code đó bị bộ phân loại an toàn của Claude Code từ chối; chờ chủ dự án cho phép hoặc tự sửa (đề xuất: `await asyncio.to_thread(psutil.cpu_percent, 0.05)`).
 
 **Phát hiện mới (chưa sửa):** `tts_stream_engine.reset_tts_engine()` không được gọi ở đâu → đổi giọng/tốc độ trong cấu hình chỉ có hiệu lực sau khi khởi động lại server.
+
+## 8. Báo cáo Phase 3 — Voice: một use case cho mọi kênh (2026-10-02)
+
+**Quyết định của chủ dự án:** "stream + vòng agent" — câu trò chuyện stream từng câu; câu cần tool chạy vòng agent đầy đủ (`ask_async`: nhiều bước, "Đồng ý" tiếp tục tác vụ chờ duyệt, gửi lệnh tới máy trạm). Giữ nguyên mọi giao thức client (không đổi `/ws/hud`, firmware, REST — D2 chưa áp dụng).
+
+**Lỗ hổng bảo mật đã vá (commit `b792374`):** đường voice của portal chạy MỌI tool không qua Zero-Trust / RBAC / audit (import `zero_trust.evaluate_risk` — không tồn tại — rồi nuốt lỗi). Nay chỉ còn một cổng: `core/agent_voice_loop.run_tool_with_policy`, dùng bởi vòng agent; portal truyền username đã đăng nhập làm danh tính RBAC (`caller`), các kênh khác giữ nguyên hành vi (gồm chính sách bỏ qua xác nhận cho kênh quản trị từ commit f389bbe).
+
+**Một implementation:**
+
+| Việc | Trước | Sau |
+|---|---|---|
+| Xử lý lượt nói | 4 đường: `realtime_voice_ws._execute_voice_turn` (vòng tool 1 bước riêng), `server._process_hud_voice_command_body`, `xiaozhi_gateway._execute_pipeline`, `voice_controller._stream_response_and_play` | `core/voice_turn.process_voice_turn`; mỗi kênh còn transport + `VoiceSink` (đầu ra) |
+| Thực thi tool | `ask_async` (có kiểm soát) + `agent_voice_loop.execute_tool_call` (không kiểm soát) | `run_tool_with_policy` |
+| Lịch sử hội thoại | `memory_manager` + `VoiceSessionStore` (HUD) + `voice_controller._session_history` | `memory_manager` (khoá = session_id); `VoiceSession` chỉ giữ trạng thái "đang chờ admin trả lời" |
+| Nhận diện câu hỏi | `voice_session.looks_like_question` + bản riêng trong `xiaozhi_gateway` | `looks_like_question` |
+| Hàng đợi TTS | HUD tự làm (`_tts_pending`), ESP32/mic tuần tự | `StreamingTTSWorkerPipeline` cho mọi kênh, thêm timeout 14 s mỗi câu |
+
+Đã xoá: vòng tool 1 bước của portal + `execute_tool_call`, `can_synthesize_direct_response`, `prune_tool_schemas`, `prune_tool_payload_for_llm`, `ToolExecutionResult`, `AgentTurnMetrics`; lịch sử trong `VoiceSession`; `tests/test_phase7_agent_loop.py` (chỉ kiểm tra code đã xoá; hành vi chọn tool vẫn được `test_phase8` kiểm tra).
+
+**Lỗi có sẵn đã sửa:**
+- `stream_voice_response` lưu lịch sử / chữ hiển thị từ `text_buffer` — chỉ còn phần dư sau câu cuối → câu trả lời kết thúc bằng dấu câu KHÔNG được lưu lịch sử, chữ hiển thị là của lượt trước (gốc rễ của "HUD không nhớ" ở Phase 65).
+- Kết quả lượt (chữ hiển thị, suy nghĩ) ghi trên singleton `llm_engine` → nhiều phiên song song ghi đè nhau; nay trả theo từng lượt (`turn`).
+- `can_synthesize_direct_response` coi mọi kết quả tool thành công là lỗi.
+- Hàng đợi TTS không có timeout mỗi câu → một câu treo giữ mọi câu sau.
+- Mảnh chỉ có dấu câu ("!", "--") bị đưa đi tổng hợp giọng → TTS lỗi.
+
+**Kênh được thêm năng lực (hành vi mới có chủ đích):** HUD, ESP32, mic có lệnh nhanh và TTS gối đầu; câu dài được rút gọn khi ĐỌC ở mọi kênh (chữ hiển thị đầy đủ); portal hiển thị chữ gốc (Markdown) và đọc bản đã làm sạch.
+
+**Test:** 185 pass / 0 fail. Mới: `test_voice_turn.py`, `test_tool_policy_gate.py`; viết lại `test_realtime_voice_llm_turn.py` (giả lập ở client OpenAI, đi qua code thật của `stream_voice_response`).
+
+**Chạy thử thật (server đang chạy):** HUD qua `/ws/hud`: lệnh nhanh "mấy giờ rồi" trả lời đúng giờ có tiếng; câu hỏi LLM có lời đệm sau ~1 s, đọc đủ các câu, `voice_state` cuối lượt đúng. Portal qua `/ws/v1/voice-stream`:
+
+| Chỉ số (3 lượt) | Phase 2 | Phase 3 |
+|---|---|---|
+| Fast path: chữ đầu | p50 53 ms | p50 11 ms |
+| Fast path: tiếng đầu | p50 1.172 ms | p50 1.243 ms |
+| LLM: chữ đầu | p50 22.405 ms | p50 2.484 ms — **không phải TTFT thật**, xem dưới |
+
+**Phát hiện cho Phase 5 (chưa sửa):**
+1. Model `ag/gemini-3.6-flash-low` trả về thông báo của nhà cung cấp *"Gemini 3.5 Flash is no longer available…"* như một câu trả lời bình thường — hệ thống đọc to nó. Cần cập nhật model trong cấu hình và phát hiện kiểu phản hồi này.
+2. Sau Phase 3, `core/llm_provider.py` + `LLMEngine.stream/stream_tokens/get_provider` KHÔNG còn caller production (chỉ test). Mọi lời gọi LLM thật dùng client OpenAI thô trong `llm_engine` với vòng fallback riêng. Phase 5: chuyển `stream_voice_response` và `_call_llm*` lên provider (không xoá provider — kiến trúc đích cần nó).
+3. Bộ tách câu thứ ba `LLMEngine._extract_sentences` (Phase 0 bỏ sót) cắt sai số thập phân ("3.5" → "3. 5"); gộp vào `SentenceBuffer`.

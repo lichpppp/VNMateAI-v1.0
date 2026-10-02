@@ -10,6 +10,11 @@ HUD cũ gọi `stream_voice_response()` mà KHÔNG truyền `history`. Mỗi lư
 nhớ admin đã trả lời gì. Hậu quả đúng như admin phản ánh: câu lệnh bị lặp
 lại, báo cáo ra sai.
 
+Phase 3 (2026-10): LỊCH SỬ không còn ở đây. Mọi kênh voice dùng một kho:
+`memory_manager`, khoá = session_id (HUD: "hud"), do `stream_voice_response`
+ghi (gốc rễ của lỗi trên là nó chỉ lưu phần dư sau câu cuối — đã sửa). Module
+này chỉ còn trạng thái "Ly Ly vừa hỏi, đang chờ admin đáp".
+
 Tách khỏi `state_manager`
 -------------------------
 `state_manager` giữ *pending action* — một tác vụ đang chờ duyệt, lấy ra thì
@@ -43,15 +48,16 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-#: Số lượt giữ lại cho mỗi phiên. Đủ để Ly Ly nhớ cả cuộc trao đổi về một
-#: báo cáo, mà không phình lên làm chậm mỗi lượt gọi LLM.
-MAX_TURNS = 12
 
 #: Phiên không dùng trong 10 phút thì bị bỏ. HUD có thể để cả đêm không ai
 #: nói chuyện; giữ lại lịch sử cũ chỉ tốn bộ nhớ và làm nhiễu ngữ cảnh lượt sau.
 SESSION_TTL = 600
 
-#: Độ dài tối đa của một lượt, để một câu trả lời dài không làm phình lịch sử.
+
+
+
+
+#: Độ dài tối đa của câu hỏi đang chờ lưu lại (câu trả lời dài không làm phình trạng thái).
 MAX_TURN_CHARS = 1200
 
 
@@ -73,11 +79,10 @@ def _clip(text: str, limit: int = MAX_TURN_CHARS) -> str:
 
 
 class VoiceSession:
-    """Lịch sử hội thoại + trạng thái chờ phản hồi cho một phiên HUD."""
+    """Trạng thái chờ phản hồi cho một phiên HUD (lịch sử ở memory_manager)."""
 
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
-        self.turns: List[Dict[str, str]] = []
         self.updated_at = time.time()
 
         # Đang chờ admin trả lời sau câu hỏi của AI.
@@ -88,25 +93,9 @@ class VoiceSession:
         # Mốc để HUD biết đã chờ bao lâu mà không có phản hồi.
         self.asked_at = 0.0
 
-    # ── Lịch sử ───────────────────────────────────────────────────────
 
-    def add_turn(self, role: str, content: str) -> None:
-        """role: 'user' (admin nói) hoặc 'assistant' (Ly Ly đáp)."""
-        text = _clip(content)
-        if not text:
-            return
-        self.turns.append({"role": role, "content": text})
-        # Cắt từ đầu, giữ N lượt gần nhất — lượt cũ nhất ít liên quan nhất.
-        if len(self.turns) > MAX_TURNS * 2:
-            self.turns = self.turns[-MAX_TURNS * 2:]
-        self.updated_at = time.time()
-
-    def history(self, max_turns: int = MAX_TURNS) -> List[Dict[str, str]]:
-        """Lịch sử dạng messages, bỏ lượt cũ ngoài ngưỡng."""
-        return [dict(t) for t in self.turns[-max_turns:]]
 
     def clear(self) -> None:
-        self.turns.clear()
         self.expecting_reply = False
         self.pending_question = ""
         self.reask_count = 0
@@ -148,7 +137,6 @@ class VoiceSession:
         """Trạng thái gửi HUD. Không kèm lịch sử — HUD không cần đọc lại."""
         return {
             "session_id": self.session_id,
-            "turns": len(self.turns),
             "expecting_reply": self.expecting_reply,
             "pending_question": self.pending_question,
             "reask_count": self.reask_count,

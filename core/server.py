@@ -279,24 +279,60 @@ async def _process_hud_voice_command(cmd_query: str, session_id: str = "hud") ->
             _hud_voice_tasks.pop(session_id, None)
 
 
+class _HudVoiceSink:
+    """Đầu ra của HUD (/ws/hud): chữ + audio binary, đồng bộ portal.
+
+    Chữ của một câu được gửi CÙNG LÚC với audio của câu đó (chữ bám theo tiếng);
+    TTS lỗi thì vẫn gửi chữ, chỉ không có tiếng.
+    """
+
+    def __init__(self, cmd_query: str) -> None:
+        self.cmd_query = cmd_query
+        self.display_text = ""
+
+    async def on_status(self, status: str, **info: Any) -> None:
+        if status == "speaking":
+            reasoning = info.get("reasoning") or ""
+            await _broadcast_thinking("done" if reasoning else "empty", reasoning, self.cmd_query)
+
+    async def on_sentence(self, seq: int, text: str, display_text: str, **info: Any) -> None:
+        self.display_text = display_text
+
+    async def on_audio(self, seq: int, audio: bytes, text: str, kind: str, **info: Any) -> None:
+        packet: Dict[str, Any] = {
+            "type": "voice_active",
+            "status": "speaking",
+            "text": text,
+            "source_device": "hud",
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+        if kind in ("filler", "ack"):
+            packet["is_filler"] = True
+        else:
+            packet["display_text"] = self.display_text or text
+            packet["query"] = self.cmd_query
+        await broadcast_hud(packet)
+        if audio and len(audio) > 100:
+            await broadcast_hud_binary(audio)
+        if kind == "speech":
+            await broadcast_portal_ui("voice_response", {
+                "query": self.cmd_query,
+                "reply": text,
+                "display_text": self.display_text or text,
+                "source_device": "hud",
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+
+
 async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud") -> None:
     """
-    Phase 93 — Streaming Binary TTS for HUD (< 600ms TTFA).
-
-    Thay thế cơ chế cũ (base64 sequential, dễ timeout 7s):
-      LLM stream → SentenceStreamer → TTSStreamEngine.stream() → broadcast_hud_binary()
-
-    Mời nhận được một câu hoàn chỉnh từ LLM → khởi động TTS ngay →
-    yield chunk → gửi binary frame → HUD nhận và phát Web Audio API.
-    Câu tiếp theo đang stream từ LLM trong khi câu đầu đang được phát.
+    Một lượt nói của HUD. Nghiệp vụ ở core.voice_turn.process_voice_turn (dùng
+    chung mọi kênh); ở đây chỉ còn phần riêng của HUD: câu "thôi/dừng" khi đang
+    chờ trả lời, lời đệm sau 1s, trạng thái chờ admin trả lời, về idle.
     """
-    from core.llm_engine import llm_engine
-    from core.audio.tts_stream_engine import TTSStreamEngine
     from core.voice_session import voice_sessions, is_stop_reply, looks_like_question
     from core.memory_manager import detect_and_handle_context_lifecycle
-    from core.audio_cache import get_cached_audio_bytes
-    from core.voice_controller import get_contextual_filler
-    import base64 as _b64
+    from core.voice_turn import process_voice_turn
 
     # Ephemeral Data Lifecycle
     detect_and_handle_context_lifecycle(session_id, cmd_query)
@@ -313,13 +349,8 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
         logger.info("[HUD] Admin dừng hội thoại tại phiên %s", session_id)
         return
 
-    session.add_turn("user", cmd_query)
     session.clear_expecting_reply()
-
-    logger.info(
-        "Standby HUD WS voice command: '%s' (phiên %s, %d lượt trước đó)",
-        cmd_query[:100], session_id, len(session.turns),
-    )
+    logger.info("Standby HUD WS voice command: '%s' (phiên %s)", cmd_query[:100], session_id)
 
     await broadcast_hud({
         "type": "voice_active",
@@ -330,220 +361,31 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
     })
     await _broadcast_thinking("thinking", query=cmd_query)
 
-    _t_start = time.monotonic()
-    tts_engine = TTSStreamEngine()
-
-    # ── Lời đệm chỉ phát khi câu trả lời thật chưa về (Phase 67/70) ────────
-    # Commit 4f6464a bỏ mất khối này cùng hàng đợi TTS bên dưới; khôi phục lại,
-    # giữ cách gửi audio bằng binary frame của Phase 93.
-    FILLER_GRACE_SEC = 1.0
-    _filler_sent = False
-    _filler_played = False
-    _filler_task: Optional["asyncio.Task"] = None
-
-    async def _play_filler_later() -> None:
-        """Phát lời đệm, nhưng chỉ khi câu trả lời thật chưa tới."""
-        nonlocal _filler_sent, _filler_played
-        await asyncio.sleep(FILLER_GRACE_SEC)
-        if _filler_sent:
-            return
-        _filler_sent = True
-        _filler_played = True
-        phrase = get_contextual_filler(cmd_query)
-        try:
-            fb = get_cached_audio_bytes(phrase)
-        except Exception:
-            fb = None
-        if not fb:
-            fb = await _tts_bytes(phrase)
-        await broadcast_hud({
-            "type": "voice_active",
-            "status": "speaking",
-            "text": phrase,
-            "source_device": "hud",
-            "is_filler": True,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        if fb and len(fb) > 100:
-            await broadcast_hud_binary(fb)
-        logger.info("[HUD] Phát lời đệm sau %.1fs chờ: %s", FILLER_GRACE_SEC, phrase)
-
-    _filler_task = asyncio.create_task(_play_filler_later())
-
-    def _stop_filler() -> None:
-        nonlocal _filler_task, _filler_sent
-        _filler_sent = True
-        if _filler_task is not None and not _filler_task.done():
-            _filler_task.cancel()
-        _filler_task = None
-
-    # ---------------------------------------------------------------------------
-    # Phase 93: Stream LLM → câu → TTS → Binary WS
-    # ---------------------------------------------------------------------------
-    full_sentences: list[str] = []
-    display_text: str = ""
-
-    async def _emit_sentence(sentence: str, audio_data: Optional[bytes]) -> None:
-        """Gửi chữ + audio của một câu xuống HUD, đúng thứ tự câu."""
-        nonlocal display_text
-        display_text = getattr(llm_engine, "last_voice_display_text", None) or " ".join(full_sentences)
-
-        await broadcast_hud({
-            "type": "voice_active",
-            "status": "speaking",
-            "text": sentence,
-            "display_text": display_text,
-            "query": cmd_query,
-            "source_device": "hud",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        # TTS lỗi/timeout thì HUD vẫn hiện chữ, chỉ không có tiếng.
-        if audio_data and len(audio_data) > 100:
-            await broadcast_hud_binary(audio_data)
-
-        await broadcast_portal_ui("voice_response", {
-            "query": cmd_query,
-            "reply": sentence,
-            "display_text": display_text,
-            "source_device": "hud",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-
-    # Hàng đợi task TTS: câu n đang phát thì câu n+1..n+3 đang được sinh, vòng
-    # lặp LLM không bị chặn bởi TTS. Bản Phase 93 gọi TTS tuần tự trong vòng
-    # lặp, nên mỗi câu cộng nguyên thời gian TTS vào độ trễ và không có timeout.
-    _TTS_LOOKAHEAD = 3
-    _tts_pending: list = []
-
-    async def _flush_one() -> None:
-        pend_text, pend_task = _tts_pending.pop(0)
-        try:
-            audio_data = await pend_task
-        except Exception:  # pylint: disable=broad-except
-            audio_data = None
-        _stop_filler()
-        await _emit_sentence(pend_text, audio_data)
-
+    sink = _HudVoiceSink(cmd_query)
+    t_start = time.perf_counter()
     try:
-        async for sentence in llm_engine.stream_voice_response(
-            query=cmd_query,
-            history=session.history(),
+        result = await process_voice_turn(
+            cmd_query,
+            sink=sink,
+            session_id=session_id,
             source_device="hud",
-        ):
-            clean_s = sanitise_for_tts(sentence)
-            if not clean_s:
-                continue
-            if not full_sentences:
-                _stop_filler()
-                logger.info(
-                    "[HUD/Stream] Câu đầu về sau %.2fs — bỏ lời đệm, nói thẳng",
-                    time.monotonic() - _t_start,
-                )
-                await _broadcast_thinking(
-                    "done",
-                    getattr(llm_engine, "last_voice_reasoning", ""),
-                    cmd_query,
-                )
-            full_sentences.append(clean_s)
-            _tts_pending.append(
-                (clean_s, asyncio.create_task(_tts_bytes(clean_s)))
-            )
-            while len(_tts_pending) > _TTS_LOOKAHEAD:
-                await _flush_one()
-
-        # Rải nốt những câu còn trong hàng đợi — bỏ bước này thì câu cuối
-        # không bao giờ được phát.
-        for _pend_text, _pend_task in list(_tts_pending):
-            await _flush_one()
-
+            filler_after_s=1.0,  # Phase 67/70: lời đệm chỉ khi câu thật chưa về sau 1s
+        )
     except asyncio.CancelledError:
         logger.info("[HUD/Stream] Task bị huỷ (lệnh mới đến)")
-        for _pend_text, _pend_task in _tts_pending:
-            _pend_task.cancel()
-        _tts_pending.clear()
         raise
     except Exception as exc:
-        logger.error("[HUD/Stream] Lỗi stream: %s", exc, exc_info=True)
-        for _pend_text, _pend_task in _tts_pending:
-            _pend_task.cancel()
-        _tts_pending.clear()
-    finally:
-        _stop_filler()
+        logger.error("[HUD/Stream] Lỗi lượt nói: %s", exc, exc_info=True)
+        await _broadcast_thinking("empty", query=cmd_query)
+        return
 
     logger.info(
         "[HUD/Stream] Hoàn tất lượt nói sau %.2fs (%d câu, %d câu đệm)",
-        time.monotonic() - _t_start, len(full_sentences), 1 if _filler_played else 0,
+        time.perf_counter() - t_start, len(result.sentences), 1 if result.filler_played else 0,
     )
 
-    # Fallback: nếu LLM stream không yield được gì
-    if not full_sentences:
-        try:
-            result = await llm_engine.ask_async(
-                query=cmd_query,
-                source_device="hud",
-                session_id="hud",
-                history=None,
-            )
-            display_reply = result.get("reply", "")
-            await _broadcast_thinking(
-                "done" if result.get("reasoning") else "empty",
-                result.get("reasoning", ""),
-                cmd_query,
-            )
-            from core.voice_session import looks_like_question
-
-            if display_reply:
-                session.add_turn("assistant", display_reply)
-                _waiting = looks_like_question(display_reply)
-                if _waiting:
-                    session.mark_expecting_reply(display_reply)
-                else:
-                    session.clear_expecting_reply()
-                await broadcast_hud({
-                    "type": "voice_state",
-                    "session_id": session_id,
-                    "expecting_reply": _waiting,
-                    "question": display_reply if _waiting else "",
-                    "reask_count": session.reask_count,
-                    "timestamp": datetime.utcnow().isoformat(),
-                })
-
-            speech_reply = result.get("speech_reply") or sanitise_for_tts(display_reply)
-            if not speech_reply:
-                speech_reply = "Em đã thực hiện xong yêu cầu của bạn."
-                display_reply = display_reply or speech_reply
-
-            await broadcast_hud({
-                "type": "voice_active",
-                "status": "speaking",
-                "text": speech_reply,
-                "display_text": display_reply,
-                "query": cmd_query,
-                "source_device": "hud",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-            # Stream audio fallback qua binary frames
-            async for audio_chunk in tts_engine.stream(speech_reply):
-                if audio_chunk:
-                    await broadcast_hud_binary(audio_chunk)
-
-            await broadcast_portal_ui("voice_response", {
-                "query": cmd_query,
-                "reply": speech_reply,
-                "display_text": display_reply,
-                "source_device": "hud",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        except Exception as e:
-            logger.error("[HUD/Stream] Fallback ask_async lỗi: %s", e)
-            await _broadcast_thinking("empty", query=cmd_query)
-            return  # Không có speech_reply nếu đến đây
-
-    # Ghi lịch sử và trạng thái phóng chờ admin trả lời
-    if full_sentences:
-        from core.voice_session import looks_like_question
-        said = " ".join(full_sentences)
-        session.add_turn("assistant", said)
+    said = result.reply_text.strip()
+    if said:
         waiting = looks_like_question(said)
         if waiting:
             session.mark_expecting_reply(said)
@@ -557,10 +399,11 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             "reask_count": session.reask_count,
             "timestamp": datetime.utcnow().isoformat(),
         })
-        speech_reply = said
+    else:
+        await _broadcast_thinking("empty", query=cmd_query)
 
     # Đặt HUD về idle sau khi ước tính xong thời gian nói
-    async def _reset_hud_idle(delay: float = 6.0):
+    async def _reset_hud_idle(delay: float) -> None:
         await asyncio.sleep(delay)
         await broadcast_hud({
             "type": "voice_active",
@@ -570,8 +413,7 @@ async def _process_hud_voice_command_body(cmd_query: str, session_id: str = "hud
             "timestamp": datetime.utcnow().isoformat(),
         })
 
-    speech_reply = speech_reply if 'speech_reply' in dir() else " ".join(full_sentences)
-    est_duration = max(4.0, (len(speech_reply) / 15.0) + 1.8)
+    est_duration = max(4.0, (len(said) / 15.0) + 1.8)
     asyncio.create_task(_reset_hud_idle(est_duration))
 
 

@@ -37,7 +37,7 @@ def hud(monkeypatch):
     started: list = []
     cancelled: list = []
 
-    async def fake_stream(query, history=None, source_device=None):
+    async def fake_stream(query, history=None, source_device=None, **kw):
         for s in SENTENCES:
             llm_yield_times.append(asyncio.get_running_loop().time())
             yield s
@@ -69,13 +69,27 @@ def hud(monkeypatch):
     monkeypatch.setattr(llm_engine, "stream_voice_response", fake_stream)
     monkeypatch.setattr(llm_engine, "last_voice_display_text", None, raising=False)
     monkeypatch.setattr(server, "_tts_bytes", fake_tts_bytes)
-    # Thay cả engine canonical, để test đúng bất kể HUD gọi TTS qua đường nào.
+    # Thay engine canonical (hàng đợi TTS chung gọi .stream, lời đệm gọi .synthesise).
     from core.audio.tts_stream_engine import TTSStreamEngine
 
     async def fake_synthesise(self, text, *a, **k):
         return await fake_tts_bytes(text)
 
+    async def fake_tts_stream(self, text, *a, **k):
+        data = await fake_tts_bytes(text)
+        if data:
+            yield data
+
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synthesise)
+    monkeypatch.setattr(TTSStreamEngine, "stream", fake_tts_stream)
+    import core.fast_command_router as fcr
+
+    async def no_fast(query, synthesize_audio=True):
+        return None
+
+    monkeypatch.setattr(fcr.fast_command_router, "dispatch", no_fast)
+    monkeypatch.setattr(llm_engine, "classify_intent",
+                        staticmethod(lambda q: {"type": "conversation", "target_brain": "voice", "ack_needed": False}))
     monkeypatch.setattr(server, "broadcast_hud", fake_broadcast_hud)
     monkeypatch.setattr(server, "broadcast_hud_binary", fake_broadcast_binary)
     monkeypatch.setattr(server, "broadcast_portal_ui", fake_portal)
@@ -126,7 +140,7 @@ async def test_tts_runs_ahead_of_playback(hud):
 async def test_tts_failure_still_sends_text(hud, monkeypatch):
     bad = "Câu này gây lỗi TTS."
 
-    async def stream_with_bad(query, history=None, source_device=None):
+    async def stream_with_bad(query, history=None, source_device=None, **kw):
         for s in [SENTENCES[0], bad, SENTENCES[1]]:
             yield s
 
@@ -150,18 +164,19 @@ async def test_barge_in_leaves_no_tts_task_running(hud):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+    events_at_cancel = len(hud["events"])
     await asyncio.sleep(0.3)  # quá thời gian TTS dài nhất
 
-    unfinished = set(hud["started"]) - set(_spoken_audio_prefixes(hud["events"]))
-    assert unfinished, "phải có câu bị huỷ giữa chừng thì test mới có ý nghĩa"
-    assert set(hud["cancelled"]) == unfinished, (
-        f"task TTS mồ côi: bắt đầu {hud['started']}, huỷ {hud['cancelled']}"
-    )
-    leftover = [
+    assert hud["cancelled"], "phải có câu TTS bị huỷ giữa chừng thì test mới có ý nghĩa"
+    # Câu TTS nào đã bắt đầu thì hoặc đã xong, hoặc đã bị huỷ — không còn cái nào chạy.
+    still_running = [
         t for t in asyncio.all_tasks()
-        if t is not asyncio.current_task() and "fake_tts_bytes" in repr(t.get_coro())
+        if t is not asyncio.current_task() and not t.done()
+        and ("fake_tts" in repr(t.get_coro()) or "_worker_loop" in repr(t.get_coro()))
     ]
-    assert not leftover
+    assert not still_running, f"task TTS mồ côi sau khi ngắt lời: {still_running}"
+    # Ngắt lời xong thì không phát thêm chữ/tiếng nào của lượt cũ.
+    assert len(hud["events"]) == events_at_cancel, hud["events"][events_at_cancel:]
 
 
 def _spoken_audio_prefixes(events):

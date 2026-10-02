@@ -60,6 +60,8 @@ FOLLOWUP_TIMEOUT_SEC: float = 20.0  # Max time to wait for user to reply to AI q
 FOLLOWUP_PHRASE_LIMIT_SEC: float = 10.0  # Max duration of a follow-up reply
 SESSION_MAX_TURNS: int = 20  # Maximum turns in a single conversation session
 SESSION_IDLE_TIMEOUT_SEC: float = 300.0  # Reset history after 5 min of inactivity
+#: Khoá lịch sử của mic máy chủ trong memory_manager (Phase 3: một kho lịch sử).
+MIC_SESSION_ID: str = "server-mic"
 WIDGET_SCRIPT = str(Path(__file__).resolve().parent / "voice_widget.py")
 
 # Phase 40 & Phase 36: Dynamic Audio Cache Fillers
@@ -228,7 +230,7 @@ class VoiceController:
 
         # ---- Conversation session state ----
         # Each entry: {"role": "user"|"assistant", "content": str}
-        self._session_history: list = []
+        self._last_display_text: str = ""
         self._session_last_turn_ts: float = 0.0  # epoch seconds of last turn
 
     # ------------------------------------------------------------------
@@ -314,9 +316,8 @@ class VoiceController:
             # --- Session idle reset ---
             now = time.monotonic()
             if (now - self._session_last_turn_ts) > SESSION_IDLE_TIMEOUT_SEC:
-                if self._session_history:
-                    logger.info("VoiceController: Session idle timeout — clearing history.")
-                self._session_history = []
+                logger.info("VoiceController: Session idle timeout — clearing history.")
+                self._clear_history()
 
             # ---- Show listening widget ----
             self._send_widget({"cmd": "show", "mode": "listening"})
@@ -378,7 +379,7 @@ class VoiceController:
                     logger.info("VoiceController: User said closing phrase, ending session.")
                     self._send_widget({"cmd": "text", "content": "👋  Tạm biệt anh!"})
                     self._play_cached_phrase_instant(SLEEP_PHRASE)
-                    self._session_history = []  # Full reset on explicit goodbye
+                    self._clear_history()  # Full reset on explicit goodbye
                     time.sleep(0.5)
                     break
 
@@ -392,7 +393,7 @@ class VoiceController:
                 # -- LLM Streaming + TTS (Phase 23 + Phase 36 Keep-Alive Watchdog) --
                 self._send_widget({"cmd": "text", "content": "🤖  Đang xử lý & phân tích..."})
                 response = self._stream_response_and_play(transcript)
-                display_text = getattr(llm_engine, "last_voice_display_text", None) or response
+                display_text = self._last_display_text or response
                 logger.info("VoiceController: Turn %d complete, response: '%s'", turn_idx, response[:120])
 
                 # Phase 47: Broadcast full detailed results to HUD & Web Portal so screen displays immediately!
@@ -423,15 +424,8 @@ class VoiceController:
                 except Exception as bc_err:
                     logger.debug("VoiceController screen broadcast error: %s", bc_err)
 
-                # -- Update session history --
-                self._session_history.append({"role": "user", "content": transcript})
-                self._session_history.append({"role": "assistant", "content": display_text})
+                # Lịch sử được tầng LLM ghi vào memory_manager (phiên MIC_SESSION_ID).
                 self._session_last_turn_ts = time.monotonic()
-
-                # Keep history bounded to SESSION_MAX_TURNS * 2 messages
-                max_history_msgs = SESSION_MAX_TURNS * 2
-                if len(self._session_history) > max_history_msgs:
-                    self._session_history = self._session_history[-max_history_msgs:]
 
                 turn_idx += 1
 
@@ -463,7 +457,7 @@ class VoiceController:
                     logger.info("VoiceController: User said closing phrase in active listening: '%s'", next_transcript)
                     self._send_widget({"cmd": "text", "content": "👋  Tạm biệt anh!"})
                     self._play_cached_phrase_instant(SLEEP_PHRASE)
-                    self._session_history = []
+                    self._clear_history()
                     time.sleep(0.5)
                     break
 
@@ -618,167 +612,70 @@ class VoiceController:
     # LLM + TTS Streaming Pipeline (Phase 23)
     # ------------------------------------------------------------------
 
+    def _clear_history(self) -> None:
+        try:
+            from core.memory_manager import memory_manager
+            memory_manager.clear_history(MIC_SESSION_ID)
+        except Exception as exc:  # pragma: no cover
+            logger.debug("VoiceController: clear history error: %s", exc)
+
     def _stream_response_and_play(self, text: str) -> str:
         """
-        Phase 23/45: Ultra-Low Latency Sentence-Streaming TTS Pipeline.
+        Một lượt nói của mic máy chủ: core.voice_turn.process_voice_turn (dùng
+        chung mọi kênh) chạy trên event loop riêng của luồng mic; ở đây chỉ còn
+        phần riêng: cập nhật widget, phát loa cục bộ, câu chờ sau 18s.
 
-        Phase 45 Improvements:
-          - asyncio.Queue(maxsize=3) as lookahead buffer keeps producer 1-3 sentences ahead.
-          - Keep-alive watchdog reduced from 8s to 5s.
-          - TTFB and per-sentence TTS latency logged for telemetry.
-          - contextual filler fires for ALL tool calls (not just delegate_to_specialist).
-
-        Flow:
-          1. Open streaming connection to 9router via stream_voice_response().
-          2. For each complete sentence yielded by the LLM:
-             a. Synthesise TTS bytes immediately in the Producer coroutine.
-             b. Put bytes into asyncio.Queue(maxsize=3) — backpressure if Consumer is slow.
-          3. Consumer plays sentences sequentially; TTS for sentence N+1 is already ready.
-
-        Returns:
-            The full concatenated response text (for history logging).
+        Returns: toàn bộ câu đã đọc (để log / hiển thị).
         """
-        from core.llm_engine import llm_engine
+        from core.voice_turn import VoiceSink, process_voice_turn
 
-        full_response_parts: list = []
-        t_pipeline_start = time.monotonic()
+        controller = self
+        parts: list = []
+        holder: Dict[str, Any] = {}
 
-        def _run_streaming() -> None:
-            """Runs the concurrent Producer-Consumer audio pipeline in a dedicated event loop."""
-            async def _async_stream():
-                from core.llm_engine import llm_engine
+        class _MicSink(VoiceSink):
+            async def on_sentence(self, seq: int, sentence: str, display_text: str, **info: Any) -> None:
+                parts.append(sentence)
+                controller._send_widget({"cmd": "text", "content": f"💬  {sentence[:80]}"})
 
-                audio_queue: asyncio.Queue = asyncio.Queue(maxsize=3)  # Phase 45: bounded for backpressure
-                _SENTINEL = object()  # Signals end of TTS stream
+            async def on_audio(self, seq: int, audio: bytes, spoken: str, kind: str, **info: Any) -> None:
+                if not audio:
+                    return
+                if kind == "filler":
+                    controller._send_widget({"cmd": "text", "content": f"⏳  {spoken}"})
+                else:
+                    controller._send_widget({"cmd": "text", "content": "🔊  Đang phát âm..."})
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, controller._play_audio_bytes, audio)
 
-                # --- Task 1: TTS Producer (streams LLM & pre-synthesises TTS in advance) ---
-                first_sentence_event = asyncio.Event()
-                ttfb_logged = False
-
-                async def _tts_producer():
-                    nonlocal ttfb_logged
-                    sentence_idx = 0
-                    try:
-                        async for sentence in llm_engine.stream_voice_response(
-                            query=text,
-                            history=list(self._session_history),
-                        ):
-                            if not sentence.strip():
-                                continue
-
-                            full_response_parts.append(sentence)
-                            sentence_idx += 1
-
-                            if not ttfb_logged:
-                                ttfb = time.monotonic() - t_pipeline_start
-                                logger.info(
-                                    "VoiceController: [Phase45] TTFB %.2fs (first LLM sentence)",
-                                    ttfb,
-                                )
-                                ttfb_logged = True
-                            first_sentence_event.set()  # Cancels need for keep-alive alert
-                            logger.info(
-                                "VoiceController: [Stream Pipeline] Sentence %d received: '%s'",
-                                sentence_idx, sentence[:60],
-                            )
-
-                            # Update widget with sentence preview
-                            self._send_widget({
-                                "cmd": "text",
-                                "content": f"💬  {sentence[:80]}"
-                            })
-
-                            # Phase 45: Synthesise TTS BEFORE enqueueing so consumer
-                            # receives ready-to-play bytes with zero additional wait.
-                            try:
-                                t_tts = time.monotonic()
-                                audio_bytes = await get_tts_engine().synthesise(shorten_for_speech(sanitise_for_tts(sentence)))
-                                logger.info(
-                                    "VoiceController: [Phase45] TTS S%d done in %.2fs",
-                                    sentence_idx, time.monotonic() - t_tts,
-                                )
-                                if audio_bytes:
-                                    # put() will block if queue full (3 items) — natural backpressure
-                                    await audio_queue.put((sentence_idx, sentence, audio_bytes))
-                            except Exception as tts_exc:
-                                logger.warning(
-                                    "VoiceController: TTS synthesis error for sentence %d: %s",
-                                    sentence_idx, tts_exc,
-                                )
-                    except Exception as stream_err:
-                        logger.error("VoiceController: LLM stream error: %s", stream_err)
-                    finally:
-                        # Signal completion to consumer
-                        await audio_queue.put(_SENTINEL)
-
-                # --- Task 2: Audio Player Consumer (plays continuously with 0ms gap) ---
-                async def _audio_consumer():
-                    loop = asyncio.get_event_loop()
-                    while True:
-                        item = await audio_queue.get()
-                        if item is _SENTINEL:
-                            audio_queue.task_done()
-                            break
-
-                        s_idx, s_text, a_bytes = item
-                        self._send_widget({"cmd": "text", "content": "🔊  Đang phát âm..."})
-                        try:
-                            # Play audio via fast executor (native afplay on macOS)
-                            await loop.run_in_executor(None, self._play_audio_bytes, a_bytes)
-                        except Exception as play_err:
-                            logger.warning(
-                                "VoiceController: Playback error sentence %d: %s",
-                                s_idx, play_err,
-                            )
-                        finally:
-                            audio_queue.task_done()
-
-                # --- Task 3: Keep-Alive Watchdog (Phase 47: 18s timeout to avoid premature false alarms) ---
-                async def _keep_alive_watchdog():
-                    try:
-                        await asyncio.sleep(18.0)  # Phase 47: increased from 5s to 18s
-                        if not first_sentence_event.is_set():
-                            logger.info("VoiceController: [Phase47 Keep-Alive] >18s no result -> playing buffer phrase...")
-                            self._send_widget({
-                                "cmd": "text",
-                                "content": f"⏳  {KEEP_ALIVE_PHRASE}",
-                            })
-                            from core.audio_cache import get_cached_audio_bytes
-                            ka_bytes = get_cached_audio_bytes(KEEP_ALIVE_PHRASE)
-                            if not ka_bytes:
-                                ka_bytes = await get_tts_engine().synthesise(shorten_for_speech(sanitise_for_tts(KEEP_ALIVE_PHRASE)))
-                            if ka_bytes:
-                                loop = asyncio.get_event_loop()
-                                await loop.run_in_executor(None, self._play_audio_bytes, ka_bytes)
-                    except asyncio.CancelledError:
-                        pass
-                    except Exception as ka_exc:
-                        logger.warning("VoiceController: Keep-alive watchdog error: %s", ka_exc)
-
-                # Run Producer, Consumer, and Watchdog concurrently!
-                watchdog_task = asyncio.create_task(_keep_alive_watchdog())
-                try:
-                    await asyncio.gather(_tts_producer(), _audio_consumer())
-                finally:
-                    watchdog_task.cancel()
-
-                logger.info(
-                    "VoiceController: [Phase45] Pipeline complete in %.2fs, %d sentences.",
-                    time.monotonic() - t_pipeline_start, len(full_response_parts),
+        def _run() -> None:
+            async def _turn() -> None:
+                holder["result"] = await process_voice_turn(
+                    text,
+                    sink=_MicSink(),
+                    session_id=MIC_SESSION_ID,
+                    source_device=None,
+                    pre_ack=False,           # mic đã phát lời đệm ngữ cảnh trước lượt
+                    filler_after_s=18.0,     # Phase 47: câu chờ nếu >18s chưa có câu trả lời
+                    filler_text=lambda _q: KEEP_ALIVE_PHRASE,
                 )
+            try:
+                asyncio.run(_turn())
+            except Exception as exc:
+                logger.error("VoiceController: Streaming pipeline error: %s", exc)
 
-            asyncio.run(_async_stream())
+        t_start = time.monotonic()
+        t = threading.Thread(target=_run, daemon=True, name="mic-voice-turn")
+        t.start()
+        t.join(timeout=60.0)
 
-        try:
-            import threading
-            t = threading.Thread(target=_run_streaming, daemon=True)
-            t.start()
-            # Wait for streaming to complete (max 60s total)
-            t.join(timeout=60.0)
-        except Exception as exc:
-            logger.error("VoiceController: Streaming pipeline error: %s", exc)
-
-        full_response = " ".join(full_response_parts).strip()
+        full_response = " ".join(parts).strip()
+        result = holder.get("result")
+        self._last_display_text = (result.display_text if result else "") or full_response
+        logger.info(
+            "VoiceController: Pipeline complete in %.2fs, %d sentences.",
+            time.monotonic() - t_start, len(parts),
+        )
 
         # Fallback: if streaming produced nothing, use sync method
         if not full_response:
@@ -787,6 +684,7 @@ class VoiceController:
             )
             full_response = self._get_llm_response_with_history_sync(text)
             if full_response:
+                self._last_display_text = full_response
                 self._play_tts_sync(full_response)
 
         return full_response
@@ -798,9 +696,10 @@ class VoiceController:
         """
         from core.llm_engine import llm_engine
         try:
+            from core.memory_manager import memory_manager
             return llm_engine.process_voice_command_sync(
                 text,
-                history=list(self._session_history),
+                history=memory_manager.get_history(MIC_SESSION_ID),
             )
         except Exception as exc:
             logger.error("VoiceController: Sync LLM fallback error: %s", exc)
