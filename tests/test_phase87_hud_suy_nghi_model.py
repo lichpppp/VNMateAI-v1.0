@@ -143,7 +143,14 @@ class _FakeClient:
 
 
 def _install_fake_client(llm_engine, chunks) -> None:
-    """Thay client thật bằng client giả lập, và bỏ qua khởi tạo client."""
+    """Thay client thật bằng client giả lập, và bỏ qua khởi tạo client.
+
+    Đặt tên model cố định: với config mẫu (CI) model là `YOUR_MODEL_NAME_HERE`,
+    provider coi là chưa cấu hình và không gọi client — test sẽ phụ thuộc
+    config.json của máy chạy."""
+    from mateai.config.loader import settings
+    settings.llm.model_name = "test/fake-model"
+    settings.llm.router_models = ["test/fake-model"]
     llm_engine._client = _FakeClient(chunks)  # type: ignore[assignment]
     llm_engine._ensure_shared_client = _noop_ensure  # type: ignore[method-assign]
 

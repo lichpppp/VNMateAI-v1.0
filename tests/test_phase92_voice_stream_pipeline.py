@@ -70,7 +70,12 @@ async def main():
     # 3. Audio Cache & 0ms Retrieval
     section("3. Pre-warmed Acoustic ACK Cache (0ms Retrieval)")
     from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes, check_cached_audio
+    from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
 
+    # Tự làm nóng (máy chủ làm việc này lúc khởi động). Trước đây test chỉ
+    # đọc cache có sẵn trên đĩa nên chỉ qua được trên máy đã từng chạy server.
+    # Câu đã có trong cache thì không tổng hợp lại.
+    await warmup_acoustic_ack_cache()
     for phrase in ACOUSTIC_ACK_PHRASES[:3]:
         cached = get_cached_audio_bytes(phrase)
         check(f"Đã lưu cache cho: '{phrase[:30]}...'", cached is not None and len(cached) > 1000)

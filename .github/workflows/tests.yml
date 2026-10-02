@@ -34,6 +34,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Trang admin (Next.js, xuất tĩnh ra admin/out) — server phục vụ /admin/*
+      # từ đó và test topology (phase88) gọi thật các trang này.
+      - name: Build trang admin
+        working-directory: admin
+        run: |
+          npm ci
+          npm run build
+
       - name: Tạo config.json từ mẫu (không có bí mật)
         shell: bash
         run: test -f config.json || cp config.example.json config.json
