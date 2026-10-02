@@ -228,7 +228,7 @@ def test_agentic_reasoning() -> None:
     llm_engine._call_llm = _fake_call_llm  # type: ignore[method-assign]
 
     import core.plugin_manager as pm
-    import core.plugin_registry as pr
+    import mateai.application.skills.plugin_registry as pr
     import core.memory_manager as mm
 
     pm.plugin_manager.get_all_tools = lambda: []  # type: ignore[assignment]

@@ -154,7 +154,7 @@ def test_webhook_metadata_trust() -> None:
 # ══════════════════════════════════════════════════════════════════════════
 def test_hitl_executor_runs_once() -> None:
     section("── Executor HITL: chỉ chạy side-effect MỘT lần ──")
-    from core.plugin_registry import plugin_registry
+    from mateai.application.skills.plugin_registry import plugin_registry
 
     calls: list[dict] = []
 
@@ -327,7 +327,7 @@ def test_every_hitl_call_site_awaits() -> None:
     section("── Mọi call site execute_with_hitl đều phải await ──")
     targets = [
         "core/server.py",
-        "core/plugin_registry.py",
+        "src/mateai/application/skills/plugin_registry.py",
         "core/skills/integration_tools.py",
     ]
     for rel in targets:
@@ -674,7 +674,7 @@ def test_connector_config_status_is_honest() -> None:
 
 def test_result_normalisation() -> None:
     section("── Kết quả tool: không tự mâu thuẫn ──")
-    from core.plugin_registry import plugin_registry
+    from mateai.application.skills.plugin_registry import plugin_registry
 
     async def health_like(**_kw):
         return {
@@ -719,7 +719,7 @@ def test_result_normalisation() -> None:
 
 def test_summarise_failure() -> None:
     section("── Tóm tắt lỗi: không bịa, không bỏ sót ──")
-    from core.plugin_registry import _summarize_failure as s
+    from mateai.application.skills.plugin_registry import _summarize_failure as s
 
     check("lỗi trực tiếp", s({"error": "boom"}) == "boom")
     check("lồng 2 tầng kèm đường dẫn",
@@ -785,7 +785,7 @@ def test_worker_manager() -> None:
 def test_connector_tools_registered() -> None:
     section("── Cầu nối connector -> Plugin Registry ──")
     from core.connectors.tool_bridge import register_connector_tools
-    from core.plugin_registry import plugin_registry
+    from mateai.application.skills.plugin_registry import plugin_registry
 
     stats = register_connector_tools()
     check("đăng ký được tool qua cầu nối", stats.get("registered", 0) >= 10, str(stats))

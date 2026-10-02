@@ -605,3 +605,17 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 - `test_phase68`, `test_phase80` (quét model chết / khoá trong mã) cập nhật đường dẫn và quét thêm `llm_provider.py`.
 
 **Test:** 269 pass. **Runtime:** khởi động không lỗi import, `/readyz` ok; log do `mateai.infrastructure.llm.llm_provider` / `mateai.application.agent.llm_engine` ghi (code ở vị trí mới đang chạy). Lúc kiểm tra 9Router timeout/400 với mọi model → trợ lý trả câu báo quá tải (đúng hành vi, đã ghi vào owner-todo). Voice fast path: chữ đầu 261 ms, audio đầu 1,7 s.
+
+## 30. Phase 4 — Skills (phần nội bộ) vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+| Từ | Đến |
+|---|---|
+| `core/plugin_registry.py` (chính sách thực thi: timeout, breaker, HITL) | `mateai/application/skills/plugin_registry.py` |
+| `core/dynamic_skill_router.py` (lọc tool theo domain) | `mateai/application/skills/skill_router.py` |
+
+**Ngoại lệ có chủ đích — `core.plugin_manager` GIỮ NGUYÊN chỗ:** đây là API plugin công khai. 21 file trong `skills/`, mẫu `skills/custom_skills.py`, skill do AI sinh (`skills/auto_*.py` — trên máy người dùng, không nằm trong git) và prompt sinh mã của MetaArchitect đều viết `from core.plugin_manager import export_skill`. Chuyển đi sẽ làm hỏng skill của người dùng ở các bản cài khác mà ta không sửa được. Đổi đường dẫn này cần một đợt riêng có thông báo cho người viết skill.
+
+**Đã xoá (bản song song, chỉ test dùng):** `application/skills/skill_resolver.py`, `application/skills/tool_executor.py`, `domain/skills/registry.py`, `tests/unit/test_skills_taxonomy.py`. Giữ `domain/skills/entities.py` (mô hình domain, `domain/__init__` export).
+**Test:** 266 pass. **Runtime:** khởi động không lỗi import, log "Computer-Use Plugin registered (1 tool)" (đăng ký qua registry ở vị trí mới), `/readyz` ok, skill `get_system_info` chạy, `/computer-use/status` success.

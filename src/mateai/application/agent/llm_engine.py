@@ -670,7 +670,7 @@ class LLMEngine:
         # circuit breaker + cổng HITL theo risk_level (run_tool_with_policy).
         _registry_names: set = set()
         try:
-            from core.plugin_registry import plugin_registry as _plugin_registry
+            from mateai.application.skills.plugin_registry import plugin_registry as _plugin_registry
             _registry_names = set(_plugin_registry.get_tool_names())
         except Exception as reg_err:  # pylint: disable=broad-except
             # Registry hỏng KHÔNG được làm sập toàn bộ hội thoại.
@@ -1273,7 +1273,7 @@ class LLMEngine:
         else:
             # BỘ NÃO 3: Vận hành hệ thống — Phase 8: Dynamic Skill Loading (Chỉ nạp top 5 công cụ liên quan nhất)
             role = "ops"
-            from core.dynamic_skill_router import dynamic_skill_router
+            from mateai.application.skills.skill_router import dynamic_skill_router
             raw_tools = dynamic_skill_router.get_tools_for_query(query, max_tools=5)
             tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
 

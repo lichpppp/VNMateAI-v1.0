@@ -112,13 +112,13 @@ async def run_tool_with_policy(
         _plugin_registry = None
         if registry_names is None:
             try:
-                from core.plugin_registry import plugin_registry as _plugin_registry
+                from mateai.application.skills.plugin_registry import plugin_registry as _plugin_registry
                 registry_names = set(_plugin_registry.get_tool_names())
             except Exception:
                 registry_names = set()
         if registry_names and fn_name in registry_names:
             if _plugin_registry is None:
-                from core.plugin_registry import plugin_registry as _plugin_registry
+                from mateai.application.skills.plugin_registry import plugin_registry as _plugin_registry
             logger.info("[Phase60] Thực thi tool Plugin Registry: '%s'", fn_name)
             _result = await _plugin_registry.execute_tool(fn_name, fn_args, caller_id=caller)
             if _result.get("awaiting_approval"):

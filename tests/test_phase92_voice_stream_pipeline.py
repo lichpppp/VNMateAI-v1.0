@@ -97,7 +97,7 @@ async def main():
 
     # 5. Tool Pruning (Phase 8: DynamicSkillRouter)
     section("5. Tool Pruning Optimization (DynamicSkillRouter)")
-    from core.dynamic_skill_router import dynamic_skill_router
+    from mateai.application.skills.skill_router import dynamic_skill_router
 
     casual_tools = dynamic_skill_router.get_tools_for_query("Chào bạn nhé, hôm nay bạn khỏe không?")
     check("Giao tiếp thông thường không nạp tool (0 token overhead)", len(casual_tools) == 0, f"Tools: {len(casual_tools)}")

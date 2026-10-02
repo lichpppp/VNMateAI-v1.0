@@ -88,7 +88,7 @@ def register_connector_tools(registry=None) -> Dict[str, int]:
     test khẳng định được, thay vì phải đếm tay trên HTTP response.
     """
     try:
-        from core.plugin_registry import plugin_registry as _default
+        from mateai.application.skills.plugin_registry import plugin_registry as _default
     except Exception as exc:  # pragma: no cover
         logger.error("[Phase60] Không import được plugin_registry: %s", exc)
         return {"registered": 0, "skipped": 0}

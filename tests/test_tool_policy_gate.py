@@ -28,7 +28,7 @@ def gate(monkeypatch):
     import core.zero_trust as zt
     import core.security_guard as sg
     import core.plugin_manager as pm
-    import core.plugin_registry as pr
+    import mateai.application.skills.plugin_registry as pr
 
     monkeypatch.setattr(zt, "evaluate_action_risk", lambda name, args=None: state["risk"])
 

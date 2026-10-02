@@ -204,7 +204,7 @@ class PluginManager:
 
         # Phase 8: Dynamic Skill Loading — cập nhật chỉ mục bộ định tuyến kỹ năng động
         try:
-            from core.dynamic_skill_router import dynamic_skill_router
+            from mateai.application.skills.skill_router import dynamic_skill_router
             dynamic_skill_router.rebuild_index()
         except Exception as _idx_err:
             logger.debug("[PluginManager] Không thể cập nhật chỉ mục dynamic_skill_router: %s", _idx_err)
@@ -252,7 +252,7 @@ class PluginManager:
         Đàm thoại thông thường -> 0 tools; Tác vụ kỹ thuật -> top 3-5 tools phù hợp nhất.
         """
         self._ensure_loaded()
-        from core.dynamic_skill_router import dynamic_skill_router
+        from mateai.application.skills.skill_router import dynamic_skill_router
         return dynamic_skill_router.get_tools_for_query(query, max_tools=max_tools, domain_hint=domain_hint)
 
     def get_tools_by_domain(self, domain: str) -> List[Dict[str, Any]]:
@@ -260,7 +260,7 @@ class PluginManager:
         Phase 8: Trả về danh sách schema công cụ theo miền nghiệp vụ cụ thể.
         """
         self._ensure_loaded()
-        from core.dynamic_skill_router import dynamic_skill_router
+        from mateai.application.skills.skill_router import dynamic_skill_router
         return dynamic_skill_router.get_tools_by_domain(domain)
 
     def get_domain_stats(self) -> Dict[str, int]:
@@ -268,7 +268,7 @@ class PluginManager:
         Phase 8: Thống kê số lượng kỹ năng theo từng miền nghiệp vụ.
         """
         self._ensure_loaded()
-        from core.dynamic_skill_router import dynamic_skill_router
+        from mateai.application.skills.skill_router import dynamic_skill_router
         return dynamic_skill_router.get_domain_stats()
 
     async def execute_skill(

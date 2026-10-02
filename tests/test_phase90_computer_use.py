@@ -33,7 +33,7 @@ from core.plugins.computer_use_plugin import (
     evaluate_task_risk,
     register_computer_use_tool,
 )
-from core.plugin_registry import plugin_registry
+from mateai.application.skills.plugin_registry import plugin_registry
 
 
 class TestPhase90ComputerUse(unittest.TestCase):

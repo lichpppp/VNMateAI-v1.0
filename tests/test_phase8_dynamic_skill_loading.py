@@ -22,7 +22,7 @@ from typing import Any, Dict, List
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.dynamic_skill_router import dynamic_skill_router, SkillDomain
+from mateai.application.skills.skill_router import dynamic_skill_router, SkillDomain
 from core.plugin_manager import plugin_manager
 
 

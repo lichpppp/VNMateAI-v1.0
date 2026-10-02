@@ -8455,7 +8455,7 @@ async def api_plugin_registry_stats(
 ) -> Dict[str, Any]:
     """Số tool đã đăng ký, số tool đang bật, và thống kê thực thi theo tool."""
     try:
-        from core.plugin_registry import plugin_registry
+        from mateai.application.skills.plugin_registry import plugin_registry
 
         with plugin_registry._lock:  # đọc snapshot nhất quán
             tools = {

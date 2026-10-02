@@ -23,7 +23,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional
 
-from core.plugin_registry import plugin_registry
+from mateai.application.skills.plugin_registry import plugin_registry
 from core.schemas.computer_use_schema import GUITaskRequest
 from core.zero_trust import hitl_manager
 
