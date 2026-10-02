@@ -289,12 +289,22 @@ check("có danh sách route để quét", len(get_routes) > 20, f"chỉ {len(get
 # Nên kiểm điều duy nhất thực sự quan trọng: KHÔNG route nào trả giá trị thật
 # của bí mật trong config.json. Cách đúng là gọi thật từng route (xem khối
 # "quét lúc chạy" ở dưới).
+# Route nằm ở server.py hoặc đã tách sang interfaces/http/routers/*.py.
+_HTTP_SOURCES = [SRC] + [
+    _p.read_text(encoding="utf-8")
+    for _p in sorted((ROOT / "src" / "mateai" / "interfaces" / "http" / "routers").glob("*.py"))
+]
+
+
 def _route_block(path: str) -> str:
-    m = re.search(
-        rf'@app\.get\(\s*"{re.escape(path)}"[\s\S]*?(?=@app\.(?:get|post|put|delete)\()',
-        SRC,
-    )
-    return m.group(0) if m else ""
+    for _src in _HTTP_SOURCES:
+        m = re.search(
+            rf'@(?:app|router)\.get\(\s*"{re.escape(path)}"[\s\S]*?(?=@(?:app|router)\.(?:get|post|put|delete)\(|\Z)',
+            _src,
+        )
+        if m:
+            return m.group(0)
+    return ""
 
 
 # Route biết là chỉ trả một phần không nhạy cảm — ghi rõ lý do để người đọc
