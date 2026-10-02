@@ -26,7 +26,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 from mateai.infrastructure.connectors import (
     aws_connector,
     oci_connector,

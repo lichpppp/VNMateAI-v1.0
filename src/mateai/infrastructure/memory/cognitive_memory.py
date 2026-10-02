@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Base paths
 # Thư mục gốc dự án (đúng cả bản đóng gói) — KHÔNG suy từ vị trí file mã nguồn:
 # chuyển module mà đường dẫn lệch là máy chủ mở một CSDL rỗng mới.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 DEFAULT_LOCAL_PATH = PROJECT_ROOT / "storage" / "vector_db"
@@ -117,7 +117,7 @@ class FastSemanticEmbeddingFunction(EmbeddingFunction[Documents]):
 def _get_config_dict() -> dict:
     """Tải cấu hình memory_db từ config_loader hoặc trực tiếp từ config.json."""
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         mem_cfg = getattr(settings, "memory_db", None)
         if mem_cfg:
             if hasattr(mem_cfg, "model_dump"):
@@ -129,7 +129,7 @@ def _get_config_dict() -> dict:
     except Exception:
         pass
 
-    from core.config_loader import read_raw_config
+    from mateai.config.loader import read_raw_config
     data = read_raw_config()
     if "memory_db" in data:
         return data

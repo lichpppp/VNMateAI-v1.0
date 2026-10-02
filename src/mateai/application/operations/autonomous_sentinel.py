@@ -31,14 +31,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 import psutil
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
 logger = logging.getLogger("mateai.application.operations.autonomous_sentinel")
 
 # Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
 # không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _DB_PATH = Path(os.environ.get("VNMATEAI_HR_DB_PATH") or _PROJECT_ROOT / "hr_kpi.db")
 
@@ -106,7 +106,7 @@ class AutonomousSentinel:
         """Check for Active Directory sync staleness or sync errors in local DB."""
         # Nếu tính năng Đồng Bộ AD đang TẮT, bỏ qua hoàn toàn để không ghi log cảnh báo
         try:
-            from core.config_loader import get_config_section
+            from mateai.config.loader import get_config_section
             if not get_config_section("ad_sync").get("enabled", False):
                 return None
         except Exception:

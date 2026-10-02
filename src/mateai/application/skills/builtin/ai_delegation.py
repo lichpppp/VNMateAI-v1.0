@@ -58,7 +58,7 @@ def _get_llm_config() -> Dict[str, Any]:
     chuỗi dự phòng.
     """
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1")
         api_key = getattr(settings.llm, "api_key", "sk-dummy")
         specialist_model = (

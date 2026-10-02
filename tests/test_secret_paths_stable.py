@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def test_jwt_secret_and_tls_paths_are_under_project_certs():
-    from core.config_loader import settings
+    from mateai.config.loader import settings
     import mateai.application.security.auth_manager as am
     import mateai.infrastructure.security.tls as tls
     certs = Path(settings.PROJECT_ROOT) / "certs"

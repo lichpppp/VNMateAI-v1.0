@@ -180,7 +180,7 @@ logger = logging.getLogger("mateai.infrastructure.database.erp_database")
 
 # Thư mục gốc dự án (đúng cả bản đóng gói) — KHÔNG suy từ vị trí file mã nguồn:
 # chuyển module mà đường dẫn lệch là máy chủ mở một CSDL rỗng mới.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 DB_PATH = Path(os.environ.get("VNMATEAI_DB_PATH") or _PROJECT_ROOT / "vnmateai.db")

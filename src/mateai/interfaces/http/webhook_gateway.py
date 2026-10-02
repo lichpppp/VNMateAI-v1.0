@@ -32,7 +32,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 from mateai.application.skills.builtin.proactive_manager import proactive_manager
 from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 from mateai.application.security.zero_trust import log_security_audit
@@ -436,7 +436,7 @@ async def receive_webhook(
         # ký = ai cũng đẩy được nội dung tuỳ ý vào nhóm Telegram admin và HUD.
         # Chỉ nhận khi admin bật tường minh `security.allow_unsigned_webhooks`
         # (giai đoạn cài đặt ban đầu).
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         if not get_config_section("security").get("allow_unsigned_webhooks", False):
             logger.warning("[WebhookGateway] Từ chối webhook '%s' không chữ ký (chưa cấu hình secret).", source)
             raise HTTPException(

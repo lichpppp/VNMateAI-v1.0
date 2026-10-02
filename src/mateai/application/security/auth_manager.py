@@ -33,7 +33,7 @@ JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 giờ
 
 # Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 JWT_SECRET_FILE = Path(_settings.PROJECT_ROOT) / "certs" / "jwt_secret.key"
 

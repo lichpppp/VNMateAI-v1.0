@@ -1,7 +1,7 @@
 """
 tests/test_config_single_access.py
 ==================================
-config.json chỉ được đọc/ghi qua core.config_loader.
+config.json chỉ được đọc/ghi qua mateai.config.loader.
 
 Trước đây 14 chỗ tự mở file: ghi không nguyên tử (mất điện giữa chừng = file cụt =
 server không khởi động được: SystemExit), đọc-sửa-ghi không khoá (hai request
@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import core.config_loader as cl  # noqa: E402
+import mateai.config.loader as cl  # noqa: E402
 
 
 @pytest.fixture

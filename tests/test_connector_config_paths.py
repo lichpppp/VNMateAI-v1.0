@@ -13,13 +13,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.config_loader import settings  # noqa: E402
+from mateai.config.loader import settings  # noqa: E402
 
 
 def test_connector_block_read_fresh_through_config_loader(monkeypatch):
     import mateai.infrastructure.connectors.base_connector as bc
     blocks = {"paperless": {"base_url": "http://a"}}
-    monkeypatch.setattr("core.config_loader.get_config_section", lambda name: blocks.get(name, {}))
+    monkeypatch.setattr("mateai.config.loader.get_config_section", lambda name: blocks.get(name, {}))
     assert bc._read_config_json_block("paperless") == {"base_url": "http://a"}
     blocks["paperless"] = {"base_url": "http://b"}
     assert bc._read_config_json_block("paperless") == {"base_url": "http://b"}, "phải đọc mới, không cache"

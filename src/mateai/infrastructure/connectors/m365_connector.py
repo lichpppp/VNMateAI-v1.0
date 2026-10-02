@@ -16,7 +16,7 @@ import time
 from typing import Any, Dict, List, Optional
 import httpx
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 
 logger = logging.getLogger("mateai.infrastructure.connectors.m365")
 

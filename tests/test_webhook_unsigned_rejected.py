@@ -29,7 +29,7 @@ def _client(monkeypatch, allow: bool):
 
     monkeypatch.setattr(wg.AlertProcessor, "dispatch", fake_dispatch)
     monkeypatch.delenv("VNMATE_WEBHOOK_CUSTOM_SECRET", raising=False)
-    monkeypatch.setattr("core.config_loader.get_config_section",
+    monkeypatch.setattr("mateai.config.loader.get_config_section",
                         lambda name: {"allow_unsigned_webhooks": allow} if name == "security" else {})
     app = FastAPI()
     app.include_router(wg.router)

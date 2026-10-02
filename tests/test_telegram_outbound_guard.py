@@ -35,7 +35,7 @@ def no_network(monkeypatch):
 
 
 def _cfg(monkeypatch, enabled, token):
-    monkeypatch.setattr("core.config_loader.get_config_section",
+    monkeypatch.setattr("mateai.config.loader.get_config_section",
                         lambda name: {"enabled": enabled, "bot_token": token} if name == "telegram" else {})
     monkeypatch.setattr(telegram_gateway, "_get_config", lambda: SimpleNamespace(
         bot_token=token, admin_chat_ids=["111"], incident_group_id=""))

@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.config_loader import settings  # noqa: E402
+from mateai.config.loader import settings  # noqa: E402
 
 CASES = [
     ("mateai.infrastructure.tts.audio_cache", "PROJECT_ROOT"),
@@ -46,7 +46,7 @@ def test_no_module_derives_root_from_its_own_location():
     offenders = []
     for base in ("core", "src/mateai"):
         for p in Path(base).rglob("*.py"):
-            if p.name == "config_loader.py":
+            if p.as_posix().endswith("mateai/config/loader.py"):
                 continue  # nơi định nghĩa PROJECT_ROOT
             text = p.read_text(encoding="utf-8")
             # Chỉ bắt dạng ĐI LÊN thư mục gốc; file cùng thư mục (Path(__file__).parent / "x")

@@ -194,7 +194,7 @@ if proc is not None:
 # ──────────────────────────────────────────────────────────────────────
 section("Cấu hình từ chối ASR_BACKEND='mock'")
 
-from core.config_loader import AppSettings  # noqa: E402
+from mateai.config.loader import AppSettings  # noqa: E402
 
 validate = AppSettings._validate_asr_backend
 for raw in ("mock", "MOCK", "  Mock  "):

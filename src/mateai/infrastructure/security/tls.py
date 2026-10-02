@@ -23,7 +23,7 @@ from typing import Tuple
 logger = logging.getLogger("mateai.infrastructure.security.tls")
 
 # Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 CERTS_DIR = _PROJECT_ROOT / "certs"

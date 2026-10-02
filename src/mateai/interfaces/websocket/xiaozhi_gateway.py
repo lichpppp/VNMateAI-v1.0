@@ -46,7 +46,7 @@ from mateai.infrastructure.tts.audio_cache import check_cached_audio, get_cached
 from mateai.infrastructure.audio.audio_processor import audio_engine
 from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
 from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
-from core.config_loader import settings
+from mateai.config.loader import settings
 
 logger = logging.getLogger("mateai.interfaces.websocket.xiaozhi_gateway")
 
@@ -160,7 +160,7 @@ class PairingCodeRegistry:
 pairing_registry = PairingCodeRegistry()
 
 # Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 

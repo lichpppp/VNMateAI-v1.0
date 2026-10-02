@@ -109,7 +109,7 @@ check("đọc đúng đại từ người dùng", p.get("user_pronoun") == USER_
       f"{p.get('user_pronoun')} != {USER_PRON}")
 
 section("Cấu hình SỐNG SOI với singleton")
-from core.config_loader import settings  # noqa: E402
+from mateai.config.loader import settings  # noqa: E402
 
 check("singleton KHÔNG có persona (lý do vì sao phải đọc file)",
       getattr(settings, "persona", None) is None,

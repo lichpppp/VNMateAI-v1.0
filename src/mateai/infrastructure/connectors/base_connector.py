@@ -142,13 +142,13 @@ def _coerce_bool(value: Any) -> bool:
 def _read_config_json_block(connector_name: str) -> Dict[str, Any]:
     """
     Khối `<connector_name>` trong config.json ({} nếu không có), đọc qua
-    core.config_loader — cổng duy nhất vào config.json (RULE-013).
+    mateai.config.loader — cổng duy nhất vào config.json (RULE-013).
 
     Đọc khối thô thay vì qua `settings` vì `AppSettings` khai báo `extra="ignore"`:
     khóa lạ (aws/oci/paperless/einvoice) bị pydantic loại khỏi object. Mỗi lần
     đọc là đọc MỚI — không còn cache riêng phải nhớ xoá sau khi lưu cấu hình.
     """
-    from core.config_loader import get_config_section
+    from mateai.config.loader import get_config_section
     return dict(get_config_section(connector_name))
 
 

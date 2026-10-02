@@ -38,7 +38,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 
 logger = logging.getLogger(__name__)
 

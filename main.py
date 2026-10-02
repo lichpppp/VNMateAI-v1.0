@@ -70,7 +70,7 @@ if sys.platform == "win32":
 # ---------------------------------------------------------------------------
 # Local imports (after path fix)
 # ---------------------------------------------------------------------------
-from core.config_loader import settings  # noqa: E402  (path must be set first)
+from mateai.config.loader import settings  # noqa: E402  (path must be set first)
 
 logger = logging.getLogger(__name__)
 

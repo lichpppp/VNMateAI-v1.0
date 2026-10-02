@@ -83,7 +83,7 @@ async def warmup_acoustic_ack_cache() -> None:
     # bằng một thread + event loop riêng — trùng chức năng và dùng nhầm HTTP
     # client của loop chính).
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         ai_name = getattr(settings, "AI_NAME", None) or getattr(settings, "ASSISTANT_NAME", "Ly Ly")
     except Exception:
         ai_name = "Ly Ly"

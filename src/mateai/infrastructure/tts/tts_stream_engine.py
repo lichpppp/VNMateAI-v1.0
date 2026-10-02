@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 def _get_tts_voice() -> str:
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         v = (
             getattr(settings, "TTS_VOICE", None)
             or getattr(settings, "tts_voice", None)
@@ -49,7 +49,7 @@ def _get_tts_voice() -> str:
 
 def _get_tts_rate() -> str:
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         rate = getattr(settings, "TTS_RATE", None) or getattr(settings, "tts_rate", None)
         if rate is not None:
             return f"+{int(rate)}%" if str(rate).lstrip("+-").isdigit() else str(rate)
@@ -172,7 +172,7 @@ _ROUTER_TTS_TIMEOUT_S = 6.0
 async def _synthesise_9router(text: str, voice: str) -> Optional[bytes]:
     """Tổng hợp cả câu qua 9Router (OpenAI-compatible /audio/speech)."""
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         from mateai.infrastructure.http.connection_pool import get_tts_http_client
 
         base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1").rstrip("/")
@@ -295,7 +295,7 @@ class TTSStreamEngine:
     def _load_elevenlabs_config(self) -> Optional[dict]:
         """Đọc ElevenLabs config từ settings nếu người dùng đã cấu hình."""
         try:
-            from core.config_loader import settings
+            from mateai.config.loader import settings
             audio = getattr(settings, "audio", {})
             cfg = audio if isinstance(audio, dict) else {}
             api_key = cfg.get("elevenlabs_api_key") or getattr(settings, "ELEVENLABS_API_KEY", "")

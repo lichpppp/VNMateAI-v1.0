@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 # Base directory for cached audio files
 # Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
 # không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 CACHE_DIR = PROJECT_ROOT / "storage" / "audio_cache"
 INDEX_FILE = CACHE_DIR / "cache_index.json"

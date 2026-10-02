@@ -25,7 +25,7 @@ import httpx
 import openai
 from openai import AsyncOpenAI, APIError, APIConnectionError, APITimeoutError, RateLimitError
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 from mateai.application.voice.speech_text import sanitise_for_tts
 
 # RBAC (Phase 48) áp dụng trong cổng thực thi tool chung:
@@ -127,7 +127,7 @@ def _read_persona() -> Dict[str, Any]:
     connector, với đúng lý do này.
     """
     try:
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         return get_config_section("persona")
     except Exception:  # config hỏng -> dùng mặc định, không làm sập hội thoại
         return {}
@@ -141,7 +141,7 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
     system_content = _AGENT_SYSTEM_PROMPT
 
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         persona = _read_persona()
         ai_name = (
             getattr(settings, "AI_NAME", None)
@@ -156,7 +156,7 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
 
     # Inject custom persona system prompt if provided
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         persona_prompt = (
             getattr(settings, "SYSTEM_PROMPT", "")
             or _read_persona().get("system_prompt", "")
@@ -168,7 +168,7 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
 
     # Phase 50: Inject Core Identity (identity_core.md) into System Prompt
     try:
-        from core.config_loader import settings as _settings
+        from mateai.config.loader import settings as _settings
         # Thư mục gốc dự án (đúng cả khi chạy bản đóng gói) — không dựa vào vị trí file này.
         id_path = _settings.PROJECT_ROOT / "identity_core.md"
         if id_path.is_file():
@@ -211,11 +211,11 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
 
     # Phase 28: Enterprise Reporting & Template Engine injection
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         templates = getattr(settings, "report_templates", {}) or {}
         # Fallback to direct config.json if needed
         if not templates:
-            from core.config_loader import get_config_section
+            from mateai.config.loader import get_config_section
             templates = get_config_section("report_templates")
 
         if templates and isinstance(templates, dict):

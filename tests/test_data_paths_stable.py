@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core.config_loader import settings  # noqa: E402
+from mateai.config.loader import settings  # noqa: E402
 
 
 def test_data_modules_resolve_from_project_root():

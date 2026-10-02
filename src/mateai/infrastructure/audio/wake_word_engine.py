@@ -120,7 +120,7 @@ ENERGY_THRESHOLD: int = 300
 WAKE_COOLDOWN_SEC: float = 2.0
 
 # Thư mục gốc dự án — không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 _PATTERNS_FILE = os.path.join(str(_settings.PROJECT_ROOT), "wake_word_patterns.json")
 
 
@@ -146,7 +146,7 @@ def _load_dynamic_patterns() -> tuple[list[str], list[str]]:
 def _get_initial_mic_state() -> bool:
     """Read default mic state from config (MIC_AUTO_START, default True)."""
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         return bool(getattr(settings, "MIC_AUTO_START", True))
     except Exception:
         return True

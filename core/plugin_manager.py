@@ -31,7 +31,7 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 
 
 def _call_with_com(func: Callable[..., Any], kwargs: Dict[str, Any]) -> Any:

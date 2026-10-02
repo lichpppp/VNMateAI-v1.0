@@ -63,7 +63,7 @@ def send_task_to_client(
             import urllib.request
             import json
             from mateai.application.security.auth_manager import auth_manager
-            from core.config_loader import settings
+            from mateai.config.loader import settings
             token = auth_manager.create_access_token({"sub": "admin", "role": "admin"})
             req = urllib.request.Request(
                 f"http://127.0.0.1:{settings.PORT}/api/v1/tasks/send",

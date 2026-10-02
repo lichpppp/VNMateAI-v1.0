@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 # Base directory for logs
 # Thư mục gốc dự án (đúng cả bản đóng gói) — không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _LOGS_DIR = _PROJECT_ROOT / "logs"

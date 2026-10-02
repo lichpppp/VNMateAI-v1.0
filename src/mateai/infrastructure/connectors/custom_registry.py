@@ -50,7 +50,7 @@ logger = logging.getLogger(__name__)
 #: Thư mục config/ (không commit — chứa credential khách hàng).
 # Thư mục gốc dự án — không suy từ vị trí file mã nguồn (chuyển module mà lệch
 # đường dẫn là mọi nguồn dữ liệu đã cấu hình biến mất).
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 STORE_PATH = _PROJECT_ROOT / "config" / "data_sources.json"

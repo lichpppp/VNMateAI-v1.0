@@ -783,3 +783,14 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **Test:** 268 pass. **Runtime:** 80/80 skill nạp (= số mục registry); 11/11 connector tool; `fs/list` 200; `/enterprise/proactive/run-audit` 200.
 
 **`core/` còn lại:** `config_loader.py`, `plugin_manager.py` (API công khai — giữ), `server.py`, `__init__.py`.
+
+## 42. Phase 4 — Config vào `src/mateai` (2026-10-02)
+
+**STATUS:** XONG
+
+`core/config_loader.py` → `mateai/config/loader.py` (53 file đổi import).
+**Trước khi chuyển:** `config_loader` là nơi tính `PROJECT_ROOT` (`Path(__file__).parent.parent`) — chuyển vào `src/mateai/config/` mà giữ cách tính đó thì gốc thành `src/mateai/` (config.json, CSDL, certs đều lệch). Nay `_resolve_project_root()`: `VNMATEAI_PROJECT_ROOT` → thư mục exe (bản đóng gói) → đi lên tới thư mục có `main.py` + `web/` → thư mục hiện tại. Kiểm chứng trước khi chuyển. Test `test_project_root_resolution.py` (gốc = thư mục repo; biến môi trường ghi đè).
+**Test:** 270 pass.
+**Runtime:** chỉ một `config.json` (ở gốc), không file mặc định mới; dấu vân tay khoá JWT không đổi, JWT cũ hợp lệ; model LLM đọc đúng; ghi cấu hình qua API vào đúng file và hoàn nguyên; Telegram polling chạy; CSDL đúng file (3 user).
+
+**`core/` còn lại:** `plugin_manager.py` (API plugin công khai — giữ có chủ đích), `server.py`.

@@ -1,5 +1,6 @@
 """
 src/mateai/config
 =================
-Cấu hình: hiện vẫn ở core.config_loader (cổng duy nhất vào config.json).
+Cấu hình: mateai.config.loader — cổng duy nhất vào config.json và nguồn duy nhất
+của thư mục gốc dự án (settings.PROJECT_ROOT).
 """

@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mateai.application.agent.llm_engine import llm_engine
-from core.config_loader import settings
+from mateai.config.loader import settings
 
 
 def test_intent_classification():

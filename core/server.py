@@ -80,7 +80,7 @@ from urllib.parse import quote
 
 # Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
 # không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
 _WEB_DIR    = _PROJECT_ROOT / "web"
@@ -127,7 +127,7 @@ async def _broadcast_thinking(state: str, text: str = "", query: str = "") -> No
 def _get_assistant_name() -> str:
     """Retrieve current AI assistant name from settings or config with fallback."""
     try:
-        from core.config_loader import settings
+        from mateai.config.loader import settings
         return getattr(settings, "AI_NAME", None) or getattr(settings, "ASSISTANT_NAME", "Ly Ly")
     except Exception:
         return "Ly Ly"
@@ -1192,7 +1192,7 @@ async def _on_startup() -> None:
     # Phase 18: Start Telegram Gateway in background daemon thread (only if enabled)
     try:
         from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         is_tg_enabled = get_config_section("telegram").get("enabled", False)
         if is_tg_enabled:
             started = telegram_gateway.start()
@@ -1348,7 +1348,7 @@ async def _on_startup() -> None:
     # Phase 57: Start Email Gateway (IMAP listener if configured)
     try:
         from mateai.interfaces.email.email_gateway import email_gateway
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         email_cfg = get_config_section("email_gateway")
         if email_cfg.get("enabled") and email_cfg.get("username"):
             email_gateway.configure(
@@ -1814,7 +1814,7 @@ async def get_audio_nodes_endpoint(current_user: Dict[str, Any] = Depends(get_cu
 async def health_check() -> HealthResponse:
     """Returns server status, loaded skills, model name, and audio config."""
     from core.plugin_manager import plugin_manager
-    from core.config_loader import settings
+    from mateai.config.loader import settings
 
     model_name = getattr(getattr(settings, "llm", None), "model_name", settings.MODEL_NAME)
     return HealthResponse(
@@ -2916,7 +2916,7 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     """
     import time
     from openai import AsyncOpenAI
-    from core.config_loader import settings
+    from mateai.config.loader import settings
 
     cfg_llm = getattr(settings, "llm", None)
     default_base = getattr(cfg_llm, "base_url", "http://localhost:20128/v1") if cfg_llm else "http://localhost:20128/v1"
@@ -3078,7 +3078,7 @@ async def proxy_models_endpoint(
     api_key = payload.api_key
     if not api_key or api_key == _SECRET_MASK:
         try:
-            from core.config_loader import read_raw_config
+            from mateai.config.loader import read_raw_config
             cfg_raw = read_raw_config(strict=True)
             api_key = cfg_raw.get("llm", {}).get("api_key") or cfg_raw.get("API_KEY") or None
         except Exception:
@@ -3355,7 +3355,7 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
     Đảm bảo khối 'llm' và cờ 'auto_execute' luôn có mặt.
     """
     try:
-        from core.config_loader import read_raw_config
+        from mateai.config.loader import read_raw_config
         data = read_raw_config(strict=True)
 
         # Phase 22: Ensure 'llm' block is present
@@ -3410,7 +3410,7 @@ async def _router_model_pool() -> List[str]:
     Bỏ qua mọi thứ không phải model chat: combo do người dùng đặt (tên không
     có dấu "/"), và các loại khác nếu router có trả về.
     """
-    from core.config_loader import settings  # import cục bộ như các hàm khác
+    from mateai.config.loader import settings  # import cục bộ như các hàm khác
     base = (getattr(settings.llm, "base_url", "") if settings else "") or ""
     if not base:
         return []
@@ -3453,7 +3453,7 @@ async def list_available_models(
     dùng bấm vào rồi mới biết là chết — trải nghiệm rất tệ. Nay danh sách lấy
     từ router mỗi lần mở, nên bấm là chạy.
     """
-    from core.config_loader import settings
+    from mateai.config.loader import settings
     models = await _router_model_pool()
     return {
         "models": models,
@@ -3483,7 +3483,7 @@ async def save_config(
     Re-initialises in-memory settings so changes take effect without a restart.
     """
     try:
-        from core.config_loader import read_raw_config, write_raw_config
+        from mateai.config.loader import read_raw_config, write_raw_config
         # strict: config.json hỏng thì báo lỗi, KHÔNG ghi đè bằng bản chỉ có payload.
         existing: Dict[str, Any] = read_raw_config(strict=True)
 
@@ -3581,7 +3581,7 @@ async def save_config(
 
         # Hot-reload in-memory settings
         try:
-            from core.config_loader import reload_settings
+            from mateai.config.loader import reload_settings
             reload_settings()
             # Broadcast updated assistant name to all connected HUD displays in real-time
             updated_ai_name = payload.get("AI_NAME") or payload.get("ASSISTANT_NAME") or payload.get("persona", {}).get("ai_name") or "Ly Ly"
@@ -4269,7 +4269,7 @@ def _authenticate_device(websocket: WebSocket, device_id: str = "esp32-default")
 
         expected = _get_device_enrollment_secret()
         if expected and secrets.compare_digest(token, expected):
-            from core.config_loader import get_config_section
+            from mateai.config.loader import get_config_section
             if get_config_section("security").get("require_per_device_token", False):
                 logger.warning("[Xiaozhi] Từ chối '%s': token dùng chung đã bị tắt "
                                "(security.require_per_device_token).", device_id)
@@ -5347,7 +5347,7 @@ async def sentinel_simulate_endpoint(
 )
 async def get_blacklist(user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
     """Retrieve forbidden keywords from security config."""
-    from core.config_loader import settings
+    from mateai.config.loader import settings
     return {
         "status": "success",
         "forbidden_keywords": getattr(settings.security, "forbidden_keywords", []),
@@ -5366,7 +5366,7 @@ async def update_blacklist(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Add or remove an item from the active security policy (blacklist, confirm_actions, protected_dirs)."""
-    from core.config_loader import settings, CONFIG_PATH, reload_settings
+    from mateai.config.loader import settings, CONFIG_PATH, reload_settings
     from mateai.application.security.safety_guard import security_engine
 
     category = payload.category or "blacklist"
@@ -5432,7 +5432,7 @@ async def inspect_security_sandbox(
     Test and analyze Python code, shell commands, or user queries against Zero-Trust AST & Blacklist rules.
     """
     from mateai.application.security.safety_guard import security_engine
-    from core.config_loader import settings
+    from mateai.config.loader import settings
 
     inspect_type = (payload.type or "code").lower()
     content = payload.content.strip()
@@ -5524,7 +5524,7 @@ async def issue_device_token_endpoint(
 @app.get("/api/v1/security/devices", summary="Danh sách thiết bị có token riêng", tags=["Security"])
 async def list_device_tokens_endpoint(user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
     from mateai.infrastructure.database.db_manager import db_manager
-    from core.config_loader import get_config_section
+    from mateai.config.loader import get_config_section
     return {
         "status": "success",
         "devices": await run_blocking(db_manager.list_device_tokens),
@@ -6265,7 +6265,7 @@ async def get_domain_config(
 ) -> Dict[str, Any]:
     """Return enabled status for Active Directory synchronization."""
     try:
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         enabled = get_config_section("ad_sync").get("enabled", False)
         return {"status": "success", "enabled": enabled}
     except Exception as exc:
@@ -6285,7 +6285,7 @@ async def toggle_domain_sync(
     if current_user.get("role") not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Chỉ Admin hoặc Manager mới có quyền thay đổi trạng thái AD.")
     try:
-        from core.config_loader import update_config_section
+        from mateai.config.loader import update_config_section
         update_config_section("ad_sync", {"enabled": bool(payload.enabled)})
 
         status_text = "ĐÃ BẬT" if payload.enabled else "ĐÃ TẮT"
@@ -6318,7 +6318,7 @@ async def get_telegram_config(
     cũ (xem `_restore_masked_secrets`).
     """
     try:
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         tg_data = get_config_section("telegram")
 
         from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
@@ -6351,7 +6351,7 @@ async def toggle_telegram_gateway(
     if current_user.get("role") not in ("admin",):
         raise HTTPException(status_code=403, detail="Chỉ Admin mới có quyền bật/tắt Telegram Gateway.")
     try:
-        from core.config_loader import update_config_section
+        from mateai.config.loader import update_config_section
 
         enabled = bool(payload.get("enabled", False))
         raw = update_config_section("telegram", {"enabled": enabled})
@@ -6481,7 +6481,7 @@ async def update_telegram_config(
     try:
         import json as _json2
         from pathlib import Path as _Path
-        from core.config_loader import read_raw_config, write_raw_config
+        from mateai.config.loader import read_raw_config, write_raw_config
 
         # Load raw config file (strict: file hỏng thì dừng, không ghi đè bằng bản rỗng)
         raw = read_raw_config(strict=True)
@@ -6518,7 +6518,7 @@ async def update_telegram_config(
 
         # Reload settings in-memory
         try:
-            from core.config_loader import reload_settings
+            from mateai.config.loader import reload_settings
             reload_settings()
         except Exception as r_err:
             logger.warning("Phase 18: Settings reload failed after telegram config write: %s", r_err)
@@ -6665,10 +6665,10 @@ async def get_report_templates(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
     """Retrieve all report templates from settings or config.json."""
-    from core.config_loader import settings
+    from mateai.config.loader import settings
     templates = getattr(settings, "report_templates", {}) or {}
     if not templates:
-        from core.config_loader import _load_raw_config
+        from mateai.config.loader import _load_raw_config
         templates = _load_raw_config().get("report_templates", {})
     return {"status": "success", "templates": templates}
 
@@ -6691,7 +6691,7 @@ async def update_report_templates(
         raise HTTPException(status_code=400, detail="Dữ liệu biểu mẫu không hợp lệ, phải là một JSON object.")
 
     import json as _json2
-    from core.config_loader import CONFIG_PATH, reload_settings
+    from mateai.config.loader import CONFIG_PATH, reload_settings
 
     try:
         raw = _json2.loads(CONFIG_PATH.read_text(encoding="utf-8"))

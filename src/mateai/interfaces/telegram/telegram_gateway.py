@@ -96,7 +96,7 @@ class TelegramBotService:
 
     def _outbound_config(self) -> Optional[Any]:
         """Cấu hình để GỬI tin chủ động — chỉ khi gateway đang BẬT và token đúng dạng."""
-        from core.config_loader import get_config_section
+        from mateai.config.loader import get_config_section
         if not get_config_section("telegram").get("enabled", False):
             return None
         cfg = self._get_config()
@@ -107,7 +107,7 @@ class TelegramBotService:
     def _get_config(self) -> Optional[Any]:
         """Lazily load telegram config from settings, reloading if needed or falling back to config.json."""
         try:
-            from core.config_loader import settings, reload_settings
+            from mateai.config.loader import settings, reload_settings
             try:
                 reload_settings()
             except Exception:
@@ -120,7 +120,7 @@ class TelegramBotService:
 
         # Resilient fallback: read directly from config.json
         try:
-            from core.config_loader import TelegramConfig, get_config_section
+            from mateai.config.loader import TelegramConfig, get_config_section
             tg_data = get_config_section("telegram")
             if tg_data.get("bot_token"):
                 return TelegramConfig(**tg_data)
@@ -585,7 +585,7 @@ class TelegramBotService:
 
         # Check if telegram is enabled in config
         try:
-            from core.config_loader import get_config_section
+            from mateai.config.loader import get_config_section
             if not get_config_section("telegram").get("enabled", False):
                 logger.info("[TelegramGateway] Skipping startup: Telegram Gateway is disabled in config.")
                 return False

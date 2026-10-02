@@ -115,7 +115,7 @@ async def main():
     # 7. Dual-Mode Routing Config Fields
     section("7. Dual-Mode Routing Engine Check")
     from mateai.application.agent.llm_engine import llm_engine
-    from core.config_loader import settings
+    from mateai.config.loader import settings
 
     check("Hỗ trợ routing_mode trong config", hasattr(settings.llm, "routing_mode"))
     check("Hỗ trợ direct_url trong config", hasattr(settings.llm, "direct_url"))

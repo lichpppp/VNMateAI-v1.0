@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Thư mục gốc dự án — một nguồn (settings.PROJECT_ROOT, đúng cả bản đóng gói),
 # không suy từ vị trí file mã nguồn.
-from core.config_loader import settings as _settings  # noqa: E402
+from mateai.config.loader import settings as _settings  # noqa: E402
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _CHROMA_DIR = _PROJECT_ROOT / "storage" / "chroma_db"
 _DOCS_DIR = _PROJECT_ROOT / "storage" / "knowledge_docs"

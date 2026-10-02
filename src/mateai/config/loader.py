@@ -29,11 +29,28 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Resolve project root (works both in dev tree and PyInstaller bundle)
 # ---------------------------------------------------------------------------
-if getattr(sys, "frozen", False):
-    # Running as a PyInstaller bundle
-    _PROJECT_ROOT = Path(sys.executable).parent
-else:
-    _PROJECT_ROOT = Path(__file__).resolve().parent.parent
+def _resolve_project_root() -> Path:
+    """
+    Thư mục gốc dự án — NGUỒN DUY NHẤT (mọi module dùng settings.PROJECT_ROOT).
+
+    1. Biến môi trường VNMATEAI_PROJECT_ROOT (triển khai đặc thù).
+    2. Bản đóng gói PyInstaller: thư mục chứa file thực thi.
+    3. Đi lên từ vị trí file này tới thư mục có `main.py` và `web/` — không phụ
+       thuộc file này nằm sâu bao nhiêu cấp (core/ hay src/mateai/config/).
+    4. Thư mục làm việc hiện tại.
+    """
+    env = os.environ.get("VNMATEAI_PROJECT_ROOT", "").strip()
+    if env:
+        return Path(env).resolve()
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "main.py").is_file() and (parent / "web").is_dir():
+            return parent
+    return Path.cwd()
+
+
+_PROJECT_ROOT = _resolve_project_root()
 
 CONFIG_PATH: Path = _PROJECT_ROOT / "config.json"
 

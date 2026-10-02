@@ -599,7 +599,7 @@ for marker in ("YOUR_9ROUTER_KEY_HERE", "YOUR_GROQ_API_KEY_HERE", "YOUR_TELEGRAM
 # core" — đổi khoá phải sửa code. `sk-dummy` là mặc định rõ ràng, được phép.
 hardcoded: list[tuple[str, list[str]]] = []
 for _rel in ("src/mateai/application/agent/llm_engine.py", "src/mateai/infrastructure/llm/llm_provider.py",
-             "core/config_loader.py", "core/server.py",
+             "src/mateai/config/loader.py", "core/server.py",
              "src/mateai/infrastructure/audio/audio_processor.py", "src/mateai/application/skills/meta_architect.py",
              "src/mateai/application/operations/health_monitor.py", "src/mateai/application/skills/builtin/integration_tools.py",
              "src/mateai/application/skills/builtin/ai_delegation.py", "web/app.js", "web/index.html"):

@@ -26,7 +26,7 @@ import textwrap
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 from mateai.application.security.safety_guard import safety_guard
 
 logger = logging.getLogger(__name__)

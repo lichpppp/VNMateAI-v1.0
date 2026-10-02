@@ -24,7 +24,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set
 
-from core.config_loader import settings
+from mateai.config.loader import settings
 
 logger = logging.getLogger(__name__)
 
