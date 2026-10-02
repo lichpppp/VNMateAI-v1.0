@@ -22,6 +22,7 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Union
@@ -45,6 +46,35 @@ class LLMStreamChunk:
     role: str = "assistant"
     reasoning: Optional[str] = None
     ttft_ms: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Sức khoẻ model (dùng chung mọi provider / mọi phiên trong tiến trình)
+# ---------------------------------------------------------------------------
+
+#: Model lỗi / quá hạn bị xếp xuống cuối danh sách trong ngần ấy giây. Trước
+#: Phase 5 mỗi lượt thử lại từ đầu cả danh sách: 6 model hỏng × tới 5s mỗi cái
+#: = chữ đầu tiên sau ~22s (đo 2026-10-01).
+MODEL_COOLDOWN_S = 120.0
+_model_down_until: Dict[str, float] = {}
+
+#: Giá trị mẫu còn sót trong config (vd. YOUR_MODEL_NAME_HERE) — không phải model.
+_PLACEHOLDER_RE = re.compile(r"^YOUR_[A-Z0-9_]*_HERE$", re.IGNORECASE)
+
+
+def _mark_model_failed(model: str, reason: Any) -> None:
+    _model_down_until[model] = time.monotonic() + MODEL_COOLDOWN_S
+    logger.warning("[LLMProvider] Tạm xếp cuối model '%s' trong %.0fs: %s", model, MODEL_COOLDOWN_S, reason)
+
+
+def _mark_model_ok(model: str) -> None:
+    _model_down_until.pop(model, None)
+
+
+def model_health() -> Dict[str, float]:
+    """Model đang bị xếp cuối -> số giây còn lại (cho chẩn đoán)."""
+    now = time.monotonic()
+    return {m: round(t - now, 1) for m, t in _model_down_until.items() if t > now}
 
 
 # ---------------------------------------------------------------------------
@@ -222,12 +252,16 @@ class NineRouterLLMProvider(BaseLLMProvider):
         self.router_models = [m for m in router_models if m]
 
     def _resolve_candidate_models(self, preferred_model: Optional[str] = None) -> List[str]:
-        models = [preferred_model or self.primary_model] if (preferred_model or self.primary_model) else []
-        for rm in self.router_models:
-            clean = str(rm).strip()
-            if clean and clean not in models:
-                models.append(clean)
-        return models
+        """Thứ tự thử: model ưu tiên -> danh sách dự phòng; model vừa hỏng xếp cuối."""
+        ordered: List[str] = []
+        for m in [preferred_model or self.primary_model, *self.router_models]:
+            clean = str(m or "").strip()
+            if clean and clean not in ordered and not _PLACEHOLDER_RE.match(clean):
+                ordered.append(clean)
+        now = time.monotonic()
+        healthy = [m for m in ordered if _model_down_until.get(m, 0.0) <= now]
+        cooling = [m for m in ordered if _model_down_until.get(m, 0.0) > now]
+        return healthy + cooling
 
     async def stream(
         self,
@@ -271,12 +305,16 @@ class NineRouterLLMProvider(BaseLLMProvider):
             except asyncio.TimeoutError:
                 logger.warning("[NineRouter TIMEOUT] Model %s không phản hồi sau 5s → Fast Failover!", model_name)
                 last_err = TimeoutError(f"Model {model_name} timed out after 5s")
+                _mark_model_failed(model_name, "timeout 5s")
                 continue
             except Exception as exc:
                 logger.warning("[NineRouter FALLBACK] Model %s lỗi: %s → Thử model dự phòng...", model_name, exc)
                 last_err = exc
+                _mark_model_failed(model_name, exc)
                 continue
 
+        if stream is not None:
+            _mark_model_ok(used_model)
         if stream is None:
             raise RuntimeError(f"Tất cả model {models} đều không phản hồi streaming: {last_err}")
 
@@ -325,6 +363,10 @@ class NineRouterLLMProvider(BaseLLMProvider):
         **kwargs: Any,
     ) -> Any:
         models = self._resolve_candidate_models(kwargs.get("model"))
+        # timeout / extra_body chỉnh được cho tác vụ dài (vd. chuyên gia phân tích sâu 180s);
+        # mặc định giữ hành vi cũ: 8s, tắt "thinking".
+        timeout_s = float(kwargs.get("timeout", 8.0))
+        extra_body = kwargs.get("extra_body", {"thinking": {"budget_tokens": 0}})
         last_err = None
         for model_name in models:
             kwargs_api: Dict[str, Any] = {
@@ -333,19 +375,29 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 "max_tokens": max_tokens,
                 "temperature": temperature,
                 "stream": False,
-                "extra_body": {"thinking": {"budget_tokens": 0}},
             }
+            if extra_body:
+                kwargs_api["extra_body"] = extra_body
             if tools:
                 kwargs_api["tools"] = tools
                 kwargs_api["tool_choice"] = "auto"
             try:
-                return await asyncio.wait_for(
+                response = await asyncio.wait_for(
                     self.client.chat.completions.create(**kwargs_api),
-                    timeout=8.0,
+                    timeout=timeout_s,
                 )
+                _mark_model_ok(model_name)
+                return response
+            except asyncio.TimeoutError:
+                last_err = TimeoutError(f"Model {model_name} timed out after {timeout_s:.0f}s")
+                _mark_model_failed(model_name, f"timeout {timeout_s:.0f}s")
+                continue
             except Exception as exc:
                 last_err = exc
+                _mark_model_failed(model_name, exc)
                 continue
+        if not models:
+            raise ValueError("Chưa cấu hình model nào cho NineRouterLLMProvider.")
         raise RuntimeError(f"Tất cả model {models} đều thất bại: {last_err}")
 
 

@@ -15,7 +15,9 @@
 | C7 pipeline HUD trong `server.py`, C8 `VoiceSessionStore` (lịch sử) + `voice_controller._session_history` | **ĐÃ THAY** bằng `core/voice_turn.py` + `memory_manager` (Phase 3) |
 | C4 `stream_voice_response` | **ĐẢO HƯỚNG** theo quyết định Phase 3: là bước LLM chung của voice; đường `llm_engine.stream` (provider) mất caller — Phase 5 chuyển `stream_voice_response` lên provider |
 | Thêm: vòng tool 1 bước của portal (`execute_tool_call` và phụ trợ) | **ĐÃ XOÁ** (Phase 3) |
-| A2–A6, C5, C6, C9–C11, D1–D8, E1–E8 | chưa làm |
+| C5 `_call_llm_direct/_call_llm_router`, C6 phần `ai_delegation`, bộ tách câu `_extract_sentences` | **ĐÃ THAY** bằng provider chung / `SentenceBuffer` (Phase 5) |
+| C6 còn lại: `meta_architect`, `analytics_engine` (client đồng bộ) | chưa làm — xem plan §9 |
+| A2–A6, C9–C11, D1–D8, E1–E8 | chưa làm |
 
 ## A. Xóa được ngay khi vào Phase C (không có caller)
 

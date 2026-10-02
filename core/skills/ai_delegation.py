@@ -13,13 +13,11 @@ Cung cấp công cụ 'Hỏi chuyên gia' (delegate_to_specialist):
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
-import openai
-from openai import AsyncOpenAI, OpenAI
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +139,6 @@ async def delegate_to_specialist_async(
     # Phát thông báo reflex tức thì
     trigger_delegation_reflex()
 
-    client = AsyncOpenAI(
-        base_url=base_url,
-        api_key=api_key,
-        timeout=180.0,  # Claude deep analysis might take some time
-        max_retries=1,
-    )
-
     # Xây dựng nội dung yêu cầu gửi Claude
     user_payload_parts = [
         f"### YÊU CẦU PHÂN TÍCH & XỬ LÝ CHUYÊN SÂU:\n{task_description.strip()}"
@@ -164,34 +155,35 @@ async def delegate_to_specialist_async(
         {"role": "user", "content": full_user_content},
     ]
 
-    # Phase 46.3: Auto-fallback across specialist models
-    from core.config_loader import settings
-    models = getattr(settings.llm, "specialist_models", None) or [model]
-    if not isinstance(models, list):
-        models = [models]
+    # Phase 5: thử model + nhớ model hỏng do provider chung đảm nhận
+    # (core.llm_provider). Client tạo trong event loop hiện tại vì
+    # delegate_to_specialist() đồng bộ chạy hàm này trong một loop riêng.
+    from core.llm_provider import NineRouterLLMProvider
+    models = cfg["specialist_models"]
+    client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key,
+        timeout=180.0,  # phân tích chuyên sâu có thể lâu
+        max_retries=1,
+    )
+    provider = NineRouterLLMProvider(client, model, models)
 
     analysis_text = None
     used_model = model
     last_error = None
-
-    for model_name in models:
-        try:
-            resp = await client.chat.completions.create(
-                model=model_name,
-                messages=messages,
-                temperature=0.2,  # Độ chính xác cao cho chẩn đoán mã nguồn / lỗi
-            )
-            analysis_text = resp.choices[0].message.content or ""
-            used_model = model_name
-            break
-        except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
-            logger.warning(f"[LLM FALLBACK] Specialist {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
-            last_error = e
-            continue
-        except Exception as e:
-            logger.error(f"[LLM ERROR] Lỗi không xác định với specialist {model_name}: {e}")
-            last_error = e
-            continue
+    try:
+        resp = await provider.complete(
+            messages=messages,
+            temperature=0.2,  # Độ chính xác cao cho chẩn đoán mã nguồn / lỗi
+            max_tokens=4096,
+            brain_role="specialist",
+            timeout=180.0,
+            extra_body=None,
+        )
+        analysis_text = resp.choices[0].message.content or ""
+        used_model = getattr(resp, "model", None) or model
+    except Exception as e:
+        last_error = e
 
     duration = round(time.monotonic() - t_start, 2)
     if analysis_text is not None:
@@ -277,54 +269,14 @@ def delegate_to_specialist(
                 )
             )
     except Exception as exc:
-        # Fallback using standard sync OpenAI client
-        cfg = _get_llm_config()
-        models = cfg.get("specialist_models") or [cfg["specialist_model"]]
-        if not isinstance(models, list):
-            models = [models]
-        trigger_delegation_reflex()
-        user_content = f"### YÊU CẦU PHÂN TÍCH:\n{task_description}\n\n### NGỮ CẢNH:\n{context_data}"
-
-        ans = None
-        used_model = models[0]
-        sync_client = OpenAI(
-            base_url=cfg["base_url"],
-            api_key=cfg["api_key"],
-            timeout=180.0,
-        )
-        for model_name in models:
-            try:
-                resp = sync_client.chat.completions.create(
-                    model=model_name,
-                    messages=[
-                        {"role": "system", "content": CLAUDE_SPECIALIST_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_content},
-                    ],
-                    temperature=0.2,
-                )
-                ans = resp.choices[0].message.content or ""
-                used_model = model_name
-                break
-            except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
-                logger.warning(f"[LLM FALLBACK] Sync specialist {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
-                continue
-            except Exception as e:
-                logger.error(f"[LLM ERROR] Sync specialist lỗi không xác định với {model_name}: {e}")
-                continue
-
-        if ans is not None:
-            return {
-                "status": "success",
-                "specialist_model": used_model,
-                "analysis": ans,
-                "result": ans,
-            }
-        else:
-            fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
-            return {
-                "status": "error",
-                "specialist_model": "fallback",
-                "error": "ALL_SPECIALIST_MODELS_FAILED",
-                "analysis": fallback_msg,
-                "result": fallback_msg,
-            }
+        # Phase 5: bỏ vòng thử model thứ ba (client đồng bộ) — việc thử model và
+        # nhớ model hỏng đã nằm trong provider chung mà bản async dùng.
+        logger.error("[AIDelegation] Không chạy được ủy quyền chuyên gia: %s", exc)
+        fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
+        return {
+            "status": "error",
+            "specialist_model": "fallback",
+            "error": "ALL_SPECIALIST_MODELS_FAILED",
+            "analysis": fallback_msg,
+            "result": fallback_msg,
+        }

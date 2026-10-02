@@ -1,10 +1,10 @@
 {
   "RULE-011": {
     "core/analytics_engine.py": 2,
-    "core/llm_engine.py": 7,
+    "core/llm_engine.py": 3,
     "core/meta_architect.py": 3,
     "core/server.py": 3,
-    "core/skills/ai_delegation.py": 4
+    "core/skills/ai_delegation.py": 1
   },
   "RULE-012": {
     "skills/ninerouter_skills.py": 1

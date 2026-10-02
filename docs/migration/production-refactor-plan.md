@@ -223,3 +223,31 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 1. Model `ag/gemini-3.6-flash-low` trả về thông báo của nhà cung cấp *"Gemini 3.5 Flash is no longer available…"* như một câu trả lời bình thường — hệ thống đọc to nó. Cần cập nhật model trong cấu hình và phát hiện kiểu phản hồi này.
 2. Sau Phase 3, `core/llm_provider.py` + `LLMEngine.stream/stream_tokens/get_provider` KHÔNG còn caller production (chỉ test). Mọi lời gọi LLM thật dùng client OpenAI thô trong `llm_engine` với vòng fallback riêng. Phase 5: chuyển `stream_voice_response` và `_call_llm*` lên provider (không xoá provider — kiến trúc đích cần nó).
 3. Bộ tách câu thứ ba `LLMEngine._extract_sentences` (Phase 0 bỏ sót) cắt sai số thập phân ("3.5" → "3. 5"); gộp vào `SentenceBuffer`.
+
+## 9. Báo cáo Phase 5 — LLM: một provider, nhớ model hỏng (2026-10-02)
+
+(Làm trước Phase 4 theo đề xuất: model hỏng và provider không ai dùng ảnh hưởng trực tiếp tới chất lượng trả lời.)
+
+**Một implementation:**
+
+| Việc | Trước | Sau |
+|---|---|---|
+| Gọi LLM không stream (vòng agent) | `_call_llm` → `_call_llm_direct` / `_call_llm_router` (vòng thử model riêng) | `_call_llm` → `provider.complete()` |
+| Stream cho voice | `stream_voice_response` tự mở stream + vòng thử model riêng (client OpenAI thô) | `provider.stream()` |
+| Ủy quyền chuyên gia | `ai_delegation`: vòng thử model async + vòng thứ hai bằng client đồng bộ | `NineRouterLLMProvider.complete(timeout=180)`; bỏ vòng đồng bộ |
+| Tách câu cho giọng đọc | `SentenceBuffer` + `LLMEngine._extract_sentences` (regex thô, cắt "3.5" thành "3. 5") | `SentenceBuffer(min_words=8, max_words=30)` — ranh giới an toàn + chính sách nghe tự nhiên chuyển từ `_extract_sentences` |
+| Model đã trả lời (route_info) | `self._last_successful_model` (trạng thái trên singleton) | `response.model` |
+
+Đã xoá: `_call_llm_direct`, `_call_llm_router`, `_extract_sentences`, vòng thử model đồng bộ trong `delegate_to_specialist`.
+
+**Mới trong provider (`core/llm_provider.py`):** model lỗi / quá hạn bị xếp cuối danh sách 120 s (dùng chung mọi phiên); model chạy được thì gỡ khỏi danh sách hỏng; giá trị mẫu `YOUR_*_HERE` bị bỏ qua; mọi model đều "đang hỏng" thì vẫn thử lại hết (không khoá cứng). `complete()` nhận `timeout` và `extra_body` (mặc định giữ 8 s, tắt thinking).
+
+**Đo thật (portal, 9Router, 3 lượt liên tiếp ngay sau khởi động):** chữ đầu tiên 20,5 s → 5,5 s → 3,6 s (trước Phase 5: ~22 s mọi lượt). Lượt 1 phát hiện 4 model timeout; lượt 3 đi thẳng tới model chạy được. Dịch vụ 9Router chập chờn (một model chạy ở lượt 1 rồi timeout ở lượt 2), nên lượt đầu sau khởi động / sau 120 s vẫn có thể chậm.
+
+**Test:** 191 pass / 0 fail. Mới: `test_llm_provider_health.py`, `test_ai_delegation_provider.py`. RULE-011 (client LLM ngoài provider) 19 → 12.
+
+**Còn lại (chưa làm, có lý do):**
+- `meta_architect` (3) và `analytics_engine` (2) tự tạo client OpenAI **đồng bộ** trong hàm đồng bộ được gọi ngay trên event loop — chuyển sang provider async cần quyết định chạy ở thread nào; làm cùng đợt Skills/Tools.
+- `server.py` (3): nút "thử kết nối" kiểm tra endpoint/model/khoá DO NGƯỜI DÙNG NHẬP — cố ý không qua provider đã cấu hình; giữ.
+- `llm_engine` (3): nơi tạo client cho chính provider; đúng vai trò.
+- Chưa phát hiện được phản hồi kiểu "model X is no longer available" mà nhà cung cấp trả như câu trả lời bình thường — cần cập nhật model trong cấu hình.

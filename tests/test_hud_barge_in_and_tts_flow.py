@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core.llm_engine import LLMEngine  # noqa: E402
+from core.audio.sentence_buffer import SentenceBuffer  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -37,15 +37,16 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 
 
 def stream_chunks(text: str) -> list:
-    """Đo đúng như vòng lặp thật: đổ dần từng token vào rồi lấy câu ra."""
-    buf = ""
+    """Đo đúng như vòng lặp thật: đổ dần từng token vào rồi lấy câu ra.
+
+    Phase 5: bộ tách câu của đường voice là SentenceBuffer (cấu hình như trong
+    LLMEngine.stream_voice_response); `LLMEngine._extract_sentences` đã gỡ.
+    """
+    buf = SentenceBuffer(min_chars=1, min_words=8, max_words=30)
     out = []
     for tok in text.split(" "):
-        buf += tok + " "
-        sents, buf = LLMEngine._extract_sentences(buf)
-        out.extend(sents)
-    if buf.strip():
-        out.append(buf.strip())
+        out.extend(buf.add_token(tok + " "))
+    out.extend(buf.flush())
     return out
 
 
@@ -69,7 +70,8 @@ check("'Vâng ạ.' vẫn ra", stream_chunks("Vâng ạ.") == ["Vâng ạ."],
 
 print("\n▸ Rỗng")
 check("chuỗi rỗng -> không mảnh nào", stream_chunks("   ") == [])
-check("hàm trả về ([], '') khi rỗng", LLMEngine._extract_sentences("") == ([], ""))
+_empty = SentenceBuffer(min_chars=1, min_words=8, max_words=30)
+check("rỗng -> không câu nào", _empty.add_token("") == [] and _empty.flush() == [])
 
 
 # ══ 2. Số thập phân KHÔNG được vỡ ═════════════════════════════════════════

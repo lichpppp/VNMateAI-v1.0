@@ -818,150 +818,24 @@ class LLMEngine:
         brain_role: str = "controller",
     ) -> Any:
         """
-        Phase 91 & Phase 94: Tri-Brain Routing Dispatcher.
-        routing_mode:
-          'router' → gọi qua 9router proxy.
-          'direct' → gọi thẳng model, bỏ qua proxy (giảm ~150-300ms latency).
-          'auto'   → thử direct trước, nếu lỗi fallback sang router.
+        Gọi LLM không stream (vòng agent) qua provider chung (core.llm_provider).
+
+        routing_mode: 'router' (9Router, có danh sách dự phòng) | 'direct' (gọi thẳng
+        LM Studio / Ollama / DeepSeek) | 'auto' (direct trước, lỗi thì router).
+        Phase 5: trước đây là _call_llm_direct + _call_llm_router — bản sao của
+        provider.complete() với vòng thử model riêng.
         """
         await self._ensure_shared_client()
         mode = (settings.llm.routing_mode or "router").lower()
-
-        if mode == "direct":
-            return await self._call_llm_direct(messages, tools, brain_role=brain_role)
-        elif mode == "auto":
-            try:
-                return await self._call_llm_direct(messages, tools, brain_role=brain_role)
-            except Exception as direct_err:
-                logger.warning(
-                    "[Phase91] Direct mode failed (%s) — fallback sang router.", direct_err
-                )
-                return await self._call_llm_router(messages, tools, brain_role=brain_role)
-        else:  # "router" (default)
-            return await self._call_llm_router(messages, tools, brain_role=brain_role)
-
-    async def _call_llm_direct(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        brain_role: str = "controller",
-    ) -> Any:
-        """
-        Phase 91 — Direct Mode: Gọi thẳng vào endpoint model (LM Studio / Ollama / vLLM)
-        mà không đi qua 9router proxy. Tiết kiệm 1 hop mạng → giảm latency ~150-300ms.
-        """
-        cfg = settings.llm
-        if not self._direct_client:
+        if mode == "direct" and not self._direct_client:
             raise RuntimeError(
                 "Direct mode được bật nhưng 'direct_url' chưa được cấu hình. "
                 "Vào tab Quản Lý Trợ Lý AI → Bộ Não & Xử Lý Ngôn Ngữ để thiết lập."
             )
-        model_name = (cfg.direct_model or self.get_brain_model(brain_role) or cfg.model_name or "").strip()
-        if not model_name:
-            raise ValueError("direct_model và model_name đều trống. Hãy cấu hình tên model.")
-
-        kwargs: Dict[str, Any] = {
-            "model": model_name,
-            "messages": messages,
-            "max_tokens": 2048,
-            "temperature": 0.2,
-            "stream": False,
-        }
-        if tools:
-            kwargs["tools"] = tools
-            kwargs["tool_choice"] = "auto"
-
-        logger.info("[Phase91/Direct] Gọi thẳng model=%s (role=%s) @ %s", model_name, brain_role, cfg.direct_url)
-        t0 = time.monotonic()
-        try:
-            response = await asyncio.wait_for(
-                self._direct_client.chat.completions.create(**kwargs),
-                timeout=8.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning("[Phase91/Direct] Model %s không phản hồi sau 8s.", model_name)
-            raise TimeoutError(f"Direct model {model_name} timed out after 8s")
-        logger.info(
-            "[Phase91/Direct] Phản hồi nhận trong %.2fs (không qua 9router).",
-            time.monotonic() - t0,
+        provider = self.get_provider(brain_role=brain_role)
+        return await provider.complete(
+            messages=messages, tools=tools, brain_role=brain_role, routing_mode=mode,
         )
-        self._last_successful_model = model_name
-        return response
-
-    async def _call_llm_router(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        brain_role: str = "controller",
-    ) -> Any:
-        """
-        Phase 46.3 & Phase 94: Intelligent Auto-Fallback với Fast-Failover (timeout 8s).
-        Ưu tiên model theo vai trò trong kiến trúc 3 Bộ Não.
-        """
-        client = self._client  # type: ignore[assignment]
-
-        primary_m = (self.get_brain_model(brain_role) or settings.llm.model_name or "").strip()
-        configured_list = getattr(settings.llm, "router_models", []) or []
-        if isinstance(configured_list, str):
-            configured_list = [configured_list.strip()]
-
-        models: List[str] = [primary_m] if primary_m else []
-        for m in configured_list:
-            clean = str(m).strip()
-            if clean and clean not in models:
-                models.append(clean)
-
-        if not models:
-            raise ValueError(
-                "Chưa cấu hình model nào. Mở tab Quản Lý Trợ Lý AI > Bộ Não & "
-                "Xử Lý Ngôn Ngữ và chọn model đang hoạt động."
-            )
-
-        last_error = None
-        for model_name in models:
-            try:
-                kwargs: Dict[str, Any] = {
-                    "model": model_name,
-                    "messages": messages,
-                    "max_tokens": 2048,
-                    "temperature": 0.2,
-                    "stream": False,
-                    "extra_body": {
-                        "thinking": {
-                            "budget_tokens": 0
-                        }
-                    },
-                }
-                if tools:
-                    kwargs["tools"] = tools
-                    kwargs["tool_choice"] = "auto"
-
-                logger.info("[LLMEngine/TriBrain] Đang gọi 9router [role=%s] → model=%s", brain_role, model_name)
-                t0 = time.monotonic()
-                # Fast-failover: timeout 8s để không treo hệ thống
-                response = await asyncio.wait_for(
-                    client.chat.completions.create(**kwargs),
-                    timeout=8.0,
-                )
-                logger.info("[LLMEngine] Phản hồi nhận được từ 9router (%s) trong %.2fs.", model_name, time.monotonic() - t0)
-                self._last_successful_model = model_name
-                return response
-
-            except asyncio.TimeoutError:
-                logger.warning("[LLM TIMEOUT] Model %s không phản hồi sau 8s → Fast Failover sang model kế tiếp!", model_name)
-                last_error = TimeoutError(f"Model {model_name} timed out after 8s")
-                continue
-            except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
-                logger.warning(f"[LLM FALLBACK] Model {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
-                last_error = e
-                continue
-            except Exception as e:
-                logger.error(f"[LLM ERROR] Lỗi không xác định với model {model_name}: {e}")
-                last_error = e
-                continue
-
-        # Chốt chặn cuối cùng: Nếu tất cả model đều thất bại
-        raise RuntimeError(f"Tất cả model {models} đều không phản hồi: {last_error}")
 
     # ------------------------------------------------------------------
     # Public Agentic API
@@ -1319,7 +1193,7 @@ class LLMEngine:
                     tools=tools if tools else None,
                     brain_role=brain_role,
                 )
-                used_model = getattr(self, "_last_successful_model", None) or settings.llm.model_name
+                used_model = getattr(response, "model", None) or settings.llm.model_name
             except Exception as exc:
                 logger.error("[LLMEngine] [CHỐT CHẶN CUỐI CÙNG] Toàn bộ model dự phòng đều thất bại: %s", exc)
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
@@ -1660,9 +1534,6 @@ class LLMEngine:
 
         # Phase 45: Use shared connection pool for streaming (eliminates TLS handshake)
         await self._ensure_shared_client()
-        client = self._client  # type: ignore[assignment]
-        model = settings.llm.model_name
-
         # Phase 94: Phân loại ý định qua Bộ Não Kiểm Soát (Supervisor)
         intent = self.classify_intent(query)
         logger.info("[TriBrain] Intent phân loại: %s (chuyển sang %s brain)", intent["type"], intent["target_brain"])
@@ -1670,99 +1541,27 @@ class LLMEngine:
         if intent["type"] == "conversation":
             # BỘ NÃO 2: Giao tiếp & Thoại — KHÔNG nạp tools, giảm tải 100% schemas!
             tools = None
-            primary_m = (self.get_brain_model("voice") or settings.llm.model_name or "").strip()
+            role = "voice"
         else:
             # BỘ NÃO 3: Vận hành hệ thống — Phase 8: Dynamic Skill Loading (Chỉ nạp top 5 công cụ liên quan nhất)
-            primary_m = (self.get_brain_model("ops") or settings.llm.model_name or "").strip()
+            role = "ops"
             from core.dynamic_skill_router import dynamic_skill_router
             raw_tools = dynamic_skill_router.get_tools_for_query(query, max_tools=5)
             tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
 
-        # Phase 46.3 & 94: Auto-fallback loop cho streaming
-        configured_list = getattr(settings.llm, "router_models", []) or []
-        if isinstance(configured_list, str):
-            configured_list = [configured_list.strip()]
-
-        models: List[str] = [primary_m] if primary_m else []
-        for m in configured_list:
-            clean = str(m).strip()
-            if clean and clean not in models:
-                models.append(clean)
-
-        if not models:
-            raise ValueError(
-                "Chưa cấu hình model nào. Mở tab Quản Lý Trợ Lý AI > Bộ Não & "
-                "Xử Lý Ngôn Ngữ và chọn model đang hoạt động."
-            )
-
-        stream = None
-        used_model = None
+        # Phase 5: mở stream + thử model dự phòng do provider chung đảm nhận
+        # (core.llm_provider — nhớ model hỏng, bỏ qua giá trị mẫu trong cấu hình).
+        # Mọi model đều lỗi -> ngoại lệ ở lần lặp đầu, khối except bên dưới phát
+        # câu xin lỗi như trước.
+        provider = self.get_provider(brain_role=role)
+        routing_mode = (settings.llm.routing_mode or "router").lower()
         t_start = time.monotonic()
         first_token_logged = False
 
-        # Phase 91: Hỗ trợ Direct-Mode streaming nếu được cấu hình
-        mode = (settings.llm.routing_mode or "router").lower()
-        if mode in ("direct", "auto") and self._direct_client:
-            direct_m = (settings.llm.direct_model or primary_m).strip()
-            if direct_m:
-                try:
-                    logger.info("[LLMEngine/Direct] stream_voice_response direct → model=%s @ %s", direct_m, settings.llm.direct_url)
-                    stream = await asyncio.wait_for(
-                        self._direct_client.chat.completions.create(
-                            model=direct_m,
-                            messages=messages,
-                            tools=tools if tools else None,
-                            max_tokens=1024,
-                            temperature=0.7,
-                            stream=True,
-                        ),
-                        timeout=5.0,
-                    )
-                    used_model = direct_m
-                except Exception as direct_err:
-                    logger.warning("[LLMEngine/Direct] Direct streaming lỗi: %s → Thử tiếp router fallback...", direct_err)
-
-        if stream is None:
-            for model_name in models:
-                try:
-                    logger.info("[LLMEngine/TriBrain] stream_voice_response [%s] → model=%s (stream=True)", intent["target_brain"], model_name)
-                    # Fast-failover: timeout 5s để chuyển sang model dự phòng ngay nếu nghẽn
-                    stream = await asyncio.wait_for(
-                        client.chat.completions.create(
-                            model=model_name,
-                            messages=messages,
-                            tools=tools if tools else None,
-                            max_tokens=1024,
-                            temperature=0.7,
-                            stream=True,
-                            extra_body={"thinking": {"budget_tokens": 0}},  # Disable thinking for speed
-                        ),
-                        timeout=5.0,
-                    )
-                    used_model = model_name
-                    break
-                except asyncio.TimeoutError:
-                    logger.warning("[LLM TIMEOUT] Streaming model %s không phản hồi sau 5s → Fast Failover sang model kế tiếp!", model_name)
-                    continue
-                except (openai.RateLimitError, openai.APIError, openai.APIConnectionError) as e:
-                    # Lỗi từ nhà cung cấp (Hết Quota 429, Sập server 503...)
-                    logger.warning(f"[LLM FALLBACK] Streaming model {model_name} thất bại. Lỗi: {e}. Đang thử model dự phòng...")
-                    continue
-                except Exception as e:
-                    # Các lỗi bất ngờ khác
-                    logger.error(f"[LLM ERROR] Streaming lỗi không xác định với model {model_name}: {e}")
-                    continue
-
-        # Chốt chặn cuối cùng nếu tất cả model đều thất bại khi mở stream
-        if stream is None:
-            fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
-            self.last_voice_display_text = fallback_msg
-            turn["display_text"] = fallback_msg
-            yield fallback_msg
-            return
-
-        text_buffer = ""
-        # Toàn bộ chữ gốc của lượt (text_buffer chỉ giữ phần dư sau câu cuối).
+        # Câu để ĐỌC: ranh giới an toàn + gộp câu ngắn / tách câu dài (Phase 5).
+        from core.audio.sentence_buffer import SentenceBuffer
+        speech_buf = SentenceBuffer(min_chars=1, min_words=8, max_words=30)
+        # Toàn bộ chữ gốc của lượt.
         raw_reply = ""
         # Phase 87: gom phần suy nghĩ của model. Router trả nó ở
         # `delta.reasoning` (đôi khi tên `reasoning_content`), tách hẳn khỏi
@@ -1787,30 +1586,23 @@ class LLMEngine:
             turn["reasoning"] = self.last_voice_reasoning
 
         try:
-            async for chunk in stream:
-                if not chunk.choices:
-                    continue
-
-                delta = chunk.choices[0].delta
-
+            async for chunk in provider.stream(
+                messages=messages,
+                tools=tools if tools else None,
+                brain_role=role,
+                routing_mode=routing_mode,
+            ):
                 # Phase 87: nuốt phần suy nghĩ vào bộ đệm riêng. Cố tình KHÔNG
-                # gộp vào `text_buffer`: đó là câu sẽ đọc to và hiện trên HUD.
-                reasoning_buffer += (
-                    getattr(delta, "reasoning", "")
-                    or getattr(delta, "reasoning_content", "")
-                    or ""
-                )
+                # gộp vào chữ trả lời: đó là câu sẽ đọc to và hiện trên HUD.
+                reasoning_buffer += chunk.reasoning or ""
 
                 # Phát hiện tool call → phát câu xác nhận TỨC THÌ + chuyển agentic loop.
                 # ⚡ FAST FEEDBACK: User nghe "Để em kiểm tra..." sau ~1s thay vì
                 # im lặng 15-20s. TTS câu này chạy song song với agentic loop.
-                if getattr(delta, "tool_calls", None):
+                if chunk.tool_calls:
                     has_tool_calls = True
                     _wasted = time.monotonic() - t_start
-                    detected_tools = [
-                        getattr(getattr(tc, "function", None), "name", "") or ""
-                        for tc in delta.tool_calls
-                    ]
+                    detected_tools = [tc.get("name", "") for tc in chunk.tool_calls]
                     logger.info(
                         "[LLMEngine] Phát hiện tool call %s sau %.2fs → phát ack ngay, chuyển sang vòng lặp agentic.",
                         detected_tools, _wasted,
@@ -1829,24 +1621,21 @@ class LLMEngine:
                         has_yielded_any_sentence = True
                     break
 
-                token = getattr(delta, "content", "") or ""
+                token = chunk.content or ""
                 if not token:
                     continue
 
                 if not first_token_logged:
                     logger.info(
                         "[LLMEngine] First token received in %.2fs (%s).",
-                        time.monotonic() - t_start, used_model,
+                        time.monotonic() - t_start, chunk.model,
                     )
                     first_token_logged = True
 
-                text_buffer += token
                 raw_reply += token
                 turn["display_text"] = raw_reply
 
-                # Flush complete sentences
-                sentences, text_buffer = self._extract_sentences(text_buffer)
-                for sentence in sentences:
+                for sentence in speech_buf.add_token(token):
                     clean = sanitise_for_tts(sentence)
                     if clean:
                         has_yielded_any_sentence = True
@@ -1858,7 +1647,7 @@ class LLMEngine:
             # Ngắt an toàn khi kết nối bị đứt giữa chừng lúc đang stream:
             # Nếu chưa yield được câu nào, gửi câu fallback nhẹ nhàng.
             # Nếu đã stream được một phần câu, dừng an toàn mà KHÔNG ném lỗi JSON.
-            if not has_yielded_any_sentence and not text_buffer.strip():
+            if not has_yielded_any_sentence and not raw_reply.strip():
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
                 self.last_voice_display_text = fallback_msg
                 turn["display_text"] = fallback_msg
@@ -1868,13 +1657,14 @@ class LLMEngine:
                 yield fallback_msg
                 return
 
-        # Yield remaining buffer
-        if text_buffer.strip() and not has_tool_calls:
-            clean = sanitise_for_tts(text_buffer)
-            if clean:
-                has_yielded_any_sentence = True
-                _publish_reasoning()
-                yield clean
+        # Xả phần còn lại (câu cuối / câu ngắn đang chờ gộp)
+        if not has_tool_calls:
+            for rest in speech_buf.flush():
+                clean = sanitise_for_tts(rest)
+                if clean:
+                    has_yielded_any_sentence = True
+                    _publish_reasoning()
+                    yield clean
 
         # Save streamed conversation to MemoryManager
         # Trước Phase 3 đoạn này dùng `text_buffer` — chỉ còn phần dư sau câu
@@ -1921,79 +1711,6 @@ class LLMEngine:
                 self.last_voice_display_text = fallback_msg
                 turn["display_text"] = fallback_msg
                 yield fallback_msg
-
-    @staticmethod
-    def _extract_sentences(text: str) -> tuple[list[str], str]:
-        """
-        Tách câu cho TTS — ưu tiên NGHE TỰ NHIÊN hơn phát sớm.
-
-        Vì sao đổi (người dùng phản ánh: "đọc 2 3 chữ một, dẫn tới khó chịu"):
-
-        Bản cũ cắt theo DẤU PHẨY, và chỉ đòi mảnh dài tối thiểu 4 KÝ TỰ.
-        Câu tiếng Việt của LLM thì đầy dấu phẩy, nên một câu bị vỡ thành 3-5
-        mảnh. Mỗi mảnh thành một file mp3 riêng — mỗi file có khoảng lặng riêng
-        ở đầu và cuối — rồi phát nối tiếp nhau. Người nghe nghe rõ tiếng cắt
-        giữa chừng. Đó không phải độ trễ, mà là cách chia câu sai.
-
-        Nay:
-          - CHỈ cắt ở dấu kết câu thật (`. ! ? ;` xuống dòng, gạch dài).
-            Dấu phẩy và dấu hai chấm giữ lại TRONG câu — đó là chỗ thở tự
-            nhiên của giọng đọc, không phải chỗ cắt.
-          - Câu quá ngắn được GỘP với câu kế tiếp cho tới khi đủ từ, vì mảnh
-            2-3 từ nghe cũng ngắt, chỉ ngắt theo kiểu khác.
-          - Câu quá dài bị cắt, nhưng ưu tiên cắt sau dấu phẩy gần nhất để vẫn
-            nghe như lời người, không bị cắt giữa từ.
-        """
-        import re  # giữ đúng quy ước file: import cục bộ, không nâng lên module
-
-        if not text:
-            return [], ""
-
-        # Ngưỡng: dưới ngưỡng thì gộp, trên ngưỡng thì tách.
-        min_words = 8
-        max_words = 30
-
-        # Dấu kết câu THẬT. Dấu phẩy / hai chấm cố ý không nằm ở đây.
-        boundary_pattern = re.compile(r'[^.!?;\n\u2014\u2013]+[.!?;\n\u2014\u2013]')
-
-        raw_parts: list[str] = []
-        remaining = text
-        while True:
-            m = boundary_pattern.search(remaining)
-            if not m:
-                break
-            part = remaining[:m.end()].strip()
-            remaining = remaining[m.end():].lstrip()
-            if part:
-                raw_parts.append(part)
-
-        # Gộp các mảnh quá ngắn, rồi cắt các mảnh quá dài.
-        merged: list[str] = []
-        for part in raw_parts:
-            if merged and len(merged[-1].split()) < min_words:
-                merged[-1] = f"{merged[-1]} {part}"
-            else:
-                merged.append(part)
-
-        sentences: list[str] = []
-        for part in merged:
-            words = part.split()
-            while len(words) > max_words:
-                head = words[:max_words]
-                # Ưu tiên cắt sau dấu phẩy gần nhất trong phần đầu: đó là chỗ
-                # thở tự nhiên. Không có dấu phẩy thì mới cắt theo từ.
-                cut = max((i for i, w in enumerate(head) if w.endswith(',')), default=None)
-                if cut is not None and cut >= min_words // 2:
-                    head = head[: cut + 1]
-                sentences.append(" ".join(head).strip())
-                words = words[len(head):]
-            tail = " ".join(words).strip()
-            if tail:
-                sentences.append(tail)
-
-        return [x for x in sentences if x], remaining
-
-
 
     @staticmethod
     def _enrich_tools_with_target_client(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

@@ -56,10 +56,27 @@ class SentenceBuffer:
     Bảo vệ các cấu trúc số, IP, version, domain không bị xé vụn.
     """
 
-    def __init__(self, min_chars: int = 5, max_buffer_chars: int = 250) -> None:
+    def __init__(
+        self,
+        min_chars: int = 5,
+        max_buffer_chars: int = 250,
+        min_words: int = 0,
+        max_words: int = 0,
+    ) -> None:
+        """
+        min_words / max_words (0 = tắt): chính sách NGHE TỰ NHIÊN cho đường voice,
+        chuyển từ `LLMEngine._extract_sentences` (Phase 5) — người dùng phản ánh
+        "đọc 2-3 chữ một": câu ngắn hơn min_words được GIỮ LẠI gộp với câu sau
+        (không bỏ); câu dài hơn max_words được tách, ưu tiên sau dấu phẩy.
+        Ranh giới câu vẫn là ranh giới AN TOÀN của lớp này (không cắt "3.5", IP,
+        URL…) — bản cũ cắt bằng regex thô nên "3.5" thành "3. 5".
+        """
         self.min_chars = min_chars
         self.max_buffer_chars = max_buffer_chars
+        self.min_words = min_words
+        self.max_words = max_words
         self._buffer: str = ""
+        self._pending: str = ""
 
     def add_token(self, token: str) -> List[str]:
         """
@@ -96,22 +113,58 @@ class SentenceBuffer:
             if clean and len(clean) >= self.min_chars:
                 ready_sentences.append(clean)
 
-        return ready_sentences
+        return self._group(ready_sentences, final=False)
 
     def flush(self) -> List[str]:
         """
         Xả toàn bộ nội dung còn lại trong buffer khi LLM kết thúc stream.
         """
-        if not self._buffer.strip():
-            self._buffer = ""
-            return []
-
-        raw = self._buffer.strip()
+        parts: List[str] = []
+        if self._buffer.strip():
+            clean = sanitise_for_tts(self._buffer.strip())
+            if clean and len(clean) >= self.min_chars:
+                parts.append(clean)
         self._buffer = ""
-        clean = sanitise_for_tts(raw)
-        if clean and len(clean) >= self.min_chars:
-            return [clean]
-        return []
+        return self._group(parts, final=True)
+
+    # ------------------------------------------------------------------
+    # Gộp câu ngắn / tách câu dài (chỉ khi bật min_words / max_words)
+    # ------------------------------------------------------------------
+
+    def _group(self, parts: List[str], final: bool) -> List[str]:
+        if not self.min_words and not self.max_words:
+            return parts
+        out: List[str] = []
+        for part in parts:
+            if self._pending:
+                part = f"{self._pending} {part}"
+                self._pending = ""
+            if self.min_words and len(part.split()) < self.min_words:
+                self._pending = part  # chờ câu sau để gộp
+                continue
+            out.extend(self._split_long(part))
+        if final and self._pending:
+            out.extend(self._split_long(self._pending))
+            self._pending = ""
+        return out
+
+    def _split_long(self, part: str) -> List[str]:
+        if not self.max_words:
+            return [part]
+        words = part.split()
+        chunks: List[str] = []
+        while len(words) > self.max_words:
+            head = words[: self.max_words]
+            # Ưu tiên cắt sau dấu phẩy gần nhất — chỗ thở tự nhiên của giọng đọc.
+            cut = max((i for i, w in enumerate(head) if w.endswith(",")), default=None)
+            if cut is not None and cut >= max(1, self.min_words // 2):
+                head = head[: cut + 1]
+            chunks.append(" ".join(head).strip())
+            words = words[len(head):]
+        tail = " ".join(words).strip()
+        if tail:
+            chunks.append(tail)
+        return chunks
 
     async def stream_sentences(
         self,

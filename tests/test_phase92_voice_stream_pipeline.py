@@ -120,8 +120,12 @@ async def main():
     check("Hỗ trợ routing_mode trong config", hasattr(settings.llm, "routing_mode"))
     check("Hỗ trợ direct_url trong config", hasattr(settings.llm, "direct_url"))
     check("Hỗ trợ direct_model trong config", hasattr(settings.llm, "direct_model"))
-    check("LLMEngine có hàm _call_llm_direct", hasattr(llm_engine, "_call_llm_direct"))
-    check("LLMEngine có hàm _call_llm_router", hasattr(llm_engine, "_call_llm_router"))
+    # Phase 5: direct / router / auto do provider chung (core.llm_provider) xử lý.
+    import inspect as _inspect
+    _src = _inspect.getsource(llm_engine._call_llm)
+    check("LLMEngine._call_llm đi qua provider chung", "get_provider(" in _src and "routing_mode" in _src)
+    from core.llm_provider import DirectLLMProvider, NineRouterLLMProvider  # noqa: F401
+    check("provider có chế độ direct và router", True)
 
     # ── Tổng kết ─────────────────────────────────────────────────────────────
     print("\n" + "─" * 60)
