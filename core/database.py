@@ -25,6 +25,88 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+
+def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
+    """
+    Tạo / di trú bảng `tasks` — nơi DUY NHẤT định nghĩa schema của bảng này.
+
+    Bảng do hai luồng dùng chung: giao việc cho máy trạm (core.db_manager:
+    client_id, task_message, sender) và công việc ERP (dept_id, title,
+    due_date...). Trước đây mỗi module tự CREATE bản của mình, nên schema thật
+    phụ thuộc module nào khởi tạo trước: ERP trước → title NOT NULL → lệnh giao
+    việc cho máy trạm (không có title) lỗi "NOT NULL constraint failed".
+    """
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';")
+    existing_task_table = cursor.fetchone()
+
+    if not existing_task_table:
+        # Bảng `tasks` do hai tầng cùng dùng: `db_manager` (schema cũ,
+        # id TEXT) và `ERPDatabase` (các cột ERP thêm sau). Bản CREATE
+        # dưới đây phải là hợp của cả hai — trước đây nó chỉ có phần
+        # ERP, nên CSDL tạo mới bằng ERPDatabase hỏng ngay:
+        #   • `id INTEGER PRIMARY KEY` mà create_erp_task() lại chèn
+        #     "erp_<hex>" → SQLite ném "datatype mismatch".
+        #   • thiếu created_at → generate_daily_report() ném
+        #     "no such column: created_at", ROI Dashboard trắng bảng.
+        # Chỉ chạy được ở máy đã có sẵn DB do db_manager tạo trước.
+        cursor.execute(
+            """
+            CREATE TABLE tasks (
+                id TEXT PRIMARY KEY,
+                timestamp TEXT,
+                client_id TEXT,
+                task_message TEXT,
+                sender TEXT DEFAULT 'AI/ERP',
+                created_at TEXT,
+                updated_at TEXT,
+                dept_id INTEGER,
+                assignee_id INTEGER,
+                title TEXT,  -- không NOT NULL: lệnh giao việc máy trạm (db_manager) không có tiêu đề riêng
+                status TEXT NOT NULL DEFAULT 'pending',
+                due_date TEXT,
+                created_by_ai INTEGER NOT NULL DEFAULT 0,
+                resolution_notes TEXT,
+                FOREIGN KEY (dept_id) REFERENCES departments(id) ON DELETE CASCADE,
+                FOREIGN KEY (assignee_id) REFERENCES employees(id) ON DELETE SET NULL
+            );
+            """
+        )
+    else:
+        # Kiểm tra và thêm các cột thiếu cho tasks (migrations)
+        cursor.execute("PRAGMA table_info(tasks);")
+        existing_cols = {row["name"] for row in cursor.fetchall()}
+        _task_migrations = [
+            ("dept_id",          "INTEGER REFERENCES departments(id)"),
+            ("assignee_id",       "INTEGER REFERENCES employees(id)"),
+            ("title",             "TEXT"),
+            ("due_date",          "TEXT"),
+            ("created_by_ai",     "INTEGER NOT NULL DEFAULT 0"),
+            ("resolution_notes",  "TEXT"),
+            # Các cột dưới đây do db_manager tạo. Thiếu chúng thì
+            # generate_daily_report() và create_erp_task() đều lỗi,
+            # nên phải bổ sung cho CSDL nào chưa có.
+            ("timestamp",         "TEXT"),
+            ("client_id",         "TEXT"),
+            ("task_message",      "TEXT"),
+            ("sender",            "TEXT"),
+            ("created_at",        "TEXT"),
+            ("updated_at",        "TEXT"),
+        ]
+        for _col, _col_def in _task_migrations:
+            if _col not in existing_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE tasks ADD COLUMN {_col} {_col_def};")
+                    logger.info("Phase 48 Migration: Đã thêm cột '%s' vào bảng tasks.", _col)
+                except Exception as _e:
+                    logger.warning("Không thể thêm cột %s vào tasks: %s", _col, _e)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_client_id ON tasks(client_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_dept ON tasks(dept_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_created_by_ai ON tasks(created_by_ai);")
+
+
 class ClosingConnection(sqlite3.Connection):
     """Kết nối SQLite đóng hẳn khi ra khỏi khối `with`.
 
@@ -154,74 +236,8 @@ class ERPDatabase:
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_devices_dept ON devices(dept_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_devices_ip ON devices(ip_address);")
 
-                # 4. Bảng tasks (Công Việc) - Kiểm tra và migrate nếu bảng tasks đã tồn tại từ Phase trước
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';")
-                existing_task_table = cursor.fetchone()
-
-                if not existing_task_table:
-                    # Bảng `tasks` do hai tầng cùng dùng: `db_manager` (schema cũ,
-                    # id TEXT) và `ERPDatabase` (các cột ERP thêm sau). Bản CREATE
-                    # dưới đây phải là hợp của cả hai — trước đây nó chỉ có phần
-                    # ERP, nên CSDL tạo mới bằng ERPDatabase hỏng ngay:
-                    #   • `id INTEGER PRIMARY KEY` mà create_erp_task() lại chèn
-                    #     "erp_<hex>" → SQLite ném "datatype mismatch".
-                    #   • thiếu created_at → generate_daily_report() ném
-                    #     "no such column: created_at", ROI Dashboard trắng bảng.
-                    # Chỉ chạy được ở máy đã có sẵn DB do db_manager tạo trước.
-                    cursor.execute(
-                        """
-                        CREATE TABLE tasks (
-                            id TEXT PRIMARY KEY,
-                            timestamp TEXT,
-                            client_id TEXT,
-                            task_message TEXT,
-                            sender TEXT DEFAULT 'AI/ERP',
-                            created_at TEXT,
-                            updated_at TEXT,
-                            dept_id INTEGER,
-                            assignee_id INTEGER,
-                            title TEXT NOT NULL,
-                            status TEXT NOT NULL DEFAULT 'pending',
-                            due_date TEXT,
-                            created_by_ai INTEGER NOT NULL DEFAULT 0,
-                            resolution_notes TEXT,
-                            FOREIGN KEY (dept_id) REFERENCES departments(id) ON DELETE CASCADE,
-                            FOREIGN KEY (assignee_id) REFERENCES employees(id) ON DELETE SET NULL
-                        );
-                        """
-                    )
-                else:
-                    # Kiểm tra và thêm các cột thiếu cho tasks (migrations)
-                    cursor.execute("PRAGMA table_info(tasks);")
-                    existing_cols = {row["name"] for row in cursor.fetchall()}
-                    _task_migrations = [
-                        ("dept_id",          "INTEGER REFERENCES departments(id)"),
-                        ("assignee_id",       "INTEGER REFERENCES employees(id)"),
-                        ("title",             "TEXT"),
-                        ("due_date",          "TEXT"),
-                        ("created_by_ai",     "INTEGER NOT NULL DEFAULT 0"),
-                        ("resolution_notes",  "TEXT"),
-                        # Các cột dưới đây do db_manager tạo. Thiếu chúng thì
-                        # generate_daily_report() và create_erp_task() đều lỗi,
-                        # nên phải bổ sung cho CSDL nào chưa có.
-                        ("timestamp",         "TEXT"),
-                        ("client_id",         "TEXT"),
-                        ("task_message",      "TEXT"),
-                        ("sender",            "TEXT"),
-                        ("created_at",        "TEXT"),
-                        ("updated_at",        "TEXT"),
-                    ]
-                    for _col, _col_def in _task_migrations:
-                        if _col not in existing_cols:
-                            try:
-                                cursor.execute(f"ALTER TABLE tasks ADD COLUMN {_col} {_col_def};")
-                                logger.info("Phase 48 Migration: Đã thêm cột '%s' vào bảng tasks.", _col)
-                            except Exception as _e:
-                                logger.warning("Không thể thêm cột %s vào tasks: %s", _col, _e)
-
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_dept ON tasks(dept_id);")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee_id);")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_tasks_created_by_ai ON tasks(created_by_ai);")
+                # 4. Bảng tasks — schema có MỘT chủ: ensure_tasks_table() (đầu module).
+                ensure_tasks_table(cursor)
 
                 # 6. Bảng audit_logs (Nhật Ký Bất Biến — Phase 48)
                 # Thiết kế: Chỉ cho phép INSERT và SELECT. Không UPDATE, không DELETE.

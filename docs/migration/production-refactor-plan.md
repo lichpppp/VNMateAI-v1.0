@@ -484,3 +484,18 @@ Số liệu chỉ có 3 lượt WS — dùng làm mốc so sánh, không phải 
 **Runtime:** đăng nhập admin/manager/viewer 200; tạo user qua `/api/v1/users` → đăng nhập 200 → xoá → đăng nhập 401.
 
 **Cần chủ dự án quyết định:** `users.json` nay không còn được dùng nhưng vẫn chứa hash mật khẩu (cũ dần theo thời gian). Có thể xoá hoặc chuyển ra ngoài thư mục dự án; chưa làm vì là dữ liệu bí mật.
+
+## 22. Báo cáo Data — bảng tasks có một chủ schema (2026-10-02)
+
+**STATUS:** XONG
+
+**Lỗi:** bảng `tasks` dùng chung cho hai luồng (giao việc máy trạm — `db_manager`; công việc ERP — `ERPDatabase`), mỗi module tự `CREATE` bản của mình. Schema thật phụ thuộc module nào khởi tạo trước:
+- `ERPDatabase` trước → `title NOT NULL` → `db_manager.add_or_update_task` (không có title) lỗi `sqlite3.IntegrityError: NOT NULL constraint failed: tasks.title` (đã tái hiện bằng test trên code cũ) — giao việc cho máy trạm hỏng trên cài đặt mới.
+- `db_manager` trước → `client_id/task_message/sender NOT NULL`; phía ERP điền đủ nên chạy được.
+
+**Một implementation:** `core.database.ensure_tasks_table(cursor)` — nơi duy nhất có DDL + di trú cột + index của `tasks`; `ERPDatabase` và `db_manager` cùng gọi. Schema chuẩn là hợp nới nhất của hai bản cũ (`title` cho phép NULL). `add_or_update_task` điền `title = task_message[:200]` để chạy được cả trên CSDL cũ đã có `title NOT NULL` (SQLite không bỏ được NOT NULL nếu không dựng lại bảng).
+
+**Test:** 251 pass / 0 fail. Mới: `test_tasks_table_single_owner.py` (2 thứ tự khởi tạo × 2 luồng ghi; fail trên code cũ với đúng lỗi NOT NULL). `tests/unit/test_repositories.py` (repository `src/mateai`, không có title) bắt được bản đầu tiên của sửa đổi để `title NOT NULL` — đã chỉnh.
+**Runtime (chỉ đọc, không ghi dữ liệu thử vào CSDL thật):** cột `tasks` của CSDL đang dùng không đổi (14 cột); `/roi-dashboard`, `/itsm/tickets`, `/admin/departments/overview` trả 200.
+
+**Kế hoạch PostgreSQL (chưa làm, cần quyết định):** hiện có 4 nơi mở SQLite trực tiếp (RULE-014: `autonomous_sentinel` 2, `db_manager`, `domain_sync`, `health_monitor`) + `ERPDatabase` + `db_manager` + `memory_manager`/HR DB. Bước trước khi chuyển: gom về một lớp truy cập (`get_connection`) để đổi driver ở một chỗ.

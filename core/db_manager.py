@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import bcrypt
 import psutil
 
-from core.database import ClosingConnection
+from core.database import ClosingConnection, ensure_tasks_table
 
 logger = logging.getLogger("core.db_manager")
 
@@ -78,27 +78,8 @@ class DatabaseManager:
                         "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);"
                     )
 
-                    # 2. Bảng tasks
-                    cursor.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS tasks (
-                            id TEXT PRIMARY KEY,
-                            timestamp TEXT NOT NULL,
-                            client_id TEXT NOT NULL,
-                            task_message TEXT NOT NULL,
-                            sender TEXT NOT NULL DEFAULT 'Ban Giám Đốc',
-                            status TEXT NOT NULL DEFAULT 'pending',
-                            created_at TEXT NOT NULL,
-                            updated_at TEXT NOT NULL
-                        );
-                        """
-                    )
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_tasks_client_id ON tasks(client_id);"
-                    )
-                    cursor.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);"
-                    )
+                    # 2. Bảng tasks — schema chung, định nghĩa ở core.database.
+                    ensure_tasks_table(cursor)
 
                     conn.commit()
 
@@ -382,13 +363,15 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO tasks (id, timestamp, client_id, task_message, sender, status, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tasks (id, timestamp, client_id, task_message, sender, status, title, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         status = excluded.status,
                         updated_at = excluded.updated_at;
                     """,
-                    (task_id, timestamp, client_id, task_message, sender, status, now_str, now_str),
+                    # title: cột NOT NULL khi bảng do phía ERP tạo trước.
+                    (task_id, timestamp, client_id, task_message, sender, status,
+                     task_message[:200], now_str, now_str),
                 )
                 conn.commit()
 
