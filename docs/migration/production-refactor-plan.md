@@ -894,3 +894,17 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME:** ảnh chụp GET 4 vai trước–sau: 10/10 route giống hệt. `POST /api/v1/tts` → MP3 7.632 byte; 322 giọng; `download-agent` → zip 18 tệp có `agent.py`; bật worker cục bộ → chạy `get_system_info` thành công → tắt; log gần đây không còn dòng tham số dạng dict.
 
 **NEXT STEP:** phần lõi còn trong `server.py`: voice-command + phiên thoại, HUD (simulate, telemetry), các WebSocket (`/ws/hud`, `/ws/portal-ui`, `/ws/topology`, `/ws/voice`, `/ws/client`, audio-stream/xiaozhi), trang tĩnh/admin, health/login, middleware và startup.
+
+## 49. Router `pages`, `auth`, `health` (2026-10-03)
+
+**STATUS:** XONG
+
+**FILES CHANGED:** `routers/pages.py` (`/`, `/admin*`, `/topology`, `/computer-use`, `/hud`, `/roi*`; `_WEB_DIR`, `_ADMIN_OUT_DIR`, `_inject_asset_versions` — các `app.mount` tĩnh ở lại server, đọc thư mục từ module này); `routers/auth.py` (login, `/auth/me`); `routers/health.py` (`/health`, `/api/v1/health-dashboard`, `/api/v1/audio-nodes`). Hai test JS đọc nguồn tầng HTTP (server + routers). `server.py` ~2.000 dòng.
+
+**Sửa:** `health-dashboard` gọi `orchestrator.get_connected_clients()` nhưng server không có tên `orchestrator` ở cấp module → NameError bị `except` nuốt, `active_lan_clients` luôn 0. Router import đúng singleton (`test_health_dashboard_counts`).
+
+**TESTS:** 361 pass.
+
+**RUNTIME:** ảnh chụp TOÀN BỘ 81 route GET × 4 vai trước–sau: không khác. Trang `/`, `/hud` còn tiêm phiên bản script theo mtime; trang admin + tài nguyên `/_next` 200; `/static` gửi `no-cache, must-revalidate`; đăng nhập sai 401; `/auth/me` đúng dạng cũ.
+
+**NEXT STEP:** voice-command + phiên thoại, HUD, các WebSocket, middleware/startup.

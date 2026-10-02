@@ -12,7 +12,7 @@
  * một đối tượng SpeechRecognition.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -233,7 +233,10 @@ check('hudStopListeningForTurn cũng giữ cảnh báo',
 section('Bản nạp vào trình duyệt phải là bản mới');
 // Hai lỗi trước đều do trình duyệt chạy bản cache cũ mà không ai biết:
 // StaticFiles không gửi Cache-Control, và thẻ script ghi số phiên bản cứng.
-const srv = readFileSync(join(ROOT, 'src', 'mateai', 'interfaces', 'http', 'server.py'), 'utf8').replace(/\r\n/g, '\n');
+// Tầng HTTP: server.py + routers/*.py (route tách khỏi server.py).
+const _httpDir = join(ROOT, 'src', 'mateai', 'interfaces', 'http');
+const srv = [join(_httpDir, 'server.py'), ...readdirSync(join(_httpDir, 'routers')).filter((f) => f.endsWith('.py')).map((f) => join(_httpDir, 'routers', f))]
+  .map((f) => readFileSync(f, 'utf8')).join('\n\n').replace(/\r\n/g, '\n');
 check('static buộc kiểm tra lại bản mới',
   srv.includes('no-cache, must-revalidate'));
 check('có lớp static tuỳ chỉnh cache',

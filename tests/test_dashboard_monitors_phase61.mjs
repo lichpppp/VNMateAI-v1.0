@@ -11,7 +11,7 @@
 //  2. Dữ liệu đưa vào phải là shape thật lấy từ API, không phải dữ liệu bịa.
 //  3. Không được để NaN / undefined / null lọt vào chuỗi hiển thị.
 
-import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -563,8 +563,14 @@ check('tầng nặng gom đủ 8 endpoint',
 
 // ── 10. Backend: nhóm counters phải là phần bổ sung thuần, không phá cũ ───
 results.push('▸ core/server.py — health-dashboard chỉ BỔ SUNG, không phá');
-const py = readFileSync(join(HERE, '..', 'src', 'mateai', 'interfaces', 'http', 'server.py'), 'utf-8').replace(/\r\n/g, '\n');
-const ep = py.slice(py.indexOf('async def health_dashboard_endpoint()'), py.indexOf('@app.post(\n    "/api/v1/voice-command"'));
+// Tầng HTTP: server.py + routers/*.py (route tách khỏi server.py).
+const _httpDir = join(HERE, '..', 'src', 'mateai', 'interfaces', 'http');
+const py = [join(_httpDir, 'server.py'), ...readdirSync(join(_httpDir, 'routers')).filter((f) => f.endsWith('.py')).map((f) => join(_httpDir, 'routers', f))]
+  .map((f) => readFileSync(f, 'utf-8')).join('\n\n').replace(/\r\n/g, '\n');
+// Thân hàm: từ `def` tới decorator kế tiếp (hoặc hết tệp router health.py).
+const _epStart = py.indexOf('async def health_dashboard_endpoint()');
+const _epNext = py.slice(_epStart).search(/\n@(?:app|router)\.|\n\n\n(?=\S)/);
+const ep = py.slice(_epStart, _epNext < 0 ? undefined : _epStart + _epNext);
 check('giữ nguyên 4 dòng inject gốc',
   ep.includes('active_portal_websockets') && ep.includes('active_audio_hardware')
   && ep.includes('get_skill_count()') && ep.includes('get_all_tools()'));

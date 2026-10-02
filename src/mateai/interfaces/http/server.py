@@ -83,7 +83,7 @@ from urllib.parse import quote
 from mateai.config.loader import settings as _settings  # noqa: E402
 _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 
-_WEB_DIR    = _PROJECT_ROOT / "web"
+from mateai.interfaces.http.routers.pages import _ADMIN_OUT_DIR, _WEB_DIR  # noqa: E402  (dùng cho app.mount)
 
 # Trạng thái kết nối + phát sóng: core/realtime_hub.py (module lõi dùng trực tiếp).
 from mateai.interfaces.websocket.realtime_hub import (  # noqa: E402
@@ -542,38 +542,6 @@ async def auth_middleware(request: Request, call_next):
 
 
 # ─── Mount static files (web/ directory) ───────────────────────────────────
-def _asset_version(name: str) -> str:
-    """
-    Phiên bản của một file tĩnh, lấy từ thời điểm sửa gần nhất.
-
-    Thẻ `<script src="...?v=X">` trong HTML từng ghi số cứng kiểu `?v=51.1`.
-    Số đó chỉ đổi khi ai đó nhớ tăng lên, nên sau mỗi lần sửa JS mà quên
-    tăng, người dùng vẫn chạy bản cũ. Nay lấy từ mtime: sửa file là URL đổi,
-    không cần nhớ.
-
-    Dùng `mtime_ns` vì hai lần sửa trong cùng một giây vẫn phải cho URL khác nhau.
-    """
-    f = _WEB_DIR / name
-    try:
-        return str(f.stat().st_mtime_ns)
-    except OSError:
-        return "0"
-
-
-def _inject_asset_versions(html: str) -> str:
-    """Thay số phiên bản cứng trong thẻ script bằng mtime của file tương ứng."""
-    import re as _re
-
-    def _sub(m: "re.Match[str]") -> str:
-        # group(1) là phần sau `src="`. Phải trả lại CẢ `src="` và dấu `"` —
-        # chỉ trả về URL thì thẻ script hỏng mà trình duyệt chỉ báo lỗi im lặng.
-        url = m.group(1)
-        fname = url.rsplit("/", 1)[-1].split("?", 1)[0].split("&", 1)[0]
-        return f'src="{url.rsplit("?", 1)[0]}?v={_asset_version(fname)}"'
-
-    return _re.sub(r'src="(/static/[^"]+\?v=)[^"]*"', _sub, html)
-
-
 class _NoStaleStatic(StaticFiles):
     """
     Phục vụ file tĩnh nhưng LUÔN buộc trình duyệt kiểm tra lại.
@@ -616,12 +584,6 @@ app.include_router(admin_router)
 # ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
-
-
-class LoginRequest(BaseModel):
-    """Payload for POST /api/v1/login."""
-    username: str = Field(..., min_length=1, description="Tên đăng nhập")
-    password: str = Field(..., min_length=1, description="Mật khẩu")
 
 
 
@@ -672,20 +634,6 @@ class HudSimulateRequest(BaseModel):
     level: Optional[str] = Field(default="INFO")
     message: Optional[str] = Field(default="Sentinel Guard: Kiểm tra an ninh định kỳ hoàn tất.")
     data: Optional[Dict[str, Any]] = None
-
-
-class HealthResponse(BaseModel):
-    """Response for GET /health."""
-    status: str
-    version: str
-    skill_count: int
-    skill_names: list
-    model: str
-    asr_backend: str
-    tts_voice: str
-    routing_primary: Optional[str] = None
-    routing_fallback_1: Optional[str] = None
-    routing_fallback_2: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -1031,33 +979,8 @@ def broadcast_tts_notification(announcement_text: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@app.get(
-    "/",
-    include_in_schema=False,
-    summary="Web Portal",
-)
-async def serve_portal() -> HTMLResponse:
-    """
-    Serve the VN-MateAI Web Control Portal.
-    Navigate to http://localhost:5843/ in a browser.
-    """
-    index = _WEB_DIR / "index.html"
-    if not index.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="web/index.html not found. Make sure the web/ directory exists.",
-        )
-    return HTMLResponse(
-        # Đọc và thay phiên bản script thay vì FileResponse: FileResponse phục
-        # vụ tệp nguyên trạng, không cho chèn. Sửa app.js là URL trong HTML đổi
-        # theo, nên không còn tình trạng HTML mới chạy JS cũ.
-        _inject_asset_versions(index.read_text(encoding="utf-8")),
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
+from mateai.interfaces.http.routers import pages as _r_pages  # noqa: E402
+app.include_router(_r_pages.router)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1090,112 +1013,13 @@ async def serve_portal() -> HTMLResponse:
 # ═══════════════════════════════════════════════════════════════════════════
 # ── Phase 88: VISUAL WORKFLOW TOPOLOGY (n8n-style Node Graph) ───────────────
 # ═══════════════════════════════════════════════════════════════════════════
-_ADMIN_OUT_DIR = _PROJECT_ROOT / "admin" / "out"
-
-
-@app.get("/admin/topology", response_class=HTMLResponse, include_in_schema=True,
-         summary="VN-MateAI Visual Workflow Topology Viewer (Phase 88)")
-@app.get("/topology", response_class=HTMLResponse, include_in_schema=True)
-async def serve_admin_topology():
-    """Phục vụ giao diện Visual Workflow Topology (React Flow Node-based) xuất bản từ Next.js."""
-    candidates = [
-        _ADMIN_OUT_DIR / "topology.html",
-        _ADMIN_OUT_DIR / "admin" / "topology.html",
-        _ADMIN_OUT_DIR / "index.html",
-    ]
-    for c in candidates:
-        if c.exists():
-            return HTMLResponse(
-                c.read_text(encoding="utf-8"),
-                headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0",
-                },
-            )
-    raise HTTPException(status_code=404, detail="Topology build artifact not found. Please run 'npm run build' in admin/.")
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # ── Phase 90: COMPUTER-USE & WORKER CONSOLE (Mac Mini Headless UI) ─────────
 # ═══════════════════════════════════════════════════════════════════════════
 
-@app.get("/admin/computer-use", response_class=HTMLResponse, include_in_schema=True,
-         summary="VN-MateAI Computer-Use & Worker Console (Phase 90)")
-@app.get("/computer-use", response_class=HTMLResponse, include_in_schema=True)
-async def serve_admin_computer_use():
-    """Phục vụ giao diện Computer-Use & Self-Healing Worker Console xuất bản từ Next.js."""
-    candidates = [
-        _ADMIN_OUT_DIR / "admin" / "computer-use.html",
-        _ADMIN_OUT_DIR / "computer-use.html",
-    ]
-    for c in candidates:
-        if c.exists():
-            return HTMLResponse(
-                c.read_text(encoding="utf-8"),
-                headers={
-                    "Cache-Control": "no-cache, no-store, must-revalidate",
-                    "Pragma": "no-cache",
-                    "Expires": "0",
-                },
-            )
-    raise HTTPException(status_code=404, detail="Computer-Use build artifact not found. Please run 'npm run build' in admin/.")
-
-
-@app.get("/admin", include_in_schema=True)
-async def serve_admin_root():
-    """Chuyển hướng trang /admin sang tab Topology."""
-    return RedirectResponse(url="/admin/topology")
-
-
 if (_ADMIN_OUT_DIR / "_next").exists():
     app.mount("/admin/_next", _NoStaleStatic(directory=str(_ADMIN_OUT_DIR / "_next")), name="admin_next")
     app.mount("/_next", _NoStaleStatic(directory=str(_ADMIN_OUT_DIR / "_next")), name="admin_next_root")
-
-
-@app.get("/hud", include_in_schema=True, response_class=HTMLResponse,
-         summary="VN-MateAI Sci-Fi HUD Standby Display (Phase 33)")
-async def get_vnmate_hud():
-    """Phục vụ giao diện HUD VN-MateAI 3D toàn màn hình cho màn hình phụ."""
-    hud_file = _WEB_DIR / "hud.html"
-    if not hud_file.exists():        raise HTTPException(status_code=404, detail="web/hud.html not found.")
-    return HTMLResponse(
-        # Xem giải thích ở serve_portal.
-        _inject_asset_versions(hud_file.read_text(encoding="utf-8")),
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
-
-
-@app.get(
-    "/roi",
-    include_in_schema=True,
-    response_class=HTMLResponse,
-    summary="ROI & Value Realization Dashboard (Phase 48)",
-)
-@app.get(
-    "/roi-dashboard",
-    include_in_schema=True,
-    response_class=HTMLResponse,
-    summary="ROI & Value Realization Dashboard (Phase 48)",
-)
-async def get_vnmate_roi():
-    """Phục vụ giao diện ROI & Value Realization Dashboard (Phase 48)."""
-    roi_file = _WEB_DIR / "roi_dashboard.html"
-    if not roi_file.exists():
-        raise HTTPException(status_code=404, detail="web/roi_dashboard.html not found.")
-    return FileResponse(
-        str(roi_file),
-        media_type="text/html",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
 
 
 
@@ -1208,48 +1032,8 @@ app.include_router(_r_config.router)
 # ---------------------------------------------------------------------------
 
 
-@app.post(
-    "/api/v1/login",
-    summary="Đăng nhập Web Portal và nhận JWT Access Token",
-    tags=["Authentication"],
-)
-async def login_endpoint(payload: LoginRequest) -> Dict[str, Any]:
-    """Xác thực người dùng và cấp JWT Bearer Token."""
-    user = auth_manager.authenticate_user(payload.username, payload.password)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Tên đăng nhập hoặc mật khẩu không chính xác.",
-        )
-
-    access_token = auth_manager.create_access_token(
-        data={"sub": user["username"], "role": user.get("role", "viewer")},
-        expires_delta=timedelta(minutes=60 * 24),
-    )
-    logger.info("Người dùng '%s' (role: %s) đã đăng nhập thành công.", user["username"], user.get("role"))
-    return {
-        "status": "success",
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "username": user["username"],
-            "full_name": user.get("full_name", user["username"]),
-            "role": user.get("role", "viewer"),
-        },
-    }
-
-
-@app.get(
-    "/api/v1/auth/me",
-    summary="Lấy thông tin tài khoản người dùng hiện tại",
-    tags=["Authentication"],
-)
-async def get_me_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Trả về thông tin và quyền hạn của người dùng đang đăng nhập."""
-    return {
-        "status": "success",
-        "user": current_user,
-    }
+from mateai.interfaces.http.routers import auth as _r_auth  # noqa: E402
+app.include_router(_r_auth.router)
 
 
 # ---------------------------------------------------------------------------
@@ -1260,63 +1044,13 @@ from mateai.interfaces.http.routers import users as _r_users  # noqa: E402
 app.include_router(_r_users.router)
 
 
-@app.get(
-    "/api/v1/audio-nodes",
-    summary="Danh sách mạch âm thanh ESP32 Xiaozhi đang kết nối",
-    tags=["Audio Nodes"],
-)
-async def get_audio_nodes_endpoint(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Trả về danh sách mạch thoại ESP32 Xiaozhi đang kết nối trực tuyến theo thời gian thực."""
-    from mateai.interfaces.websocket.xiaozhi_gateway import pairing_registry
-    nodes = []
-    for dev_id, info in active_audio_nodes.items():
-        nodes.append({
-            "device_id": dev_id,
-            "pairing_code": pairing_registry.get_code_for_device(dev_id),
-            "client_host": info.get("client_host", "unknown"),
-            "connected_at": info.get("connected_at"),
-            "last_active": info.get("last_active"),
-            "state": info.get("state", "idle"),
-            "emotion": info.get("emotion", "sleeping"),
-            "screen_text": info.get("screen_text"),
-            "audio_format": info.get("audio_format", "mp3_24k"),
-        })
-    return {
-        "status": "success",
-        "count": len(nodes),
-        "nodes": nodes,
-    }
+from mateai.interfaces.http.routers import health as _r_health  # noqa: E402
+app.include_router(_r_health.router)
 
 
 # ---------------------------------------------------------------------------
 # REST Endpoints
 # ---------------------------------------------------------------------------
-
-
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    summary="Server Health & Inventory",
-    tags=["System"],
-)
-async def health_check() -> HealthResponse:
-    """Returns server status, loaded skills, model name, and audio config."""
-    from core.plugin_manager import plugin_manager
-    from mateai.config.loader import settings
-
-    model_name = getattr(getattr(settings, "llm", None), "model_name", settings.MODEL_NAME)
-    return HealthResponse(
-        status="running",
-        version="2.0.0",
-        skill_count=plugin_manager.get_skill_count(),
-        skill_names=plugin_manager.get_skill_names(),
-        model=model_name,
-        asr_backend=getattr(settings, "ASR_BACKEND", "google"),
-        tts_voice="vi-VN-HoaiMyNeural",
-        routing_primary=model_name,
-        routing_fallback_1="",
-        routing_fallback_2="",
-    )
 
 
 from mateai.interfaces.http.routers import system as _r_system  # noqa: E402
@@ -1326,71 +1060,6 @@ app.include_router(_r_system.router)
 # ═══════════════════════════════════════════════════════════════════════════
 # ── Phase 88: TOPOLOGY API (<10ms, in-memory, zero blocking) ────────────────
 # ═══════════════════════════════════════════════════════════════════════════
-
-
-@app.get(
-    "/api/v1/health-dashboard",
-    summary="Phase 24.5: Zero-Overhead Observability Dashboard — System Health Snapshot",
-    tags=["System"],
-)
-async def health_dashboard_endpoint() -> Dict[str, Any]:
-    """
-    Zero-Overhead Health Snapshot (O(1) in-memory lookup).
-    Contains no computational logic or network requests.
-    Directly returns SYSTEM_HEALTH_CACHE in < 1ms response time.
-
-    Phase 61: bổ sung nhóm 'counters' (hàng đợi, phê duyệt, slot worker) và
-    'connections' để dashboard lấy counter rẻ ngay trong payload 2 giây,
-    thay vì gọi thêm nhiều endpoint nặng. Tất cả chỉ đọc trạng thái đã có
-    sẵn trong bộ nhớ — không thêm worker, không thêm request mạng.
-    """
-    from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
-    from core.plugin_manager import plugin_manager
-
-    # Inject live websocket & node counts in O(1)
-    SYSTEM_HEALTH_CACHE["nodes"]["active_web_clients"] = len(active_portal_websockets)
-    SYSTEM_HEALTH_CACHE["nodes"]["active_audio_hardware"] = len(active_audio_nodes)
-    SYSTEM_HEALTH_CACHE["nodes"]["skills_count"] = plugin_manager.get_skill_count()
-    SYSTEM_HEALTH_CACHE["nodes"]["skills_enabled"] = len(plugin_manager.get_all_tools())
-    # Phase 76: KHÔNG còn nhét "security_role" = "ADMIN" vào cache dùng chung.
-    # Endpoint này không có ngữ cảnh người gọi, nên mọi người — kể cả chưa đăng
-    # nhập — đều nhận một vai trò bịa. Vai trò thật lấy từ JWT ở nơi có ngữ cảnh
-    # (vd. gói hud_welcome của /ws/hud).
-
-    # ── Phase 61: số kết nối WebSocket / LAN ────────────────────────────
-    # active_hud_websockets trước đây không có chỗ nào lộ ra ngoài.
-    try:
-        SYSTEM_HEALTH_CACHE["nodes"]["active_hud_websockets"] = len(active_hud_websockets)
-    except Exception:
-        SYSTEM_HEALTH_CACHE["nodes"].setdefault("active_hud_websockets", 0)
-    try:
-        SYSTEM_HEALTH_CACHE["nodes"]["active_lan_clients"] = len(orchestrator.get_connected_clients())
-    except Exception:
-        SYSTEM_HEALTH_CACHE["nodes"].setdefault("active_lan_clients", 0)
-
-    # ── Phase 61: counter hàng đợi & phê duyệt ──────────────────────────
-    # Mỗi nhánh độc lập, lỗi ở nhánh này không được làm hỏng nhánh kia.
-    counters: Dict[str, Any] = SYSTEM_HEALTH_CACHE.setdefault("counters", {})
-
-    # Hàng đợi phê duyệt Zero-Trust (Phase 57)
-    try:
-        from mateai.application.security.zero_trust import hitl_manager as zt_hitl
-        counters["zt_pending"] = len(zt_hitl.get_pending_list())
-    except Exception:
-        counters.setdefault("zt_pending", 0)
-
-    # Worker nền: đang chạy / tổng / số slot tối đa
-    try:
-        from mateai.application.operations.background_workers import background_worker_manager as bg
-        counters["bg_running"] = len(bg._running_tasks)
-        counters["bg_total"] = len(bg._tasks)
-        counters["bg_max_concurrent"] = bg.max_concurrent
-    except Exception:
-        counters.setdefault("bg_running", 0)
-        counters.setdefault("bg_total", 0)
-        counters.setdefault("bg_max_concurrent", 0)
-
-    return SYSTEM_HEALTH_CACHE
 
 
 
