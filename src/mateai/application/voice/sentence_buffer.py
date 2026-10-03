@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 from typing import AsyncGenerator, List, Optional
 
-from mateai.application.voice.speech_text import sanitise_for_tts
+from mateai.application.voice.speech_text import CodeFenceStripper, sanitise_for_tts
 
 # ---------------------------------------------------------------------------
 # Regex Heuristics cho các trường hợp KHÔNG ĐƯỢC NGẮT (False Boundary Guards)
@@ -77,6 +77,8 @@ class SentenceBuffer:
         self.max_words = max_words
         self._buffer: str = ""
         self._pending: str = ""
+        # Khối ```code``` kéo dài qua nhiều câu — lọc trên luồng token.
+        self._fence = CodeFenceStripper()
 
     def add_token(self, token: str) -> List[str]:
         """
@@ -86,6 +88,9 @@ class SentenceBuffer:
         if not token:
             return []
 
+        token = self._fence.feed(token)
+        if not token:
+            return []
         self._buffer += token
         ready_sentences: List[str] = []
 
@@ -120,6 +125,7 @@ class SentenceBuffer:
         Xả toàn bộ nội dung còn lại trong buffer khi LLM kết thúc stream.
         """
         parts: List[str] = []
+        self._buffer += self._fence.flush()
         if self._buffer.strip():
             clean = sanitise_for_tts(self._buffer.strip())
             if clean and len(clean) >= self.min_chars:

@@ -988,3 +988,16 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **RUNTIME:** danh mục thật: "mở bài hát Lạc Trôi", "bật nhạc Sơn Tùng", "nghe nhạc trên youtube" → `auto_play_music` đứng đầu; "hát cho tôi nghe bài…" (trò chuyện) vẫn được đưa `auto_play_music`; "lô nào về nhiều nhất tuần này" → `thong_ke_lo_xsmb`; "Kiểm tra CPU và RAM" → `get_active_processes`; "Xin chào", "Cảm ơn" → 0 tool. Lượt nói thật qua HUD "Lô nào về nhiều nhất trong hai tuần qua?" → trợ lý tự gọi `thong_ke_lo_xsmb`, trả lời có số liệu.
 
 **Còn lại:** câu trò chuyện khớp yếu ("kể chuyện cười", "thời tiết") được đưa kèm 3 skill không liên quan (model không gọi, tốn thêm ít token). Chủ động tạo skill chưa thử thật trên máy chủ (sẽ sinh và cài mã mới) — đã có test với LLM giả.
+
+## 55. Giọng nói không đọc code/ký tự; vòng agent luôn có câu trả lời (2026-10-03)
+
+**STATUS:** XONG
+
+**1. Trợ lý đọc cả code và ký tự** (chủ dự án báo). Tái hiện: đường stream tách câu trước rồi làm sạch TỪNG câu — khối ```code``` bị chia qua nhiều câu, mỗi câu chỉ có nửa cặp ``` nên không nhận ra, TTS đọc "import shutil", "print(...)". Tương tự chú thích ẩn `<!--VOICE: …-->` (đọc ra "!--VOICE: …") và code nội dòng bị cắt ở dấu chấm (`x.replace(...)`). Ngoài ra đường dẫn bị dính chữ ("D:VNMateaiv1config.json"), `=>`, ``` rời.
+- `speech_text.CodeFenceStripper`: lọc trên LUỒNG token (giữ trạng thái qua các token, kể cả dấu bị cắt giữa hai token) — khối code → một câu "Phần mã em đã hiển thị trên màn hình." (một lần mỗi lượt), `<!-- … -->` và code nội dòng → bỏ. `SentenceBuffer` (bộ tách câu chung của mọi đường stream) dùng nó.
+- `sanitise_for_tts`: bỏ dòng trông như code/lệnh khi model không bọc ```, JSON lồng nhau, đường dẫn chỉ đọc tên tệp cuối, bỏ toán tử/mũi tên và ký hiệu (`* $ | ;` …), gộp dấu chấm lặp. Số thập phân, IP, ngày, "Wi-Fi" giữ nguyên.
+- Kiểm thật qua HUD câu "Viết giúp anh đoạn mã Python đọc tệp CSV…": trước — đọc code và "!--VOICE"; sau — 6 câu nói, không còn code/ký hiệu.
+
+**2. "Đã hoàn thành các bước tác vụ nhưng đã đạt giới hạn vòng lặp xử lý."** — hết 4 vòng gọi tool thì trả câu cố định, bỏ hết kết quả tool đã có. Nay: 6 vòng; hết vòng thì gọi model thêm MỘT lần không kèm tool để trả lời từ kết quả đã thu; model lỗi thì nói rõ đã chạy công cụ nào. Lời gọi lặp đúng tool + tham số trong cùng lượt không chạy lại (trả kết quả cũ, nhắc trả lời) — nguyên nhân hay gặp làm hết vòng, và tránh làm hai lần tác vụ có tác dụng phụ. Gỡ hằng `MAX_TOOL_ROUNDS_VOICE` không ai dùng.
+
+**TESTS:** 403 pass (+ stream code/chú thích/code nội dòng ở nhiều cỡ token, dòng code không bọc, đường dẫn, JSON lồng; hết vòng vẫn có câu trả lời, model lỗi vẫn có câu báo, lời gọi lặp không chạy lại). Một kỳ vọng cũ đổi có chủ đích: câu đọc thay khối code "em đã thực thi xong." → "Phần mã em đã hiển thị trên màn hình.".

@@ -50,11 +50,11 @@ async def _get_shared_http_client() -> httpx.AsyncClient:
     _SHARED_HTTP_CLIENT = await get_llm_http_client()
     return _SHARED_HTTP_CLIENT
 
-# Maximum consecutive tool call rounds before stopping to prevent infinite loops
-# Giảm từ 8 → 4: voice không cần nhiều vòng như web portal; giảm latency worst-case
-MAX_TOOL_ROUNDS: int = 4
-# Giới hạn vòng lặp cho voice riêng (ngắn hơn để phản hồi nhanh hơn)
-MAX_TOOL_ROUNDS_VOICE: int = 3
+# Số vòng gọi tool tối đa trong một lượt (chống lặp vô hạn). 6 đủ cho chuỗi
+# "tạo kỹ năng → gọi kỹ năng → tra thêm" (trước là 4). Hết vòng thì KHÔNG bỏ
+# kết quả: model được gọi thêm một lần không kèm tool để trả lời từ những gì
+# đã thu được (xem cuối `ask_async`).
+MAX_TOOL_ROUNDS: int = 6
 
 # System prompt for conversational/agentic mode — Enterprise Autonomous RPA Orchestrator TTS
 _AGENT_SYSTEM_PROMPT = (
@@ -979,6 +979,8 @@ class LLMEngine:
         messages.append({"role": "user", "content": sanitized_query})
 
         tool_calls_made: List[Dict[str, Any]] = []
+        # (tên tool, tham số) đã chạy trong lượt này -> kết quả cổng tool
+        _executed_calls: Dict[Tuple[str, str], Dict[str, Any]] = {}
         synthesised_this_turn: bool = False
         used_model: str = settings.llm.model_name
 
@@ -1061,6 +1063,20 @@ class LLMEngine:
 
                     _tc_id = tool_call.id
 
+                    # Model gọi lại ĐÚNG tool + tham số đã chạy trong lượt này: không
+                    # chạy lại (tốn vòng, có thể lặp tới hết giới hạn) — trả lại kết
+                    # quả cũ kèm nhắc trả lời luôn. Tác vụ có tác dụng phụ cũng không
+                    # bị làm hai lần.
+                    _key = (fn_name, json.dumps(fn_args, sort_keys=True, ensure_ascii=False, default=str))
+                    if _key in _executed_calls:
+                        logger.info("[LLMEngine] Bỏ qua lời gọi lặp '%s' (đã chạy trong lượt này).", fn_name)
+                        _prev = _executed_calls[_key]
+                        return {"tool_call_id": _tc_id, "fn_name": fn_name, **_prev,
+                                "result": {"status": "duplicate_call",
+                                           "message": "Công cụ này đã chạy với cùng tham số trong lượt này. "
+                                                      "Dùng kết quả trước đó để trả lời, không gọi lại.",
+                                           "previous_result": _prev.get("result")}}
+
                     # Cổng thực thi tool dùng chung (Zero-Trust, HITL, RBAC, audit) —
                     # cùng một implementation với đường voice realtime.
                     from mateai.application.agent.tool_gate import run_tool_with_policy
@@ -1072,6 +1088,7 @@ class LLMEngine:
                         session_id=getattr(assistant_msg, "id", None),
                         registry_names=_registry_names,
                     )
+                    _executed_calls[_key] = _gate
                     return {"tool_call_id": _tc_id, "fn_name": fn_name, **_gate}
 
                 logger.info(
@@ -1174,13 +1191,47 @@ class LLMEngine:
                     "reasoning": self.last_voice_reasoning,
                 }
 
-        # Exceeded MAX_TOOL_ROUNDS
+        # Hết số vòng mà model vẫn đòi gọi tool. Trước đây trả câu cố định "đã đạt
+        # giới hạn vòng lặp xử lý" và bỏ hết kết quả tool đã có — người dùng không
+        # nhận được câu trả lời nào. Nay gọi model thêm MỘT lần, KHÔNG kèm tool,
+        # để trả lời từ chính các kết quả đã thu được.
+        logger.warning("[LLMEngine] Hết %d vòng tool — tổng hợp câu trả lời từ %d kết quả đã có.",
+                       MAX_TOOL_ROUNDS, len(tool_calls_made))
+        messages.append({
+            "role": "system",
+            "content": (
+                "[HỆ THỐNG] Đã dùng hết số lần gọi công cụ cho lượt này. KHÔNG gọi thêm công cụ. "
+                "Hãy trả lời người dùng ngay bằng tiếng Việt, dựa trên các kết quả công cụ ở trên; "
+                "nếu còn thiếu thông tin thì nói rõ phần nào chưa làm được."
+            ),
+        })
+        reply_text = ""
+        try:
+            response = await self._call_llm(messages=messages, tools=None, brain_role=brain_role)
+            used_model = getattr(response, "model", None) or used_model
+            reply_text = (response.choices[0].message.content or "").strip()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("[LLMEngine] Tổng hợp sau khi hết vòng tool thất bại: %s", exc)
+        if not reply_text:
+            done = [tc.get("skill") for tc in tool_calls_made if tc.get("skill")]
+            reply_text = (
+                "Dạ, em đã chạy " + ", ".join(dict.fromkeys(done)) + " nhưng chưa tổng hợp được câu trả lời. "
+                "Anh thử hỏi lại ngắn gọn hơn giúp em nhé."
+            ) if done else "Dạ, em chưa hoàn thành được yêu cầu này. Anh thử hỏi lại ngắn gọn hơn giúp em nhé."
+        display_text, speech_text = self._extract_dual_channel(reply_text)
+        from mateai.application.conversation.memory_manager import memory_manager
+        memory_manager.add_turn(active_session, query, display_text)
         return {
-            "reply": "Đã hoàn thành các bước tác vụ nhưng đã đạt giới hạn vòng lặp xử lý.",
+            "reply": display_text,
+            "speech_reply": speech_text,
             "tool_calls_made": tool_calls_made,
-            "success": False,
-            "error": "MAX_TOOL_ROUNDS exceeded",
+            "success": bool(reply_text),
+            "error": "MAX_TOOL_ROUNDS reached",
             "route_info": {"model": used_model},
+            "requires_confirmation": any(
+                (tc.get("result") or {}).get("status") == "need_confirm" for tc in tool_calls_made
+            ),
+            "reasoning": self.last_voice_reasoning,
         }
 
     def process_voice_command_sync(
