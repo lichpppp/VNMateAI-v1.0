@@ -150,6 +150,10 @@ class VoiceTurnTrace:
             "used_agent": bool(result.used_agent) if result else False,
             "prompt_chars": turn.get("prompt_chars"),
             "tools_offered": turn.get("tools_offered"),
+            "system_chars": turn.get("system_chars"),
+            "history_chars": turn.get("history_chars"),
+            "tools_chars": turn.get("tools_chars"),
+            "brain": turn.get("brain"),
             "status_steps": list(self.statuses),
         }
         _RECENT_TRACES.append(data)

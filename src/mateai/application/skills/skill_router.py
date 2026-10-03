@@ -129,6 +129,21 @@ def find_existing_skill(intent: str) -> Optional[str]:
     return None
 
 
+#: Cụm chỉ CÁCH trả lời, không phải VIỆC cần làm (đã bỏ dấu). Không bỏ thì
+#: "Giải thích ngắn gọn RAID 1 trong hai câu" khớp mô tả một skill xuất dữ
+#: liệu ("… ngắn gọn …") trên ngưỡng khớp rõ -> câu hỏi kiến thức bị coi là
+#: lệnh vận hành (bench Phase 1, docs/realtime/performance-baseline.md).
+_ANSWER_STYLE = re.compile(
+    r"\b(?:giai thich|ngan gon|chi tiet|de hieu|cu the|vi du|mot cach"
+    r"|(?:trong|bang) (?:\d+|mot|hai|ba|bon|nam|vai) (?:cau|dong|y))\b"
+)
+
+
+def _task_text(query: str) -> str:
+    """Câu hỏi đã bỏ dấu và bỏ các cụm chỉ cách trả lời — phần dùng để chấm skill."""
+    return _ANSWER_STYLE.sub(" ", _strip_accents(query or ""))
+
+
 def _tokens(text: str) -> List[str]:
     return [t for t in re.split(r"[^a-z0-9]+", _strip_accents(text)) if len(t) >= 2]
 
@@ -316,12 +331,12 @@ class DynamicSkillRouter:
         Mỗi từ nhân với độ hiếm của nó trong danh mục (IDF, 0..1).
         """
         self._ensure_indexed()
-        q_clean = _strip_accents(query or "")
-        q_tokens = _content_tokens(query or "")
+        q_clean = _task_text(query)
+        q_tokens = _content_tokens(q_clean)
         if not q_tokens:
             return []
         q_set = set(q_tokens)
-        q_pairs = _bigrams(_tokens(query or ""))
+        q_pairs = _bigrams(_tokens(q_clean))
         idf = self._idf
 
         def w(tok: str) -> float:

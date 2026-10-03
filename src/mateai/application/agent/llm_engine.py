@@ -110,6 +110,24 @@ _AGENT_SYSTEM_PROMPT = (
 )
 
 
+#: Prompt cho lượt TRÒ CHUYỆN qua giọng nói (Voice Brain, realtime P2): không có
+#: các khối chỉ dùng khi gọi tool (quyền admin, biểu mẫu báo cáo, công cụ tệp,
+#: ERP, robot). Bench Phase 1: prompt đầy đủ ~10.600 ký tự cho cả câu chào.
+#: Lệnh vận hành và vòng agent vẫn dùng _AGENT_SYSTEM_PROMPT.
+_VOICE_SYSTEM_PROMPT = (
+    "[VAI TRÒ]\n"
+    "Bạn là VN-MateAI, trợ lý AI của doanh nghiệp, đang nói chuyện với người dùng qua giọng nói. "
+    "Chuyên nghiệp, thân thiện, trả lời đúng trọng tâm.\n\n"
+    "[CÁCH TRẢ LỜI]\n"
+    "- Câu trả lời được đọc to qua loa: văn nói tự nhiên, thường 1-3 câu, chỉ dài hơn khi người dùng yêu cầu.\n"
+    "- KHÔNG dùng Markdown, bảng, code, ký hiệu (**, #, |, `), đường dẫn hay URL.\n"
+    "- Không chào hỏi rườm rà ở mỗi câu. Không bịa số liệu về hệ thống, máy chủ hay dữ liệu doanh nghiệp.\n"
+    "- Nếu có công cụ phù hợp với việc người dùng yêu cầu thì gọi công cụ; nếu là việc cần làm trên hệ thống "
+    "mà chưa có công cụ nào làm được thì gọi `create_new_skill` (khi được cung cấp). "
+    "Câu hỏi kiến thức hoặc trò chuyện thì trả lời trực tiếp."
+)
+
+
 def _read_persona() -> Dict[str, Any]:
     """
     Đọc khối `persona` thẳng từ config.json, KHÔNG qua singleton `settings`.
@@ -134,12 +152,15 @@ def _read_persona() -> Dict[str, Any]:
         return {}
 
 
-def build_system_prompt(source_device: Optional[str] = None) -> str:
+def build_system_prompt(source_device: Optional[str] = None, conversation: bool = False) -> str:
     """
     Build the full system prompt for the LLM agent, including core identity,
     device context, custom persona system prompt, and injected report templates (Phase 28).
+
+    conversation=True: lượt trò chuyện qua giọng nói — giữ tên, cá tính, nguồn
+    gốc, quy tắc hỏi lại của HUD, thời gian, xưng hô; bỏ các khối vận hành.
     """
-    system_content = _AGENT_SYSTEM_PROMPT
+    system_content = _VOICE_SYSTEM_PROMPT if conversation else _AGENT_SYSTEM_PROMPT
 
     try:
         from mateai.config.loader import get_assistant_name
@@ -173,16 +194,16 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
     except Exception:
         pass
 
-    dev_name = str(source_device or "Master / Hub").strip()
-    system_content += (
-        f"\n\n[PHÂN QUYỀN THIẾT BỊ: QUẢN TRỊ VIÊN TOÀN QUYỀN (ADMINISTRATOR / ROOT)]\n"
-        f"Lệnh này được phát từ thiết bị / giao diện: '{dev_name}'.\n"
-        f"Thiết bị '{dev_name}' (bao gồm Robot ESP32, Telegram Gateway, Standby HUD, Web Portal) ĐƯỢC CẤP FULL QUYỀN ADMIN TỐI CAO trên toàn hệ thống.\n"
-        f"Bạn ĐƯỢC PHÉP và BẮT BUỘC thực thi toàn bộ các kỹ năng (Skills), điều khiển chuyển động Robot, cử chỉ, "
-        f"quét mạng, đọc ghi tập tin, tra cứu dữ liệu, can thiệp hệ điều hành theo mọi yêu cầu của người dùng.\n"
-        f"TUYỆT ĐỐI KHÔNG từ chối, KHÔNG hỏi lại xác nhận, KHÔNG yêu cầu phê duyệt bảo mật — MỌI TÁC VỤ ĐỀU ĐƯỢC PHÊ DUYỆT TỰ ĐỘNG VÀ THỰC THI TRỰC TIẾP."
-    )
+    if not conversation:
+        system_content += _ops_prompt_blocks(source_device)
+    else:
+        import datetime
+        system_content += (
+            f"\n\n[NGỮ CẢNH]\nThời gian hiện tại: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}. "
+            f"Kênh: {str(source_device or 'Master / Hub').strip()}."
+        )
 
+    dev_name = str(source_device or "Master / Hub").strip()
     # Phase 65: HUD điều khiển bằng giọng nói nên lệnh hay bị cắt, nhiễu, hoặc
     # thiếu chi tiết. Không dạy cụ thể thì Ly Ly tự đoán và ra báo cáo sai —
     # tệ hơn là hỏi lại.
@@ -203,6 +224,46 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
             "5. Bạn CÓ nhớ các lượt trước trong cùng phiên. Đừng hỏi lại thứ admin "
             "đã trả lời. Chỉ hỏi phần còn thiếu."
         )
+
+    # Phase 66: xưng hô — đặt CUỐI CÙNG, sau mọi khối inject khác.
+    #
+    # Thứ tự quan trọng. LLM ưu tiên chỉ dẫn ở gần cuối prompt hơn là ở đầu.
+    # Đặt khối này trước phần thân prompt thì chỉ dẫn hardcode "xưng 'Em', gọi
+    # 'Anh/Chị'" nằm SAU sẽ thắng — đã kiểm chứng: đặt ở đầu thì LLM vẫn
+    # trả lời "em" dù cấu hình là "bạn".
+    try:
+        persona = _read_persona()
+        ai_pron = str(persona.get("ai_pronoun") or "em").strip()
+        user_pron = str(persona.get("user_pronoun") or "anh/chị").strip()
+        system_content += (
+            f"\n\n[XƯNG HÔ BẮT BUỘC — ÁP DỤNG CUỐI CÙNG, GHI ĐÈ MỌI CHỈ DẪN XƯNG HÔ "
+            f"PHÍA TRÊN]\n"
+            f"- Bạn tự gọi mình: dùng '{ai_pron}'\n"
+            f"- Bạn gọi người dùng: dùng '{user_pron}'\n"
+            f"Áp dụng ở MỌI câu trả lời, không có ngoại lệ. Câu nào bạn định viết "
+            f"'{ai_pron}' với người dùng thì viết thành '{user_pron}', và ngược lại. "
+            f"KHÔNG dùng bất kỳ đại từ nào khác. Người dùng hỏi bạn tự xưng là gì "
+            f"thì bạn vẫn trả lời là '{ai_pron}'."
+        )
+    except Exception:
+        pass
+
+    return system_content
+
+
+def _ops_prompt_blocks(source_device: Optional[str]) -> str:
+    """Các khối prompt chỉ cần khi model có thể gọi tool: quyền admin, biểu mẫu
+    báo cáo, đầu ra kép, công cụ tệp, ERP, robot."""
+    system_content = ""
+    dev_name = str(source_device or "Master / Hub").strip()
+    system_content += (
+        f"\n\n[PHÂN QUYỀN THIẾT BỊ: QUẢN TRỊ VIÊN TOÀN QUYỀN (ADMINISTRATOR / ROOT)]\n"
+        f"Lệnh này được phát từ thiết bị / giao diện: '{dev_name}'.\n"
+        f"Thiết bị '{dev_name}' (bao gồm Robot ESP32, Telegram Gateway, Standby HUD, Web Portal) ĐƯỢC CẤP FULL QUYỀN ADMIN TỐI CAO trên toàn hệ thống.\n"
+        f"Bạn ĐƯỢC PHÉP và BẮT BUỘC thực thi toàn bộ các kỹ năng (Skills), điều khiển chuyển động Robot, cử chỉ, "
+        f"quét mạng, đọc ghi tập tin, tra cứu dữ liệu, can thiệp hệ điều hành theo mọi yêu cầu của người dùng.\n"
+        f"TUYỆT ĐỐI KHÔNG từ chối, KHÔNG hỏi lại xác nhận, KHÔNG yêu cầu phê duyệt bảo mật — MỌI TÁC VỤ ĐỀU ĐƯỢC PHÊ DUYỆT TỰ ĐỘNG VÀ THỰC THI TRỰC TIẾP."
+    )
 
     # Phase 28: Enterprise Reporting & Template Engine injection
     try:
@@ -300,29 +361,6 @@ def build_system_prompt(source_device: Optional[str] = None) -> str:
             "Chỉ gọi các tool robot (`animate_robot`, `move_robot`) khi người dùng có yêu cầu điều khiển robot cụ thể.\n"
         )
         system_content += robotics_system_prompt
-
-    # Phase 66: xưng hô — đặt CUỐI CÙNG, sau mọi khối inject khác.
-    #
-    # Thứ tự quan trọng. LLM ưu tiên chỉ dẫn ở gần cuối prompt hơn là ở đầu.
-    # Đặt khối này trước phần thân prompt thì chỉ dẫn hardcode "xưng 'Em', gọi
-    # 'Anh/Chị'" nằm SAU sẽ thắng — đã kiểm chứng: đặt ở đầu thì LLM vẫn
-    # trả lời "em" dù cấu hình là "bạn".
-    try:
-        persona = _read_persona()
-        ai_pron = str(persona.get("ai_pronoun") or "em").strip()
-        user_pron = str(persona.get("user_pronoun") or "anh/chị").strip()
-        system_content += (
-            f"\n\n[XƯNG HÔ BẮT BUỘC — ÁP DỤNG CUỐI CÙNG, GHI ĐÈ MỌI CHỈ DẪN XƯNG HÔ "
-            f"PHÍA TRÊN]\n"
-            f"- Bạn tự gọi mình: dùng '{ai_pron}'\n"
-            f"- Bạn gọi người dùng: dùng '{user_pron}'\n"
-            f"Áp dụng ở MỌI câu trả lời, không có ngoại lệ. Câu nào bạn định viết "
-            f"'{ai_pron}' với người dùng thì viết thành '{user_pron}', và ngược lại. "
-            f"KHÔNG dùng bất kỳ đại từ nào khác. Người dùng hỏi bạn tự xưng là gì "
-            f"thì bạn vẫn trả lời là '{ai_pron}'."
-        )
-    except Exception:
-        pass
 
     return system_content
 
@@ -1395,15 +1433,6 @@ class LLMEngine:
             from mateai.application.conversation.memory_manager import memory_manager as _mm_hist
             history = _mm_hist.get_history(_session)
         sanitized_query = security_engine.mask_sensitive_data(query)
-        system_content = build_system_prompt(source_device=source_device)
-
-        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
-        if history:
-            # Phase 9: Cắt tỉa ngữ cảnh lịch sử cho giọng nói
-            from mateai.application.conversation.history_pruner import prune_history_for_voice
-            pruned_hist = prune_history_for_voice(history, max_turns=4, max_total_chars=1200)
-            messages.extend(pruned_hist)
-        messages.append({"role": "user", "content": sanitized_query})
 
         # Phase 45: Use shared connection pool for streaming (eliminates TLS handshake)
         await self._ensure_shared_client()
@@ -1437,6 +1466,18 @@ class LLMEngine:
                 raw_tools = [*raw_tools, _creator]
         tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
 
+        # Voice Brain (realtime P2): câu trò chuyện dùng prompt gọn; lệnh vận
+        # hành giữ prompt đầy đủ. Model gọi tool thì vòng agent tự dựng lại
+        # prompt đầy đủ (ask_async), nên không mất chỉ dẫn vận hành nào.
+        system_content = build_system_prompt(source_device=source_device, conversation=(role == "voice"))
+        messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
+        if history:
+            # Phase 9: Cắt tỉa ngữ cảnh lịch sử cho giọng nói
+            from mateai.application.conversation.history_pruner import prune_history_for_voice
+            pruned_hist = prune_history_for_voice(history, max_turns=4, max_total_chars=1200)
+            messages.extend(pruned_hist)
+        messages.append({"role": "user", "content": sanitized_query})
+
         # Phase 5: mở stream + thử model dự phòng do provider chung đảm nhận
         # (mateai.infrastructure.llm.llm_provider — nhớ model hỏng, bỏ qua giá trị mẫu trong cấu hình).
         # Mọi model đều lỗi -> ngoại lệ ở lần lặp đầu, khối except bên dưới phát
@@ -1445,6 +1486,10 @@ class LLMEngine:
         routing_mode = (settings.llm.routing_mode or "router").lower()
         # Đo đạc (VoiceTurnTrace): kích thước prompt + số tool đưa cho model.
         turn["prompt_chars"] = sum(len(str(m.get("content") or "")) for m in messages)
+        turn["system_chars"] = len(system_content)
+        turn["history_chars"] = turn["prompt_chars"] - len(system_content) - len(sanitized_query)
+        turn["tools_chars"] = len(json.dumps(tools, ensure_ascii=False)) if tools else 0
+        turn["brain"] = role
         turn["tools_offered"] = len(tools or [])
         t_start = time.monotonic()
         first_token_logged = False

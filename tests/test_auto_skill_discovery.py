@@ -175,3 +175,34 @@ def test_automatic_synthesis_reuses_existing_skill(router, monkeypatch):
                         lambda **k: pytest.fail("không được sinh mã khi đã có kỹ năng"))
     assert llm_engine._synthesise_and_install(query="mở bài hát Lạc Trôi", meta_architect=ma.meta_architect,
                                               plugin_manager=None) == "auto_play_music"
+
+
+
+@pytest.fixture
+def style_router(monkeypatch):
+    """Danh mục có một skill mà mô tả chứa "ngắn gọn" — như skill xuất dữ liệu thật."""
+    import core.plugin_manager as pm
+    import mateai.application.skills.skill_router as sr
+    extra = [_tool("prepare_data_source_export", "Chuẩn bị bản xuất dữ liệu, kèm tóm tắt ngắn gọn từng câu."),
+             _tool("get_executive_standup_briefing", "Tóm tắt tình hình máy chủ và dịch vụ cho lãnh đạo.")]
+    monkeypatch.setattr(pm.plugin_manager, "get_all_tools", lambda: list(CATALOG) + extra)
+    r = DynamicSkillRouter()
+    r.rebuild_index()
+    monkeypatch.setattr(sr, "dynamic_skill_router", r)
+    return r
+
+
+@pytest.mark.parametrize("query", [
+    "Giải thích ngắn gọn RAID 1 là gì trong hai câu.",
+    "Giải thích chi tiết giao thức TCP bằng ví dụ dễ hiểu",
+])
+def test_answer_style_words_do_not_make_knowledge_question_an_operation(style_router, query):
+    # "ngắn gọn", "trong hai câu"… nói CÁCH trả lời — trước đây khớp mô tả skill
+    # xuất dữ liệu trên ngưỡng khớp rõ (bench Phase 1: 6,6 điểm).
+    assert style_router.best_match_score(query) < STRONG_MATCH_SCORE
+    assert llm_engine.classify_intent(query)["type"] != "operation"
+
+
+def test_answer_style_words_do_not_hide_the_task(style_router):
+    names = _names(style_router.get_tools_for_query("tóm tắt ngắn gọn tình hình máy chủ"))
+    assert names[0] == "get_executive_standup_briefing"

@@ -1032,3 +1032,14 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 - Phase 1: `VoiceTurnTrace` trong `application/voice/voice_turn.py` — một trace cho mọi kênh (portal, HUD, robot, mic máy chủ) thay `realtime_voice_ws.VoiceRequestTrace` chỉ có ở portal (gỡ). Sửa nghĩa: TTFT cũ là "câu đầu được đọc", TTFA cũ tính cả câu xác nhận; nay tách `llm_first_token_ms`, `ttft_ms`, `ack_audio_ms`, `ttfa_answer_ms`, `agent_ms`, `stt_ms` (robot gom 3 nhánh STT về `_transcribe`), kích thước prompt, số tool. Bộ đệm vòng 500 lượt + `GET /api/v1/voice/metrics` (admin, p50/p95/p99 theo kiểu lượt). `scripts/bench_voice.py` thêm lệnh vận hành, số đo phía máy chủ, đồng thời (trong tiến trình), bộ nhớ 100 lượt.
 - Baseline: `docs/realtime/performance-baseline.md`. Nút thắt: lệnh vận hành TTFA-answer p50 15 s (P3), câu hỏi kiến thức bị định tuyến nhầm sang vận hành — lỗi lùi từ §54 (P2), prompt ~3.700 token (P2), TTS câu động 1–2 s (P4). Không rò bộ nhớ/task qua 100 lượt; không suy giảm tới 10 phiên.
 - TESTS: 415 pass (+ `test_voice_turn_trace.py`; test cũ dùng `VoiceRequestTrace` chuyển sang trace mới; test HUD cô lập khỏi cache đĩa).
+
+## 58. Realtime P2 — Voice Brain gọn + sửa định tuyến nhầm (2026-10-03)
+
+**STATUS:** XONG. Số đo: `docs/realtime/performance-before-after.md`.
+
+- `skill_router._task_text`: bỏ cụm chỉ CÁCH trả lời ("giải thích", "ngắn gọn", "chi tiết", "trong hai câu"…) trước khi chấm skill. Sửa lỗi lùi từ §54: câu hỏi kiến thức khớp mô tả skill xuất dữ liệu (6,6 điểm) → bị coi là lệnh vận hành.
+- `llm_engine.build_system_prompt(conversation=True)`: prompt trò chuyện (`_VOICE_SYSTEM_PROMPT` + tên, cá tính, nguồn gốc, quy tắc hỏi lại HUD, thời gian, xưng hô). Khối vận hành gom vào `_ops_prompt_blocks`. `stream_voice_response` dựng prompt SAU khi phân loại ý định. Vòng agent vẫn dùng prompt đầy đủ.
+- Trace thêm `system_chars`, `history_chars`, `tools_chars`, `brain`.
+- Kết quả: câu kiến thức có prompt 11,3k → 3,6k ký tự, 5 → 1 tool, không còn câu xác nhận thừa; TTFA-answer p50/p95 4,5/10,5 s → 3,9/6,1 s (một phần là nhiễu nhà cung cấp, xem đối chứng).
+- Ghi lại: `create_new_skill` (~1,1k ký tự) vẫn đưa cho câu hỏi kiến thức của admin — cần cân nhắc cùng yêu cầu "chủ động tạo skill".
+- TESTS: 421 pass (+ `test_voice_brain_prompt.py`, + 3 test định tuyến).
