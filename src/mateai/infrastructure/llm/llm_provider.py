@@ -484,6 +484,40 @@ class NineRouterLLMProvider(BaseLLMProvider):
         raise RuntimeError(f"Tất cả model {models} đều thất bại: {last_err}")
 
 
+def make_llm_client(
+    base_url: str,
+    api_key: str,
+    *,
+    timeout: float = 60.0,
+    max_retries: int = 0,
+    http_client: Any = None,
+) -> "openai.AsyncOpenAI":
+    """MỘT nơi dựng client OpenAI-compatible (RULE-011, realtime P6 / D7).
+
+    Trước đây llm_engine (2 chỗ), ai_delegation và màn hình chẩn đoán cấu hình
+    tự dựng client với tham số riêng — timeout / pool có thể lệch nhau.
+    """
+    kwargs: Dict[str, Any] = {"base_url": base_url, "api_key": api_key,
+                              "timeout": timeout, "max_retries": max_retries}
+    if http_client is not None:
+        kwargs["http_client"] = http_client
+    return openai.AsyncOpenAI(**kwargs)
+
+
+async def probe_model(client: Any, model: str, *, max_tokens: int = 20) -> str:
+    """Một lời gọi thử ĐÚNG model này (không thử model dự phòng, không ghi nhận
+    sức khoẻ model) — cho màn hình chẩn đoán cấu hình. Ném lỗi của API nếu hỏng."""
+    res = await client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": "1+1=? Trả lời số duy nhất."}],
+        max_tokens=max_tokens,
+        temperature=0.3,
+        stream=False,
+        extra_body={"thinking": {"budget_tokens": 0}},
+    )
+    return str(res.choices[0].message.content or "").strip()
+
+
 def complete_text_blocking(
     base_url: str,
     api_key: str,
@@ -503,8 +537,7 @@ def complete_text_blocking(
     Chỉ gọi từ thread KHÔNG có event loop đang chạy (xem plugin_manager.run_blocking).
     """
     async def _run() -> "tuple[str, str]":
-        client = openai.AsyncOpenAI(base_url=base_url, api_key=api_key or "sk-dummy",
-                                    timeout=timeout, max_retries=0)
+        client = make_llm_client(base_url, api_key or "sk-dummy", timeout=timeout)
         try:
             provider = NineRouterLLMProvider(client, models[0], models[1:])
             resp = await provider.complete(

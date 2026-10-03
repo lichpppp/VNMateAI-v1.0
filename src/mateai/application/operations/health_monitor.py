@@ -421,6 +421,7 @@ async def _external_api_worker(interval: float = 30.0) -> None:
                         "detail": str(net_exc)[:50],
                     }
 
+            llm_result["checked_at"] = time.time()  # autonomous_sentinel đọc độ mới
             SYSTEM_HEALTH_CACHE["services"]["llm_9router"] = llm_result
 
             # 2. Check Telegram Bot Gateway status

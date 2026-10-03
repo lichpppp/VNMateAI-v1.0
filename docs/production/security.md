@@ -8,7 +8,7 @@ Dành cho: quản trị viên IT và người đánh giá an ninh. Mọi điểm
 |---|---|---|
 | REST `/api/v1/*`, `/api/erp/*` | JWT người dùng (Bearer) | 401. Chỉ `login`, `config/assistant-name`, `health-dashboard` là công khai (`test_public_endpoints_locked`) |
 | `POST /api/v1/worknodes/heartbeat` | Enrollment secret của worker, hoặc JWT admin/manager — JWT người dùng thường KHÔNG đủ | 401 |
-| `/ws/portal-ui`, `/ws/voice`, `/ws/v1/voice-stream`, `/ws/topology` | JWT (`?token=`) | đóng 1008 / HTTP 403 (`test_websockets_require_login`) |
+| `/ws/portal-ui`, `/ws/v1/voice-stream`, `/ws/topology` | JWT (`?token=`) | đóng 1008 / HTTP 403 (`test_websockets_require_login`) |
 | `/ws/hud` | JWT; không có thì chỉ xem telemetry, **không** nhận lệnh thoại | `auth_required` (`test_hud_requires_login`) |
 | `/ws/client` (client agent) | Enrollment secret (gói tải agent) hoặc JWT admin/manager | đóng 1008 |
 | `/api/v1/xiaozhi/ws/<id>`, `/ws/audio-stream/<id>` (ESP32) | Token riêng của đúng `<id>` (khuyến nghị), hoặc token chung (tắt được bằng `security.require_per_device_token`), hoặc JWT admin/manager. **Không** có ngoại lệ theo IP LAN | HTTP 403 (`test_device_auth_requires_token`, `test_per_device_tokens`) |

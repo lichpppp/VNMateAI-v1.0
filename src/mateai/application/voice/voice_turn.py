@@ -336,6 +336,7 @@ async def _run_voice_turn(
     acked = False
     if pre_ack:
         intent = llm_engine.classify_intent(query)
+        turn["intent"] = intent  # stream_voice_response dùng lại, không phân loại lần hai
         if intent.get("ack_needed"):
             from mateai.infrastructure.tts.acoustic_ack_catalog import select_acoustic_ack
             from mateai.infrastructure.tts.acoustic_ack import get_acoustic_ack_audio

@@ -660,25 +660,16 @@ class LLMEngine:
         if self._client is None or snap != self._last_cfg_snapshot:
             cfg = settings.llm
             # --- Router client (unchanged) ---
-            self._client = AsyncOpenAI(
-                base_url=cfg.base_url,
-                api_key=cfg.api_key,
-                timeout=45.0,
-                max_retries=0,
-                http_client=_SHARED_HTTP_CLIENT,
-            )
+            from mateai.infrastructure.llm.llm_provider import make_llm_client
+            self._client = make_llm_client(cfg.base_url, cfg.api_key, timeout=45.0,
+                                           http_client=_SHARED_HTTP_CLIENT)
             # --- Direct client (Phase 91) ---
             if cfg.direct_url:
                 direct_url = cfg.direct_url.rstrip("/")
                 if not direct_url.endswith("/v1"):
                     direct_url = direct_url + "/v1"
-                self._direct_client = AsyncOpenAI(
-                    base_url=direct_url,
-                    api_key=cfg.direct_api_key or "lm-studio",
-                    timeout=45.0,
-                    max_retries=0,
-                    http_client=_SHARED_HTTP_CLIENT,
-                )
+                self._direct_client = make_llm_client(direct_url, cfg.direct_api_key or "lm-studio",
+                                                      timeout=45.0, http_client=_SHARED_HTTP_CLIENT)
                 logger.info(
                     "[Phase91] Direct-mode client built: %s (model=%s)",
                     direct_url,
@@ -1003,8 +994,8 @@ class LLMEngine:
         synthesised_this_turn: bool = False
         used_model: str = settings.llm.model_name
 
-        intent = self.classify_intent(query)
-        brain_role = "ops" if (intent.get("type") == "operation" or tools) else "controller"
+        # Có tool thì đã là bộ não vận hành — chỉ phân loại khi không có tool nào.
+        brain_role = "ops" if (tools or self.classify_intent(query).get("type") == "operation") else "controller"
 
         for round_idx in range(MAX_TOOL_ROUNDS):
             logger.debug("LLM round %d — messages=%d, tools=%d, brain_role=%s", round_idx, len(messages), len(tools), brain_role)
@@ -1303,8 +1294,9 @@ class LLMEngine:
 
         # Phase 45: Use shared connection pool for streaming (eliminates TLS handshake)
         await self._ensure_shared_client()
-        # Phase 94: Phân loại ý định qua Bộ Não Kiểm Soát (Supervisor)
-        intent = self.classify_intent(query)
+        # Phase 94: Phân loại ý định qua Bộ Não Kiểm Soát (Supervisor) — dùng lại
+        # kết quả voice_turn đã tính (realtime P6: trước đây 3 lần mỗi lượt).
+        intent = turn.get("intent") or self.classify_intent(query)
         logger.info("[TriBrain] Intent phân loại: %s (chuyển sang %s brain)", intent["type"], intent["target_brain"])
 
         from mateai.application.skills.skill_router import (

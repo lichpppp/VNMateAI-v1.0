@@ -73,7 +73,7 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     Kiểm tra kết nối mô hình LLM trực tiếp qua 9router bằng thư viện openai chuẩn.
     """
     import time
-    from openai import AsyncOpenAI
+    from mateai.infrastructure.llm.llm_provider import make_llm_client, probe_model
     from mateai.config.loader import settings
 
     cfg_llm = getattr(settings, "llm", None)
@@ -99,26 +99,12 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
         return {"success": False, "error": "Chưa chọn hoặc nhập tên mô hình."}
 
     start_time = time.perf_counter()
-    client = AsyncOpenAI(
-        base_url=base_url,
-        api_key=api_key,
-        timeout=15.0,
-        max_retries=0,
-    )
+    client = make_llm_client(base_url, api_key, timeout=15.0)
 
     primary_error = None
     try:
-        res = await client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": "1+1=? Trả lời số duy nhất."}],
-            max_tokens=20,
-            temperature=0.3,
-            stream=False,
-            extra_body={"thinking": {"budget_tokens": 0}},
-        )
+        reply = await probe_model(client, model_name)
         latency_ms = int((time.perf_counter() - start_time) * 1000)
-        content = res.choices[0].message.content or ""
-        reply = str(content).strip()
         return {
             "success": True,
             "fallback_triggered": False,
@@ -143,17 +129,8 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
             continue
         try:
             fb_start = time.perf_counter()
-            res = await client.chat.completions.create(
-                model=fb_model,
-                messages=[{"role": "user", "content": "1+1=? Trả lời số duy nhất."}],
-                max_tokens=20,
-                temperature=0.3,
-                stream=False,
-                extra_body={"thinking": {"budget_tokens": 0}},
-            )
+            reply = await probe_model(client, fb_model)
             latency_ms = int((time.perf_counter() - fb_start) * 1000)
-            content = res.choices[0].message.content or ""
-            reply = str(content).strip()
             return {
                 "success": True,
                 "fallback_triggered": True,

@@ -5,7 +5,7 @@ Các kênh WebSocket của máy chủ:
   - `/ws/audio-stream[/{id}]`, `/api/v1/xiaozhi/ws[/{id}]` — robot ESP32/Xiaozhi
     (token thiết bị bắt buộc; cũng là đường DUY NHẤT mở trên cổng 8000);
   - `/ws/portal-ui`, `/ws/topology`, `/ws/hud` — giao diện trình duyệt (JWT);
-  - `/ws/voice`, `/ws/v1/voice-stream` — thoại thời gian thực;
+  - `/ws/v1/voice-stream` — thoại thời gian thực;
   - `/ws/client` — LAN worker (enrollment secret).
 Xác thực: `mateai.interfaces.http.ws_auth`.
 """
@@ -348,11 +348,11 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
         logger.info("VN-MateAI HUD disconnected (%d remaining).", len(active_hud_websockets))
 
 
-@router.websocket("/ws/voice")
 @router.websocket("/ws/v1/voice-stream")
 async def websocket_realtime_voice_endpoint(websocket: WebSocket) -> None:
     """
-    Phase 1: Realtime Voice WebSocket Endpoint (/ws/voice & /ws/v1/voice-stream).
+    Phase 1: Realtime Voice WebSocket Endpoint (/ws/v1/voice-stream). Bí danh cũ
+    `/ws/voice` đã gỡ (realtime P6): không client nào trong repo dùng.
     Hỗ trợ Event Protocol chuẩn hóa, truyền âm thanh Binary Frame, và Barge-In Cancellation.
     """
     # Zero-Trust: bắt buộc JWT. Trước đây kết nối ẩn danh chạy dưới tên

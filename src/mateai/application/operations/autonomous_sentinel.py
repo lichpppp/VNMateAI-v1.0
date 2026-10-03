@@ -5,7 +5,7 @@ Phase 30 & Phase 43: Autonomous Sentinel Incident Monitor & Xiaozhi Desktop Robo
 
 Responsibilities:
   1. Incident Probing:
-     - Network Connectivity: Probes DNS/Gateway and 9router LLM proxy latency.
+     - Network Connectivity / hardware: đọc số đo của health_monitor (không tự đo lại).
      - Active Directory Sync: Detects stale AD synchronization, missing employees, or AD schema errors.
      - SQL & Database Health: Detects database lock contention (busy/locked errors), transaction timeouts.
      - Service Failures: Monitors HTTP status (e.g., 503 Service Unavailable, IIS crash).
@@ -21,15 +21,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
-import httpx
-import psutil
 
 from mateai.config.loader import settings
 from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
@@ -38,6 +34,10 @@ logger = logging.getLogger("mateai.application.operations.autonomous_sentinel")
 
 # CSDL đồng bộ AD: chủ là domain_sync (một nơi tính đường dẫn, kể cả VNMATEAI_HR_DB_PATH).
 from mateai.infrastructure.directory.domain_sync import DEFAULT_DB_PATH as _DB_PATH  # noqa: E402
+
+
+#: Số đo của health_monitor cũ hơn ngần này giây thì không dùng để báo sự cố.
+HEALTH_DATA_MAX_AGE_S = 90.0
 
 
 class AutonomousSentinel:
@@ -60,38 +60,25 @@ class AutonomousSentinel:
     # -----------------------------------------------------------------------
 
     async def check_network_health(self) -> Optional[Dict[str, Any]]:
-        """Probe local network, DNS, and 9router LLM proxy with IPv4 fallback."""
+        """Cổng LLM 9router không phản hồi -> sự cố.
+
+        Đọc kết quả đo của health_monitor (worker 30 s, cùng cách đo: GET
+        /models, thử lại 127.0.0.1). Trước đây sentinel tự đo lần thứ hai
+        (realtime P6, D6). Chưa có số đo mới thì không kết luận.
+        """
+        from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
+        llm = (SYSTEM_HEALTH_CACHE.get("services") or {}).get("llm_9router") or {}
+        if time.time() - float(llm.get("checked_at") or 0) > HEALTH_DATA_MAX_AGE_S:
+            return None
+        if llm.get("status") != "FAIL":
+            return None
         base_url = getattr(settings.llm, "base_url", "http://localhost:20128/v1")
-        clean_url = f"{base_url.rstrip('/')}/models"
-
-        # List candidate URLs: try primary, then fallback to IPv4 127.0.0.1 if localhost used
-        # (prevents Windows IPv6 [::1] connection refused blips when 9router binds to IPv4 only)
-        candidates = [clean_url]
-        if "localhost" in clean_url:
-            candidates.append(clean_url.replace("localhost", "127.0.0.1"))
-
-        last_status = None
-        last_error = None
-
-        for probe_url in candidates:
-            try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    resp = await client.get(probe_url)
-                    if resp.status_code < 500:
-                        # 200, 401, 403 all prove the 9router service is reachable and responsive
-                        return None
-                    last_status = resp.status_code
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ReadTimeout) as conn_err:
-                last_error = conn_err
-            except Exception as exc:
-                last_error = exc
-
-        # All candidate endpoints failed
-        if last_status and last_status >= 500:
+        detail = str(llm.get("detail") or "")
+        if detail.startswith("HTTP "):
             return {
                 "category": "network",
-                "title": f"9router Gateway Error {last_status}",
-                "message": f"Cổng proxy LLM 9router phản hồi mã lỗi {last_status}. Mạng AI có thể bị gián đoạn.",
+                "title": f"9router Gateway Error {detail[5:]}",
+                "message": f"Cổng proxy LLM 9router phản hồi mã lỗi {detail[5:]}. Mạng AI có thể bị gián đoạn.",
             }
         return {
             "category": "network",
@@ -165,11 +152,14 @@ class AutonomousSentinel:
         return None
 
     def check_hardware_limits(self) -> Optional[Dict[str, Any]]:
-        """Check for critical server resource exhaustion."""
+        """RAM / ổ đĩa ở mức nguy cấp -> sự cố. Số đo của health_monitor (worker 3 s)."""
         try:
-            ram = psutil.virtual_memory().percent
-            cpu = psutil.cpu_percent(interval=None)
-            disk = psutil.disk_usage(os.path.abspath(os.sep)).percent
+            from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
+            if time.time() - float(SYSTEM_HEALTH_CACHE.get("last_updated") or 0) > HEALTH_DATA_MAX_AGE_S:
+                return None
+            hw = SYSTEM_HEALTH_CACHE.get("hardware") or {}
+            ram = float(hw.get("ram_percent") or 0)
+            disk = float(hw.get("disk_percent") or 0)
 
             if ram > 95.0:
                 return {

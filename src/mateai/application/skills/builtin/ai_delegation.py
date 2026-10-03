@@ -17,7 +17,6 @@ import logging
 import time
 from typing import Any, Dict
 
-from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -158,14 +157,10 @@ async def delegate_to_specialist_async(
     # Phase 5: thử model + nhớ model hỏng do provider chung đảm nhận
     # (mateai.infrastructure.llm.llm_provider). Client tạo trong event loop hiện tại vì
     # delegate_to_specialist() đồng bộ chạy hàm này trong một loop riêng.
-    from mateai.infrastructure.llm.llm_provider import NineRouterLLMProvider
+    from mateai.infrastructure.llm.llm_provider import NineRouterLLMProvider, make_llm_client
     models = cfg["specialist_models"]
-    client = AsyncOpenAI(
-        base_url=base_url,
-        api_key=api_key,
-        timeout=180.0,  # phân tích chuyên sâu có thể lâu
-        max_retries=1,
-    )
+    # Phân tích chuyên sâu có thể lâu: timeout 180 s.
+    client = make_llm_client(base_url, api_key, timeout=180.0, max_retries=1)
     provider = NineRouterLLMProvider(client, model, models)
 
     analysis_text = None

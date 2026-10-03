@@ -1056,3 +1056,14 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 - **P6** — gỡ mã chết `llm_engine`: `chat`, `generate_response`, `process_voice_command(_sync)`, `report_action_execution`, `ask` (sync), `stream`, `stream_tokens`, `_get_client`, `_make_client` (kiểm caller tĩnh + chuỗi động: 0 caller ngoài nhau / test kiểm `hasattr`); `voice_controller._get_llm_response_*`. RULE-011 llm_engine 3 → 2 (baseline khoá lại).
 - TESTS: 441 pass + mọi `.mjs`. Chạy thật: REST (lệnh nhanh 1,8 s, kiến thức 3,4 s, vận hành 9 s có tool), HUD (lượt có tool, đọc đúng, hỏi lại).
 - Ghi nhận (không sửa, chờ chủ dự án): mỗi lần chạy tool ghi HAI dòng audit (cổng tool + RBAC note).
+
+## 60. Realtime P6 — dọn trùng lặp còn lại (2026-10-03)
+
+**STATUS:** XONG trừ hai mục ghi dưới.
+
+- **L1** — `classify_intent` một lần mỗi lượt: `voice_turn` lưu `turn["intent"]`, `stream_voice_response` dùng lại; `ask_async` chỉ phân loại khi không có tool.
+- **L3** — gỡ bí danh `/ws/voice` (0 client trong repo: web, client_agent, scripts, firmware; chỉ test). Test chuyển sang `/ws/v1/voice-stream`; chạy thật: `/ws/voice` bị từ chối, `/ws/v1/voice-stream` mở.
+- **D6** — `autonomous_sentinel` đọc số đo phần cứng + 9Router từ `health_monitor.SYSTEM_HEALTH_CACHE` (thêm `checked_at`); số đo cũ hơn 90 s không báo sự cố; bỏ import `psutil` / `httpx`.
+- **D7** — client OpenAI-compatible dựng ở MỘT nơi: `llm_provider.make_llm_client`; lời gọi thử model của màn hình chẩn đoán: `llm_provider.probe_model`. RULE-011 ngoài provider: llm_engine 2 → 0, ai_delegation 1 → 0, routers/config 3 → 0 (baseline `{}`). Chạy thật `/api/v1/llm/test`: model thật OK 3,9 s; model sai → tự chuyển model dự phòng.
+- **Chưa làm (ghi lại):** L5 phần còn lại — ba nhánh kết thúc câu nói của robot gửi chuỗi thông điệp khác nhau theo firmware (`asr_result` / `stt`+`session_id` / gói WAV); gộp tiếp cần thử trên robot thật (không có thiết bị lúc làm). P5 D4 — HUD dùng chung schema sự kiện `/ws/v1/voice-stream`: viết lại phần nhận sự kiện của `hud.js` (trang dùng hằng ngày) mà không có công cụ kiểm tra trình duyệt tự động — để làm khi có thể kiểm tra trên trình duyệt.
+- TESTS: 443 pass + `.mjs`.

@@ -120,10 +120,10 @@ def test_server_routes_registration():
     from mateai.interfaces.http.server import app
 
     routes = [route.path for route in app.routes]
-    assert "/ws/voice" in routes, "Thiếu endpoint /ws/voice trên FastAPI"
     assert "/ws/v1/voice-stream" in routes, "Thiếu endpoint /ws/v1/voice-stream trên FastAPI"
-    print("  ✅ Endpoint '/ws/voice' (Realtime Channel) đã được đăng ký.")
-    print("  ✅ Endpoint '/ws/v1/voice-stream' (Tương thích ngược) đã được đăng ký.")
+    # Bí danh /ws/voice đã gỡ (realtime P6) — không client nào dùng.
+    assert "/ws/voice" not in routes
+    print("  ✅ Endpoint '/ws/v1/voice-stream' đã được đăng ký.")
 
 
 def main():

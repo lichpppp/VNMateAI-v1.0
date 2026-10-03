@@ -35,7 +35,8 @@ def fake(monkeypatch):
             msg = SimpleNamespace(content=f"phân tích từ {kw['model']}")
             return SimpleNamespace(model=kw["model"], choices=[SimpleNamespace(message=msg)])
 
-    monkeypatch.setattr(deleg, "AsyncOpenAI", FakeAsyncOpenAI)
+    # Client dựng ở MỘT nơi (llm_provider.make_llm_client) — thay ở đó.
+    monkeypatch.setattr(lp.openai, "AsyncOpenAI", FakeAsyncOpenAI)
     monkeypatch.setattr(deleg, "_get_llm_config", lambda: {
         "base_url": "http://x/v1", "api_key": "k",
         "specialist_model": "spec-a", "specialist_models": ["spec-a", "spec-b"],
