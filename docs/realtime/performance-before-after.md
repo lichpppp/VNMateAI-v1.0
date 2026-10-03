@@ -4,6 +4,30 @@ Mỗi bước đo bằng cùng một lệnh với baseline (`scripts/bench_voice
 
 **Lưu ý về nhiễu:** độ trễ của nhà cung cấp LLM thay đổi đáng kể giữa hai lần chạy cách nhau vài chục phút. Đối chứng là **lệnh vận hành**, đường mà P2 không đổi (vẫn 11.333 ký tự prompt, 5 tool). Nó vẫn nhanh hơn ~30% ở lần chạy sau. Vì vậy chỉ kết luận ở những chỉ số đổi vượt mức đó, hoặc đổi theo cơ chế đo được trực tiếp (kích thước prompt, số tool, câu xác nhận).
 
+## Tổng kết: Phase 1 (baseline) → sau P2–P6
+
+Cùng lệnh đo (`bench_voice.py --ws wss://localhost --ws-rounds 20 --tts-rounds 10 --concurrency 1,5,10 --memory-turns 100`), cùng máy, cùng nhà cung cấp. `bench-2026-10-03-phase1.json` → `bench-2026-10-03-final.json`. ms, p50 / p95.
+
+| Loại lượt | Chỉ số | Baseline | Sau | Mục tiêu (prompt) | Đạt? |
+|---|---|---|---|---|---|
+| Mọi lượt | sự kiện đầu (client) | 2,5 / 3,4 | ≈ như cũ | < 300 | ✅ (cả trước) |
+| Lệnh vận hành | câu xác nhận từ cache | 1,0 | 1,0 | < 300–500 | ✅ (cả trước) |
+| Lệnh nhanh | tiếng câu trả lời | 53 / 1.462 | 52 / 1.694 | < 800–1.500 (động) | ✅ p50; p95 là câu có giờ phút phải tổng hợp TTS |
+| Câu trò chuyện | prompt (ký tự) | 11.298 | **3.624** | — | −68% |
+| | tool đưa cho model | 5 | 1 | — | |
+| | LLM-1st | 2.503 / 8.134 | 2.509 / 8.156 | < 500–800 "nếu provider cho phép" | ❌ — độ trễ cố định của 9Router/model |
+| | **TTFA-answer** | 4.531 / 10.451 | **4.399 / 10.410** | < 800–1.500 "nếu provider/TTS cho phép" | ❌ |
+| Lệnh vận hành | vòng agent | 8.248 / 12.081 | **3.915 / 7.267** | — | −53% p50 |
+| | **TTFA-answer** | 15.018 / 48.972 | **12.752 / 40.703** | — | −15% p50 |
+| Đồng thời 5 | TTFA-answer | 4.813 / 8.383 | 3.798 / 7.752 | — | lỗi 0 |
+| Đồng thời 10 | TTFA-answer | 5.353 / 6.579 | 4.670 / 5.317 | — | lỗi 0 |
+| 100 lượt liên tiếp | RSS / task | 133,7 → 132,3 MB; 1 → 1 | 132,1 → 132,0 MB; 1 → 1 | không rò | ✅ |
+
+**Đọc kết quả cho đúng:**
+- Phần do máy chủ quyết định đã nhỏ: sự kiện đầu ~3 ms, câu xác nhận ~1 ms, tách câu < 1 ms, lệnh nhanh có cache ~50 ms; lệnh vận hành bớt một lần gọi LLM (đo trực tiếp: 18/18 lượt có tool dùng lại lời gọi đã stream).
+- Phần còn lại của TTFA gần như toàn bộ là **nhà cung cấp**: LLM-1st p50 2,5 s (câu trò chuyện) / 4,5 s (lệnh vận hành, phân bố hai đỉnh ~4 s và ~10 s tuỳ model), TTS 9Router 1,3–2,2 s mỗi câu. Mục tiêu < 1,5 s cho tiếng động đầu không đạt được với nhà cung cấp hiện tại; cần model / TTS nhanh hơn (vd model cục bộ qua `routing_mode=direct`, TTS stream) — ngoài phạm vi refactor.
+- **2/20 lượt vận hành treo 40,7 s** rồi trả câu "hệ thống quá tải": mọi model đều không mở được stream; chuỗi thử model dự phòng (5 s / model) quá dài. Ghi ở production-readiness.
+
 ## P2 — Voice Brain gọn + sửa định tuyến nhầm (2026-10-03)
 
 Số gốc: `bench-2026-10-03-phase1.json` → `bench-2026-10-03-p2.json`.

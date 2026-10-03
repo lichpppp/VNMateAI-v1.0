@@ -62,3 +62,12 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] **Tách tiến trình api / realtime / worker + Redis** (state chia sẻ: hàng đợi duyệt, phiên thoại, WebSocket): chưa làm — cần Redis và quyết định có chạy nhiều tiến trình không. Hiện một tiến trình là đủ cho một văn phòng; khôi phục hàng đợi duyệt sau khởi động lại đã có.
 - [ ] **Container**: chưa làm — ứng dụng dùng COM/pywin32, micro, điều khiển màn hình Windows nên không chạy được trong container Linux; nếu cần, chỉ tách phần API thuần.
 - [ ] `skills/registry.json` và hai skill do AI tạo (`skills/auto_play_music.py`, `skills/thong_ke_lo_xsmb.py`) cùng `get_lotto.py`, `generate_pdf.py` ở gốc repo là tệp sinh trong lúc chạy / của bạn — **chưa commit, không đụng tới**. Xem lại và tự quyết có đưa vào git không.
+
+## Thoại realtime (2026-10-03, sau P2–P6)
+
+- [ ] **Nghe thử trên trình duyệt thật** portal + HUD sau khi đổi sang bộ phát chung `web/voice-audio-queue.js` (máy làm việc không có công cụ tự động trình duyệt — đã kiểm bằng test Node + file tĩnh + máy chủ, chưa nghe tai): một câu dài nhiều câu (phát đúng thứ tự, liền mạch), ngắt lời giữa chừng (không còn tiếng của lượt cũ), HUD vòng hội thoại hỏi lại / 30 s tạm biệt. Nhấn Ctrl+F5 một lần để nạp `hud.js?v=52.0`, `app.js?v=43.0`.
+- [ ] **Quyết định: `create_new_skill` cho câu hỏi kiến thức của admin.** Hiện mọi câu trò chuyện của admin không khớp skill rõ đều được đưa thêm công cụ này (~1.100 ký tự schema mỗi lượt) để trợ lý chủ động tạo skill như anh yêu cầu. Bỏ đi thì câu hỏi kiến thức nhẹ hơn nhưng trợ lý chỉ tạo skill khi câu bị phân loại là lệnh vận hành.
+- [ ] **Audit ghi hai dòng cho mỗi lần chạy tool** (một từ cổng tool, một kèm ghi chú RBAC, cùng thời điểm). Không sửa vì thuộc phần bảo mật / audit bất biến — quyết định có gộp không.
+- [ ] **HUD dùng chung schema sự kiện với portal (D4)** — chưa làm: cần viết lại phần nhận sự kiện của `hud.js` và kiểm trên trình duyệt.
+- [ ] **Robot: gộp ba nhánh kết thúc câu nói (L5)** — cần thử trên robot thật (mỗi nhánh gửi thông điệp khác nhau theo firmware). Đồng thời đo `stt_ms` của robot (đã có trong trace, chưa có số vì không có thiết bị lúc đo).
+- [ ] **Đồng thời 50 / 100 phiên** chưa đo: tốn hạn mức 9Router và sẽ đo giới hạn nhà cung cấp; qua WebSocket cần N tài khoản (mỗi người một phiên `/ws/v1/voice-stream`).

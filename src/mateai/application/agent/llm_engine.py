@@ -1267,15 +1267,16 @@ class LLMEngine:
           1. Opens a streaming connection to 9router (stream=True).
           2. Buffers incoming tokens and yields complete sentences as soon as
              a sentence-ending punctuation is encountered.
-          3. If the stream contains tool_calls, cancels streaming and falls back
-             to the full ask_async() agentic loop, yielding the final reply as
-             a single sentence.
+          3. If the stream contains tool_calls, reads the complete calls from the
+             stream and runs them in ask_async() (first round prefilled, only the
+             tools offered here) — realtime P3; the agent reply is yielded
+             sentence by sentence.
 
         Yields:
             Complete sentences (str), TTS-sanitised, ready for audio synthesis.
 
-        NOTE: This method does NOT affect ask_async(), chat(), or any other
-        existing callers. It is exclusively used by VoiceController.
+        Caller: voice_turn.process_voice_turn (every voice channel: portal, HUD,
+        robot, server mic, REST /api/v1/voice-command).
         """
         # Phase 3: dùng chung cho mọi kênh voice (core/voice_turn.py).
         #   session_id — khoá lịch sử trong memory_manager (mặc định source_device).

@@ -45,3 +45,24 @@ Phase 0 (chỉ đọc), 2026-10-03. Đánh giá theo **trách nhiệm, trạng t
 | `llm_engine.stream`, `stream_tokens` | chỉ `tests/test_phase2_llm_streaming.py` | Test-only (lõi dùng `provider.stream`) |
 
 Đã gỡ ở các phase trước (không còn tồn tại, prompt có nhắc): `sentence_streamer.py`, `streaming_tts_pipeline.py`, `core/connection_pool.py` (nay `infra/http/connection_pool.py`), nhánh gTTS, `AudioEngine.text_to_speech_*`, `_sanitise_for_tts` / `clean_text_for_tts`, `_call_llm_router`.
+
+
+## 5. Trạng thái sau P2–P6 (chạy lại kiểm tra 2026-10-03)
+
+Kiểm lại bằng tìm caller tĩnh trong `src/`, `web/`, `skills/`, `client_agent/`, `scripts/`, `tests/` + chạy thật.
+
+| Mục | Trạng thái | Bằng chứng |
+|---|---|---|
+| D1 REST → `ask_async` | **ĐÃ GỘP** — REST chạy `process_voice_turn` | `routers/voice.py` không còn gọi `ask_async`; `ask_async` chỉ còn: nhánh tool của `stream_voice_response`, Telegram (kênh chữ, không phải thoại) |
+| D2 mic → `process_voice_command_sync` | **ĐÃ GỠ** | hàm không còn tồn tại; lượt rỗng → câu xin lỗi cố định |
+| D3 chọn tool hai lần | **ĐÃ GỘP** | `ask_async(first_tool_calls=…)`; đo: 1 lần gọi LLM với 7 tool thay vì 2 lần (một lần 82 tool) |
+| D4 hai schema sự kiện (portal / HUD) | **CÒN** | cần viết lại phần nhận sự kiện của `hud.js` + kiểm trên trình duyệt — xem owner-todo |
+| D5 hai bộ phát audio JS | **ĐÃ GỘP** — `web/voice-audio-queue.js` | `StreamingAudioQueue`, `HudAudioQueue` không còn; test `tests/test_voice_audio_queue.mjs` |
+| D6 sentinel tự đo lại | **ĐÃ GỘP** | sentinel đọc `SYSTEM_HEALTH_CACHE`; không còn import psutil/httpx |
+| D7 dựng client LLM nhiều nơi | **ĐÃ GỘP** — `llm_provider.make_llm_client` | RULE-011 baseline `{}` |
+| L1 `classify_intent` 3 lần | **ĐÃ GỘP** (1 lần/lượt thoại) | `turn["intent"]` |
+| L2 hàng đợi base64 HUD | **GIỮ** | còn dùng cho REST dự phòng của HUD (`audio_base64`) |
+| L3 `/ws/voice` | **ĐÃ GỠ** | chạy thật: bị từ chối |
+| L4 `/ws/audio-stream` | **GIỮ** | firmware cũ |
+| L5 STT robot 3 nhánh | **MỘT PHẦN** — STT + đo thời gian gộp ở `_transcribe` (Phase 1); 3 nhánh gửi thông điệp khác nhau theo firmware, gộp tiếp cần robot thật |
+| §4 mã chết `llm_engine` / `voice_controller` | **ĐÃ GỠ** | `chat`, `generate_response`, `process_voice_command(_sync)`, `report_action_execution`, `ask`, `stream`, `stream_tokens`, `_get_client`, `_make_client`, `_get_llm_response_*` |

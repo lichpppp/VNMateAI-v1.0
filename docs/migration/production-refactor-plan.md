@@ -1067,3 +1067,13 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 - **D7** — client OpenAI-compatible dựng ở MỘT nơi: `llm_provider.make_llm_client`; lời gọi thử model của màn hình chẩn đoán: `llm_provider.probe_model`. RULE-011 ngoài provider: llm_engine 2 → 0, ai_delegation 1 → 0, routers/config 3 → 0 (baseline `{}`). Chạy thật `/api/v1/llm/test`: model thật OK 3,9 s; model sai → tự chuyển model dự phòng.
 - **Chưa làm (ghi lại):** L5 phần còn lại — ba nhánh kết thúc câu nói của robot gửi chuỗi thông điệp khác nhau theo firmware (`asr_result` / `stt`+`session_id` / gói WAV); gộp tiếp cần thử trên robot thật (không có thiết bị lúc làm). P5 D4 — HUD dùng chung schema sự kiện `/ws/v1/voice-stream`: viết lại phần nhận sự kiện của `hud.js` (trang dùng hằng ngày) mà không có công cụ kiểm tra trình duyệt tự động — để làm khi có thể kiểm tra trên trình duyệt.
 - TESTS: 443 pass + `.mjs`.
+
+## 61. Realtime P7 — báo cáo cuối (2026-10-03)
+
+**STATUS:** XONG.
+
+- Benchmark tổng kết cùng lệnh với baseline: `docs/realtime/bench-2026-10-03-final.json`; bảng tổng kết + đối chiếu mục tiêu của prompt: `docs/realtime/performance-before-after.md`.
+- `docs/production/production-readiness.md` (đường thoại): đã kiểm chứng / rủi ro còn lại (R1 chuỗi thử model dự phòng 40 s, R2 độ trễ nhà cung cấp, R3 bộ phát trình duyệt chưa nghe tai, …).
+- Kiểm tra trùng lặp chạy lại: `docs/realtime/duplicate-components.md` §5 (D1, D2, D3, D5, D6, D7, L1, L3, mã chết: đã gộp/gỡ; D4, L5: còn, có lý do).
+- Việc của chủ dự án: `docs/production/owner-todo.md` § "Thoại realtime".
+- TESTS: 443 pytest + mọi `.mjs`.
