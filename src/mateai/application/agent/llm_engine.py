@@ -1458,6 +1458,12 @@ class LLMEngine:
         reasoning_buffer = ""
         has_tool_calls = False
         has_yielded_any_sentence = False
+        # Đã có câu xác nhận đầu lượt (lệnh vận hành): giữ lại câu ĐẦU của model.
+        # Nếu ngay sau đó model gọi tool thì câu đó chỉ là lời dẫn ("Em đang tiến
+        # hành thu thập…") lặp ý với câu xác nhận — bỏ đi. Câu thứ hai tới mà
+        # chưa có tool thì phát cả hai như bình thường.
+        held_sentences: List[str] = []
+        hold_first = bool(turn.get("acked"))
 
         # Lượt mới -> xoá suy nghĩ của lượt cũ. Không xoá thì lượt không có
         # suy nghĩ sẽ hiện lại suy nghĩ của lượt trước — tức bịa.
@@ -1495,8 +1501,14 @@ class LLMEngine:
                         "[LLMEngine] Phát hiện tool call %s sau %.2fs → phát ack ngay, chuyển sang vòng lặp agentic.",
                         detected_tools, _wasted,
                     )
-                    # Phát câu xác nhận ngay lập tức (chỉ khi chưa nói gì)
-                    if tool_ack and not has_yielded_any_sentence:
+                    if held_sentences:
+                        logger.info("[LLMEngine] Bỏ lời dẫn trước khi gọi tool (đã có câu xác nhận): %s",
+                                    held_sentences[0][:80])
+                        held_sentences.clear()
+                    # Phát câu xác nhận ngay lập tức (chỉ khi chưa nói gì và
+                    # lượt này chưa có câu xác nhận / lời đệm nào).
+                    if tool_ack and not has_yielded_any_sentence and not turn.get("acked"):
+                        turn["acked"] = True
                         import random as _rand
                         _ack = _rand.choice([
                             "Dạ, để em kiểm tra thông tin đó cho anh nhé.",
@@ -1525,10 +1537,16 @@ class LLMEngine:
 
                 for sentence in speech_buf.add_token(token):
                     clean = sanitise_for_tts(sentence)
-                    if clean:
+                    if not clean:
+                        continue
+                    if hold_first and not held_sentences and not has_yielded_any_sentence:
+                        held_sentences.append(clean)
+                        continue
+                    for out in (*held_sentences, clean):
                         has_yielded_any_sentence = True
                         _publish_reasoning()
-                        yield clean
+                        yield out
+                    held_sentences.clear()
 
         except Exception as exc:
             logger.error("[LLMEngine] Streaming error mid-response (ngắt an toàn): %s", exc)
@@ -1547,6 +1565,11 @@ class LLMEngine:
 
         # Xả phần còn lại (câu cuối / câu ngắn đang chờ gộp)
         if not has_tool_calls:
+            for held in held_sentences:
+                has_yielded_any_sentence = True
+                _publish_reasoning()
+                yield held
+            held_sentences.clear()
             for rest in speech_buf.flush():
                 clean = sanitise_for_tts(rest)
                 if clean:

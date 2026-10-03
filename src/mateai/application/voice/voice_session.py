@@ -225,12 +225,41 @@ def looks_like_question(text: str) -> bool:
     s = str(text or "").strip()
     if not s:
         return False
+    # Chỉ xét CÂU CUỐI: "Em đã kiểm tra xong máy chủ. Anh muốn xem ổ nào ạ?" là
+    # câu hỏi — xét cả đoạn thì phần "đã kiểm tra" khớp mẫu thông báo.
+    s = re.split(r"(?<=[.!?…])\s+", s)[-1]
     if _STATEMENT_WITH_Q.search(s):
         return False
     return any(m in s for m in _QUESTION_MARKS)
 
 
+#: Câu trả lời "không còn yêu cầu nào" khi trợ lý hỏi "Anh còn cần gì nữa không?".
+_DONE_PHRASES = frozenset({
+    "không", "ko", "k", "không có", "không có gì", "không còn", "không còn gì", "không cần",
+    "không cần đâu", "hết", "xong", "vậy thôi", "thôi", "dừng", "dừng lại", "hủy", "huỷ",
+    "bỏ qua", "tạm dừng", "đủ", "cảm ơn", "cám ơn", "tạm biệt", "bye", "stop", "cancel",
+    "never mind", "no", "nope", "không có gì cả", "không có yêu cầu", "không có yêu cầu gì",
+})
+#: Từ lễ phép / đệm — bỏ đi trước khi so (vd "dạ không có gì nữa đâu em").
+_POLITE = frozenset({
+    "dạ", "vâng", "à", "ạ", "a", "em", "anh", "chị", "nhé", "nha", "nhá", "nhe", "đâu", "nữa",
+    "rồi", "được", "ok", "oke", "okay", "thế", "vậy", "là", "đã", "cả", "lắm", "nhiều",
+})
+
+
 def is_stop_reply(text: str) -> bool:
-    """Admin muốn dừng hội thoại."""
-    s = str(text or "").strip().lower()
-    return any(w in s for w in _STOPWORDS)
+    """
+    Câu NGẮN chỉ nói "không còn gì / thôi / cảm ơn / tạm biệt" — admin muốn kết
+    thúc hội thoại. Chỉ dùng khi trợ lý đang chờ trả lời.
+
+    So theo cả câu (sau khi bỏ từ lễ phép), không theo chuỗi con: trước đây
+    "không cần" nằm trong một câu hỏi thật ("có cần … không cần …") cũng bị coi
+    là dừng; còn "dạ không có gì nữa đâu em" thì không được nhận ra.
+    """
+    words = re.findall(r"\w+", str(text or "").lower())
+    if not words or len(words) > 8:
+        return False
+    core = " ".join(w for w in words if w not in _POLITE)
+    if not core:
+        return False
+    return core in _DONE_PHRASES or core in {p for p in _STOPWORDS}

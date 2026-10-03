@@ -1118,7 +1118,12 @@
     return text;
   }
 
-  const HUD_CARD_DURATION_MS = 10000;
+  /** Thời gian giữ popup SAU KHI đọc xong: tối thiểu 10s, dài thì theo độ dài
+   *  nội dung (~16 ký tự/giây), tối đa 60s. Trong lúc trợ lý còn đang đọc thì
+   *  không đếm — trước đây cố định 10s nên popup tắt khi còn đang đọc dở. */
+  const HUD_CARD_MIN_MS = 10000;
+  const HUD_CARD_MAX_MS = 60000;
+  let hudCardDurationMs = HUD_CARD_MIN_MS;
   let hudCountdownInterval = null;
   let hudCardRemainingSec = 10;
   let hudCardIsPinned = false;
@@ -1185,7 +1190,8 @@
 
     cardEl.classList.remove('hidden');
 
-    // Reset pin status and restart 10s countdown whenever a new request/response appears
+    hudCardDurationMs = Math.min(HUD_CARD_MAX_MS, Math.max(HUD_CARD_MIN_MS, displayText.length * 60));
+    // Reset pin status and restart countdown whenever a new request/response appears
     hudCardIsPinned = false;
     if (pinBtn) pinBtn.textContent = '⏸ TẠM DỪNG';
     startHudCardCountdown();
@@ -1193,7 +1199,7 @@
 
   function startHudCardCountdown() {
     clearHudCardTimers();
-    hudCardRemainingSec = 10;
+    hudCardRemainingSec = Math.ceil(hudCardDurationMs / 1000);
     hudCardStartTime = Date.now();
     updateHudCountdownUI(1);
 
@@ -1205,11 +1211,18 @@
       if (hudCardIsPinned) {
         return; // Paused while pinned
       }
+      if (hudIsSpeaking()) {
+        // Đang đọc: chưa đếm, bắt đầu đếm từ lúc đọc xong.
+        hudCardStartTime = Date.now();
+        hudCardRemainingSec = Math.ceil(hudCardDurationMs / 1000);
+        updateHudCountdownUI(1, true);
+        return;
+      }
 
       const elapsed = Date.now() - hudCardStartTime;
-      const leftMs = Math.max(0, HUD_CARD_DURATION_MS - elapsed);
+      const leftMs = Math.max(0, hudCardDurationMs - elapsed);
       hudCardRemainingSec = Math.ceil(leftMs / 1000);
-      const ratio = leftMs / HUD_CARD_DURATION_MS;
+      const ratio = leftMs / hudCardDurationMs;
 
       updateHudCountdownUI(ratio);
 
@@ -1220,11 +1233,14 @@
     }, 100);
   }
 
-  function updateHudCountdownUI(ratio = 1) {
+  function updateHudCountdownUI(ratio = 1, speaking = false) {
     const badgeEl = document.getElementById('hud-countdown-badge');
     const progressEl = document.getElementById('hud-display-progress');
     if (badgeEl) {
-      if (hudCardIsPinned) {
+      if (speaking && !hudCardIsPinned) {
+        badgeEl.textContent = '🔊 Đang đọc...';
+        badgeEl.className = 'px-2.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 border border-emerald-400/60 text-emerald-300 font-bold';
+      } else if (hudCardIsPinned) {
         badgeEl.textContent = '📌 ĐÃ GHIM';
         badgeEl.className = 'px-2.5 py-0.5 rounded text-[10px] font-mono bg-amber-500/30 border border-amber-400 text-amber-200 font-bold';
       } else {
@@ -1319,6 +1335,14 @@
    * mới mở mic, nếu không sẽ thu âm luôn giọng Ly Ly và nhận dạng nhầm.
    */
   function handleVoiceState(packet) {
+    if (packet.closed) {
+      // Máy chủ đã kết thúc hội thoại (admin nói không còn yêu cầu, hoặc đã
+      // chào sau 30s im lặng). Lời chào có thể còn đang phát — để nó phát hết.
+      hudResetConversation();
+      hudStopListeningForTurn();
+      if (!hudIsSpeaking()) setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+      return;
+    }
     if (packet.expecting_reply && packet.question) {
       hudExpectReply(packet.question);
     } else {
@@ -1338,6 +1362,7 @@
     }
     lastSpokenText = text;
     lastSpokenTime = now;
+    hudRememberSpoken(text);
 
     // Phân chia nguồn phát âm thanh rõ ràng:
     // 1. Nếu lệnh xuất phát từ Robot (esp32, xiaozhi, robot), Web dashboard hoặc nguồn khác (không phải hud):
@@ -1352,6 +1377,17 @@
           silent: true,
           spokenUpTo: text ? text.length : 0,
         });
+      }
+      return;
+    }
+
+    if (packet.has_audio && !audioB64) {
+      // Tiếng của câu này tới ngay sau bằng khung nhị phân (HudAudioQueue).
+      // Trước đây gói chữ không có `audio_base64` bị coi là "không có tiếng":
+      // hiện cảnh báo, nhảy về idle rồi lại "đang nói" khi tiếng tới.
+      if (packet.display_text && text) {
+        const at = packet.display_text.indexOf(text);
+        showHudDisplayCard(packet.display_text, '', { spokenUpTo: at >= 0 ? at + text.length : 0 });
       }
       return;
     }
@@ -1678,17 +1714,25 @@ function hudAttachRecognitionHandlers(rec) {
     hudFinalTranscript = '';
 
     if (recognizedText && recognizedText.length >= 2) {
+    if (hudIsEcho(recognizedText)) {
+    // Mic thu lại chính lời trợ lý vừa đọc — không phải lệnh của admin.
+    appendSystemLog(`Bỏ qua tiếng vọng của trợ lý: "${recognizedText.slice(0, 60)}"`, 'VOICE');
+    if (hudAwaitingReply) hudKeepListening();
+    return;
+    }
+    if (hudAwaitingReply && hudIsDoneReply(recognizedText)) {
+    hudEndConversationByUser(recognizedText);
+    return;
+    }
     appendSystemLog(`Recognized speech: "${recognizedText}". Routing to AI Engine...`, 'VOICE');
-    // Admin đã đáp -> hết lượt chờ, vòng lặp dừng ở đây.
+    // Admin đã đáp -> hết lượt chờ; câu trả lời mới sẽ mở lại vòng hội thoại.
     hudResetConversation();
     sendHudVoiceCommand(recognizedText);
     } else {
-    // Không nghe rõ. Nếu đang chờ trả lời thì vẫn để vòng lặp hẹn hỏi lại,
-    // đừng đóng — im lặng một nhịp không có nghĩa admin muốn dừng.
+    // Không nghe thấy gì (Chrome tự dừng sau vài giây im lặng). Đang chờ trả
+    // lời thì mở lại mic cho tới hết 30 giây — chưa đóng.
     if (hudAwaitingReply) {
-    setHudState('listening', 'Em chưa nghe rõ, anh/chị nói lại giúp em nhé.');
-    appendSystemLog('Không nhận dạng được lời nói — vẫn đang chờ trả lời.', 'WARNING');
-    hudScheduleReask();
+    hudKeepListening();
     } else {
     setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
     }
@@ -1847,94 +1891,161 @@ function hudStartMicAfterRegrant() {
   });
 }
 
-/** Trạng thái vòng lặp hội thoại. */
+/* ── Vòng hội thoại HUD ─────────────────────────────────────────────────────
+ *
+ * lắng nghe → trả lời → hỏi lại ("Anh còn cần em hỗ trợ gì nữa không ạ?", do
+ * máy chủ đọc) → chờ câu tiếp → trả lời tiếp …
+ *   - Admin nói "không / thôi / hết rồi / cảm ơn" → đóng lắng nghe NGAY.
+ *   - 30 giây không nghe thấy gì → máy chủ chào "Nếu anh không có yêu cầu nào
+ *     khác thì tạm biệt…" rồi đóng.
+ * Mic chỉ mở khi trợ lý ĐÃ ĐỌC XONG. Trước đây mở ngay khi máy chủ báo xong,
+ * lúc loa còn đang đọc: mic thu lại giọng trợ lý và gửi như lệnh mới — trợ lý
+ * trả lời chính nó (chào hai lần, "em đã xử lý" hai lần). Lời mic nghe được mà
+ * trùng lời trợ lý vừa đọc cũng bị bỏ qua (tiếng vọng).
+ */
 let hudAwaitingReply = false;
 let hudPendingQuestion = '';
-let hudReaskCount = 0;
-let hudReaskTimer = null;
-let hudWaitingSince = 0;
+let hudReplyDeadline = 0;
+let hudReplyTimer = null;
+let hudMicOpenTimer = null;
 
-/** Đợi bao lâu thì hỏi lại (ms), và hỏi lại tối đa mấy lần. */
-const HUD_REASK_DELAY_MS = 12000;
-const HUD_MAX_REASKS = 2;
+/** Chờ phản hồi bao lâu (ms, tính từ lúc trợ lý hỏi xong) rồi chào và đóng. */
+const HUD_REPLY_WAIT_MS = 30000;
 const HUD_SESSION_ID = 'hud';
 
-/** Dừng hẳn vòng lặp, quay về trạng thái chờ lệnh mới. */
+/** Câu "không còn yêu cầu" — cùng quy tắc với `is_stop_reply` phía máy chủ. */
+const HUD_DONE_PHRASES = new Set([
+  'không', 'ko', 'k', 'không có', 'không có gì', 'không còn', 'không còn gì', 'không cần',
+  'không cần đâu', 'hết', 'xong', 'vậy thôi', 'thôi', 'dừng', 'dừng lại', 'hủy', 'huỷ',
+  'bỏ qua', 'tạm dừng', 'đủ', 'cảm ơn', 'cám ơn', 'tạm biệt', 'bye', 'stop', 'cancel',
+  'never mind', 'no', 'nope', 'không có gì cả', 'không có yêu cầu', 'không có yêu cầu gì',
+  'thôi vậy', 'không cần nữa',
+]);
+const HUD_POLITE = new Set([
+  'dạ', 'vâng', 'à', 'ạ', 'a', 'em', 'anh', 'chị', 'nhé', 'nha', 'nhá', 'nhe', 'đâu', 'nữa',
+  'rồi', 'được', 'ok', 'oke', 'okay', 'thế', 'vậy', 'là', 'đã', 'cả', 'lắm', 'nhiều',
+]);
+
+function hudIsDoneReply(text) {
+  const words = String(text || '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+  if (!words.length || words.length > 8) return false;
+  const core = words.filter((w) => !HUD_POLITE.has(w)).join(' ');
+  return !!core && HUD_DONE_PHRASES.has(core);
+}
+
+/** Trợ lý còn đang phát tiếng (khung nhị phân hoặc hàng đợi base64). */
+function hudIsSpeaking() {
+  return !!(isAudioPlaying
+    || (_hudAudioQueue && _hudAudioQueue.isPlaying)
+    || (hudSpeechQueue && hudSpeechQueue.length)
+    || hudSpeechDraining);
+}
+
+/** Lời trợ lý đọc trong 60s gần nhất — để nhận ra tiếng vọng từ loa. */
+let hudRecentSpoken = [];
+function hudRememberSpoken(text) {
+  if (!text) return;
+  hudRecentSpoken.push({ text: String(text), at: Date.now() });
+  if (hudRecentSpoken.length > 20) hudRecentSpoken.shift();
+}
+function hudNormalize(s) {
+  return String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function hudIsEcho(text) {
+  const t = hudNormalize(text);
+  const words = t.split(' ').filter(Boolean);
+  if (words.length < 3) return false;
+  const now = Date.now();
+  return hudRecentSpoken.some((r) => {
+    if (now - r.at > 60000) return false;
+    const said = hudNormalize(r.text);
+    if (said.includes(t)) return true;
+    const saidWords = new Set(said.split(' '));
+    return words.filter((w) => saidWords.has(w)).length / words.length >= 0.8;
+  });
+}
+
+/** Dừng hẳn vòng hội thoại, quay về chờ lệnh mới. */
 function hudResetConversation() {
   hudAwaitingReply = false;
   hudPendingQuestion = '';
-  hudReaskCount = 0;
-  hudWaitingSince = 0;
-  if (hudReaskTimer) { clearTimeout(hudReaskTimer); hudReaskTimer = null; }
+  hudReplyDeadline = 0;
+  if (hudReplyTimer) { clearTimeout(hudReplyTimer); hudReplyTimer = null; }
+  if (hudMicOpenTimer) { clearTimeout(hudMicOpenTimer); hudMicOpenTimer = null; }
 }
 
 /**
- * HUD vừa nhận câu hỏi của Ly Ly — bật vòng lặp chờ admin.
- * `question` rỗng nghĩa là Ly Ly đã trả lời xong, không cần chờ.
+ * Máy chủ báo trợ lý vừa hỏi (`question`) — chờ admin trả lời.
+ * `question` rỗng nghĩa là không chờ.
  */
 function hudExpectReply(question) {
   hudResetConversation();
-
   if (!question) {
     hudStopListeningForTurn();
     return;
   }
-
   hudAwaitingReply = true;
   hudPendingQuestion = question;
-  hudWaitingSince = Date.now();
-  setHudState('listening', 'Em đang chờ anh/chị trả lời...');
-
-  // Mở mic ngay: admin nói xong thì Ly Ly đáp ngay, không phải chờ bấm.
-  hudOpenMicForFollowup();
-  hudScheduleReask();
+  hudOpenMicWhenQuiet();
 }
 
-/**
- * Hẹn giờ hỏi lại. Không dùng timer lặp — mỗi lần hẹn chỉ kiểm tra một lần
- * rồi tự quyết định, tránh phải huỷ/hẹn lại timer khi trạng thái đổi.
- */
-function hudScheduleReask() {
-  if (hudReaskTimer) { clearTimeout(hudReaskTimer); hudReaskTimer = null; }
+/** Mở mic khi trợ lý đã đọc xong; 30 giây chờ tính từ lúc đó. */
+function hudOpenMicWhenQuiet() {
+  if (hudMicOpenTimer) { clearTimeout(hudMicOpenTimer); hudMicOpenTimer = null; }
   if (!hudAwaitingReply) return;
-
-  hudReaskTimer = setTimeout(async () => {
+  if (hudIsSpeaking()) {
+    hudMicOpenTimer = setTimeout(hudOpenMicWhenQuiet, 250);
+    return;
+  }
+  // Một nhịp ngắn cho loa tắt hẳn, kẻo mic thu đuôi câu.
+  hudMicOpenTimer = setTimeout(() => {
+    hudMicOpenTimer = null;
     if (!hudAwaitingReply) return;
-
-    // Admin đã đáp trong lúc chờ -> không hỏi lại.
-    if (Date.now() - hudWaitingSince < HUD_REASK_DELAY_MS) return;
-
-    if (hudReaskCount >= HUD_MAX_REASKS) {
-      // Hết lượt: đóng lắng nghe, nói rõ để admin biết vì sao im.
-      const q = hudPendingQuestion;
-      hudResetConversation();
-      hudStopListeningForTurn();
-      appendSystemLog(
-        `Đã hỏi lại ${HUD_MAX_REASKS} lần không có phản hồi — đóng lắng nghe.`,
-        'VOICE'
-      );
-      hudSpeakAndSend(
-        `Em hỏi lại ${HUD_MAX_REASKS} lần mà chưa nghe anh/chị trả lời, nên em tạm dừng. ` +
-        `Khi nào sẵn sàng anh/chị nhấn MIC nhé.`
-      );
-      return;
+    if (hudIsSpeaking()) { hudOpenMicWhenQuiet(); return; }
+    if (!hudReplyDeadline) {
+      hudReplyDeadline = Date.now() + HUD_REPLY_WAIT_MS;
+      hudReplyTimer = setTimeout(hudOnReplyTimeout, HUD_REPLY_WAIT_MS);
     }
-
-    hudReaskCount += 1;
-    appendSystemLog(
-      `Không có phản hồi sau ${HUD_REASK_DELAY_MS / 1000}s — hỏi lại lần ${hudReaskCount}/${HUD_MAX_REASKS}.`,
-      'VOICE'
-    );
-    // Đặt lại mốc chờ để lượt hỏi lại tiếp theo tính từ lúc này.
-    hudWaitingSince = Date.now();
-
-    // Nói lại đúng câu hỏi, không bịa câu mới.
-    hudSpeakAndSend(hudPendingQuestion);
-    hudScheduleReask();
-  }, HUD_REASK_DELAY_MS);
+    setHudState('listening', 'Em đang lắng nghe anh/chị...');
+    hudOpenMicForFollowup();
+  }, 400);
 }
 
-/** Dừng phiên nghe hiện tại mà không đụng tới vòng lặp hội thoại. */
+/** Mic tự tắt (Chrome dừng sau vài giây im lặng) khi còn trong 30s → mở lại. */
+function hudKeepListening() {
+  if (!hudAwaitingReply || Date.now() >= hudReplyDeadline) return;
+  setHudState('listening', 'Em vẫn đang chờ anh/chị...');
+  hudOpenMicWhenQuiet();
+}
+
+/** 30 giây không có phản hồi: máy chủ chào rồi đóng. */
+function hudOnReplyTimeout() {
+  hudReplyTimer = null;
+  if (!hudAwaitingReply) return;
+  appendSystemLog('Không nghe thấy phản hồi sau 30 giây — chào và đóng lắng nghe.', 'VOICE');
+  hudResetConversation();
+  hudStopListeningForTurn();
+  hudSendControl({ action: 'end_conversation', reason: 'timeout' });
+}
+
+/** Admin nói không còn yêu cầu: đóng lắng nghe ngay, không gọi AI. */
+function hudEndConversationByUser(text) {
+  appendSystemLog(`Không còn yêu cầu ("${text}") — đóng lắng nghe.`, 'VOICE');
+  hudResetConversation();
+  hudStopListeningForTurn();
+  playCyberChime('click');
+  setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+  hudSendControl({ action: 'end_conversation', reason: 'user_done' });
+}
+
+function hudSendControl(msg) {
+  try {
+    if (hudSocket && hudSocket.readyState === WebSocket.OPEN) hudSocket.send(JSON.stringify(msg));
+  } catch (_) { /* mất kết nối: máy chủ tự hết hạn phiên */ }
+}
+
+/** Dừng phiên nghe hiện tại mà không đụng tới vòng hội thoại. */
 function hudStopListeningForTurn() {
   try { if (hudSpeechRecognition) hudSpeechRecognition.stop(); } catch (_) { /* đã dừng */ }
   isHudListening = false;
@@ -1973,46 +2084,6 @@ function hudOpenMicForFollowup() {
       appendSystemLog(`Không mở được mic nối tiếp: ${msg}`, 'WARNING');
     }
   }
-}
-
-/** Gửi câu Ly Ly cần nói lại cho admin nghe, không phải gửi tới LLM. */
-function hudSpeakAndSend(text) {
-  // Chỉ đưa vào hàng đợi để HUD phát ra loa; KHÔNG gọi sendHudVoiceCommand vì
-  // đó là đường đi của lệnh admin, gọi ở đây sẽ tạo vòng lặp vô hạn.
-  hudOutboundSpeech = (hudOutboundSpeech || []).concat(String(text).trim());
-  if (hudSpeechPlaybackActive) return;
-  hudDrainOutboundSpeech();
-}
-
-let hudOutboundSpeech = [];
-let hudSpeechPlaybackActive = false;
-
-/** Phát dần các câu Ly Ly cần đọc, không đè lên nhau. */
-function hudDrainOutboundSpeech() {
-  if (hudSpeechPlaybackActive) return;
-  const next = hudOutboundSpeech.shift();
-  if (!next) return;
-
-  hudSpeechPlaybackActive = true;
-  setHudState('speaking', next);
-  appendSystemLog(`Ly Ly hỏi lại: "${next.slice(0, 80)}"`, 'VOICE');
-
-  // Dùng đúng đường phát TTS của HUD, rồi mới mở mic lại để nghe đáp.
-  const play = () => {
-    hudSpeechPlaybackActive = false;
-    if (hudOutboundSpeech.length) { hudDrainOutboundSpeech(); return; }
-    if (hudAwaitingReply) {
-      hudWaitingSince = Date.now();
-      hudOpenMicForFollowup();
-    }
-  };
-
-  try {
-    if (typeof speakHudText === 'function') { speakHudText(next, play); return; }
-  } catch (_) { /* rơi xuống nhánh không có TTS */ }
-
-  // Không có TTS: coi như đã nói xong, không để vòng lặp treo.
-  setTimeout(play, Math.min(8000, 600 + next.length * 65));
 }
 
   let isHudListening = false;

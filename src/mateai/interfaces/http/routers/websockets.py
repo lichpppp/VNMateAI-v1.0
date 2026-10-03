@@ -294,6 +294,12 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                         })
                     asyncio.create_task(hud_voice.process_command(
                         cmd_query, caller=str(ws_user.get("username") or "anonymous")))
+            elif action == "end_conversation":
+                # HUD báo: chờ 30s không nghe phản hồi ("timeout") hoặc admin nói
+                # không còn yêu cầu ("user_done"). Chỉ phiên đã đăng nhập.
+                if ws_user is not None:
+                    reason = "timeout" if data.get("reason") == "timeout" else "user_done"
+                    asyncio.create_task(hud_voice.end_conversation("hud", reason))
             elif action == "confirm_action":
                 approved = bool(data.get("approved", True))
                 action_id = data.get("action_id")

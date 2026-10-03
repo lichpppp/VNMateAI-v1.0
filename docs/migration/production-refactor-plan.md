@@ -1001,3 +1001,25 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **2. "Đã hoàn thành các bước tác vụ nhưng đã đạt giới hạn vòng lặp xử lý."** — hết 4 vòng gọi tool thì trả câu cố định, bỏ hết kết quả tool đã có. Nay: 6 vòng; hết vòng thì gọi model thêm MỘT lần không kèm tool để trả lời từ kết quả đã thu; model lỗi thì nói rõ đã chạy công cụ nào. Lời gọi lặp đúng tool + tham số trong cùng lượt không chạy lại (trả kết quả cũ, nhắc trả lời) — nguyên nhân hay gặp làm hết vòng, và tránh làm hai lần tác vụ có tác dụng phụ. Gỡ hằng `MAX_TOOL_ROUNDS_VOICE` không ai dùng.
 
 **TESTS:** 403 pass (+ stream code/chú thích/code nội dòng ở nhiều cỡ token, dòng code không bọc, đường dẫn, JSON lồng; hết vòng vẫn có câu trả lời, model lỗi vẫn có câu báo, lời gọi lặp không chạy lại). Một kỳ vọng cũ đổi có chủ đích: câu đọc thay khối code "em đã thực thi xong." → "Phần mã em đã hiển thị trên màn hình.".
+
+## 56. HUD: popup giữ tới khi đọc xong; vòng hội thoại nghe → trả lời → hỏi lại → chờ (2026-10-03)
+
+**STATUS:** XONG (máy chủ + logic HUD có test; hành vi mic trong Chrome thật chưa kiểm bằng tay)
+
+**Popup câu trả lời:** cố định 10 giây kể từ lần cập nhật cuối nên tắt khi còn đang đọc. Nay không đếm lùi trong lúc trợ lý còn phát tiếng ("🔊 Đang đọc…"); đọc xong mới đếm, thời gian theo độ dài nội dung (10–60 giây).
+
+**Lặp câu (chào hai lần, "em đã xử lý" hai lần) — nguyên nhân tìm được:**
+1. HUD mở mic **ngay khi máy chủ báo xong**, lúc loa còn đang đọc → mic thu giọng trợ lý, gửi như lệnh mới → trợ lý trả lời chính nó. Nay chỉ mở mic khi hết tiếng (+0,4 s), và lời mic nghe được trùng lời trợ lý vừa đọc bị bỏ qua (tiếng vọng).
+2. Lời đệm (sau 1 s) + câu xác nhận khi model gọi tool cùng phát → MỘT câu xác nhận mỗi lượt (`turn["acked"]`). Câu "dẫn chuyện" đầu tiên của model ngay trước khi gọi tool bị bỏ khi đã có câu xác nhận.
+3. Gói chữ của mỗi câu không có `audio_base64` (tiếng đi bằng khung nhị phân) → HUD tưởng "không có tiếng", hiện cảnh báo và nhảy idle/đang nói. Nay gói có `has_audio`.
+4. Máy chủ đoán thời lượng rồi tự đẩy "idle" — đè lên trạng thái "đang nghe". Đã bỏ; HUD tự về idle khi hết tiếng.
+
+**Vòng hội thoại:** câu hỏi lại cũ gọi `speakHudText` — **hàm không tồn tại**, nên câu hỏi lại chưa bao giờ có tiếng. Nay:
+- Máy chủ đọc "Anh còn cần em hỗ trợ gì nữa không ạ?" sau mỗi câu trả lời không tự kết thúc bằng câu hỏi (kết thúc bằng câu hỏi thì không hỏi thêm — `looks_like_question` xét câu cuối).
+- HUD mở mic khi đọc xong, chờ tối đa **30 giây** (Chrome tự tắt mic sau vài giây im lặng → mở lại).
+- "không / thôi / hết rồi / cảm ơn / tạm biệt…" (câu ngắn, bỏ từ lễ phép) → đóng lắng nghe ngay, không gọi AI. `is_stop_reply` viết lại theo cả câu (trước so chuỗi con).
+- Hết 30 giây → HUD gửi `end_conversation` → máy chủ đọc "Nếu anh không có yêu cầu nào khác thì tạm biệt, hẹn gặp lại anh nhé." rồi đóng.
+
+**TESTS:** 408 pass (+4 test hội thoại phía máy chủ) và `tests/test_hud_conversation_loop.mjs` 23/23 (chạy đúng mã hud.js: câu kết thúc, tiếng vọng, thứ tự mở mic, 30 s, popup).
+
+**RUNTIME (WebSocket HUD thật):** "Xin chào" → một lời chào, chờ nghe; "Mấy giờ rồi" → trả lời + hỏi lại; "dạ không có gì nữa đâu em" → đóng ngay, không tiếng; "Kiểm tra CPU và RAM máy chủ" → MỘT câu xác nhận + kết quả + hỏi lại; `end_conversation` timeout → lời chào tạm biệt + đóng.

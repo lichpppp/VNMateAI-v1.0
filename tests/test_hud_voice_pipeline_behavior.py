@@ -117,7 +117,8 @@ def _spoken_audio(events):
 def _spoken_text(events):
     return [
         p["text"] for kind, p in events
-        if kind == "json" and p.get("status") == "speaking" and not p.get("is_filler")
+        if kind == "json" and p.get("status") == "speaking"
+        and not p.get("is_filler") and not p.get("is_follow_up")
     ]
 
 
@@ -125,7 +126,9 @@ async def test_audio_in_sentence_order_and_nothing_lost(hud):
     await hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
 
     audio = [a[: len(SENTENCES[0])] for a in _spoken_audio(hud["events"])]
-    assert audio == SENTENCES, f"audio sai thứ tự hoặc thiếu câu: {audio}"
+    # Sau câu trả lời (không kết thúc bằng câu hỏi) trợ lý hỏi lại một câu.
+    assert audio[:-1] == SENTENCES, f"audio sai thứ tự hoặc thiếu câu: {audio}"
+    assert hud_voice.FOLLOW_UP_QUESTION.startswith(audio[-1])
     assert _spoken_text(hud["events"]) == SENTENCES
 
 
@@ -151,7 +154,7 @@ async def test_tts_failure_still_sends_text(hud, monkeypatch):
 
     assert _spoken_text(hud["events"]) == [SENTENCES[0], bad, SENTENCES[1]]
     audio = [a[: len(SENTENCES[0])] for a in _spoken_audio(hud["events"])]
-    assert audio == [SENTENCES[0], SENTENCES[1]]
+    assert audio[:-1] == [SENTENCES[0], SENTENCES[1]]
 
 
 async def test_barge_in_leaves_no_tts_task_running(hud):
@@ -183,3 +186,50 @@ async def test_barge_in_leaves_no_tts_task_running(hud):
 
 def _spoken_audio_prefixes(events):
     return [a[: len(SENTENCES[0])] for a in _spoken_audio(events)]
+
+
+
+def _states(events):
+    return [p for kind, p in events if kind == "json" and p.get("type") == "voice_state"]
+
+
+async def test_answer_then_follow_up_question_keeps_listening(hud):
+    """Trả lời → hỏi lại "Anh còn cần…" → HUD được báo chờ nghe tiếp."""
+    await hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
+    follow = [p for kind, p in hud["events"] if kind == "json" and p.get("is_follow_up")]
+    assert [p["text"] for p in follow] == [hud_voice.FOLLOW_UP_QUESTION] and follow[0]["has_audio"]
+    state = _states(hud["events"])[-1]
+    assert state["expecting_reply"] is True and state["question"] == hud_voice.FOLLOW_UP_QUESTION
+
+
+async def test_answer_ending_with_question_is_not_asked_twice(hud, monkeypatch):
+    async def asking(query, history=None, source_device=None, **kw):
+        yield "Em đã kiểm tra xong máy chủ."
+        yield "Anh muốn xem chi tiết ổ đĩa nào ạ?"
+
+    monkeypatch.setattr(llm_engine, "stream_voice_response", asking)
+    await hud_voice.process_command_body("câu hỏi thử", hud["session_id"], caller="hud-admin")
+    assert not [p for kind, p in hud["events"] if kind == "json" and p.get("is_follow_up")]
+    assert _states(hud["events"])[-1]["expecting_reply"] is True
+
+
+async def test_no_more_requests_closes_immediately_without_llm(hud, monkeypatch):
+    from mateai.application.voice.voice_session import voice_sessions
+    voice_sessions.get(hud["session_id"]).mark_expecting_reply(hud_voice.FOLLOW_UP_QUESTION)
+
+    async def must_not_run(*a, **k):
+        raise AssertionError("không được gọi LLM khi admin nói không còn yêu cầu")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(llm_engine, "stream_voice_response", must_not_run)
+    await hud_voice.process_command_body("dạ không có gì nữa đâu em", hud["session_id"], caller="hud-admin")
+    state = _states(hud["events"])[-1]
+    assert state["closed"] is True and state["reason"] == "user_done" and state["expecting_reply"] is False
+    assert _spoken_audio(hud["events"]) == []
+
+
+async def test_timeout_says_goodbye_then_closes(hud):
+    await hud_voice.end_conversation(hud["session_id"], "timeout")
+    said = [p["text"] for kind, p in hud["events"] if kind == "json" and p.get("status") == "speaking"]
+    assert said == [hud_voice.FAREWELL]
+    assert _states(hud["events"])[-1]["closed"] is True

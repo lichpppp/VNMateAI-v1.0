@@ -100,6 +100,43 @@ async def process_command(cmd_query: str, session_id: str = "hud", *, caller: st
             active_tasks.pop(session_id, None)
 
 
+#: Câu hỏi lại sau mỗi câu trả lời không tự kết thúc bằng câu hỏi.
+FOLLOW_UP_QUESTION = "Anh còn cần em hỗ trợ gì nữa không ạ?"
+#: Câu chào khi chờ 30 giây không nghe thấy phản hồi (HUD báo `end_conversation`).
+FAREWELL = "Nếu anh không có yêu cầu nào khác thì tạm biệt, hẹn gặp lại anh nhé."
+
+
+async def say(text: str) -> None:
+    """Máy chủ đọc một câu cố định lên HUD (chữ + tiếng). HUD không tự tổng hợp
+    giọng được — trước đây nó gọi `speakHudText` không tồn tại nên câu hỏi lại
+    không bao giờ phát ra tiếng."""
+    from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
+    audio = get_cached_audio_bytes(text) or await speech.tts_bytes(text)
+    has_audio = bool(audio and len(audio) > 100)
+    await broadcast_hud({
+        "type": "voice_active", "status": "speaking", "text": text,
+        "source_device": "hud", "is_follow_up": True, "has_audio": has_audio,
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    if has_audio:
+        await broadcast_hud_binary(audio)
+
+
+async def end_conversation(session_id: str = "hud", reason: str = "user_done") -> None:
+    """Kết thúc vòng hội thoại. `timeout`: không nghe phản hồi → nói lời chào rồi
+    đóng; `user_done`: admin nói không còn yêu cầu → đóng ngay, không nói gì."""
+    from mateai.application.voice.voice_session import voice_sessions
+    voice_sessions.get(session_id).clear_expecting_reply()
+    if reason == "timeout":
+        await say(FAREWELL)
+    await broadcast_hud({
+        "type": "voice_state", "session_id": session_id, "expecting_reply": False,
+        "question": "", "closed": True, "reason": reason,
+        "timestamp": datetime.utcnow().isoformat(),
+    })
+    logger.info("[HUD] Kết thúc hội thoại phiên %s (%s)", session_id, reason)
+
+
 class HudVoiceSink:
     """Đầu ra của HUD (/ws/hud): chữ + audio binary, đồng bộ portal.
 
@@ -125,6 +162,10 @@ class HudVoiceSink:
             "status": "speaking",
             "text": text,
             "source_device": "hud",
+            # Tiếng đi riêng bằng khung nhị phân ngay sau gói này. Thiếu cờ này
+            # HUD tưởng câu không có tiếng: hiện cảnh báo "không có tiếng" và
+            # nhảy về idle rồi lại "đang nói" khi khung tiếng tới.
+            "has_audio": bool(audio and len(audio) > 100),
             "timestamp": datetime.utcnow().isoformat(),
         }
         if kind in ("filler", "ack"):
@@ -160,14 +201,9 @@ async def process_command_body(cmd_query: str, session_id: str = "hud", *, calle
 
     session = voice_sessions.get(session_id)
     if is_stop_reply(cmd_query) and session.expecting_reply:
-        session.clear_expecting_reply()
-        await broadcast_hud({
-            "type": "voice_active", "status": "idle",
-            "text": "Đã dừng. Em không hỏi gì nữa ạ.",
-            "source_device": "hud", "session_id": session_id,
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        logger.info("[HUD] Admin dừng hội thoại tại phiên %s", session_id)
+        # "Không còn gì / thôi / cảm ơn" khi đang chờ: đóng lắng nghe NGAY, không
+        # gọi LLM, không nói thêm.
+        await end_conversation(session_id, "user_done")
         return
 
     session.clear_expecting_reply()
@@ -209,35 +245,26 @@ async def process_command_body(cmd_query: str, session_id: str = "hud", *, calle
 
     said = result.reply_text.strip()
     if said:
-        waiting = looks_like_question(said)
-        if waiting:
-            session.mark_expecting_reply(said)
+        # Vòng hội thoại: trả lời → hỏi lại → chờ câu tiếp. Câu trả lời đã tự
+        # kết thúc bằng câu hỏi thì dùng chính nó, không hỏi thêm (tránh hỏi hai lần).
+        if looks_like_question(said):
+            question = said
         else:
-            session.clear_expecting_reply()
+            question = FOLLOW_UP_QUESTION
+            await say(FOLLOW_UP_QUESTION)
+        session.mark_expecting_reply(question)
         await broadcast_hud({
             "type": "voice_state",
             "session_id": session_id,
-            "expecting_reply": waiting,
-            "question": said if waiting else "",
+            "expecting_reply": True,
+            "question": question,
             "reask_count": session.reask_count,
             "timestamp": datetime.utcnow().isoformat(),
         })
     else:
         await broadcast_thinking("empty", query=cmd_query)
-
-    # Đặt HUD về idle sau khi ước tính xong thời gian nói
-    async def _reset_hud_idle(delay: float) -> None:
-        await asyncio.sleep(delay)
-        await broadcast_hud({
-            "type": "voice_active",
-            "status": "idle",
-            "text": "",
-            "source_device": "hud",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-
-    est_duration = max(4.0, (len(said) / 15.0) + 1.8)
-    asyncio.create_task(_reset_hud_idle(est_duration))
+    # HUD tự về idle khi phát hết tiếng (trước đây máy chủ ĐOÁN thời lượng rồi
+    # đẩy "idle" — đè lên trạng thái "đang nghe" của vòng hội thoại).
 
 
 def get_metrics_payload() -> Dict[str, Any]:

@@ -116,7 +116,11 @@ async def process_voice_turn(
     await sink.on_status("thinking")
 
     # ── 2. Câu đệm cho tác vụ cần tool (từ cache, trước khi gọi LLM) ───────
+    # MỘT câu xác nhận mỗi lượt: câu đệm đầu lượt, lời đệm khi chậm và câu xác
+    # nhận lúc model gọi tool dùng chung cờ `turn["acked"]`. Trước đây lời đệm
+    # (sau 1s) và câu xác nhận khi gọi tool cùng phát — "em đang xử lý" hai lần.
     from mateai.application.agent.llm_engine import llm_engine
+    turn: Dict[str, Any] = {}
     acked = False
     if pre_ack:
         intent = llm_engine.classify_intent(query)
@@ -128,6 +132,7 @@ async def process_voice_turn(
             if ack_audio:
                 await sink.on_audio(0, ack_audio, ack_phrase, "ack")
                 acked = True
+                turn["acked"] = True
 
     # ── 3. Lời đệm khi LLM chậm ───────────────────────────────────────────
     first_sentence = asyncio.Event()
@@ -143,7 +148,8 @@ async def process_voice_turn(
             from mateai.interfaces.desktop.voice_controller import get_contextual_filler
             phrase = get_contextual_filler(query)
         audio = get_cached_audio_bytes(phrase) or await get_tts_engine().synthesise(phrase)
-        if audio and not first_sentence.is_set():
+        if audio and not first_sentence.is_set() and not turn.get("acked"):
+            turn["acked"] = True
             result.filler_played = True
             await sink.on_audio(0, audio, phrase, "filler")
             logger.info("[VoiceTurn] Phát lời đệm sau %.1fs: %s", filler_after_s, phrase)
@@ -155,7 +161,6 @@ async def process_voice_turn(
     from mateai.infrastructure.tts.tts_queue_pipeline import StreamingTTSWorkerPipeline
     pipeline = StreamingTTSWorkerPipeline(voice=_get_tts_voice(), num_workers=2)
     pipeline.start()
-    turn: Dict[str, Any] = {}
 
     async def _produce() -> None:
         seq = 0
