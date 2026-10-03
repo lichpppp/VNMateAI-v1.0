@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
 from mateai.infrastructure.tts.acoustic_ack_catalog import (
@@ -72,7 +72,7 @@ async def get_acoustic_ack_audio(
     return audio
 
 
-async def warmup_acoustic_ack_cache() -> None:
+async def warmup_acoustic_ack_cache(extra_phrases: Sequence[str] = ()) -> None:
     """
     Pre-warm TTS cache cho TOÀN BỘ câu ACK theo danh mục ngữ cảnh (Phase 6).
     Đảm bảo 100% câu đệm sẵn sàng trong RAM Cache (0ms TTFA) khi có tác vụ kỹ thuật.
@@ -91,7 +91,9 @@ async def warmup_acoustic_ack_cache() -> None:
         "Xin lỗi, em gặp lỗi xử lý nội bộ.",
         "Tác vụ này yêu cầu phê duyệt bảo mật, vui lòng xác nhận trên màn hình.",
     ]
-    phrases = list(dict.fromkeys([*ALL_ACOUSTIC_ACK_PHRASES, *system_phrases]))
+    # extra_phrases: câu cố định của tầng khác (lệnh nhanh, câu hỏi lại / tạm
+    # biệt của HUD) — tầng ghép nối (server) truyền vào, không import ngược.
+    phrases = list(dict.fromkeys([*ALL_ACOUSTIC_ACK_PHRASES, *system_phrases, *extra_phrases]))
 
     total_phrases = len(phrases)
     logger.info(

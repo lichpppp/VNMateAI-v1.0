@@ -187,6 +187,8 @@ def _pick_filler(phrases: List[str]) -> str:
 
 
 KEEP_ALIVE_PHRASE = "Dạ em đang xử lý và tổng hợp dữ liệu, anh chờ em thêm một chút nhé!"
+#: Câu xin lỗi khi lượt thoại không có câu trả lời nào (lõi lỗi / quá hạn).
+MIC_TURN_FAILED_PHRASE = "Xin lỗi anh, em chưa xử lý được yêu cầu này, anh thử lại giúp em nhé."
 SLEEP_PHRASE = "Em xin phép tạm nghỉ, khi nào cần anh cứ gọi em nhé."
 ACTIVE_LISTENING_TIMEOUT_SEC: float = 5.0
 
@@ -685,51 +687,16 @@ class VoiceController:
             time.monotonic() - t_start, len(parts),
         )
 
-        # Fallback: if streaming produced nothing, use sync method
+        # Lõi chung không ra câu nào (pipeline hỏng / quá 60 s): xin lỗi bằng câu
+        # cố định. Trước đây gọi một đường LLM THỨ HAI (process_voice_command_sync
+        # -> ask) — trùng lõi thoại (realtime P5, D2) và có thể treo thêm.
         if not full_response:
-            logger.warning(
-                "VoiceController: Streaming produced no output, falling back to sync LLM."
-            )
-            full_response = self._get_llm_response_with_history_sync(text)
-            if full_response:
-                self._last_display_text = full_response
-                self._play_tts_sync(full_response)
+            logger.warning("VoiceController: Lượt thoại không có câu trả lời — phát câu xin lỗi.")
+            full_response = MIC_TURN_FAILED_PHRASE
+            self._last_display_text = full_response
+            self._play_tts_sync(full_response)
 
         return full_response
-
-    def _get_llm_response_with_history_sync(self, text: str) -> str:
-        """
-        Fallback: synchronous LLM call with history (no streaming).
-        Used when streaming fails or produces empty output.
-        """
-        from mateai.application.agent.llm_engine import llm_engine
-        try:
-            from mateai.application.conversation.memory_manager import memory_manager
-            return llm_engine.process_voice_command_sync(
-                text,
-                history=memory_manager.get_history(MIC_SESSION_ID),
-            )
-        except Exception as exc:
-            logger.error("VoiceController: Sync LLM fallback error: %s", exc)
-            return f"Xin lỗi, em gặp lỗi kết nối: {str(exc)[:80]}"
-
-    def _get_llm_response_sync(self, text: str) -> str:
-        """Get LLM response synchronously with session history."""
-        # Bug #14 fix: Always use history version to preserve context.
-        # The bare no-history version was causing AI to forget conversation context on fallback.
-        return self._get_llm_response_with_history_sync(text)
-
-    async def _get_llm_response_async(self, text: str) -> str:
-        from mateai.application.agent.llm_engine import llm_engine
-        try:
-            response = await llm_engine.chat(
-                messages=[{"role": "user", "content": text}],
-                stream=False,
-            )
-            return response or "Không có phản hồi."
-        except Exception as exc:
-            logger.error("LLM call failed: %s", exc)
-            return f"Lỗi LLM: {str(exc)[:100]}"
 
     # ------------------------------------------------------------------
     # TTS Playback (sync)

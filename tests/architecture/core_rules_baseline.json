@@ -1,6 +1,6 @@
 {
   "RULE-011": {
-    "src/mateai/application/agent/llm_engine.py": 3,
+    "src/mateai/application/agent/llm_engine.py": 2,
     "src/mateai/application/skills/builtin/ai_delegation.py": 1,
     "src/mateai/interfaces/http/routers/config.py": 3
   },

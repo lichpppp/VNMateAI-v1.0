@@ -416,6 +416,72 @@ def classify_approval_reply(text: str) -> Optional[str]:
 _SKILL_CATALOG_TOOLS = ("create_new_skill", "reload_all_skills")
 
 
+#: Tool luôn có trong vòng agent của lượt thoại (realtime P3), dù danh sách tool
+#: đã thu hẹp: để model vẫn tìm / tạo được kỹ năng khi tool đưa sẵn không đủ.
+_ALWAYS_OFFERED_TOOLS = (*_SKILL_CATALOG_TOOLS, "list_available_skills")
+#: Chờ phần còn lại của lời gọi tool trong stream tối đa ngần này giây; quá thì
+#: vòng agent hỏi lại model như trước.
+STREAMED_TOOL_CALL_WAIT_S = 8.0
+#: Câu ĐẦU của câu trả lời thoại tối đa ngần này từ (realtime P4): TTS 9Router
+#: tăng theo độ dài (7 từ 1,26 s; 12 từ 1,55 s; 28 từ 2,18 s — bench 2026-10-03).
+VOICE_FIRST_SENTENCE_WORDS = 12
+
+
+def _accumulate_tool_calls(acc: Dict[int, Dict[str, str]], deltas: List[Dict[str, Any]]) -> None:
+    """Ghép các delta tool call của stream theo index (id/tên tới một lần, tham số tới từng mảnh)."""
+    for d in deltas or []:
+        entry = acc.setdefault(int(d.get("index") or 0), {"id": "", "name": "", "arguments": ""})
+        if d.get("id"):
+            entry["id"] = d["id"]
+        if d.get("name"):
+            entry["name"] = d["name"]
+        entry["arguments"] += d.get("arguments") or ""
+
+
+async def _finish_streamed_tool_calls(stream: Any, acc: Dict[int, Dict[str, str]]) -> Optional[List[Dict[str, str]]]:
+    """Đọc nốt stream để có ĐỦ tham số các lời gọi tool rồi đóng stream.
+
+    Trả None (vòng agent tự hỏi model) khi stream lỗi / quá hạn, hoặc lời gọi
+    nào thiếu tên hay tham số không phải JSON object.
+    """
+    async def _drain() -> None:
+        async for chunk in stream:
+            _accumulate_tool_calls(acc, chunk.tool_calls)
+
+    calls: Optional[List[Dict[str, str]]] = None
+    try:
+        if stream is not None:
+            await asyncio.wait_for(_drain(), STREAMED_TOOL_CALL_WAIT_S)
+        calls = []
+        for idx in sorted(acc):
+            c = acc[idx]
+            args = json.loads(c["arguments"] or "{}")
+            if not c["name"] or not isinstance(args, dict):
+                return None
+            calls.append({"id": c["id"] or f"call_{idx}", "name": c["name"], "arguments": c["arguments"] or "{}"})
+    except Exception as exc:  # noqa: BLE001 — quá hạn / JSON hỏng / stream đứt: hỏi lại model
+        logger.info("[LLMEngine] Không dùng lại được lời gọi tool từ stream (%s) — vòng agent hỏi lại model.", exc)
+        return None
+    finally:
+        try:
+            if stream is not None:
+                await stream.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+    return calls or None
+
+
+def _prefilled_tool_response(calls: List[Dict[str, str]], model: str) -> Any:
+    """Phản hồi dạng `chat.completions` cho vòng agent đầu, dựng từ lời gọi tool đã stream."""
+    from types import SimpleNamespace as _NS
+    tool_calls = [
+        _NS(id=c["id"], type="function", function=_NS(name=c["name"], arguments=c["arguments"]))
+        for c in calls
+    ]
+    msg = _NS(content="", tool_calls=tool_calls, reasoning="", id=None)
+    return _NS(model=model, choices=[_NS(message=msg, finish_reason="tool_calls")])
+
+
 def _tool_succeeded(result: Any) -> bool:
     """Kết quả tool (kể cả phong bì {success, data} của plugin_manager) báo thành công."""
     if not isinstance(result, dict):
@@ -468,26 +534,6 @@ def _find_pending_for(caller_id: str) -> Optional[Dict[str, Any]]:
         return pending[-1]
     return None
 
-
-def _make_client() -> AsyncOpenAI:
-    """
-    Build an AsyncOpenAI client backed by the shared httpx connection pool.
-    Phase 45: Passes the singleton _SHARED_HTTP_CLIENT to reuse Keep-Alive
-    connections across calls, eliminating TLS handshake latency.
-    Note: _SHARED_HTTP_CLIENT may be None at module load (before event loop);
-    in that case the client falls back to its own httpx instance — pooling will
-    activate once _get_shared_http_client() is called on first async use.
-    """
-    cfg = settings.llm
-    from mateai.infrastructure.http.connection_pool import connection_pool_manager
-    pool = connection_pool_manager.get_sync_llm_client() or _SHARED_HTTP_CLIENT
-    return AsyncOpenAI(
-        base_url=cfg.base_url,
-        api_key=cfg.api_key,
-        timeout=60.0,
-        max_retries=0,  # Zero-wait: immediately raise API errors to trigger instant auto-fallback loop
-        http_client=pool,
-    )
 
 # Danh mục tool: CHỈ plugin_manager (@export_skill). Phase 6 đã gỡ các danh sách
 # viết tay FILE_SYSTEM_TOOLS / DELEGATION_TOOLS / VISUAL_OVERLAY_TOOLS /
@@ -646,18 +692,6 @@ class LLMEngine:
                 cfg.routing_mode,
             )
 
-    def _get_client(self) -> AsyncOpenAI:
-        """Return client synchronously (legacy). Builds fresh if needed."""
-        if self._client is None:
-            self._client = _make_client()
-            self._last_cfg_snapshot = self._cfg_snapshot()
-        snap = self._cfg_snapshot()
-        if snap != self._last_cfg_snapshot:
-            logger.info("[LLMEngine] Config changed — rebuilding OpenAI client.")
-            self._client = _make_client()
-            self._last_cfg_snapshot = snap
-        return self._client
-
     # ------------------------------------------------------------------
     # Phase 2: LLM Streaming & Provider Abstraction
     # ------------------------------------------------------------------
@@ -680,46 +714,6 @@ class LLMEngine:
 
         router_prov = NineRouterLLMProvider(self._client, primary_m, router_models)
         return TriBrainLLMProvider(direct_provider=direct_prov, router_provider=router_prov)
-
-    async def stream(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        brain_role: str = "voice",
-        **kwargs: Any,
-    ) -> AsyncGenerator[Any, None]:
-        """
-        Phase 2: Chuẩn hóa LLM streaming interface theo async generator:
-            async for chunk in llm.stream(messages, ...):
-                ...
-        """
-        await self._ensure_shared_client()
-        provider = self.get_provider(brain_role=brain_role)
-        mode = (settings.llm.routing_mode or "router").lower()
-        async for chunk in provider.stream(
-            messages=messages,
-            tools=tools,
-            brain_role=brain_role,
-            routing_mode=mode,
-            **kwargs,
-        ):
-            yield chunk
-
-    async def stream_tokens(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        brain_role: str = "voice",
-        **kwargs: Any,
-    ) -> AsyncGenerator[str, None]:
-        """
-        Phase 2: Stream token văn bản thô cho Voice/UI Event Bus:
-            async for token in llm.stream_tokens(messages, ...):
-                ...
-        """
-        async for chunk in self.stream(messages=messages, tools=tools, brain_role=brain_role, **kwargs):
-            if chunk.content:
-                yield chunk.content
 
     # ------------------------------------------------------------------
     # Core LLM call
@@ -755,36 +749,6 @@ class LLMEngine:
     # Public Agentic API
     # ------------------------------------------------------------------
 
-    def ask(
-        self,
-        query: str,
-        source_device: Optional[str] = None,
-        history: Optional[List[Dict[str, Any]]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Process a user query through the full agentic loop (sync wrapper).
-        Safely detects if an asyncio event loop is already running on current thread.
-
-        Args:
-            query: The current user query.
-            source_device: Device/room label for routing context.
-            history: Optional list of prior {role, content} dicts for multi-turn memory.
-        """
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-
-        if running_loop and running_loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(
-                    lambda: asyncio.run(self.ask_async(query, source_device, history))
-                )
-                return future.result()
-        else:
-            return asyncio.run(self.ask_async(query, source_device, history))
-
     async def ask_async(
         self,
         query: str,
@@ -792,9 +756,17 @@ class LLMEngine:
         history: Optional[List[Dict[str, Any]]] = None,
         session_id: Optional[str] = None,
         caller: Optional[str] = None,
+        first_tool_calls: Optional[List[Dict[str, str]]] = None,
+        tool_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Async implementation of the full agentic loop.
+
+        Realtime P3 (lượt thoại vào từ stream_voice_response):
+          first_tool_calls — lời gọi tool model đã chọn khi stream; vòng đầu chạy
+                             luôn, không gọi model lần nữa.
+          tool_names       — chỉ cho model thấy các tool này (+ công cụ quản lý kỹ
+                             năng) thay vì cả danh mục.
 
         caller: danh tính dùng cho RBAC/audit khi chạy tool (mặc định source_device;
         portal truyền username đã đăng nhập).
@@ -824,7 +796,16 @@ class LLMEngine:
             # Registry hỏng KHÔNG được làm sập toàn bộ hội thoại.
             logger.warning("[Phase60] Không đọc được Plugin Registry: %s", reg_err)
 
-        tools = self._enrich_tools_with_target_client(raw_tools)
+        _narrow: Optional[set] = set(tool_names) | set(_ALWAYS_OFFERED_TOOLS) if tool_names else None
+
+        def _visible(all_tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            enriched = self._enrich_tools_with_target_client(all_tools)
+            if not _narrow:
+                return enriched
+            subset = [t for t in enriched if (t.get("function") or {}).get("name") in _narrow]
+            return subset or enriched
+
+        tools = _visible(raw_tools)
 
         # Zero-Trust Data Sanitizer
         sanitized_query = security_engine.mask_sensitive_data(query)
@@ -1029,11 +1010,14 @@ class LLMEngine:
             logger.debug("LLM round %d — messages=%d, tools=%d, brain_role=%s", round_idx, len(messages), len(tools), brain_role)
 
             try:
-                response = await self._call_llm(
-                    messages=messages,
-                    tools=tools if tools else None,
-                    brain_role=brain_role,
-                )
+                if round_idx == 0 and first_tool_calls:
+                    response = _prefilled_tool_response(first_tool_calls, settings.llm.model_name)
+                else:
+                    response = await self._call_llm(
+                        messages=messages,
+                        tools=tools if tools else None,
+                        brain_role=brain_role,
+                    )
                 used_model = getattr(response, "model", None) or settings.llm.model_name
             except Exception as exc:
                 logger.error("[LLMEngine] [CHỐT CHẶN CUỐI CÙNG] Toàn bộ model dự phòng đều thất bại: %s", exc)
@@ -1162,7 +1146,9 @@ class LLMEngine:
                     and _tool_succeeded(pres.get("result"))
                 ]
                 if _new_skills:
-                    tools = self._enrich_tools_with_target_client(plugin_manager.get_all_tools())
+                    if _narrow is not None:
+                        _narrow.update(n for n in _new_skills if n)
+                    tools = _visible(plugin_manager.get_all_tools())
                     _named = ", ".join(f"'{n}'" for n in _new_skills if n)
                     messages.append({
                         "role": "system",
@@ -1193,8 +1179,9 @@ class LLMEngine:
                         query=query, meta_architect=meta_architect, plugin_manager=plugin_manager,
                     )
                     if new_skill_name:
-                        raw_tools = plugin_manager.get_all_tools()
-                        tools = self._enrich_tools_with_target_client(raw_tools)
+                        if _narrow is not None:
+                            _narrow.add(new_skill_name)
+                        tools = _visible(plugin_manager.get_all_tools())
                         messages.append(
                             {
                                 "role": "system",
@@ -1271,126 +1258,6 @@ class LLMEngine:
             ),
             "reasoning": self.last_voice_reasoning,
         }
-
-    def process_voice_command_sync(
-        self,
-        text: str,
-        source_device: Optional[str] = None,
-        history: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
-        """
-        TTS-optimised synchronous entry point for audio pipeline.
-        Runs the full agentic loop and returns a clean Vietnamese string for edge-tts.
-
-        Args:
-            text: Transcribed user speech.
-            source_device: Device/room label for routing context.
-            history: Prior conversation turns for multi-turn continuity.
-        """
-        result = self.ask(text, source_device=source_device, history=history)
-        raw_reply: str = result.get("reply", "")
-
-        reply = sanitise_for_tts(raw_reply)
-
-        if not reply:
-            if result.get("success"):
-                return "Em đã thực hiện xong yêu cầu của bạn."
-            else:
-                error = result.get("error", "")
-                return f"Xin lỗi, em gặp lỗi khi thực hiện: {error[:80]}" if error else "Em không thể thực hiện yêu cầu này."
-
-        return reply
-
-    async def process_voice_command(
-        self,
-        text: str,
-        source_device: Optional[str] = None,
-        history: Optional[List[Dict[str, Any]]] = None,
-    ) -> str:
-        """
-        Async entry point for voice pipeline — avoids blocking the event loop.
-
-        Args:
-            text: Transcribed user speech.
-            source_device: Device/room label for routing context.
-            history: Prior conversation turns for multi-turn continuity.
-        """
-        result = await self.ask_async(text, source_device=source_device, history=history)
-        raw_reply: str = result.get("reply", "")
-        reply = sanitise_for_tts(raw_reply)
-
-        if not reply:
-            if result.get("success"):
-                return "Em đã thực hiện xong yêu cầu của bạn."
-            else:
-                error = result.get("error", "")
-                return f"Xin lỗi, em gặp lỗi: {error[:80]}" if error else "Em không thể thực hiện yêu cầu này."
-
-        return reply
-
-    async def chat(
-        self,
-        messages: List[Dict[str, Any]],
-        stream: bool = False,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        source_device: Optional[str] = None,
-        **kwargs: Any,
-    ) -> str:
-        """
-        Chat completion async entrypoint.
-        Extracts user query and delegates to the agentic loop.
-        """
-        user_query = ""
-        for m in reversed(messages):
-            if m.get("role") == "user":
-                user_query = m.get("content", "")
-                break
-
-        if user_query:
-            return await self.process_voice_command(user_query, source_device=source_device)
-
-        response = await self._call_llm(messages=messages, tools=tools)
-        content = getattr(response.choices[0].message, "content", "") or ""
-        return str(content).strip()
-
-    async def generate_response(self, prompt: str, **kwargs: Any) -> str:
-        """Helper alias for single-prompt text generation."""
-        return await self.chat(messages=[{"role": "user", "content": prompt}], **kwargs)
-
-    async def report_action_execution(
-        self,
-        tool_name: str,
-        args: Dict[str, Any],
-        result: Dict[str, Any],
-        source_device: Optional[str] = None,
-    ) -> str:
-        """
-        Phase 25: Generate natural Vietnamese completion report after user confirms and runs a pending action.
-        """
-        status = result.get("status", "success")
-        msg = result.get("message") or result.get("output") or result.get("data") or ""
-        error = result.get("error") or ""
-
-        # Quick fallback / prompt LLM for natural report
-        raw_res = json.dumps(result, ensure_ascii=False, default=str)
-        prompt = (
-            f"Người dùng vừa xác nhận phê duyệt và hệ thống đã thực thi xong tác vụ sau:\n"
-            f"- Tên tác vụ: {tool_name}\n"
-            f"- Tham số: {json.dumps(args, ensure_ascii=False)}\n"
-            f"- Kết quả thực thi: {raw_res[:800]}\n\n"
-            f"Hãy trả lời người dùng bằng 1-2 câu tiếng Việt ngắn gọn, lịch sự, thông báo tác vụ đã hoàn thành thành công và tóm tắt kết quả."
-        )
-        try:
-            summary = await self.generate_response(prompt)
-            if summary and len(summary.strip()) > 5:
-                return summary.strip()
-        except Exception as exc:
-            logger.warning("[LLMEngine] Failed to generate AI execution summary: %s", exc)
-
-        if status == "success":
-            return f"✅ Tác vụ '{tool_name}' đã được phê duyệt và thực thi thành công! Kết quả: {msg or 'Hoàn tất.'}"
-        else:
-            return f"⚠️ Tác vụ '{tool_name}' đã chạy sau khi xác nhận nhưng gặp lỗi: {error or msg or 'Không thành công.'}"
 
     async def stream_voice_response(
         self,
@@ -1496,7 +1363,7 @@ class LLMEngine:
 
         # Câu để ĐỌC: ranh giới an toàn + gộp câu ngắn / tách câu dài (Phase 5).
         from mateai.application.voice.sentence_buffer import SentenceBuffer
-        speech_buf = SentenceBuffer(min_chars=1, min_words=8, max_words=30)
+        speech_buf = SentenceBuffer(min_chars=1, min_words=8, max_words=30, first_max_words=VOICE_FIRST_SENTENCE_WORDS)
         # Toàn bộ chữ gốc của lượt.
         raw_reply = ""
         # Phase 87: gom phần suy nghĩ của model. Router trả nó ở
@@ -1505,6 +1372,11 @@ class LLMEngine:
         # trước đây nó bị vứt đi hoàn toàn.
         reasoning_buffer = ""
         has_tool_calls = False
+        # Realtime P3: lời gọi tool model ĐÃ chọn trong lần stream này (index ->
+        # id/tên/tham số ghép từ các delta) — vòng agent chạy luôn, không hỏi lại
+        # model từ đầu với cả danh mục.
+        streamed_calls: Dict[int, Dict[str, str]] = {}
+        _stream = None
         has_yielded_any_sentence = False
         # Đã có câu xác nhận đầu lượt (lệnh vận hành): giữ lại câu ĐẦU của model.
         # Nếu ngay sau đó model gọi tool thì câu đó chỉ là lời dẫn ("Em đang tiến
@@ -1528,12 +1400,13 @@ class LLMEngine:
             turn["reasoning"] = self.last_voice_reasoning
 
         try:
-            async for chunk in provider.stream(
+            _stream = provider.stream(
                 messages=messages,
                 tools=tools if tools else None,
                 brain_role=role,
                 routing_mode=routing_mode,
-            ):
+            )
+            async for chunk in _stream:
                 # Phase 87: nuốt phần suy nghĩ vào bộ đệm riêng. Cố tình KHÔNG
                 # gộp vào chữ trả lời: đó là câu sẽ đọc to và hiện trên HUD.
                 reasoning_buffer += chunk.reasoning or ""
@@ -1545,6 +1418,7 @@ class LLMEngine:
                 # im lặng 15-20s. TTS câu này chạy song song với agentic loop.
                 if chunk.tool_calls:
                     has_tool_calls = True
+                    _accumulate_tool_calls(streamed_calls, chunk.tool_calls)
                     _wasted = time.monotonic() - t_start
                     detected_tools = [tc.get("name", "") for tc in chunk.tool_calls]
                     logger.info(
@@ -1570,6 +1444,7 @@ class LLMEngine:
                         yield _ack
                         has_yielded_any_sentence = True
                     break
+
 
                 token = chunk.content or ""
                 if not token:
@@ -1646,6 +1521,12 @@ class LLMEngine:
             self.last_voice_reasoning = ""
             turn["used_agent"] = True
             turn["agent_start_at"] = time.perf_counter()
+            first_calls = await _finish_streamed_tool_calls(_stream, streamed_calls)
+            # Tool vòng agent được thấy: các tool đã đưa cho lần stream + tool model
+            # vừa chọn. Trước đây mỗi vòng gửi cả 82 tool (~74k ký tự schema).
+            offered = [(t.get("function") or {}).get("name") for t in raw_tools]
+            offered += [c["name"] for c in first_calls or []]
+            turn["agent_prefetched"] = bool(first_calls)
             try:
                 result = await self.ask_async(
                     query=query,
@@ -1653,8 +1534,12 @@ class LLMEngine:
                     history=history,
                     session_id=_session,
                     caller=caller,
+                    first_tool_calls=first_calls,
+                    tool_names=[n for n in offered if n],
                 )
                 turn["agent_end_at"] = time.perf_counter()
+                turn["tool_calls_made"] = result.get("tool_calls_made") or []
+                turn["requires_confirmation"] = bool(result.get("requires_confirmation"))
                 self.last_voice_display_text = result.get("reply", "")
                 turn["display_text"] = self.last_voice_display_text
                 turn["reasoning"] = result.get("reasoning", "") or ""
@@ -1663,7 +1548,14 @@ class LLMEngine:
                     # Loại bỏ câu trùng với câu đã phát (acknowledgment)
                     _ack_prefixes = ("dạ, để em kiểm tra", "vâng, em đang", "dạ, để em xử lý", "vâng, để em kiểm tra")
                     if not any(speech_reply.lower().startswith(p) for p in _ack_prefixes):
-                        yield speech_reply
+                        # Tách câu như đường stream: TTS câu đầu (ngắn) bắt đầu
+                        # ngay, câu sau tổng hợp gối đầu. Trước đây cả đoạn là MỘT
+                        # câu -> đo được 5,3 s chờ TTS trước tiếng đầu tiên.
+                        agent_buf = SentenceBuffer(min_chars=1, min_words=8, max_words=30, first_max_words=VOICE_FIRST_SENTENCE_WORDS)
+                        for part in (*agent_buf.add_token(speech_reply), *agent_buf.flush()):
+                            part = part.strip()
+                            if part:
+                                yield part
                 elif result.get("success"):
                     yield "Em đã thực hiện xong yêu cầu của anh."
                 else:

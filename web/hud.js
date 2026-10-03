@@ -265,48 +265,30 @@
   let hudAudioEnabled = true;
 
   // ---------------------------------------------------------------------------
-  // Phase 93: HUD Streaming Audio Queue — Web Audio API (no base64, no jitter)
-  //
-  // Nhận raw MP3 binary chunks từ broadcast_hud_binary(), giải mã và phát
-  // nối tiếp chính xác đến từng mili-giây — không giật cục, không cắt đoạn.
-  // Kết nối trực tiếp vào AnalyserNode để Arc Reactor / FFT Equalizer dao động theo giọng nói.
+  // Phát MP3 câu trả lời (khung nhị phân từ broadcast_hud_binary) — bộ phát dùng
+  // chung với portal: web/voice-audio-queue.js (realtime P5). Bản riêng trước
+  // đây (HudAudioQueue) giải mã các đoạn song song nên câu có thể bị đảo.
+  // Âm thanh đi qua AnalyserNode để Arc Reactor / FFT dao động theo giọng nói.
   // ---------------------------------------------------------------------------
-
-  class HudAudioQueue {
-    constructor() {
-      this.ctx = null;
-      this.nextStartTime = 0;
-      this.activeSources = [];
-      this.isPlaying = false;
-      this._checkEndTimer = null;
+  function _hudAudioContext() {
+    if (typeof initWebAudio === 'function') initWebAudio();
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      try { audioCtx = new AC(); } catch (e) { console.warn('[HudAQ] AudioContext failed:', e); return null; }
     }
+    return audioCtx;
+  }
 
-    _init() {
-      if (typeof initWebAudio === 'function') {
-        initWebAudio();
-      }
-      if (!audioCtx) {
-        const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return false;
-        try {
-          audioCtx = new AC();
-        } catch (e) {
-          console.warn('[HudAQ] AudioContext failed:', e);
-          return false;
-        }
-      }
-      this.ctx = audioCtx;
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
-      }
-      return !!this.ctx;
-    }
-
-    async enqueueChunk(arrayBuffer) {
-      if (!hudAudioEnabled) return;
-      if (!this._init()) return;
-
-      // Triệt tiêu ngay bất kỳ player HTMLAudioElement hoặc hàng đợi base64 cũ đang phát dở
+  const _hudAudioQueue = new VoiceAudioQueue({
+    getContext: _hudAudioContext,
+    getDestination: (ctx) => analyserNode || ctx.destination,
+    canPlay: () => hudAudioEnabled,
+    autoEnd: true,          // HUD không có tín hiệu hết lượt: phát hết là xong
+    notifyOnStop: false,    // ngắt lời không phát chuông "sẵn sàng"
+    keepChunks: false,      // HUD chạy cả ngày, không giữ MP3 đã phát
+    onBeforeChunk: () => {
+      // Triệt tiêu player HTMLAudioElement / hàng đợi base64 cũ đang phát dở.
       if (currentVoiceAudio) {
         try { currentVoiceAudio.pause(); currentVoiceAudio.currentTime = 0; } catch (e) {}
         currentVoiceAudio = null;
@@ -315,74 +297,17 @@
         hudSpeechQueue = [];
         hudSpeechDraining = false;
       }
-
-      try {
-        const audioBuf = await this.ctx.decodeAudioData(arrayBuffer.slice(0));
-        const source = this.ctx.createBufferSource();
-        source.buffer = audioBuf;
-
-        // Kết nối vào analyserNode để hiệu ứng FFT / Arc Reactor nhấp nháy theo giọng nói
-        if (analyserNode) {
-          source.connect(analyserNode);
-        } else {
-          source.connect(this.ctx.destination);
-        }
-
-        const now = this.ctx.currentTime;
-        const startAt = Math.max(now, this.nextStartTime);
-        source.start(startAt);
-        this.nextStartTime = startAt + audioBuf.duration;
-
-        if (!this.isPlaying) {
-          this.isPlaying = true;
-          isAudioPlaying = true;
-          setHudState('speaking', lastSpokenText || '', audioBuf.duration * 1000);
-        }
-
-        this.activeSources.push(source);
-        source.onended = () => {
-          const idx = this.activeSources.indexOf(source);
-          if (idx !== -1) this.activeSources.splice(idx, 1);
-          if (this.activeSources.length === 0 && this.ctx.currentTime >= this.nextStartTime - 0.05) {
-            this._onAllDone();
-          }
-        };
-
-        // Safety timer
-        if (this._checkEndTimer) clearTimeout(this._checkEndTimer);
-        const remainMs = Math.max(100, (this.nextStartTime - this.ctx.currentTime) * 1000 + 200);
-        this._checkEndTimer = setTimeout(() => {
-          if (this.activeSources.length === 0) this._onAllDone();
-        }, remainMs);
-
-      } catch (err) {
-        console.warn('[HudAQ] decodeAudioData skip:', err);
-      }
-    }
-
-    _onAllDone() {
-      this.isPlaying = false;
+    },
+    onStart: (durationSec) => {
+      isAudioPlaying = true;
+      setHudState('speaking', lastSpokenText || '', durationSec * 1000);
+    },
+    onPlaybackEnd: () => {
       isAudioPlaying = false;
       playCyberChime('ready');
       setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
-    }
-
-    stop() {
-      for (const src of this.activeSources) {
-        try { src.stop(); src.disconnect(); } catch (e) {}
-      }
-      this.activeSources = [];
-      this.nextStartTime = 0;
-      this.isPlaying = false;
-      if (this._checkEndTimer) { clearTimeout(this._checkEndTimer); this._checkEndTimer = null; }
-    }
-
-    reset() {
-      this.stop();
-    }
-  }
-
-  const _hudAudioQueue = new HudAudioQueue();
+    },
+  });
 
 
   function initWebAudio() {
@@ -1382,7 +1307,7 @@
     }
 
     if (packet.has_audio && !audioB64) {
-      // Tiếng của câu này tới ngay sau bằng khung nhị phân (HudAudioQueue).
+      // Tiếng của câu này tới ngay sau bằng khung nhị phân (_hudAudioQueue).
       // Trước đây gói chữ không có `audio_base64` bị coi là "không có tiếng":
       // hiện cảnh báo, nhảy về idle rồi lại "đang nói" khi tiếng tới.
       if (packet.display_text && text) {
@@ -1530,7 +1455,7 @@
    * MIC — không phụ thuộc lệnh đến từ đâu.
    */
   function hudStopSpeaking() {
-    // Phase 93: Dừng HudAudioQueue (streaming binary Web Audio API)
+    // Dừng bộ phát MP3 (_hudAudioQueue, web/voice-audio-queue.js)
     _hudAudioQueue.stop();
     // Bỏ handler trước rồi mới dừng: `onended` giữ lại sẽ gọi `next()` khi
     // audio bị cắt, đẩy câu cũ vào lượt mới đang phát.

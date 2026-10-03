@@ -143,6 +143,59 @@ async def bench_tts_first_chunk(rounds: int) -> Dict[str, Any]:
     return {"ttfa_engine": _stats(samples), "errors": errors}
 
 
+#: Câu thật kiểu câu trả lời của trợ lý (ngắn / vừa / dài) cho so sánh nhà cung cấp TTS.
+TTS_SENTENCES = [
+    "Dạ, em đang kiểm tra cho anh.",
+    "Máy chủ đang chạy ổn định, CPU khoảng hai mươi phần trăm.",
+    "Em đã kiểm tra xong, máy chủ chạy Windows 10 và đã hoạt động liên tục mười hai ngày, "
+    "bộ nhớ còn trống khoảng sáu mươi phần trăm.",
+]
+
+
+async def bench_tts_providers(rounds: int) -> Dict[str, Any]:
+    """Từng nhà cung cấp TTS riêng (không cache): tới byte đầu và tới hết câu.
+
+    9Router trả cả file một lần nên byte đầu = hết câu; Edge stream từng đoạn.
+    """
+    from mateai.infrastructure.tts import tts_stream_engine as tse
+
+    voice, rate = tse._get_tts_voice(), tse._get_tts_rate()
+
+    async def router(text):
+        data = await tse._synthesise_9router(tse.apply_pronunciation(text), voice)
+        if data:
+            yield data
+
+    def edge(text):
+        return tse._stream_edge_tts(tse.apply_pronunciation(text), voice, rate, cache_key=f"bench-{uuid.uuid4().hex}")
+
+    out: Dict[str, Any] = {"voice": voice}
+    for name, fn in (("9router", router), ("edge", edge)):
+        per_len: Dict[str, Any] = {}
+        for sent in TTS_SENTENCES:
+            first, total, errors = [], [], []
+            for i in range(rounds):
+                text = f"{sent} Mã {uuid.uuid4().hex[:4]}."
+                t0 = time.perf_counter()
+                t_first = None
+                try:
+                    async for chunk in fn(text):
+                        if chunk and t_first is None:
+                            t_first = (time.perf_counter() - t0) * 1000
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"{type(exc).__name__}: {exc}")
+                    continue
+                if t_first is None:
+                    errors.append("không có audio")
+                    continue
+                first.append(t_first)
+                total.append((time.perf_counter() - t0) * 1000)
+            per_len[f"{len(sent.split())}_words"] = {"first_byte": _stats(first), "complete": _stats(total),
+                                                     "errors": errors}
+        out[name] = per_len
+    return out
+
+
 # ── Phần B ───────────────────────────────────────────────────────────────
 
 async def _login(base_http: str, user: str, password: str, ctx: Optional[ssl.SSLContext]) -> str:
@@ -331,6 +384,8 @@ async def main() -> int:
     ap.add_argument("--ws-timeout", type=float, default=60.0)
     ap.add_argument("--concurrency", help="mức đồng thời, vd 1,5,10 (trong tiến trình, LLM thật)")
     ap.add_argument("--concurrency-timeout", type=float, default=120.0)
+    ap.add_argument("--tts-providers", type=int, default=0,
+                    help="so sánh 9Router vs Edge: số lượt mỗi độ dài câu (0 = bỏ qua)")
     ap.add_argument("--memory-turns", type=int, default=0, help="số lượt liên tiếp để đo bộ nhớ")
     ap.add_argument("--out", help="ghi kết quả JSON ra file")
     args = ap.parse_args()
@@ -353,6 +408,8 @@ async def main() -> int:
         else await bench_ws(args.ws.rstrip("/"), args.user, args.password, args.ws_rounds, args.ws_timeout)
     )
 
+    if args.tts_providers:
+        report["tts_providers"] = await bench_tts_providers(args.tts_providers)
     if args.concurrency:
         levels = [int(x) for x in args.concurrency.split(",") if x.strip()]
         report["concurrency"] = await bench_concurrency(levels, LLM_QUERY, args.concurrency_timeout)

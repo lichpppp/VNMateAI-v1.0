@@ -3367,192 +3367,37 @@ function renderPortalMarkdown(rawText) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ── STREAMING AUDIO QUEUE (Web Audio API Gapless Streaming Engine) ─────────
+// ── PHÁT AUDIO CÂU TRẢ LỜI THOẠI ───────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
-/**
- * StreamingAudioQueue — Web Audio API Gapless Streaming Engine.
- *
- * Loại bỏ hoàn toàn MediaSource Extensions (MSE) vốn gây lỗi decode ID3 header,
- * giật tiếng (stuttering/jitter) và rớt audio khi ghép nối các MP3 chunk liên tiếp.
- *
- * Tính năng vượt trội:
- * 1. Decode từng chunk MP3 độc lập thành PCM AudioBuffer chuẩn xác qua AudioContext.
- * 2. Lập lịch phát nối tiếp liền mạch (Gapless Scheduling, 0ms gap giữa các câu).
- * 3. Barge-In / Instant Stop < 0.1ms (ngắt toàn bộ source nodes tức thì khi người dùng chặn lời).
- * 4. Tự động phục hồi / resume AudioContext nếu trình duyệt chặn autoplay.
- * 5. Lưu trữ receivedChunks để phát lại (Replay) và tải xuống (Download MP3) trọn vẹn.
- */
-class StreamingAudioQueue {
-  constructor() {
-    this._ctx = null;
-    this._nextStartTime = 0;
-    this._activeSources = [];
-    this._pendingChunks = [];
-    this._isDecoding = false;
-    this._streamEnded = false;
-    this._endTimer = null;
-
-    this.isPlaying = false;
-    this.hasFirstAudio = false;
-    this.onFirstAudio = null;
-    this.onPlaybackEnd = null;
-    this.receivedChunks = [];
-  }
-
-  /** Dừng mọi HTMLAudioElement khác đang phát để tránh xung đột 2 giọng cùng lúc */
-  _stopOtherPlayers() {
-    ['audio-player', 'studio-audio-player'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el && !el.paused) {
-        try {
-          el.pause();
-          el.currentTime = 0;
-        } catch (e) {}
-      }
-    });
-  }
-
-  _getOrCreateAudioContext() {
-    if (!this._ctx) {
-      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtxClass) {
-        this._ctx = new AudioCtxClass();
-      }
-    }
-    if (this._ctx && this._ctx.state === 'suspended') {
-      this._ctx.resume().catch(() => {});
-    }
-    return this._ctx;
-  }
-
-  async enqueueChunk(arrayBuffer) {
-    if (!arrayBuffer || arrayBuffer.byteLength < 32) return;
-
-    // Dừng các player khác khi nhận chunk âm thanh đầu tiên
-    if (!this.hasFirstAudio && this.receivedChunks.length === 0) {
-      this._stopOtherPlayers();
-    }
-
-    this.receivedChunks.push(arrayBuffer);
-    this._pendingChunks.push(arrayBuffer);
-    this._processPendingQueue();
-  }
-
-  async _processPendingQueue() {
-    if (this._isDecoding || this._pendingChunks.length === 0) return;
-    this._isDecoding = true;
-
-    while (this._pendingChunks.length > 0) {
-      const chunk = this._pendingChunks.shift();
-      try {
-        const ctx = this._getOrCreateAudioContext();
-        if (!ctx) {
-          console.warn('[AudioQueue] Web Audio API không được trình duyệt hỗ trợ');
-          break;
-        }
-        if (ctx.state === 'suspended') {
-          await ctx.resume().catch(() => {});
-        }
-
-        // decodeAudioData giải nén MP3 thành PCM AudioBuffer nguyên bản
-        const audioBuf = await ctx.decodeAudioData(chunk.slice(0));
-        if (!audioBuf || audioBuf.duration <= 0) continue;
-
-        // Gapless scheduling: lập lịch nối tiếp tuyệt đối (0ms gap)
-        const now = ctx.currentTime;
-        const startAt = Math.max(now, this._nextStartTime);
-        const source = ctx.createBufferSource();
-        source.buffer = audioBuf;
-        source.connect(ctx.destination);
-        source.start(startAt);
-
-        this._nextStartTime = startAt + audioBuf.duration;
-        this._activeSources.push(source);
-
-        source.onended = () => {
-          const idx = this._activeSources.indexOf(source);
-          if (idx !== -1) this._activeSources.splice(idx, 1);
-          this._checkStreamFinished();
-        };
-
-        if (!this.hasFirstAudio) {
-          this.hasFirstAudio = true;
-          this.isPlaying = true;
-          if (typeof this.onFirstAudio === 'function') {
-            try { this.onFirstAudio(); } catch (e) {}
-          }
-        }
-
-        this._scheduleEndTimer();
-      } catch (err) {
-        console.warn('[AudioQueue] Lỗi decode MP3 chunk:', err);
-      }
-    }
-
-    this._isDecoding = false;
-  }
-
-  _scheduleEndTimer() {
-    if (this._endTimer) clearTimeout(this._endTimer);
-    if (!this._ctx) return;
-    const remainingSec = Math.max(0, this._nextStartTime - this._ctx.currentTime);
-    this._endTimer = setTimeout(() => {
-      this._checkStreamFinished();
-    }, Math.ceil((remainingSec + 0.1) * 1000));
-  }
-
-  _checkStreamFinished() {
-    if (!this._streamEnded) return;
-    if (this._pendingChunks.length > 0 || this._isDecoding) return;
-    if (this._ctx && this._ctx.currentTime < this._nextStartTime - 0.05) return;
-
-    if (this.isPlaying) {
-      this.isPlaying = false;
-      if (typeof this.onPlaybackEnd === 'function') {
-        try { this.onPlaybackEnd(); } catch (e) {}
-      }
+// Bộ phát dùng chung với HUD: web/voice-audio-queue.js (VoiceAudioQueue) — realtime
+// P5. Trước đây trang này có bản riêng (StreamingAudioQueue) và mỗi lượt tạo
+// một AudioContext mới; nay cả trang dùng chung một AudioContext.
+let _portalAudioCtx = null;
+function _getPortalAudioContext() {
+  if (!_portalAudioCtx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (AC) {
+      try { _portalAudioCtx = new AC(); } catch (e) { console.warn('[Audio] AudioContext lỗi:', e); }
     }
   }
+  return _portalAudioCtx;
+}
 
-  /** Báo hiệu stream đã nạp xong toàn bộ các câu */
-  markStreamEnded() {
-    this._streamEnded = true;
-    this._scheduleEndTimer();
-  }
-
-  /** Dừng phát ngay lập tức (Barge-In) */
-  stop() {
-    for (const src of this._activeSources) {
-      try {
-        src.stop();
-        src.disconnect();
-      } catch (e) {}
+/** Dừng mọi <audio> khác đang phát để không có hai giọng cùng lúc. */
+function _stopOtherAudioPlayers() {
+  ['audio-player', 'studio-audio-player'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.paused) {
+      try { el.pause(); el.currentTime = 0; } catch (e) {}
     }
-    this._activeSources = [];
-    this._pendingChunks = [];
-    this._isDecoding = false;
-    this._nextStartTime = 0;
-    this.isPlaying = false;
-    if (this._endTimer) {
-      clearTimeout(this._endTimer);
-      this._endTimer = null;
-    }
-    if (typeof this.onPlaybackEnd === 'function') {
-      try { this.onPlaybackEnd(); } catch (e) {}
-    }
-  }
+  });
+}
 
-  getCombinedBlob() {
-    if (!this.receivedChunks || this.receivedChunks.length === 0) return null;
-    return new Blob(this.receivedChunks, { type: 'audio/mp3' });
-  }
-
-  reset() {
-    this.stop();
-    this.hasFirstAudio = false;
-    this.receivedChunks = [];
-    this._streamEnded = false;
-  }
+function _newVoiceAudioQueue() {
+  return new VoiceAudioQueue({
+    getContext: _getPortalAudioContext,
+    onBeforeChunk: (first) => { if (first) _stopOtherAudioPlayers(); },
+  });
 }
 
 let _currentAudioStreamQueue = null;
@@ -3656,8 +3501,8 @@ async function sendVoiceCommand() {
   }
 
   // Setup streaming audio queue & unlock AudioContext on user gesture
-  _currentAudioStreamQueue = new StreamingAudioQueue();
-  _currentAudioStreamQueue._getOrCreateAudioContext();
+  _currentAudioStreamQueue = _newVoiceAudioQueue();
+  _currentAudioStreamQueue.ensureContext();
   _currentAudioStreamQueue.onFirstAudio = () => {
     startWaveformVisualizer('voice-wave-bar');
   };

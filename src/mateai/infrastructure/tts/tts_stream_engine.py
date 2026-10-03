@@ -119,8 +119,9 @@ async def _stream_edge_tts(
     cache_key: Optional[str] = None,
 ) -> AsyncGenerator[bytes, None]:
     """
-    Stream raw MP3 bytes từ Edge-TTS Microsoft.
-    Chunk đầu tiên thường về trong 150–250ms.
+    Stream raw MP3 bytes từ Edge-TTS Microsoft (dự phòng sau 9Router).
+    Đo trên máy chủ này 2026-10-03 (bench_voice --tts-providers): byte đầu p50
+    2,7 s (câu 7 từ) – 4,6 s (28 từ), chậm hơn 9Router (1,3 – 2,2 s cả câu).
     """
     try:
         import edge_tts  # type: ignore

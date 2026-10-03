@@ -62,6 +62,7 @@ class SentenceBuffer:
         max_buffer_chars: int = 250,
         min_words: int = 0,
         max_words: int = 0,
+        first_max_words: int = 0,
     ) -> None:
         """
         min_words / max_words (0 = tắt): chính sách NGHE TỰ NHIÊN cho đường voice,
@@ -70,11 +71,19 @@ class SentenceBuffer:
         (không bỏ); câu dài hơn max_words được tách, ưu tiên sau dấu phẩy.
         Ranh giới câu vẫn là ranh giới AN TOÀN của lớp này (không cắt "3.5", IP,
         URL…) — bản cũ cắt bằng regex thô nên "3.5" thành "3. 5".
+
+        first_max_words (0 = tắt): giới hạn RIÊNG cho câu phát ĐẦU TIÊN (realtime
+        P4). Thời gian TTS tăng theo độ dài câu (9Router đo được: 7 từ 1,26 s,
+        28 từ 2,18 s) nên câu đầu ngắn -> tiếng đầu sớm hơn; câu sau tổng hợp
+        gối đầu trong lúc câu đầu đang đọc. Câu đầu chưa có dấu kết câu mà đã
+        đủ dài thì cắt luôn sau dấu phẩy, không chờ hết câu.
         """
         self.min_chars = min_chars
         self.max_buffer_chars = max_buffer_chars
         self.min_words = min_words
         self.max_words = max_words
+        self.first_max_words = first_max_words
+        self._emitted_any = False
         self._buffer: str = ""
         self._pending: str = ""
         # Khối ```code``` kéo dài qua nhiều câu — lọc trên luồng token.
@@ -96,6 +105,11 @@ class SentenceBuffer:
 
         while True:
             split_idx = self._find_safe_boundary(self._buffer)
+            if split_idx is None and not ready_sentences and self._wants_early_first_cut():
+                split_idx = self._early_first_cut(self._buffer)
+                # Phần cắt đủ min_words nên chắc chắn được phát: câu sau không
+                # còn là câu đầu.
+                self._emitted_any = split_idx is not None
             if split_idx is None:
                 # Nếu buffer quá dài vượt ngưỡng an toàn mà không có dấu kết thúc:
                 if len(self._buffer) >= self.max_buffer_chars:
@@ -154,11 +168,35 @@ class SentenceBuffer:
             self._pending = ""
         return out
 
+    def _wants_early_first_cut(self) -> bool:
+        return bool(self.first_max_words) and not self._emitted_any and not self._pending
+
+    def _early_first_cut(self, text: str) -> Optional[int]:
+        """Câu đầu đang stream, chưa có dấu kết câu: cắt ở dấu phẩy (", ") đầu tiên
+        có đủ min_words từ phía trước (và không quá max_words) — đọc sớm nhất có thể."""
+        for m in re.finditer(r",\s", text):
+            n = len(text[: m.start()].split())
+            if self.max_words and n > self.max_words:
+                return None
+            if n >= max(1, self.min_words):
+                return m.end()
+        return None
+
     def _split_long(self, part: str) -> List[str]:
         if not self.max_words:
             return [part]
         words = part.split()
         chunks: List[str] = []
+        if self.first_max_words and not self._emitted_any and len(words) > self.first_max_words:
+            # Câu đầu: chỉ cắt ở dấu phẩy (cắt giữa cụm từ thì giọng đọc ngắt sai
+            # chỗ), đủ min_words, càng gần first_max_words càng tốt.
+            commas = [i + 1 for i, w in enumerate(words[:-1])
+                      if w.endswith(",") and i + 1 >= max(1, self.min_words)]
+            within = [n for n in commas if n <= self.first_max_words]
+            n = max(within) if within else min((c for c in commas if c <= self.max_words), default=0)
+            if n:
+                chunks.append(" ".join(words[:n]))
+                words = words[n:]
         while len(words) > self.max_words:
             head = words[: self.max_words]
             # Ưu tiên cắt sau dấu phẩy gần nhất — chỗ thở tự nhiên của giọng đọc.
@@ -170,6 +208,8 @@ class SentenceBuffer:
         tail = " ".join(words).strip()
         if tail:
             chunks.append(tail)
+        if chunks:
+            self._emitted_any = True
         return chunks
 
     async def stream_sentences(

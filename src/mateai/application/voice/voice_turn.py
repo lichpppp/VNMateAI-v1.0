@@ -65,6 +65,9 @@ class VoiceTurnResult:
     filler_played: bool = False
     pipeline_metrics: Dict[str, Any] = field(default_factory=dict)
     trace: Dict[str, Any] = field(default_factory=dict)
+    #: Từ vòng agent (khi lượt có gọi tool) — REST trả lại cho client.
+    tool_calls_made: List[Dict[str, Any]] = field(default_factory=list)
+    requires_confirmation: bool = False
 
 
 # ── Đo độ trễ một lượt (Phase 1 realtime) ──────────────────────────────────
@@ -154,6 +157,7 @@ class VoiceTurnTrace:
             "history_chars": turn.get("history_chars"),
             "tools_chars": turn.get("tools_chars"),
             "brain": turn.get("brain"),
+            "agent_prefetched": turn.get("agent_prefetched"),
             "status_steps": list(self.statuses),
         }
         _RECENT_TRACES.append(data)
@@ -244,6 +248,9 @@ async def process_voice_turn(
 
     history=None → lấy từ memory_manager theo session_id.
     caller → danh tính RBAC/audit khi lượt cần chạy tool (mặc định source_device).
+    pre_ack=False → không câu xác nhận nào: cả câu đầu lượt lẫn câu "để em xử
+    lý" khi model gọi tool (REST: một phản hồi duy nhất; mic máy chủ: đã phát
+    lời đệm riêng trước lượt).
     filler_after_s → phát một lời đệm nếu chưa có câu trả lời sau ngần ấy giây
     (HUD 1s, mic máy chủ 18s); filler_text(query) chọn câu, mặc định câu đệm
     theo ngữ cảnh. request_id → id do kênh đặt (portal); stt_ms → thời gian STT
@@ -376,7 +383,7 @@ async def _run_voice_turn(
                 source_device=source_device,
                 session_id=session_id,
                 turn=turn,
-                tool_ack=not acked,
+                tool_ack=pre_ack and not acked,
                 caller=caller,
             ):
                 # Mảnh chỉ có dấu câu ("!", "--") không đọc được — TTS sẽ lỗi.
@@ -415,6 +422,8 @@ async def _run_voice_turn(
     result.display_text = turn.get("display_text") or result.reply_text
     result.reasoning = turn.get("reasoning", "")
     result.used_agent = bool(turn.get("used_agent"))
+    result.tool_calls_made = list(turn.get("tool_calls_made") or [])
+    result.requires_confirmation = bool(turn.get("requires_confirmation"))
     result.pipeline_metrics = dict(getattr(pipeline, "metrics", {}) or {})
     await sink.on_status("done")
     logger.info("[VoiceTurn] Xong lượt %s sau %.2fs (%d câu, agent=%s)", session_id,

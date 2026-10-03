@@ -535,7 +535,10 @@ async def _on_startup() -> None:
     # Phase 92: Pre-warm Voice Streaming Acoustic ACK cache (TTFA < 150ms for tools)
     try:
         from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
-        asyncio.create_task(warmup_acoustic_ack_cache())
+        from mateai.application.commands.fast_command_router import STATIC_REPLIES
+        # Realtime P4: thêm câu cố định của lệnh nhanh và vòng hội thoại HUD.
+        asyncio.create_task(warmup_acoustic_ack_cache(
+            extra_phrases=(*STATIC_REPLIES, hud_voice.FOLLOW_UP_QUESTION, hud_voice.FAREWELL)))
         logger.info("Phase 92: Voice streaming acoustic ACK cache warmup initiated.")
     except Exception as _v_exc:
         logger.warning("Phase 92: Could not warm up voice streaming cache: %s", _v_exc)

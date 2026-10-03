@@ -6,7 +6,7 @@ Kiểm thử Giai đoạn 2: LLM Streaming & Provider Abstraction (Phase 2):
 2. Phương thức stream_tokens trích xuất chính xác token văn bản thô.
 3. Event Bus LLMStreamEventBus phát sóng đồng thời tới nhiều subscriber.
 4. Provider Abstraction (DirectLLMProvider, NineRouterLLMProvider, TriBrainLLMProvider).
-5. Tích hợp trực tiếp trên llm_engine.stream() và llm_engine.stream_tokens().
+5. llm_engine.get_provider() trả provider chuẩn hoá (lõi stream qua provider.stream).
 """
 
 import asyncio
@@ -138,9 +138,8 @@ def test_llm_engine_provider_methods():
     provider = llm_engine.get_provider("voice")
     assert isinstance(provider, BaseLLMProvider), "get_provider() phải trả về BaseLLMProvider"
     print("  ✅ llm_engine.get_provider('voice') trả về Provider chuẩn hóa.")
-    assert hasattr(llm_engine, "stream"), "LLMEngine phải có hàm stream"
-    assert hasattr(llm_engine, "stream_tokens"), "LLMEngine phải có hàm stream_tokens"
-    print("  ✅ llm_engine.stream() và llm_engine.stream_tokens() sẵn sàng phục vụ pipeline.")
+    # Realtime P6: llm_engine.stream / stream_tokens đã gỡ (chỉ test gọi) — lõi
+    # dùng thẳng provider.stream (đã kiểm ở trên).
 
 
 def main():

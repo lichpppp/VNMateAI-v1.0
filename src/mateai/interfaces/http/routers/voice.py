@@ -17,9 +17,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
-from mateai.application.voice.speech_text import sanitise_for_tts, shorten_for_speech
+from mateai.application.voice.speech_text import sanitise_for_tts
 from mateai.config.loader import get_assistant_name, settings
-from mateai.interfaces.http import hud_voice, speech
+from mateai.interfaces.http import hud_voice
 from mateai.interfaces.http.auth_dependencies import get_current_user, require_roles
 from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_hud_binary, broadcast_portal_ui
 
@@ -67,6 +67,23 @@ class VoiceCommandResponse(BaseModel):
     )
 
 
+class _CollectSink:
+    """Gom audio câu trả lời của một lượt cho phản hồi REST (bỏ câu xác nhận / lời đệm)."""
+
+    def __init__(self) -> None:
+        self.audio: List[bytes] = []
+
+    async def on_status(self, status: str, **info: Any) -> None:
+        return None
+
+    async def on_sentence(self, seq: int, text: str, display_text: str, **info: Any) -> None:
+        return None
+
+    async def on_audio(self, seq: int, audio: bytes, text: str, kind: str, **info: Any) -> None:
+        if kind == "speech" and audio:
+            self.audio.append(audio)
+
+
 @router.post(
     "/api/v1/voice-command",
     response_model=VoiceCommandResponse,
@@ -78,13 +95,14 @@ async def voice_command(
     user: dict = Depends(require_roles(["manager", "admin"])),
 ) -> VoiceCommandResponse:
     """
-    Receive a pre-transcribed text query, run through the LLM agentic loop,
-    execute skills, and return a TTS-ready natural-language response.
-    Phase 25: Passes source_device and history through to ask_async for
-    proper StateManager matching and multi-turn conversation continuity.
-    Optionally includes base64-encoded audio in the response.
+    Receive a pre-transcribed text query and return the reply (+ base64 audio).
+
+    Realtime P5: cùng lõi với mọi kênh thoại (`voice_turn.process_voice_turn` —
+    lệnh nhanh, LLM stream, vòng agent khi cần tool, TTS theo câu). Trước đây
+    REST gọi thẳng `ask_async` (không lệnh nhanh, không stream, TTS cả đoạn):
+    cùng câu hỏi, khác hành vi tuỳ kênh. Base64 chỉ còn ở biên này.
     """
-    from mateai.application.agent.llm_engine import llm_engine
+    from mateai.application.voice.voice_turn import process_voice_turn
 
     source_device = payload.source_device or "web"
 
@@ -113,35 +131,32 @@ async def voice_command(
     await hud_voice.broadcast_thinking("thinking", query=payload.query)
 
     try:
-        # Phase 25 & 34: Use ask_async directly with session_id for Sliding Window Conversational Memory
-        result = await llm_engine.ask_async(
-            query=payload.query,
-            source_device=source_device,
-            history=payload.history,
+        sink = _CollectSink()
+        result = await process_voice_turn(
+            payload.query,
+            sink=sink,
             session_id=payload.session_id or source_device,
+            source_device=source_device,
             # RBAC theo người đã đăng nhập, KHÔNG theo source_device do client tự
             # khai (gửi source_device="hud" từng đủ để nhận quyền admin).
             caller=str(user.get("username") or user.get("sub") or "anonymous"),
+            history=payload.history,
+            # Một phản hồi duy nhất: câu xác nhận / lời đệm không có chỗ để phát.
+            pre_ack=False,
         )
-        display_reply: str = result.get("reply", "")
-        # Phase 87: suy nghĩ của lượt này đi kèm trong kết quả. Đọc từ đây
-        # chứ không phải thuộc tính chung — lượt song song sẽ ghi đè lẫn nhau.
+        display_reply: str = result.display_text or result.reply_text
+        # Phase 87: suy nghĩ của chính lượt này (kết quả lượt, không phải thuộc tính chung).
         await hud_voice.broadcast_thinking(
-            "done" if result.get("reasoning") else "empty",
-            result.get("reasoning", ""),
+            "done" if result.reasoning else "empty",
+            result.reasoning,
             payload.query,
         )
-        speech_reply: str = result.get("speech_reply") or sanitise_for_tts(display_reply)
+        speech_reply: str = result.reply_text or sanitise_for_tts(display_reply)
         if not speech_reply:
-            if result.get("success"):
-                speech_reply = "Em đã thực hiện xong yêu cầu của bạn."
-                display_reply = display_reply or speech_reply
-            else:
-                err = result.get("error", "")
-                speech_reply = f"Xin lỗi, em gặp lỗi: {err[:80]}" if err else "Em không thể thực hiện yêu cầu này."
-                display_reply = display_reply or speech_reply
-        tool_calls_made = result.get("tool_calls_made", [])
-        requires_confirmation = result.get("requires_confirmation", False)
+            speech_reply = "Em không thể thực hiện yêu cầu này."
+            display_reply = display_reply or speech_reply
+        tool_calls_made = result.tool_calls_made
+        requires_confirmation = result.requires_confirmation
     except Exception:  # pylint: disable=broad-except
         logger.error("voice_command error:\n%s", traceback.format_exc())
         # Phase 87: lỗi -> tắt vòng xoay suy nghĩ trên HUD, không để nó quay mãi.
@@ -156,17 +171,10 @@ async def voice_command(
         "timestamp": datetime.utcnow().isoformat(),
     })
 
-    # Phase 34: Synthesise TTS audio from speech_reply (concise natural speech)
+    # Audio các câu đã tổng hợp trong lượt (đúng thứ tự) ghép thành một MP3.
     audio_b64: Optional[str] = None
-    if payload.include_audio and speech_reply:
-        try:
-            import base64
-            # Nhánh fallback: cũng bọc timeout để TTS treo không làm treo lượt nói.
-            audio_bytes = await speech.tts_bytes(speech_reply)
-            if audio_bytes:
-                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.warning("TTS synthesis for REST response failed: %s", exc)
+    if payload.include_audio and sink.audio:
+        audio_b64 = base64.b64encode(b"".join(sink.audio)).decode("utf-8")
 
     # Broadcast security approval required if action needs confirmation
     if requires_confirmation:
@@ -224,7 +232,7 @@ async def voice_command(
         audio_base64=audio_b64,
         # Phase 87: suy nghĩ của lượt này, để client đọc được của đúng lượt
         # thay vì đọc thuộc tính chung (lượt song song ghi đè lẫn nhau).
-        reasoning=result.get("reasoning") or None,
+        reasoning=result.reasoning or None,
     )
 
 

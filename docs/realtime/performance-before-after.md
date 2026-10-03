@@ -44,3 +44,45 @@ Số gốc: `bench-2026-10-03-phase1.json` → `bench-2026-10-03-p2.json`.
 - **TTFA-answer p95 của câu trò chuyện 10,5 s → 6,1 s, p50 4,5 s → 3,9 s.** Một phần cải thiện p50 nằm trong nhiễu của nhà cung cấp, vì đường đối chứng cũng nhanh hơn ở lần chạy này. LLM-1st p50 gần như không đổi (2,5 s): ở p50, thời gian chờ chủ yếu là độ trễ cố định của nhà cung cấp, không phải độ dài prompt.
 - **Lệnh vận hành vẫn chậm nhất** (TTFA-answer p50 10–15 s) → P3.
 - **Còn lại:** `create_new_skill` vẫn được đưa cho câu hỏi kiến thức của admin, khoảng 1k ký tự schema. Gỡ nó cần quyết định, vì chủ dự án yêu cầu trợ lý chủ động tạo skill khi yêu cầu chưa có công cụ. Ghi lại để xem cùng P3.
+
+## P3 — Lệnh vận hành không hỏi model hai lần (2026-10-03)
+
+Số gốc: `bench-2026-10-03-p2.json` → `bench-2026-10-03-p4.json` (lần đo sau P3 + P4; P4 không đổi đường vận hành ngoài tách câu). Thêm: đo trong tiến trình từng bước của một lượt (`get_system_info`, LLM + TTS thật, 2026-10-03 21:50).
+
+**Cơ chế (đo trực tiếp, không phụ thuộc nhiễu):**
+
+| | Trước | Sau |
+|---|---|---|
+| Lần gọi LLM trong vòng agent | 2 (chọn lại tool với 82 tool, rồi trả lời) | 1 (trả lời từ kết quả tool) |
+| Tool trong mỗi lần gọi vòng agent | 82 (~73.700 ký tự schema) | 7 (tool của lần stream + công cụ quản lý kỹ năng) |
+| Câu trả lời của agent đưa sang TTS | cả đoạn là MỘT câu | tách câu như đường stream |
+| Chờ TTS sau khi có câu trả lời (1 lượt đo trong tiến trình) | 5,3 s | 1,9 – 2,4 s |
+
+**Qua WebSocket (n = 20, lệnh "Báo cáo thông tin hệ thống máy chủ…"):**
+
+| Chỉ số | P2 | Sau P3 + P4 |
+|---|---|---|
+| Vòng agent | 5.711 / 8.427 | **3.358 / 5.506** (−41% p50) |
+| TTFA-answer | 10.433 / 16.048 | 8.939 / 20.078 |
+| LLM-1st (lần stream, P3 không đổi) | 3.863 / 8.795 | 4.462 / 13.431 |
+
+p95 TTFA-answer tệ hơn vì đuôi của nhà cung cấp ở lần stream đầu (LLM-1st p95 8,8 → 13,4 s) — phần P3 không đụng tới. Một lần đo trung gian (P3 chưa tách câu, file đã thay bằng lần đo sau) cho TTFA-answer p50 11,0 s: khi đó câu trả lời agent vẫn đọc cả đoạn.
+
+## P4 — TTS (2026-10-03)
+
+**Nhà cung cấp (`bench_voice.py --tts-providers 6`, không cache, giọng Hoài My):**
+
+| Câu | 9Router (cả câu) p50 / p95 | Edge — byte đầu p50 / p95 | Edge — hết câu p50 |
+|---|---|---|---|
+| 7 từ | 1.258 / 1.869 | 2.662 / 3.203 | 4.634 |
+| 12 từ | 1.554 / 1.844 | 3.473 / 4.536 | 5.077 |
+| 28 từ | 2.183 / 2.439 | 4.604 / 5.917 | 6.886 |
+
+→ Giữ thứ tự 9Router trước, Edge dự phòng (chú thích cũ "Edge byte đầu 150–250 ms" sai, đã sửa). Thời gian TTS tăng theo độ dài câu.
+
+**Thay đổi:**
+- Câu đầu của câu trả lời thoại ngắn (`SentenceBuffer(first_max_words=12)`): chỉ cắt ở dấu phẩy, vẫn đủ 8 từ; khi stream thì phát ngay ở dấu phẩy đầu đủ dài thay vì chờ hết câu. **Đo A/B trong tiến trình (n = 8 mỗi bên, xen kẽ, LLM + TTS thật):** TTFA-answer p50 4.238 (bật) / 5.180 (tắt) ms, nhưng phần lớn chênh lệch là LLM-1st (2.761 / 3.332); thời gian từ câu đầu sẵn sàng tới tiếng 1.500 / 1.690 ms. Câu đầu của model trung vị 24 từ ở cả hai bên — quy tắc ít khi kích hoạt (cần dấu phẩy sau ≥ 8 từ). **Không chứng minh được cải thiện đáng kể**; giữ vì không đổi hành vi khi không kích hoạt và có test.
+- Hàng đợi audio ra có giới hạn (4 đoạn): client nhận chậm thì TTS / LLM chờ thay vì audio dồn trong RAM. Không có số đo hiệu năng (đây là giới hạn bộ nhớ, không phải tốc độ).
+- Làm nóng cache TTS thêm 5 câu cố định của lệnh nhanh + câu hỏi lại / tạm biệt của HUD.
+
+**Đối chứng lần đo P4 (đường không đổi):** câu trò chuyện TTFA-answer 3.938 / 6.081 (P2) → 4.147 / 7.556; lệnh nhanh 53 → 56 ms; đồng thời 10 phiên 3.570 → 4.916 ms p50 với LLM-1st cũng chậm hơn (2.122 → 2.359; p95 3.466 → 8.531) — nhà cung cấp chậm hơn ở lần đo này.

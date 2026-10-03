@@ -101,16 +101,18 @@ async def test_rest_voice_command_uses_logged_in_user_not_source_device(monkeypa
     import mateai.interfaces.http.routers.voice as voice
     from mateai.interfaces.http import hud_voice
 
+    import mateai.application.voice.voice_turn as vt
     seen = {}
 
-    async def fake_ask_async(**kw):
+    async def fake_turn(query, **kw):
         seen.update(kw)
-        return {"reply": "ok", "route_info": {}}
+        return vt.VoiceTurnResult(reply_text="ok", display_text="ok")
 
     async def _noop(*_a, **_k):
         return None
 
-    monkeypatch.setattr(llm_engine, "ask_async", fake_ask_async)
+    # REST dùng chung lõi thoại (realtime P5) — danh tính RBAC truyền vào đó.
+    monkeypatch.setattr(vt, "process_voice_turn", fake_turn)
     monkeypatch.setattr(voice, "broadcast_hud", _noop)
     monkeypatch.setattr(hud_voice, "broadcast_thinking", _noop)
 

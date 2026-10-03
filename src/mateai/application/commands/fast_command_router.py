@@ -55,6 +55,16 @@ class FastCommandResult:
     meta: Dict[str, Any] = field(default_factory=dict)
 
 
+#: Câu trả lời CỐ ĐỊNH của lệnh nhanh — được làm nóng cache TTS lúc khởi động
+#: (realtime P4) để tiếng tới ngay từ lần đầu; câu có số liệu thay đổi thì không.
+MUTE_REPLY = "Dạ, em đã tắt tiếng và dừng phát âm thanh rồi ạ."
+GREETING_REPLY = "Dạ, em chào sếp! Em có thể giúp gì cho sếp hôm nay ạ?"
+THANKS_REPLY = "Dạ không có gì ạ! Rất vui được hỗ trợ sếp."
+GOODBYE_REPLY = "Dạ tạm biệt sếp! Chúc sếp một ngày làm việc hiệu quả và nhiều niềm vui ạ."
+PING_REPLY = "Pong! Hệ thống VN-MateAI hoạt động bình thường, phản hồi dưới 5 mili giây ạ."
+STATIC_REPLIES = (MUTE_REPLY, GREETING_REPLY, THANKS_REPLY, GOODBYE_REPLY, PING_REPLY)
+
+
 # ---------------------------------------------------------------------------
 # Text Normalisation Helper
 # ---------------------------------------------------------------------------
@@ -321,7 +331,7 @@ class FastCommandRouter:
         )
 
     async def _handle_mute_audio(self, query: str, match: re.Match) -> FastCommandResult:
-        reply = "Dạ, em đã tắt tiếng và dừng phát âm thanh rồi ạ."
+        reply = MUTE_REPLY
         return FastCommandResult(
             is_matched=True,
             command_name="mute_audio",
@@ -343,7 +353,7 @@ class FastCommandRouter:
         )
 
     async def _handle_quick_greeting(self, query: str, match: re.Match) -> FastCommandResult:
-        reply = "Dạ, em chào sếp! Em có thể giúp gì cho sếp hôm nay ạ?"
+        reply = GREETING_REPLY
         return FastCommandResult(
             is_matched=True,
             command_name="quick_greeting",
@@ -352,7 +362,7 @@ class FastCommandRouter:
         )
 
     async def _handle_quick_thanks(self, query: str, match: re.Match) -> FastCommandResult:
-        reply = "Dạ không có gì ạ! Rất vui được hỗ trợ sếp."
+        reply = THANKS_REPLY
         return FastCommandResult(
             is_matched=True,
             command_name="quick_thanks",
@@ -361,7 +371,7 @@ class FastCommandRouter:
         )
 
     async def _handle_quick_goodbye(self, query: str, match: re.Match) -> FastCommandResult:
-        reply = "Dạ tạm biệt sếp! Chúc sếp một ngày làm việc hiệu quả và nhiều niềm vui ạ."
+        reply = GOODBYE_REPLY
         return FastCommandResult(
             is_matched=True,
             command_name="quick_goodbye",
@@ -370,7 +380,7 @@ class FastCommandRouter:
         )
 
     async def _handle_system_ping(self, query: str, match: re.Match) -> FastCommandResult:
-        reply = "Pong! Hệ thống VN-MateAI hoạt động bình thường, phản hồi dưới 5 mili giây ạ."
+        reply = PING_REPLY
         return FastCommandResult(
             is_matched=True,
             command_name="system_ping",

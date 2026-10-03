@@ -84,6 +84,7 @@ class StreamingTTSWorkerPipeline:
         num_workers: int = 2,
         tts_engine: Optional[Any] = None,
         sentence_timeout_s: float = 14.0,
+        max_audio_buffered: int = 4,
     ) -> None:
         self.voice = voice
         # Một câu TTS treo không được giữ các câu sau (đang chờ đúng thứ tự)
@@ -102,8 +103,12 @@ class StreamingTTSWorkerPipeline:
         self._total_sentences: Optional[int] = None
         self._dispatch_lock = asyncio.Lock()
 
-        # Hàng đợi âm thanh đầu ra sẵn sàng phát qua WebSocket
-        self._audio_out_queue: asyncio.Queue[Optional[AudioResultItem]] = asyncio.Queue()
+        # Hàng đợi âm thanh đầu ra sẵn sàng phát qua WebSocket. CÓ giới hạn
+        # (realtime P4): client nhận chậm thì worker TTS chờ -> hàng đợi câu đầy
+        # -> lượt LLM chờ, thay vì audio dồn trong RAM không giới hạn. Bên tiêu
+        # thụ (voice_turn._consume) chạy song song nên không tắc.
+        self._audio_out_queue: asyncio.Queue[Optional[AudioResultItem]] = asyncio.Queue(
+            maxsize=max(2, max_audio_buffered))
 
         self._workers: List[asyncio.Task] = []
         self._is_cancelled: bool = False

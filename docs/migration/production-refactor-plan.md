@@ -1043,3 +1043,16 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 - Kết quả: câu kiến thức có prompt 11,3k → 3,6k ký tự, 5 → 1 tool, không còn câu xác nhận thừa; TTFA-answer p50/p95 4,5/10,5 s → 3,9/6,1 s (một phần là nhiễu nhà cung cấp, xem đối chứng).
 - Ghi lại: `create_new_skill` (~1,1k ký tự) vẫn đưa cho câu hỏi kiến thức của admin — cần cân nhắc cùng yêu cầu "chủ động tạo skill".
 - TESTS: 421 pass (+ `test_voice_brain_prompt.py`, + 3 test định tuyến).
+
+## 59. Realtime P3 + P4 + P5 (một phần) + P6 (một phần) (2026-10-03)
+
+**STATUS:** XONG phần ghi dưới đây; số đo ở `docs/realtime/performance-before-after.md`.
+
+- **P3** — lệnh vận hành: lời gọi tool đã stream được ghép đủ (`_accumulate_tool_calls`, `_finish_streamed_tool_calls`, chờ tối đa 8 s) và chạy luôn ở vòng agent đầu (`ask_async(first_tool_calls=…)`) — bỏ một lần gọi LLM với 82 tool; vòng agent của lượt thoại chỉ thấy tool đã đưa cho lần stream + công cụ quản lý kỹ năng (`tool_names=…`); kênh khác gọi `ask_async` không gợi ý vẫn thấy cả danh mục. Câu trả lời của agent tách câu trước TTS. Vòng agent p50 5,7 → 3,4 s.
+- **P4** — đo nhà cung cấp TTS (`bench_voice.py --tts-providers`): 9Router nhanh hơn Edge ở mọi độ dài, giữ thứ tự. `SentenceBuffer(first_max_words)` (câu đầu ngắn, chỉ cắt ở dấu phẩy) — A/B không chứng minh được cải thiện đáng kể, ghi rõ. Hàng đợi audio ra có giới hạn (4). Làm nóng cache thêm câu cố định của lệnh nhanh + HUD (`STATIC_REPLIES`, `extra_phrases`).
+- **P5 (D1)** — REST `/api/v1/voice-command` chạy qua `process_voice_turn` (lệnh nhanh, stream, agent, TTS theo câu; base64 chỉ ở biên); `VoiceTurnResult` mang `tool_calls_made`, `requires_confirmation`. `pre_ack=False` tắt cả câu xác nhận khi gọi tool (REST, mic máy chủ).
+- **P5 (D2)** — mic máy chủ: bỏ đường LLM thứ hai (`process_voice_command_sync` → `ask`) khi lượt rỗng; phát câu xin lỗi cố định.
+- **P5 (D5)** — `web/voice-audio-queue.js` (`VoiceAudioQueue`) thay `StreamingAudioQueue` (portal) và `HudAudioQueue` (HUD). Sửa: HUD giải mã song song nên có thể đảo câu; cả hai bản phát nốt đoạn đang giải mã sau khi ngắt lời; portal tạo AudioContext mới mỗi lượt. Test `tests/test_voice_audio_queue.mjs`. **Chưa nghe thử trên trình duyệt thật** (máy không có công cụ tự động trình duyệt) — ghi ở owner-todo.
+- **P6** — gỡ mã chết `llm_engine`: `chat`, `generate_response`, `process_voice_command(_sync)`, `report_action_execution`, `ask` (sync), `stream`, `stream_tokens`, `_get_client`, `_make_client` (kiểm caller tĩnh + chuỗi động: 0 caller ngoài nhau / test kiểm `hasattr`); `voice_controller._get_llm_response_*`. RULE-011 llm_engine 3 → 2 (baseline khoá lại).
+- TESTS: 441 pass + mọi `.mjs`. Chạy thật: REST (lệnh nhanh 1,8 s, kiến thức 3,4 s, vận hành 9 s có tool), HUD (lượt có tool, đọc đúng, hỏi lại).
+- Ghi nhận (không sửa, chờ chủ dự án): mỗi lần chạy tool ghi HAI dòng audit (cổng tool + RBAC note).
