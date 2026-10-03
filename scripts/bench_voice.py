@@ -12,7 +12,15 @@ Phần A — trong tiến trình (không cần server):
 
 Phần B — đầu-cuối qua WebSocket thật (khi có --ws):
   đăng nhập -> /ws/v1/voice-stream -> gửi lệnh -> đo tới sự kiện đầu tiên,
-  text_delta đầu tiên, frame audio đầu tiên, session_ended.
+  text_delta đầu tiên, frame audio đầu tiên, session_ended. Ba loại lượt: lệnh
+  nhanh, câu cần LLM, lệnh vận hành (gọi tool chỉ đọc). Kèm số đo phía máy chủ
+  (VoiceTurnTrace): token đầu của LLM, tiếng đầu của CÂU TRẢ LỜI, vòng agent.
+Phần C — đồng thời (khi có --concurrency, trong tiến trình, LLM + TTS thật):
+  N lượt `process_voice_turn` chạy song song, mỗi lượt một session riêng. Không
+  qua WebSocket: mỗi người dùng chỉ có một phiên /ws/v1/voice-stream (kết nối
+  mới huỷ kết nối cũ), đo qua WS cần N tài khoản thật.
+Phần D — bộ nhớ (khi có --memory-turns, trong tiến trình): N lượt liên tiếp
+  cùng một session; đo RSS tiến trình, số asyncio task còn sống, trước/sau.
 
 Mọi thời gian đo phía client bằng time.perf_counter(). Số nào không đo được thì
 ghi lý do, không điền số.
@@ -41,6 +49,11 @@ sys.path.insert(0, str(ROOT))
 
 FAST_COMMANDS = ["mấy giờ rồi", "kiểm tra cpu", "xem ram", "xin chào", "ping"]
 LLM_QUERY = "Giải thích ngắn gọn RAID 1 là gì trong hai câu."
+#: Lệnh vận hành gọi tool CHỈ ĐỌC (thông tin hệ thống) — không đổi gì trên máy.
+OPS_QUERY = "Báo cáo thông tin hệ thống máy chủ: tên máy, hệ điều hành và thời gian hoạt động."
+#: Số đo phía máy chủ lấy từ `session_ended.metrics` (VoiceTurnTrace).
+SERVER_METRICS = ("llm_first_token_ms", "ttft_ms", "ack_audio_ms", "ttfa_answer_ms", "agent_ms",
+                  "tts_first_latency_ms", "ttl_ms")
 
 
 def _stats(samples_ms: List[float]) -> Dict[str, Any]:
@@ -214,7 +227,7 @@ async def bench_ws(ws_base: str, user: str, password: str, rounds: int, timeout_
         return {"error": f"đăng nhập thất bại: {exc}"}
 
     result: Dict[str, Any] = {}
-    for label, queries in (("fast_path", FAST_COMMANDS[:2]), ("llm", [LLM_QUERY])):
+    for label, queries in (("fast_path", FAST_COMMANDS[:2]), ("llm", [LLM_QUERY]), ("ops", [OPS_QUERY])):
         turns = []
         for i in range(rounds):
             q = queries[i % len(queries)]
@@ -228,10 +241,82 @@ async def bench_ws(ws_base: str, user: str, password: str, rounds: int, timeout_
             "first_text": _stats([t["first_text_ms"] for t in ok if t.get("first_text_ms") is not None]),
             "first_audio": _stats([t["first_audio_ms"] for t in ok if t.get("first_audio_ms") is not None]),
             "total": _stats([t["total_ms"] for t in ok if t.get("total_ms") is not None]),
+            "server": {
+                m: _stats([t["server_metrics"][m] for t in ok
+                           if isinstance((t.get("server_metrics") or {}).get(m), (int, float))])
+                for m in SERVER_METRICS
+            },
             "errors": [t["error"] for t in turns if "error" in t],
             "turns": turns,
         }
     return result
+
+
+# ── Phần C / D ───────────────────────────────────────────────────────────
+
+def _trace_stats(traces: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {m: _stats([t[m] for t in traces if isinstance(t.get(m), (int, float))]) for m in SERVER_METRICS}
+
+
+async def bench_concurrency(levels: List[int], query: str, timeout_s: float) -> Dict[str, Any]:
+    from mateai.application.voice.voice_turn import VoiceSink, process_voice_turn
+
+    out: Dict[str, Any] = {"query": query}
+    for n in levels:
+        run = uuid.uuid4().hex[:6]
+
+        async def one(i: int) -> Dict[str, Any]:
+            res = await process_voice_turn(query, sink=VoiceSink(), session_id=f"bench-{run}-{n}-{i}",
+                                           source_device="bench", caller="bench")
+            return res.trace
+
+        t0 = time.perf_counter()
+        results = await asyncio.gather(*[asyncio.wait_for(one(i), timeout_s) for i in range(n)],
+                                       return_exceptions=True)
+        traces = [r for r in results if isinstance(r, dict)]
+        out[f"c{n}"] = {
+            "wall_ms": round((time.perf_counter() - t0) * 1000, 1),
+            "ok": len(traces),
+            "errors": [f"{type(r).__name__}: {r}" for r in results if not isinstance(r, dict)],
+            **_trace_stats(traces),
+        }
+    return out
+
+
+async def bench_memory(turns: int) -> Dict[str, Any]:
+    import gc
+
+    import psutil
+    from mateai.application.voice.voice_turn import VoiceSink, process_voice_turn
+
+    proc = psutil.Process()
+    session = f"bench-mem-{uuid.uuid4().hex[:6]}"
+    queries = ["mấy giờ rồi", "xem ram", "ping"]
+    # Một lượt khởi động để mọi module / cache đã nạp trước khi lấy mốc.
+    await process_voice_turn(queries[0], sink=VoiceSink(), session_id=session, source_device="bench", caller="bench")
+    gc.collect()
+    rss0, tasks0 = proc.memory_info().rss, len(asyncio.all_tasks())
+    samples, errors = [], []
+    for i in range(turns):
+        try:
+            await process_voice_turn(queries[i % len(queries)], sink=VoiceSink(), session_id=session,
+                                     source_device="bench", caller="bench")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{type(exc).__name__}: {exc}")
+        if (i + 1) % 10 == 0:
+            gc.collect()
+            samples.append({"turn": i + 1, "rss_mb": round(proc.memory_info().rss / 2**20, 1),
+                            "tasks": len(asyncio.all_tasks())})
+    gc.collect()
+    return {
+        "turns": turns,
+        "rss_start_mb": round(rss0 / 2**20, 1),
+        "rss_end_mb": round(proc.memory_info().rss / 2**20, 1),
+        "tasks_start": tasks0,
+        "tasks_end": len(asyncio.all_tasks()),
+        "samples": samples,
+        "errors": errors,
+    }
 
 
 async def main() -> int:
@@ -244,6 +329,9 @@ async def main() -> int:
     ap.add_argument("--password", default="admin123")
     ap.add_argument("--ws-rounds", type=int, default=3)
     ap.add_argument("--ws-timeout", type=float, default=60.0)
+    ap.add_argument("--concurrency", help="mức đồng thời, vd 1,5,10 (trong tiến trình, LLM thật)")
+    ap.add_argument("--concurrency-timeout", type=float, default=120.0)
+    ap.add_argument("--memory-turns", type=int, default=0, help="số lượt liên tiếp để đo bộ nhớ")
     ap.add_argument("--out", help="ghi kết quả JSON ra file")
     args = ap.parse_args()
 
@@ -264,6 +352,12 @@ async def main() -> int:
         {"skipped": "không có --ws"} if not args.ws
         else await bench_ws(args.ws.rstrip("/"), args.user, args.password, args.ws_rounds, args.ws_timeout)
     )
+
+    if args.concurrency:
+        levels = [int(x) for x in args.concurrency.split(",") if x.strip()]
+        report["concurrency"] = await bench_concurrency(levels, LLM_QUERY, args.concurrency_timeout)
+    if args.memory_turns:
+        report["memory"] = await bench_memory(args.memory_turns)
 
     text = json.dumps(report, ensure_ascii=False, indent=2)
     if args.out:

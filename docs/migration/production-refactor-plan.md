@@ -1023,3 +1023,12 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 **TESTS:** 408 pass (+4 test hội thoại phía máy chủ) và `tests/test_hud_conversation_loop.mjs` 23/23 (chạy đúng mã hud.js: câu kết thúc, tiếng vọng, thứ tự mở mic, 30 s, popup).
 
 **RUNTIME (WebSocket HUD thật):** "Xin chào" → một lời chào, chờ nghe; "Mấy giờ rồi" → trả lời + hỏi lại; "dạ không có gì nữa đâu em" → đóng ngay, không tiếng; "Kiểm tra CPU và RAM máy chủ" → MỘT câu xác nhận + kết quả + hỏi lại; `end_conversation` timeout → lời chào tạm biệt + đóng.
+
+## 57. Realtime Phase 0 (audit) + Phase 1 (đo đạc) (2026-10-03)
+
+**STATUS:** XONG. Theo prompt "REALTIME VOICE / LOW LATENCY" của chủ dự án; chi tiết ở `docs/realtime/`.
+
+- Phase 0 (chỉ đọc): `architecture-audit.md`, `call-graph.md`, `canonical-components.md`, `duplicate-components.md`, `migration-plan.md`.
+- Phase 1: `VoiceTurnTrace` trong `application/voice/voice_turn.py` — một trace cho mọi kênh (portal, HUD, robot, mic máy chủ) thay `realtime_voice_ws.VoiceRequestTrace` chỉ có ở portal (gỡ). Sửa nghĩa: TTFT cũ là "câu đầu được đọc", TTFA cũ tính cả câu xác nhận; nay tách `llm_first_token_ms`, `ttft_ms`, `ack_audio_ms`, `ttfa_answer_ms`, `agent_ms`, `stt_ms` (robot gom 3 nhánh STT về `_transcribe`), kích thước prompt, số tool. Bộ đệm vòng 500 lượt + `GET /api/v1/voice/metrics` (admin, p50/p95/p99 theo kiểu lượt). `scripts/bench_voice.py` thêm lệnh vận hành, số đo phía máy chủ, đồng thời (trong tiến trình), bộ nhớ 100 lượt.
+- Baseline: `docs/realtime/performance-baseline.md`. Nút thắt: lệnh vận hành TTFA-answer p50 15 s (P3), câu hỏi kiến thức bị định tuyến nhầm sang vận hành — lỗi lùi từ §54 (P2), prompt ~3.700 token (P2), TTS câu động 1–2 s (P4). Không rò bộ nhớ/task qua 100 lượt; không suy giảm tới 10 phiên.
+- TESTS: 415 pass (+ `test_voice_turn_trace.py`; test cũ dùng `VoiceRequestTrace` chuyển sang trace mới; test HUD cô lập khỏi cache đĩa).

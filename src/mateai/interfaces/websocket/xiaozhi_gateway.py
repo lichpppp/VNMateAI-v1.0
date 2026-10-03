@@ -184,6 +184,8 @@ class XiaozhiNode:
         self.emotion: str = "sleeping"       # sleeping | focused | thinking | happy | alert | shocked
         self.screen_text: Optional[str] = None
         self.audio_format: str = "mp3_24k"   # mp3_24k | pcm_24k | opus
+        # Thời gian STT của câu gần nhất (ms) — gắn vào trace của lượt thoại.
+        self.last_stt_ms: Optional[float] = None
 
         # Firmware metadata — được lấp đầy khi thiết bị gửi frame 'hello'.
         # Trước khi handshake thì là "unknown" / rỗng.
@@ -525,6 +527,14 @@ class XiaozhiGateway:
     # Core Pipeline: Speech / Query Execution
     # -----------------------------------------------------------------------
 
+    async def _transcribe(self, node: XiaozhiNode, audio: bytes) -> str:
+        """STT câu vừa nói (một chỗ cho cả 3 định dạng gói) + đo thời gian cho trace."""
+        t0 = time.perf_counter()
+        try:
+            return await audio_engine.transcribe_audio(audio)
+        finally:
+            node.last_stt_ms = (time.perf_counter() - t0) * 1000
+
     async def _execute_pipeline(self, node: XiaozhiNode, text_query: str) -> None:
         """
         Một lượt nói của robot ESP32. Nghiệp vụ ở mateai.application.voice.voice_turn.process_voice_turn
@@ -563,11 +573,13 @@ class XiaozhiGateway:
         sink = _XiaozhiSink(self, node, text_query)
         try:
             async with node.stream_lock:
+                stt_ms, node.last_stt_ms = node.last_stt_ms, None
                 result = await process_voice_turn(
                     text_query,
                     sink=sink,
                     session_id=device_id,
                     source_device=device_id,
+                    stt_ms=stt_ms,
                 )
 
             if not node.cancel_event.is_set():
@@ -696,7 +708,7 @@ class XiaozhiGateway:
                                 wf.writeframes(audio_data)
                             wav_bytes = wav_buf.getvalue()
 
-                            transcribed: str = await audio_engine.transcribe_audio(wav_bytes)
+                            transcribed: str = await self._transcribe(node, wav_bytes)
 
                             if transcribed:
                                 await websocket.send_text(json.dumps({
@@ -796,7 +808,7 @@ class XiaozhiGateway:
                             node.audio_buffer = io.BytesIO()
                             if audio_data:
                                 await websocket.send_text(json.dumps({"session_id": device_id, "type": "asr_start"}))
-                                transcribed = await audio_engine.transcribe_audio(audio_data)
+                                transcribed = await self._transcribe(node, audio_data)
                                 if transcribed:
                                     await websocket.send_text(json.dumps({
                                         "session_id": device_id,
@@ -899,7 +911,7 @@ class XiaozhiGateway:
                         await self.send_ui_payload(device_id, state="processing", emotion="thinking", text="Đang suy nghĩ...")
                         await websocket.send_text(json.dumps({"type": "asr_start"}))
 
-                        transcribed: str = await audio_engine.transcribe_audio(audio_data)
+                        transcribed: str = await self._transcribe(node, audio_data)
 
                         if not transcribed:
                             await websocket.send_text(json.dumps({

@@ -590,7 +590,14 @@ class VoiceController:
     # ------------------------------------------------------------------
 
     def _transcribe_sync(self, audio_bytes: bytes) -> str:
-        """Sync wrapper around AudioEngine.transcribe_audio()."""
+        """Sync wrapper around AudioEngine.transcribe_audio() (+ đo thời gian STT cho trace)."""
+        _t0 = time.perf_counter()
+        try:
+            return self._transcribe_sync_inner(audio_bytes)
+        finally:
+            self._last_stt_ms = (time.perf_counter() - _t0) * 1000
+
+    def _transcribe_sync_inner(self, audio_bytes: bytes) -> str:
         try:
             if self._loop and self._loop.is_running():
                 future = asyncio.run_coroutine_threadsafe(
@@ -658,6 +665,7 @@ class VoiceController:
                     pre_ack=False,           # mic đã phát lời đệm ngữ cảnh trước lượt
                     filler_after_s=18.0,     # Phase 47: câu chờ nếu >18s chưa có câu trả lời
                     filler_text=lambda _q: KEEP_ALIVE_PHRASE,
+                    stt_ms=getattr(controller, "_last_stt_ms", None),
                 )
             try:
                 asyncio.run(_turn())

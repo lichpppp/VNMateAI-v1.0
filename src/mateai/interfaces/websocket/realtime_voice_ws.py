@@ -21,68 +21,11 @@ import json
 import logging
 import time
 import uuid
-from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Metric Tracing Tracker
-# ---------------------------------------------------------------------------
-
-@dataclass
-class VoiceRequestTrace:
-    """Theo dõi độ trễ từng chặng của một yêu cầu giọng nói."""
-    # perf_counter thay monotonic: trên Windows monotonic chỉ phân giải 15,6 ms,
-    # làm TTFD/TTFT/TTFA nhảy bậc 0/15/31 ms.
-    request_id: str
-    session_id: str
-    trace_id: str = field(default_factory=lambda: f"trace_{uuid.uuid4().hex[:12]}")
-    t_received: float = field(default_factory=time.perf_counter)
-    t_first_display: Optional[float] = None
-    t_first_token: Optional[float] = None
-    t_first_audio: Optional[float] = None
-    t_completed: Optional[float] = None
-    status_history: list[str] = field(default_factory=list)
-
-    def mark_status(self, status: str) -> None:
-        self.status_history.append(f"{status}@{int((time.perf_counter() - self.t_received) * 1000)}ms")
-
-    def mark_first_display(self) -> int:
-        if self.t_first_display is None:
-            self.t_first_display = time.perf_counter()
-        return int((self.t_first_display - self.t_received) * 1000)
-
-    def mark_first_token(self) -> int:
-        if self.t_first_token is None:
-            self.t_first_token = time.perf_counter()
-        return int((self.t_first_token - self.t_received) * 1000)
-
-    def mark_first_audio(self) -> int:
-        if self.t_first_audio is None:
-            self.t_first_audio = time.perf_counter()
-        return int((self.t_first_audio - self.t_received) * 1000)
-
-    def mark_completed(self) -> Dict[str, Any]:
-        self.t_completed = time.perf_counter()
-        ttl_ms = int((self.t_completed - self.t_received) * 1000)
-        ttfd_ms = int((self.t_first_display - self.t_received) * 1000) if self.t_first_display else None
-        ttft_ms = int((self.t_first_token - self.t_received) * 1000) if self.t_first_token else None
-        ttfa_ms = int((self.t_first_audio - self.t_received) * 1000) if self.t_first_audio else None
-
-        return {
-            "request_id": self.request_id,
-            "session_id": self.session_id,
-            "trace_id": self.trace_id,
-            "ttfd_ms": ttfd_ms,
-            "ttft_ms": ttft_ms,
-            "ttfa_ms": ttfa_ms,
-            "ttl_ms": ttl_ms,
-            "status_steps": self.status_history,
-        }
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +191,6 @@ async def handle_realtime_voice_endpoint(
                 continue
 
             request_id = str(msg.get("request_id") or uuid.uuid4().hex[:10])
-            trace = VoiceRequestTrace(request_id=request_id, session_id=session.session_id)
             if msg.get("format") == "base64" or msg.get("legacy_audio") is True:
                 session.legacy_base64 = True
 
@@ -258,7 +200,7 @@ async def handle_realtime_voice_endpoint(
             # Chạy pipeline xử lý câu lệnh trong một async Task riêng biệt
             # để vòng lặp WebSocket vẫn tiếp nhận được lệnh 'cancel_request' hoặc 'ping'
             session.active_task = asyncio.create_task(
-                _execute_voice_turn(session, query, msg, trace)
+                _execute_voice_turn(session, query, msg, request_id)
             )
 
     finally:
@@ -268,17 +210,12 @@ async def handle_realtime_voice_endpoint(
 class _RealtimeWsSink:
     """Đầu ra của portal: sự kiện WebSocket theo giao thức /ws/v1/voice-stream."""
 
-    def __init__(self, session: "RealtimeVoiceSession", trace: VoiceRequestTrace) -> None:
+    def __init__(self, session: "RealtimeVoiceSession", request_id: str) -> None:
         self.session = session
-        self.trace = trace
-        self.request_id = trace.request_id
+        self.request_id = request_id
         self._shown = ""  # phần chữ hiển thị đã gửi qua text_delta
 
     async def on_status(self, status: str, **info: Any) -> None:
-        if status == "speaking":
-            self.trace.mark_first_token()
-            self.trace.mark_first_display()
-        self.trace.mark_status("fast_path" if info.get("fast_path") and status == "speaking" else status)
         if status == "done":
             return  # báo "done" sau khi tính metrics
         payload = {"status": status, "request_id": self.request_id}
@@ -314,8 +251,6 @@ class _RealtimeWsSink:
     async def on_audio(self, seq: int, audio: bytes, text: str, kind: str, **info: Any) -> None:
         if not audio:
             return  # TTS câu này lỗi — portal đã có chữ qua text_delta
-        if not self.trace.t_first_audio:
-            self.trace.mark_first_audio()
         event = {
             "sequence": seq, "request_id": self.request_id, "format": "mp3", "text": text,
         }
@@ -342,20 +277,17 @@ async def _execute_voice_turn(
     session: RealtimeVoiceSession,
     query: str,
     payload: Dict[str, Any],
-    trace: VoiceRequestTrace,
+    request_id: str,
 ) -> None:
     """
     Một lượt nói của portal. Nghiệp vụ ở mateai.application.voice.voice_turn.process_voice_turn
-    (dùng chung mọi kênh); hàm này chỉ là transport + đo latency.
+    (dùng chung mọi kênh, kể cả đo latency); hàm này chỉ là transport.
     """
     from mateai.application.voice.voice_turn import process_voice_turn
 
-    request_id = trace.request_id
-    sink = _RealtimeWsSink(session, trace)
+    sink = _RealtimeWsSink(session, request_id)
     try:
-        trace.mark_status("routing")
         await session.send_event("status", {"status": "routing", "request_id": request_id})
-        trace.mark_first_display()
 
         result = await process_voice_turn(
             query,
@@ -364,12 +296,12 @@ async def _execute_voice_turn(
             source_device="portal",
             caller=str(session.user_info.get("sub") or session.user_info.get("username") or "anonymous"),
             history=payload.get("history"),
+            request_id=request_id,
         )
         await sink.flush_display(result.display_text)
 
-        trace.mark_status("done")
         await session.send_event("status", {"status": "done", "request_id": request_id})
-        metrics = trace.mark_completed()
+        metrics = dict(result.trace)
         if result.fast_command:
             metrics["fast_path"] = {"command": result.fast_command}
         else:

@@ -84,6 +84,10 @@ def hud(monkeypatch):
 
     monkeypatch.setattr(TTSStreamEngine, "synthesise", fake_synthesise)
     monkeypatch.setattr(TTSStreamEngine, "stream", fake_tts_stream)
+    # Cache đĩa của máy chạy test có thể đã có MP3 thật của câu cố định (vd câu
+    # hỏi lại) — test phải dùng audio giả, không phụ thuộc lần chạy trước.
+    import mateai.infrastructure.tts.audio_cache as audio_cache
+    monkeypatch.setattr(audio_cache, "get_cached_audio_bytes", lambda text: None)
     import mateai.application.commands.fast_command_router as fcr
 
     async def no_fast(query, synthesize_audio=True):

@@ -93,8 +93,7 @@ def turn(monkeypatch):
 
 
 async def _run(turn, query: str):
-    trace = rvw.VoiceRequestTrace(request_id="req-llm-1", session_id=turn["session"].session_id)
-    await rvw._execute_voice_turn(turn["session"], query, {}, trace)
+    await rvw._execute_voice_turn(turn["session"], query, {}, "req-llm-1")
     return [e["type"] for e in turn["ws"].events]
 
 
@@ -130,3 +129,14 @@ async def test_sensitive_data_masked_before_llm(turn):
     sent = turn["seen_messages"][0][-1]["content"]
     assert "Abc12345" not in sent, f"mật khẩu lọt sang LLM: {sent}"
     assert "192.168.1.27" not in sent, f"IP nội bộ lọt sang LLM: {sent}"
+
+
+
+async def test_turn_metrics_measure_answer_audio_separately(turn):
+    """session_ended mang số đo của VoiceTurnTrace: tiếng câu TRẢ LỜI tách khỏi tiếng câu xác nhận."""
+    await _run(turn, "Giải thích ngắn gọn RAID 1 là gì.")
+    metrics = next(e for e in turn["ws"].events if e["type"] == "session_ended")["metrics"]
+    assert metrics["request_id"] == "req-llm-1" and metrics["channel"] == "portal"
+    assert metrics["llm_first_token_ms"] is not None and metrics["ttfa_answer_ms"] is not None
+    assert metrics["ttft_ms"] >= metrics["llm_first_token_ms"]
+    assert metrics["ttfa_answer_ms"] >= metrics["ttft_ms"] and metrics["ttl_ms"] >= metrics["ttfa_answer_ms"]

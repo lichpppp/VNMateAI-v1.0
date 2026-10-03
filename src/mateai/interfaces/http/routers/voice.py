@@ -294,3 +294,23 @@ async def api_voice_session_close(
     session = voice_sessions.get(session_id)
     session.clear_expecting_reply()
     return {"status": "success", "closed": True, "session": session.to_client()}
+
+
+@router.get(
+    "/api/v1/voice/metrics",
+    summary="Độ trễ các lượt thoại gần nhất (p50/p95/p99 theo kiểu lượt) — mọi kênh",
+    tags=["Voice"],
+)
+async def api_voice_metrics(
+    channel: Optional[str] = Query(default=None, description="portal | hud | <id robot> | server_mic"),
+    recent: int = Query(default=20, ge=0, le=500),
+    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    """Số đo từ `VoiceTurnTrace` (bộ đệm vòng 500 lượt trong RAM, mất khi khởi động lại).
+    Chỉ admin: trace có session_id / id thiết bị."""
+    from mateai.application.voice.voice_turn import recent_traces, trace_stats
+    return {
+        "status": "success",
+        "stats": trace_stats(channel),
+        "recent": recent_traces(recent, channel) if recent else [],
+    }

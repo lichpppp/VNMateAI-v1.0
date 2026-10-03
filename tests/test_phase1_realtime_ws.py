@@ -18,8 +18,8 @@ from pathlib import Path
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from mateai.application.voice.voice_turn import VoiceTurnTrace, recent_traces, trace_stats
 from mateai.interfaces.websocket.realtime_voice_ws import (
-    VoiceRequestTrace,
     RealtimeVoiceSession,
     RealtimeVoiceRegistry,
     voice_ws_registry,
@@ -27,32 +27,33 @@ from mateai.interfaces.websocket.realtime_voice_ws import (
 
 
 def test_metric_trace_tracker():
-    print("\n▸ 1. Kiểm thử Bộ Đo Độ Trễ & Tracing (VoiceRequestTrace)")
-    trace = VoiceRequestTrace(request_id="req_test_01", session_id="user_admin")
+    """Trace dùng chung mọi kênh (application/voice/voice_turn.VoiceTurnTrace) — thay
+    VoiceRequestTrace chỉ có ở portal."""
+    print("\n▸ 1. Kiểm thử Bộ Đo Độ Trễ & Tracing (VoiceTurnTrace)")
+    trace = VoiceTurnTrace(session_id="user_admin", channel="portal", request_id="req_test_01")
     assert trace.request_id == "req_test_01"
     assert trace.trace_id.startswith("trace_")
 
     time.sleep(0.02)
-    ttfd = trace.mark_first_display()
-    assert ttfd >= 20, f"TTFD phải >= 20ms, nhận: {ttfd}"
-
-    time.sleep(0.02)
-    ttft = trace.mark_first_token()
-    assert ttft >= ttfd, f"TTFT ({ttft}) phải >= TTFD ({ttfd})"
-
-    time.sleep(0.02)
-    ttfa = trace.mark_first_audio()
-    assert ttfa >= ttft, f"TTFA ({ttfa}) phải >= TTFT ({ttft})"
-
-    trace.mark_status("routing")
     trace.mark_status("thinking")
+    time.sleep(0.02)
+    trace.mark("first_text")
+    time.sleep(0.02)
+    trace.mark("first_audio")
+    trace.mark("first_answer_audio")
+    trace.mark("first_text")  # lần sau không ghi đè lần đầu
     trace.mark_status("speaking")
     trace.mark_status("done")
 
-    summary = trace.mark_completed()
-    assert summary["ttl_ms"] >= ttfa
-    assert len(summary["status_steps"]) == 4
-    print(f"  ✅ Trace Summary: TTFD={summary['ttfd_ms']}ms, TTFT={summary['ttft_ms']}ms, TTFA={summary['ttfa_ms']}ms, TTL={summary['ttl_ms']}ms")
+    summary = trace.finish("llm")
+    assert summary["ttfd_ms"] >= 20
+    assert summary["ttft_ms"] >= summary["ttfd_ms"] + 15
+    assert summary["ttfa_answer_ms"] >= summary["ttft_ms"]
+    assert summary["ttl_ms"] >= summary["ttfa_answer_ms"]
+    assert len(summary["status_steps"]) == 3
+    assert recent_traces(1)[0]["request_id"] == "req_test_01"
+    assert trace_stats("portal")["by_outcome"]["llm"]["metrics"]["ttft_ms"]["n"] >= 1
+    print(f"  ✅ Trace Summary: TTFD={summary['ttfd_ms']}ms, TTFT={summary['ttft_ms']}ms, TTFA={summary['ttfa_answer_ms']}ms, TTL={summary['ttl_ms']}ms")
 
 
 async def test_session_lifecycle_and_cancellation():

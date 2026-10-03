@@ -1443,6 +1443,9 @@ class LLMEngine:
         # câu xin lỗi như trước.
         provider = self.get_provider(brain_role=role)
         routing_mode = (settings.llm.routing_mode or "router").lower()
+        # Đo đạc (VoiceTurnTrace): kích thước prompt + số tool đưa cho model.
+        turn["prompt_chars"] = sum(len(str(m.get("content") or "")) for m in messages)
+        turn["tools_offered"] = len(tools or [])
         t_start = time.monotonic()
         first_token_logged = False
 
@@ -1489,6 +1492,8 @@ class LLMEngine:
                 # Phase 87: nuốt phần suy nghĩ vào bộ đệm riêng. Cố tình KHÔNG
                 # gộp vào chữ trả lời: đó là câu sẽ đọc to và hiện trên HUD.
                 reasoning_buffer += chunk.reasoning or ""
+                if (chunk.content or chunk.tool_calls) and "llm_first_token_at" not in turn:
+                    turn["llm_first_token_at"] = time.perf_counter()
 
                 # Phát hiện tool call → phát câu xác nhận TỨC THÌ + chuyển agentic loop.
                 # ⚡ FAST FEEDBACK: User nghe "Để em kiểm tra..." sau ~1s thay vì
@@ -1595,6 +1600,7 @@ class LLMEngine:
             logger.info("[LLMEngine] Executing full agentic loop for tool call...")
             self.last_voice_reasoning = ""
             turn["used_agent"] = True
+            turn["agent_start_at"] = time.perf_counter()
             try:
                 result = await self.ask_async(
                     query=query,
@@ -1603,6 +1609,7 @@ class LLMEngine:
                     session_id=_session,
                     caller=caller,
                 )
+                turn["agent_end_at"] = time.perf_counter()
                 self.last_voice_display_text = result.get("reply", "")
                 turn["display_text"] = self.last_voice_display_text
                 turn["reasoning"] = result.get("reasoning", "") or ""
