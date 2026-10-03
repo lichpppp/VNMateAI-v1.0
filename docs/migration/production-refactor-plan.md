@@ -961,3 +961,30 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 - `docs/migration/sqlite-to-postgresql-plan.md`: kiểm kê đo thật (2 CSDL, 16 bảng, 269 dòng), bước chuyển, kiểm số dòng + checksum, cutover, rollback.
 - Xoá `apps/{api,realtime,worker}` (gói rỗng, không ai import). Đường dẫn `hr_kpi.db` một chủ (`domain_sync`). Test kiến trúc mới: mọi lời gọi HTTP ra ngoài phải có timeout (25/25 hiện có).
 - CI `.github/workflows/tests.yml` (windows-latest: pip, build admin, pytest + node). Hai test làm cho tự cô lập (phase87 đặt model, phase92 tự làm nóng cache). Bản checkout sạch với `config.example.json`: **371 pass**. Chưa xác nhận chạy trên GitHub.
+
+## 54. Kỹ năng tự tạo: trợ lý tự tìm và dùng, chủ động tạo khi chưa có (2026-10-03)
+
+**STATUS:** XONG
+
+**Triệu chứng (chủ dự án báo):** kỹ năng đã được AI tạo nhưng trợ lý không tự dùng, phải nhắc tên mới biết.
+
+**Nguyên nhân (tái hiện trên danh mục thật 82 skill, đường thoại HUD/Telegram thoại/robot/portal thoại):**
+1. `classify_intent` là danh sách từ khoá viết tay → "mở bài hát…", "thống kê lô xổ số…" bị coi là trò chuyện → model **không được đưa tool nào**.
+2. Bộ định tuyến chỉ chấm tool trong các miền đoán theo từ khoá, khớp **chuỗi con** ("hat" khớp "chat") → skill tự tạo (nhóm chung) bị loại; "mở bài hát Lạc Trôi" chọn nhầm skill xổ số.
+3. Mô tả skill do AI sinh **bằng tiếng Anh** → câu tiếng Việt không khớp.
+4. Skill vừa tạo không gọi được trong cùng lượt (danh sách tool lấy một lần đầu lượt).
+5. Đường thoại không bao giờ chủ động tạo skill; đường tự tạo trong vòng agent **không qua RBAC** (viewer cũng khiến máy chủ sinh + cài mã).
+
+**Sửa:**
+- `skill_router.rank_tools`: chấm MỌI skill theo từ (bỏ dấu, bỏ từ chức năng), cụm hai từ, trọng số độ hiếm trong danh mục (IDF); miền chỉ là điểm cộng. `STRONG_MATCH_SCORE` 4,5 / `WEAK_MATCH_SCORE` 2,0 (đo trên danh mục thật). Câu xã giao chỉ được 0 tool khi không khớp rõ skill nào.
+- `classify_intent`: câu khớp rõ một skill = lệnh vận hành. Câu trò chuyện khớp yếu vẫn được đưa 3 skill gần nhất.
+- `MetaArchitect`: prompt yêu cầu mô tả tiếng Việt có dấu + các cách nói; tự gắn **câu yêu cầu gốc của người dùng** vào mô tả (`_with_user_phrasing`).
+- Vòng agent làm mới danh sách tool ngay sau `create_new_skill` / `reload_all_skills` và nhắc model gọi skill mới.
+- Chủ động tạo: người hỏi là admin + không skill nào khớp rõ → đường thoại đưa thêm `create_new_skill`. `create_new_skill` và đường tự tạo **không tạo trùng** (`find_existing_skill` trả skill đã có). Đường tự tạo qua RBAC (`_may_create_skills`, chỉ admin).
+- Skill đã có `skills/auto_play_music.py` (tệp do AI tạo, chưa vào git): gắn thêm cách nói tiếng Việt vào mô tả (chỉ mô tả, mã giữ nguyên; bản sao lưu ở scratchpad).
+
+**TESTS:** 385 pass (+14 `test_auto_skill_discovery`: tìm skill không cần tên, khớp theo từ, câu xã giao 0 tool, phân loại, gắn câu yêu cầu, chỉ admin tạo, viewer không kích hoạt tự tạo, skill mới gọi được cùng lượt, không tạo trùng).
+
+**RUNTIME:** danh mục thật: "mở bài hát Lạc Trôi", "bật nhạc Sơn Tùng", "nghe nhạc trên youtube" → `auto_play_music` đứng đầu; "hát cho tôi nghe bài…" (trò chuyện) vẫn được đưa `auto_play_music`; "lô nào về nhiều nhất tuần này" → `thong_ke_lo_xsmb`; "Kiểm tra CPU và RAM" → `get_active_processes`; "Xin chào", "Cảm ơn" → 0 tool. Lượt nói thật qua HUD "Lô nào về nhiều nhất trong hai tuần qua?" → trợ lý tự gọi `thong_ke_lo_xsmb`, trả lời có số liệu.
+
+**Còn lại:** câu trò chuyện khớp yếu ("kể chuyện cười", "thời tiết") được đưa kèm 3 skill không liên quan (model không gọi, tốn thêm ít token). Chủ động tạo skill chưa thử thật trên máy chủ (sẽ sinh và cài mã mới) — đã có test với LLM giả.

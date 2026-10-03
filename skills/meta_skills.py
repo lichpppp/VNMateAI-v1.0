@@ -22,7 +22,13 @@ logger = logging.getLogger(__name__)
 
 @export_skill(
     name="create_new_skill",
-    description="Tự động thiết kế, sinh mã nguồn Python, kiểm tra an toàn AST và nạp nóng kỹ năng mới vào hệ thống VN-MateAI.",
+    description=(
+        "Tạo KỸ NĂNG MỚI khi người dùng yêu cầu một VIỆC mà hiện chưa có công cụ nào làm được "
+        "(vd mở bài hát/phát nhạc, tra cứu một trang web cụ thể, tự động hoá một thao tác). "
+        "Sinh mã Python, kiểm tra an toàn và nạp ngay; sau đó gọi kỹ năng mới để làm tiếp yêu cầu. "
+        "KHÔNG dùng cho câu hỏi trò chuyện hay câu tự trả lời được bằng kiến thức. "
+        "intent_description: mô tả đầy đủ việc cần làm, dùng chính lời người dùng."
+    ),
     parameters_schema={
         "type": "object",
         "properties": {
@@ -48,6 +54,17 @@ def create_new_skill(intent_description: str, skill_name: Optional[str] = None) 
     desc = intent_description.strip()
     if not desc:
         return {"status": "error", "message": "Mô tả kỹ năng không được để trống."}
+
+    # Không tạo trùng: đã có kỹ năng khớp rõ yêu cầu thì trả lại tên kỹ năng đó.
+    from mateai.application.skills.skill_router import find_existing_skill
+    existing = find_existing_skill(desc)
+    if existing:
+        return {
+            "status": "success",
+            "skill_name": existing,
+            "already_exists": True,
+            "message": f"Đã có kỹ năng '{existing}' làm việc này — hãy gọi nó, không tạo kỹ năng mới.",
+        }
 
     # Sinh tên file an toàn nếu không truyền
     if skill_name:

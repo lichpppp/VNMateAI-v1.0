@@ -16,6 +16,7 @@ Mục tiêu cốt lõi:
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 import time
@@ -101,6 +102,48 @@ def _strip_accents(text: str) -> str:
     return text.replace("đ", "d").replace("Đ", "D").lower().strip()
 
 
+#: Từ chức năng (đã bỏ dấu) — không mang nghĩa chọn công cụ.
+_STOPWORDS = frozenset("""
+cho toi ban em anh chi nghe cua va la co khong nao nay kia do voi mot nhung cac nhe nha giup hom
+hay di the gi roi duoc can muon vao ra len xuong tu den trong tren duoi ay a oi minh chung
+the a an to of in on for and by with is are be it this that from or as at
+""".split())
+
+#: Điểm từ đó coi là câu hỏi KHỚP RÕ một skill (đủ để chọn tool dù không có
+#: từ khoá miền nào): vd một từ hiếm trong TÊN skill, hoặc một cụm hai từ +
+#: một từ trong mô tả. Đo trên danh mục thật (82 skill).
+STRONG_MATCH_SCORE = 4.5
+#: Khớp YẾU: câu trò chuyện vẫn được đưa vài skill gần nhất để model tự quyết
+#: ("hát cho tôi nghe bài…" khớp skill phát nhạc nhưng ít từ trùng).
+WEAK_MATCH_SCORE = 2.0
+
+
+def find_existing_skill(intent: str) -> Optional[str]:
+    """Tên skill đã có khớp RÕ với yêu cầu (bỏ qua các công cụ quản lý kỹ năng) —
+    dùng để không tạo trùng kỹ năng."""
+    for score, tool in dynamic_skill_router.rank_tools(intent):
+        name = (tool.get("function") or {}).get("name")
+        if name in ("create_new_skill", "reload_all_skills", "list_available_skills"):
+            continue
+        return name if score >= STRONG_MATCH_SCORE else None
+    return None
+
+
+def _tokens(text: str) -> List[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", _strip_accents(text)) if len(t) >= 2]
+
+
+def _content_tokens(text: str) -> List[str]:
+    return [t for t in _tokens(text) if t not in _STOPWORDS]
+
+
+def _bigrams(tokens: List[str]) -> Set[Tuple[str, str]]:
+    """Cụm hai từ liền nhau, bỏ cặp toàn từ chức năng. Dùng CÙNG cách cho câu
+    hỏi và mô tả (trước đây câu hỏi bỏ từ chức năng trước khi ghép cặp nên
+    "nghe nhac" không bao giờ khớp)."""
+    return {(a, b) for a, b in zip(tokens, tokens[1:]) if not (a in _STOPWORDS and b in _STOPWORDS)}
+
+
 # ---------------------------------------------------------------------------
 # 2. Dynamic Skill Index & Router
 # ---------------------------------------------------------------------------
@@ -125,6 +168,11 @@ class DynamicSkillRouter:
         self._tool_domain_map: Dict[str, SkillDomain] = {}
         self._is_indexed: bool = False
         self._last_index_time: float = 0.0
+        # tool_name -> (từ trong tên, từ trong mô tả, cụm hai từ trong mô tả)
+        self._tool_terms: Dict[str, Tuple[Set[str], Set[str], Set[Tuple[str, str]]]] = {}
+        # Trọng số độ hiếm của từ trong danh mục (0..1): "kiem", "tra", "may"
+        # xuất hiện ở hàng chục công cụ nên gần như không phân biệt được gì.
+        self._idf: Dict[str, float] = {}
 
     def rebuild_index(self) -> int:
         """
@@ -136,6 +184,8 @@ class DynamicSkillRouter:
             self._domain_schemas = {d: [] for d in SkillDomain}
             self._tool_cache.clear()
             self._tool_domain_map.clear()
+            self._tool_terms.clear()
+            self._idf = {}
 
             all_tools: List[Dict[str, Any]] = []
 
@@ -165,7 +215,17 @@ class DynamicSkillRouter:
                 domain = self._classify_tool_domain(name, tool)
                 self._tool_domain_map[name] = domain
                 self._domain_schemas[domain].append(tool)
+                _desc_tokens = _tokens((tool.get("function") or {}).get("description", ""))
+                self._tool_terms[name] = (set(_tokens(name.replace("_", " "))), set(_desc_tokens), _bigrams(_desc_tokens))
 
+            n_tools = max(1, len(self._tool_terms))
+            df: Dict[str, int] = {}
+            for name_t, desc_t, _pairs in self._tool_terms.values():
+                for tok in name_t | desc_t:
+                    df[tok] = df.get(tok, 0) + 1
+            top = math.log((n_tools + 1) / 2)
+            self._idf = {tok: max(0.0, math.log((n_tools + 1) / (c + 1))) / top if top > 0 else 1.0
+                         for tok, c in df.items()}
             self._is_indexed = True
             self._last_index_time = time.monotonic()
             elapsed_ms = (time.perf_counter() - t0) * 1000
@@ -241,6 +301,59 @@ class DynamicSkillRouter:
         with self._lock:
             return list(self._domain_schemas.get(domain, []))
 
+    def rank_tools(self, query: str) -> List[Tuple[float, Dict[str, Any]]]:
+        """
+        Chấm điểm MỌI công cụ theo câu hỏi, cao trước (chỉ công cụ có điểm > 0).
+
+        Khớp theo TỪ (đã bỏ dấu), không theo chuỗi con — trước đây "hat" (hát)
+        khớp cả "that", "chat"…, còn skill nằm ở nhóm chung (vd skill do AI tự
+        tạo) bị loại trước khi chấm vì không thuộc miền nào khớp câu hỏi, nên
+        trợ lý chỉ dùng được khi người dùng nói đúng tên skill.
+          +4  từ của câu hỏi có trong TÊN công cụ
+          +1.5 từ có trong mô tả
+          +3  cụm hai từ liền nhau của câu hỏi có trong mô tả ("bai hat", "xo so")
+          +2  công cụ thuộc miền có từ khoá xuất hiện trong câu hỏi
+        Mỗi từ nhân với độ hiếm của nó trong danh mục (IDF, 0..1).
+        """
+        self._ensure_indexed()
+        q_clean = _strip_accents(query or "")
+        q_tokens = _content_tokens(query or "")
+        if not q_tokens:
+            return []
+        q_set = set(q_tokens)
+        q_pairs = _bigrams(_tokens(query or ""))
+        idf = self._idf
+
+        def w(tok: str) -> float:
+            return idf.get(tok, 1.0)
+        hit_domains = {d for d, kws in DOMAIN_SIGNATURES.items() if any(kw in q_clean for kw in kws)}
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        with self._lock:
+            for name, tool in self._tool_cache.items():
+                name_t, desc_t, desc_pairs = self._tool_terms.get(name, (set(), set(), set()))
+                score = (
+                    4.0 * sum(w(t) for t in q_set & name_t)
+                    + 1.5 * sum(w(t) for t in q_set & desc_t)
+                    + 3.0 * sum(max(w(a), w(b)) for a, b in q_pairs & desc_pairs)
+                )
+                if score and self._tool_domain_map.get(name) in hit_domains:
+                    score += 2.0
+                if score > 0:
+                    scored.append((score, tool))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
+    def get_tool(self, name: str) -> Optional[Dict[str, Any]]:
+        """Schema của một công cụ theo tên (None nếu không có)."""
+        self._ensure_indexed()
+        with self._lock:
+            return self._tool_cache.get(name)
+
+    def best_match_score(self, query: str) -> float:
+        """Điểm của công cụ khớp nhất (0 nếu không có)."""
+        ranked = self.rank_tools(query)
+        return ranked[0][0] if ranked else 0.0
+
     def get_tools_for_query(
         self,
         query: str,
@@ -281,100 +394,35 @@ class DynamicSkillRouter:
             (any(query_clean.startswith(cs) for cs in CASUAL_STARTS) and len(words) <= 8)
             or (any(cc in query_clean for cc in CASUAL_CONTAINS) and len(words) <= 10)
         )
-        if is_casual:
+        if is_casual and self.best_match_score(query) < STRONG_MATCH_SCORE:
             logger.debug("[DynamicSkillRouter] Câu đàm thoại xã giao -> 0 tools (TTFT tối ưu).")
             return []
 
-        with self._lock:
-            candidate_domains: Set[SkillDomain] = set()
-
-            # Nếu có gợi ý miền từ ngoài
+        ranked = self.rank_tools(query)
+        selected = [t for _, t in ranked[:max_tools]]
+        if not selected:
+            # Lệnh kỹ thuật nhưng không từ nào khớp: vài công cụ của miền gợi ý
+            # (hoặc vận hành hệ thống) để model còn có lựa chọn.
+            fallback_domains: List[SkillDomain] = []
             if domain_hint:
                 try:
-                    candidate_domains.add(SkillDomain(domain_hint.lower()))
+                    fallback_domains.append(SkillDomain(domain_hint.lower()))
                 except ValueError:
                     pass
-
-            # Quét tìm các miền liên quan qua từ khóa
-            for domain, keywords in DOMAIN_SIGNATURES.items():
-                if any(kw in query_clean for kw in keywords):
-                    candidate_domains.add(domain)
-
-            # Nếu không tìm thấy domain khớp cụ thể -> Thử SYSTEM_OPS và GENERAL_TOOLS làm mặc định
-            if not candidate_domains:
-                candidate_domains.add(SkillDomain.SYSTEM_OPS)
-                candidate_domains.add(SkillDomain.GENERAL_TOOLS)
-
-            # Tập hợp các công cụ ứng viên từ các domain khớp (Khử trùng lặp tên tool)
-            candidate_tools: List[Dict[str, Any]] = []
-            seen_cand_names: Set[str] = set()
-            for d in candidate_domains:
-                for t in self._domain_schemas.get(d, []):
-                    fn_name = (t.get("function") or {}).get("name")
-                    if fn_name and fn_name not in seen_cand_names:
-                        seen_cand_names.add(fn_name)
-                        candidate_tools.append(t)
-
-            # Chấm điểm độ liên quan của từng tool với câu hỏi
-            scored: List[Tuple[int, Dict[str, Any]]] = []
-            for tool in candidate_tools:
-                fn = tool.get("function") or {}
-                name = _strip_accents(fn.get("name", ""))
-                desc = _strip_accents(fn.get("description", ""))
-                score = 0
-
-                # Khớp trực tiếp từng từ trong câu truy vấn
-                for w in words:
-                    if len(w) >= 3:
-                        if w in name:
-                            score += 4
-                        if w in desc:
-                            score += 1
-
-                # Khớp từ khóa đặc trưng của miền
-                for d in candidate_domains:
-                    for kw in DOMAIN_SIGNATURES.get(d, []):
-                        if kw in query_clean and kw in name:
-                            score += 5
-                        elif kw in query_clean and kw in desc:
-                            score += 2
-
-                if score > 0:
-                    scored.append((score, tool))
-
-            # Sắp xếp điểm giảm dần
-            scored.sort(key=lambda x: x[0], reverse=True)
-
-            # Lấy top max_tools (Đảm bảo tuyệt đối không trùng lặp)
-            selected: List[Dict[str, Any]] = []
-            seen_sel_names: Set[str] = set()
-            for _, t in scored:
-                fn_name = (t.get("function") or {}).get("name")
-                if fn_name and fn_name not in seen_sel_names:
-                    seen_sel_names.add(fn_name)
-                    selected.append(t)
-                    if len(selected) >= max_tools:
-                        break
-
-            # Nếu điểm đều bằng 0 nhưng là lệnh kỹ thuật -> Lấy top max_tools từ candidate_tools
-            if not selected and candidate_tools:
-                for t in candidate_tools:
-                    fn_name = (t.get("function") or {}).get("name")
-                    if fn_name and fn_name not in seen_sel_names:
-                        seen_sel_names.add(fn_name)
-                        selected.append(t)
+            fallback_domains.append(SkillDomain.SYSTEM_OPS)
+            with self._lock:
+                for d in fallback_domains:
+                    for t in self._domain_schemas.get(d, []):
                         if len(selected) >= max_tools:
                             break
-
-            logger.debug(
-                "[DynamicSkillRouter] Query: '%s' -> %d domain(s) [%s] -> %d tools được chọn (giảm từ %d tools)",
-                query[:40],
-                len(candidate_domains),
-                ", ".join(d.value for d in candidate_domains),
-                len(selected),
-                len(self._tool_cache),
-            )
-            return selected
+                        if t not in selected:
+                            selected.append(t)
+        logger.debug(
+            "[DynamicSkillRouter] Query: '%s' -> %d tools %s (điểm cao nhất %.1f, tổng %d)",
+            query[:40], len(selected), [(t.get("function") or {}).get("name") for t in selected],
+            ranked[0][0] if ranked else 0.0, len(self._tool_cache),
+        )
+        return selected
 
 
 # ---------------------------------------------------------------------------

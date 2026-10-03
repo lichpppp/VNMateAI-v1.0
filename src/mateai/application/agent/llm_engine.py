@@ -374,6 +374,34 @@ def classify_approval_reply(text: str) -> Optional[str]:
     return None
 
 
+#: Tool làm thay đổi danh mục kỹ năng — sau khi chạy phải làm mới danh sách tool.
+_SKILL_CATALOG_TOOLS = ("create_new_skill", "reload_all_skills")
+
+
+def _tool_succeeded(result: Any) -> bool:
+    """Kết quả tool (kể cả phong bì {success, data} của plugin_manager) báo thành công."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("success") is True:
+        data = result.get("data")
+        return not isinstance(data, dict) or data.get("status") in (None, "success")
+    return result.get("status") == "success"
+
+
+def _may_create_skills(caller_id: Optional[str]) -> bool:
+    """
+    Người hỏi có được để trợ lý SINH + CÀI mã kỹ năng mới không. Cùng quy tắc
+    RBAC với tool `create_new_skill` (chỉ admin). Trước đây đường tự tạo khi
+    model nói "không có công cụ" gọi thẳng MetaArchitect, không qua RBAC —
+    viewer cũng khiến máy chủ sinh và cài mã mới.
+    """
+    try:
+        from mateai.application.security.security_guard import security_guard
+        return security_guard.resolve_role(caller_id) == "admin"
+    except Exception:  # pragma: no cover — fail-closed
+        return False
+
+
 def _is_own_request(item: Dict[str, Any], caller_id: str) -> bool:
     """Yêu cầu do chính `caller_id` tạo (cùng danh tính, cùng kênh, hoặc cùng chat Telegram)."""
     ctx = item.get("context") or {}
@@ -513,6 +541,17 @@ class LLMEngine:
             }
 
         is_op = any(kw in clean for kw in OP_KEYWORDS)
+        if not is_op:
+            # Danh sách từ khoá trên viết tay, không biết gì về skill mới (vd skill
+            # do AI tự tạo: "mở bài hát…", "thống kê lô xổ số…") — câu khớp rõ một
+            # skill trong danh mục cũng là lệnh vận hành. Trước đây các câu đó bị
+            # coi là trò chuyện → model không được đưa tool nào → "em không làm
+            # được", phải nói đúng tên skill mới dùng.
+            try:
+                from mateai.application.skills.skill_router import STRONG_MATCH_SCORE, dynamic_skill_router
+                is_op = dynamic_skill_router.best_match_score(query) >= STRONG_MATCH_SCORE
+            except Exception:  # pragma: no cover — bộ định tuyến lỗi không được làm sập lượt nói
+                is_op = False
         if is_op:
             return {
                 "type": "operation",
@@ -1056,6 +1095,27 @@ class LLMEngine:
                         json.dumps(pres["result"], ensure_ascii=False, default=str)
                     )
                     messages.append({"role": "tool", "tool_call_id": pres["tool_call_id"], "content": masked_result_str})
+                # Skill vừa được tạo / nạp lại: làm mới danh sách tool NGAY trong lượt
+                # này. Trước đây `tools` chỉ lấy một lần đầu lượt nên model không gọi
+                # được skill mới cho tới lượt sau.
+                _new_skills = [
+                    (pres.get("result") or {}).get("skill_name")
+                    or ((pres.get("result") or {}).get("data") or {}).get("skill_name")
+                    for pres in parallel_results
+                    if not isinstance(pres, Exception)
+                    and pres.get("fn_name") in _SKILL_CATALOG_TOOLS
+                    and _tool_succeeded(pres.get("result"))
+                ]
+                if _new_skills:
+                    tools = self._enrich_tools_with_target_client(plugin_manager.get_all_tools())
+                    _named = ", ".join(f"'{n}'" for n in _new_skills if n)
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            f"[HỆ THỐNG] Danh mục kỹ năng vừa được cập nhật{(' (mới: ' + _named + ')') if _named else ''}. "
+                            "Hãy gọi kỹ năng phù hợp ngay để hoàn thành yêu cầu của người dùng."
+                        ),
+                    })
                 # Tiếp tục vòng để LLM tổng hợp kết quả tool
                 continue
 
@@ -1068,6 +1128,7 @@ class LLMEngine:
                     not synthesised_this_turn
                     and not tool_calls_made
                     and self._needs_synthesis(reply_text)
+                    and _may_create_skills(caller_id)
                 ):
                     logger.info("LLM phản hồi chưa có công cụ phù hợp; kích hoạt MetaArchitect tự tạo kỹ năng mới...")
                     synthesised_this_turn = True
@@ -1299,16 +1360,31 @@ class LLMEngine:
         intent = self.classify_intent(query)
         logger.info("[TriBrain] Intent phân loại: %s (chuyển sang %s brain)", intent["type"], intent["target_brain"])
 
+        from mateai.application.skills.skill_router import (
+            STRONG_MATCH_SCORE, WEAK_MATCH_SCORE, dynamic_skill_router,
+        )
+        _best = dynamic_skill_router.best_match_score(query)
         if intent["type"] == "conversation":
-            # BỘ NÃO 2: Giao tiếp & Thoại — KHÔNG nạp tools, giảm tải 100% schemas!
-            tools = None
+            # BỘ NÃO 2: Giao tiếp & Thoại — không nạp tool, TRỪ khi câu khớp yếu
+            # một skill: đưa 3 skill gần nhất để model tự quyết (câu nói tự nhiên
+            # như "hát cho tôi nghe bài…" ít từ trùng với mô tả skill).
+            raw_tools = (
+                [t for _, t in dynamic_skill_router.rank_tools(query)[:3]]
+                if _best >= WEAK_MATCH_SCORE else []
+            )
             role = "voice"
         else:
             # BỘ NÃO 3: Vận hành hệ thống — Phase 8: Dynamic Skill Loading (Chỉ nạp top 5 công cụ liên quan nhất)
             role = "ops"
-            from mateai.application.skills.skill_router import dynamic_skill_router
             raw_tools = dynamic_skill_router.get_tools_for_query(query, max_tools=5)
-            tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
+        # Chủ động tạo kỹ năng: chưa có skill nào khớp rõ câu hỏi → cho model công
+        # cụ `create_new_skill` (chỉ người có quyền tạo). Gọi nó sẽ chuyển sang vòng
+        # agent; ở đó skill được tạo, danh mục làm mới và gọi ngay trong lượt.
+        if _best < STRONG_MATCH_SCORE and _may_create_skills(caller):
+            _creator = dynamic_skill_router.get_tool("create_new_skill")
+            if _creator and _creator not in raw_tools:
+                raw_tools = [*raw_tools, _creator]
+        tools = self._enrich_tools_with_target_client(raw_tools) if raw_tools else None
 
         # Phase 5: mở stream + thử model dự phòng do provider chung đảm nhận
         # (mateai.infrastructure.llm.llm_provider — nhớ model hỏng, bỏ qua giá trị mẫu trong cấu hình).
@@ -1631,6 +1707,12 @@ class LLMEngine:
     ) -> Optional[str]:
         """Attempt to synthesise and install a new skill for the query."""
         import re as _re
+        from mateai.application.skills.skill_router import find_existing_skill
+        existing = find_existing_skill(query)
+        if existing:
+            # Đã có kỹ năng làm việc này — không sinh bản trùng; model gọi nó.
+            logger.info("MetaArchitect: đã có kỹ năng '%s' cho yêu cầu — không tạo mới.", existing)
+            return existing
         slug = _re.sub(r"[^\w\s]", "", query.lower())[:40].strip().replace(" ", "_")
         skill_filename = f"auto_{slug}" if slug else "auto_skill"
 

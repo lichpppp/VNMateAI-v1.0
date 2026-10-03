@@ -48,6 +48,11 @@ _CODE_GEN_SYSTEM_PROMPT = textwrap.dedent("""\
     6. TUYỆT ĐỐI KHÔNG dùng pyautogui, opencv, screenshot, hay bất kỳ thư viện capture màn hình nào.
     7. Trả về DUY NHẤT một code block markdown: ```python ... ```
     8. Không giải thích, không thêm text ngoài code block.
+    9. `description` của @export_skill viết bằng TIẾNG VIỆT CÓ DẤU: nói rõ kỹ năng làm
+       gì, rồi liệt kê 3–5 cách người dùng hay nói để yêu cầu việc này (vd: "mở bài hát
+       ...", "bật nhạc ...", "phát nhạc trên YouTube") và từ khoá tiếng Anh tương ứng.
+       Trợ lý chọn kỹ năng theo mô tả này — mô tả chỉ bằng tiếng Anh thì câu hỏi tiếng
+       Việt sẽ không bao giờ tìm thấy kỹ năng.
 
     PLATFORM: Windows 10/11 x64, Python 3.10+
 """)
@@ -143,7 +148,7 @@ class MetaArchitect:
                 f"Raw response (truncated): {raw_response[:300]}"
             )
 
-        return code_str
+        return self._with_user_phrasing(code_str, intent_description)
 
     def verify_and_install(
         self,
@@ -222,6 +227,47 @@ class MetaArchitect:
                 lines.append(f"  {key}: {value}")
         lines.append("\nViết ngay module Python theo yêu cầu ở trên.")
         return "\n".join(lines)
+
+    @staticmethod
+    def _with_user_phrasing(code_str: str, intent_description: str) -> str:
+        """
+        Gắn câu yêu cầu gốc của người dùng vào `description` của từng
+        @export_skill. Trợ lý chọn công cụ theo mô tả; model sinh mã hay viết mô
+        tả tiếng Anh ("search for a song…") nên câu tiếng Việt ("mở bài hát…")
+        không khớp — skill đã tạo mà trợ lý không dùng tới nếu không được nhắc.
+        Chỉ sửa mô tả là chuỗi hằng; mã không hợp lệ thì để nguyên (bước kiểm
+        tra cú pháp sau đó sẽ từ chối).
+        """
+        phrase = " ".join(str(intent_description or "").split())[:200]
+        if not phrase:
+            return code_str
+        try:
+            tree = ast.parse(code_str)
+        except SyntaxError:
+            return code_str
+        edits = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fname = getattr(node.func, "id", None) or getattr(node.func, "attr", None)
+            if fname != "export_skill":
+                continue
+            for kw in node.keywords:
+                if kw.arg == "description" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                    if phrase.lower() in kw.value.value.lower():
+                        continue
+                    new_desc = f"{kw.value.value.rstrip()} Ví dụ yêu cầu: «{phrase}»."
+                    edits.append((kw.value, repr(new_desc)))
+        lines = code_str.splitlines(keepends=True)
+        offsets = [0]
+        for line in lines:
+            offsets.append(offsets[-1] + len(line))
+        out = code_str
+        for node, literal in sorted(edits, key=lambda e: (e[0].lineno, e[0].col_offset), reverse=True):
+            start = offsets[node.lineno - 1] + len(lines[node.lineno - 1].encode("utf-8")[:node.col_offset].decode("utf-8", "ignore"))
+            end = offsets[node.end_lineno - 1] + len(lines[node.end_lineno - 1].encode("utf-8")[:node.end_col_offset].decode("utf-8", "ignore"))
+            out = out[:start] + literal + out[end:]
+        return out
 
     @staticmethod
     def _extract_code(raw: str) -> str:
