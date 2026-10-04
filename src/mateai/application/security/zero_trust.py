@@ -18,6 +18,7 @@ import hashlib
 import html
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -71,6 +72,15 @@ RISK_LEVEL_MAP: Dict[str, int] = {
     "get_attendance_report": 1,
     "get_executive_leaderboard": 1,
     "get_executive_standup_briefing": 1,
+
+    # Quản lý kỹ năng: liệt kê chỉ đọc; nạp lại chỉ chạy mã đã có trên đĩa;
+    # TẠO kỹ năng là cài mã Python mới vào tiến trình máy chủ (đã qua kiểm toán
+    # AST) — cần duyệt khi lệnh không đến từ kênh tin cậy.
+    "list_available_skills": 1,
+    "reload_all_skills": 2,
+    "create_new_skill": 4,
+    # Tải mã kỹ năng từ URL rồi cài: mã từ bên ngoài, không qua MetaArchitect.
+    "install_skill_from_url": 5,
 
     # Level 2: Routine operational creation
     "record_attendance_skill": 2,
@@ -182,9 +192,18 @@ class HumanInTheLoopManager:
         if clean in RISK_LEVEL_MAP:
             computed = RISK_LEVEL_MAP[clean]
         else:
-            if any(w in clean for w in ("delete", "remove", "drop", "wipe", "format", "kill", "transfer", "destroy")):
+            # So theo TỪ trong tên (tách bởi _ - . khoảng trắng), từ bắt đầu bằng
+            # từ khoá. Trước đây so CHUỖI CON: "s-KILL-s" khớp "kill" nên mọi
+            # tool có chữ "skill" (list_available_skills, create_new_skill, kỹ
+            # năng AI tạo) thành Level 5 như kill_process; "de-SCRIPT-ion" khớp "script".
+            words = [w for w in re.split(r"[^a-z0-9]+", clean) if w]
+
+            def _has(*keys: str) -> bool:
+                return any(w.startswith(k) for w in words for k in keys)
+
+            if _has("delete", "remove", "drop", "wipe", "format", "kill", "transfer", "destroy"):
                 computed = 5
-            elif any(w in clean for w in ("modify", "update", "write", "exec", "script", "service", "admin")):
+            elif _has("modify", "update", "write", "exec", "script", "service", "admin"):
                 computed = 4
 
         # Kiểm tra chi tiêu lớn: nếu record_expense có số tiền > 50,000,000 VND thì nâng lên Level 5

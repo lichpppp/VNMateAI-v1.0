@@ -426,6 +426,12 @@ def {name}(**kwargs) -> dict:
         with self._lock:
             return sorted(self._registry.keys())
 
+    def get_skill_modules(self) -> Dict[str, str]:
+        """Tên kỹ năng -> module định nghĩa nó (vd ``skills.auto_play_music``)."""
+        self._ensure_loaded()
+        with self._lock:
+            return {name: entry.get("module", "") for name, entry in self._registry.items()}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

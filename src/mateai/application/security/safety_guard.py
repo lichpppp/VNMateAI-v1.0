@@ -8,23 +8,21 @@ Responsibilities:
      - mask_sensitive_data(text): Masks LAN IPs, passwords, tokens, DB connection strings before sending to cloud LLMs.
   2. AST Static Code Inspection:
      - inspect_generated_code(code_str): Parses code using Python's AST module to detect dangerous calls (eval, exec,
-       os.system, shutil.rmtree, forbidden keywords, protected directory tampering).
+       os.system / kill / exec*, shutil.rmtree, shell=True, import ctypes / importlib / marshal /
+       pickle, forbidden keywords, protected directory tampering).
   3. Action Risk Assessment:
      - evaluate_action_risk(action_name, params): Returns "SAFE", "NEED_CONFIRM", or "BLOCKED".
   4. Enterprise Audit Logging:
      - log_audit(client_id, action, risk, status, details): ghi vào bảng audit_logs (chỉ INSERT).
      - get_recent_audit_logs(limit): đọc audit_logs cho Web Portal — một kho audit duy nhất.
-  5. Backward-compatible SafetyGuard wrapper for existing HITL flows.
 """
 
 from __future__ import annotations
 
 import ast
-import ctypes
 import json
 import logging
 import os
-import platform
 import re
 import sys
 import time
@@ -87,15 +85,37 @@ class CodeSecurityVisitor(ast.NodeVisitor):
     """
 
     FORBIDDEN_CALLS = {"eval", "exec", "__import__", "globals", "locals", "compile"}
-    DANGEROUS_OS_CALLS = {"system", "popen", "popen2", "popen3", "popen4", "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe"}
+    DANGEROUS_OS_CALLS = {"system", "popen", "popen2", "popen3", "popen4", "spawnl", "spawnle", "spawnlp", "spawnlpe", "spawnv", "spawnve", "spawnvp", "spawnvpe",
+                          # Dừng / thay thế tiến trình máy chủ (mã kỹ năng chạy TRONG tiến trình máy chủ).
+                          "kill", "killpg", "_exit", "abort",
+                          "execl", "execle", "execlp", "execlpe", "execv", "execve", "execvp", "execvpe"}
     DANGEROUS_SHUTIL_CALLS = {"rmtree"}
+    #: Module cho gọi API hệ điều hành tuỳ ý / nạp mã tuỳ ý — vượt qua mọi kiểm tra ở đây.
+    FORBIDDEN_IMPORTS = {"ctypes", "importlib", "marshal", "pickle"}
 
     def __init__(self, protected_directories: List[str]) -> None:
         super().__init__()
         self.violations: List[str] = []
         self.protected_directories = [d.lower() for d in protected_directories]
 
+    def _check_module(self, module: str, lineno: int) -> None:
+        if (module or "").split(".")[0] in self.FORBIDDEN_IMPORTS:
+            self.violations.append(f"Cấm import module '{module}' tại dòng {lineno}")
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self._check_module(alias.name, node.lineno)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        self._check_module(node.module or "", node.lineno)
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
+        # shell=True: chuỗi lệnh đi qua shell (cmd / sh) — chèn lệnh tuỳ ý.
+        for kw in node.keywords:
+            if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
+                self.violations.append(f"Cấm chạy lệnh qua shell (shell=True) tại dòng {node.lineno}")
         # Check direct calls e.g., eval(...) or exec(...)
         if isinstance(node.func, ast.Name):
             func_name = node.func.id
@@ -316,76 +336,7 @@ class SecurityEngine:
 
 
 # ---------------------------------------------------------------------------
-# Backward-Compatible SafetyGuard (for HITL Dialogs)
-# ---------------------------------------------------------------------------
-
-_MB_YESNO = 0x00000004
-_MB_ICONWARNING = 0x00000030
-_MB_ICONERROR = 0x00000010
-_IDYES = 6
-
-
-class SafetyGuard:
-    """
-    Backward-compatible SafetyGuard wrapper integrated with SecurityEngine.
-    """
-
-    def scan_code(self, code_str: str) -> List[str]:
-        is_safe, msg = security_engine.inspect_generated_code(code_str)
-        if not is_safe:
-            return [msg]
-        return []
-
-    def request_user_approval(self, skill_name: str, threats: List[str]) -> bool:
-        if getattr(settings, "auto_execute", False) or getattr(settings, "AUTO_EXECUTE_UNVERIFIED_CODE", False):
-            logger.info("Auto-executing unverified code enabled; approved '%s'.", skill_name)
-            return True
-
-        threat_section = ""
-        if threats:
-            threat_list = "\n".join(f"  ⚠ {t}" for t in threats)
-            threat_section = f"\n\nCẢNH BÁO BẢO MẬT:\n{threat_list}"
-
-        message = (
-            f"AI đã tự tạo kỹ năng mới: [{skill_name}]\n\n"
-            f"Bạn có cho phép cài đặt và thực thi không?{threat_section}\n\n"
-            f"Chọn YES để chấp nhận, NO để từ chối."
-        )
-        title = "VN-MateAI — Phê Duyệt An Ninh Kỹ Năng Mới"
-
-        if platform.system() == "Windows":
-            icon = _MB_ICONERROR if threats else _MB_ICONWARNING
-            try:
-                res = ctypes.windll.user32.MessageBoxW(0, message, title, _MB_YESNO | icon)  # type: ignore[attr-defined]
-                return res == _IDYES
-            except Exception:
-                pass
-
-        # Không có GUI để hỏi người dùng (macOS/Linux/headless) → KHÔNG tự động duyệt.
-        # Trước đây dòng này là `return True`, khiến cờ `auto_execute: false` trở nên
-        # vô nghĩa trên mọi nền tảng không phải Windows: mã do AI tự sinh vẫn được
-        # cài và chạy ngay. Đây là fail-open.
-        logger.warning(
-            "Từ chối cài đặt kỹ năng tự sinh '%s': không có giao diện để hỏi phê duyệt "
-            "trên nền tảng này. Nếu bạn tin tưởng mã này, hãy bật tường minh "
-            "auto_execute=true trong config.json.",
-            skill_name,
-        )
-        return False
-
-    def approve_or_reject(self, code_str: str, skill_name: str) -> Tuple[bool, List[str]]:
-        threats = self.scan_code(code_str)
-        if threats and not (getattr(settings, "auto_execute", False) or getattr(settings, "AUTO_EXECUTE_UNVERIFIED_CODE", False)):
-            logger.warning("Kỹ năng '%s' bị từ chối do vi phạm an ninh: %s", skill_name, threats)
-            return False, threats
-
-        approved = self.request_user_approval(skill_name, threats)
-        return approved, threats
-
-
-# ---------------------------------------------------------------------------
 # Module-level singletons
 # ---------------------------------------------------------------------------
 
 security_engine = SecurityEngine()
-safety_guard = SafetyGuard()

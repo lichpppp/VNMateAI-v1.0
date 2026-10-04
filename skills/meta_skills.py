@@ -12,7 +12,6 @@ Cho phép Trợ lý AI và người dùng:
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any, Dict, Optional
 
 from core.plugin_manager import export_skill
@@ -24,7 +23,9 @@ logger = logging.getLogger(__name__)
     name="create_new_skill",
     description=(
         "Tạo KỸ NĂNG MỚI khi người dùng yêu cầu một VIỆC mà hiện chưa có công cụ nào làm được "
-        "(vd mở bài hát/phát nhạc, tra cứu một trang web cụ thể, tự động hoá một thao tác). "
+        "(vd mở bài hát/phát nhạc, tra cứu một trang web cụ thể, tự động hoá một thao tác), "
+        "kể cả khi cần DỮ LIỆU TRỰC TUYẾN / THỜI GIAN THỰC chưa có công cụ lấy (giá vàng, tỷ giá, "
+        "thời tiết, tin tức). "
         "Sinh mã Python, kiểm tra an toàn và nạp ngay; sau đó gọi kỹ năng mới để làm tiếp yêu cầu. "
         "KHÔNG dùng cho câu hỏi trò chuyện hay câu tự trả lời được bằng kiến thức. "
         "intent_description: mô tả đầy đủ việc cần làm, dùng chính lời người dùng."
@@ -46,68 +47,12 @@ logger = logging.getLogger(__name__)
 )
 def create_new_skill(intent_description: str, skill_name: Optional[str] = None) -> Dict[str, Any]:
     """
-    Sinh mã kỹ năng tự động bằng MetaArchitect, kiểm duyệt an toàn và nạp nóng vào hệ thống.
+    Sinh mã kỹ năng bằng MetaArchitect, kiểm tra an toàn, ghi tệp mới và nạp nóng.
+    Toàn bộ quy trình ở `meta_architect.create_skill` (một nơi duy nhất).
+    `skill_name` trả về là TÊN CÔNG CỤ đã đăng ký (lấy từ mã đã nạp).
     """
     from mateai.application.skills.meta_architect import meta_architect
-    from core.plugin_manager import plugin_manager
-
-    desc = intent_description.strip()
-    if not desc:
-        return {"status": "error", "message": "Mô tả kỹ năng không được để trống."}
-
-    # Không tạo trùng: đã có kỹ năng khớp rõ yêu cầu thì trả lại tên kỹ năng đó.
-    from mateai.application.skills.skill_router import find_existing_skill
-    existing = find_existing_skill(desc)
-    if existing:
-        return {
-            "status": "success",
-            "skill_name": existing,
-            "already_exists": True,
-            "message": f"Đã có kỹ năng '{existing}' làm việc này — hãy gọi nó, không tạo kỹ năng mới.",
-        }
-
-    # Sinh tên file an toàn nếu không truyền
-    if skill_name:
-        safe_name = re.sub(r"[^\w]", "_", skill_name.strip()).strip("_")
-    else:
-        # Tự động rút trích slug ngắn
-        raw_slug = re.sub(r"[^\w\s]", "", desc.lower())[:30].strip().replace(" ", "_")
-        safe_name = f"auto_{raw_slug}" if raw_slug else "auto_skill"
-
-    logger.info("Yêu cầu tự tạo kỹ năng mới: '%s' (mô tả: %s)", safe_name, desc[:80])
-
-    try:
-        # Bước 1: Sinh mã nguồn Python qua mô hình LLM chuyên trách
-        code_str = meta_architect.synthesize_skill(
-            intent_description=desc,
-            failed_context={"target_name": safe_name},
-        )
-
-        # Bước 2: Kiểm tra AST, kiểm duyệt an ninh Zero-Trust, ghi ra đĩa và nạp nóng
-        success = meta_architect.verify_and_install(code_str, safe_name)
-        if not success:
-            return {
-                "status": "error",
-                "message": f"Không thể cài đặt kỹ năng '{safe_name}' do không vượt qua kiểm định an toàn AST hoặc phê duyệt.",
-            }
-
-        # Lấy tên kỹ năng vừa đăng ký trong registry
-        all_names = plugin_manager.get_skill_names()
-        registered_name = safe_name if safe_name in all_names else (all_names[-1] if all_names else safe_name)
-
-        return {
-            "status": "success",
-            "message": f"Kỹ năng mới '{registered_name}' đã được AI tự động tạo, kiểm tra an toàn và nạp nóng thành công vào hệ thống!",
-            "skill_name": registered_name,
-            "total_skills": len(all_names),
-        }
-
-    except Exception as exc:
-        logger.error("Lỗi khi tự tạo kỹ năng '%s': %s", safe_name, exc)
-        return {
-            "status": "error",
-            "message": f"Quá trình tự tạo kỹ năng thất bại: {str(exc)}",
-        }
+    return meta_architect.create_skill(intent_description, skill_name=skill_name)
 
 
 @export_skill(

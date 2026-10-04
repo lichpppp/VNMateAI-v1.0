@@ -72,3 +72,13 @@ async def test_operation_turn_keeps_full_prompt(provider, monkeypatch):
     messages, tools = provider.calls[0]
     assert turn["brain"] == "ops" and "PHÂN QUYỀN THIẾT BỊ" in messages[0]["content"]
     assert turn["tools_chars"] == (len(le.json.dumps(tools, ensure_ascii=False)) if tools else 0)
+
+
+@pytest.mark.parametrize("conversation", [True, False])
+def test_both_prompts_tell_the_model_todays_date(conversation):
+    """Prompt của vòng agent từng KHÔNG có ngày hiện tại (khối dựng ra nhưng không
+    nối vào) — model đoán ngày ("hôm nay là 24/02/2025")."""
+    import datetime
+    prompt = build_system_prompt(source_device="portal", conversation=conversation)
+    assert f"ngày {datetime.datetime.now():%d/%m/%Y}" in prompt
+    assert "TUYỆT ĐỐI không đoán" in prompt or not conversation

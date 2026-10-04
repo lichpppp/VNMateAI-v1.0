@@ -1077,3 +1077,24 @@ Xoá vỏ `core/plugins/__init__.py`, `core/schemas/__init__.py` (chỉ re-expor
 - Kiểm tra trùng lặp chạy lại: `docs/realtime/duplicate-components.md` §5 (D1, D2, D3, D5, D6, D7, L1, L3, mã chết: đã gộp/gỡ; D4, L5: còn, có lý do).
 - Việc của chủ dự án: `docs/production/owner-todo.md` § "Thoại realtime".
 - TESTS: 443 pytest + mọi `.mjs`.
+
+## 62. Rà soát tạo kỹ năng mới (2026-10-04)
+
+**STATUS:** XONG. Một quy trình duy nhất: `meta_architect.create_skill` → `install_skill` (công cụ `create_new_skill` và đường tự tạo khi model báo thiếu công cụ cùng gọi).
+
+Lỗi đã sửa (mỗi lỗi có test trong `tests/test_meta_architect_install.py`, `test_auto_skill_discovery.py`, `test_voice_brain_prompt.py`):
+- **Trả SAI tên công cụ vừa tạo**: `get_skill_names()[-1]` (danh sách theo chữ cái) ở cả hai đường → model gọi nhầm tool. Nay lấy tên từ `@export_skill` của chính mã đã nạp và xác nhận đã đăng ký đúng module.
+- **Ghi đè tệp kỹ năng có sẵn** (kể cả kỹ năng lõi) khi trùng tên tệp → nay luôn tạo tệp mới (`_2`, `_3`…); tên tệp ASCII `auto_<slug>` (trước đây có thể chứa chữ có dấu).
+- **Tên công cụ trùng công cụ có sẵn** bị đè im lặng → từ chối.
+- Kiểm tra trên mã nhưng ghi ra mã khác (thêm docstring đầu tệp SAU khi kiểm; docstring + `from __future__` → tệp sai cú pháp) → kiểm trên đúng nội dung ghi ra; đầu tệp là chú thích.
+- **Module không nạp được vẫn báo thành công**, tệp hỏng nằm lại → gỡ tệp, nạp lại, báo lý do.
+- Mã chạy lệnh ngay khi nạp (cấp module) → từ chối.
+- Kiểm toán an ninh AST: thêm chặn `shell=True`, `os.kill/_exit/exec*`, import `ctypes/importlib/marshal/pickle` (hai kỹ năng AI hiện có vẫn qua).
+- Duyệt bằng hộp thoại Windows trên máy chủ (`SafetyGuard`, khi tắt `auto_execute`) — máy chủ chạy nền, lượt nói treo → nay lưu `skills/pending/` chờ quản trị viên duyệt; gỡ `SafetyGuard`.
+- **Đánh giá rủi ro theo chuỗi con**: "s-KILL-s" khớp "kill" → mọi tool có chữ "skill" ở Level 5 (`list_available_skills` chỉ đọc cũng phải duyệt). Nay so theo từ; khai báo rõ `list_available_skills` 1, `reload_all_skills` 2, `create_new_skill` 4, `install_skill_from_url` 5 (giữ mức cũ). So mọi tool trước/sau: chỉ 3 tool đổi mức.
+- **Chống trùng quá lỏng**: dùng ngưỡng 4,5 ("đưa tool cho model") → "tra cứu ngày âm lịch" bị coi là trùng `fetch_data_source`, không tạo kỹ năng, model đọc dữ liệu không liên quan. Nay `DUPLICATE_SKILL_SCORE = 10` (danh mục thật: việc chưa có ≤ 8,94; việc đã có ≥ 10,15).
+- Prompt agent dặn gọi `learn_new_skill` (không tồn tại) → `create_new_skill`.
+- **Prompt vòng agent không có ngày hiện tại** (khối dựng ra nhưng không nối vào — có từ trước) → model bịa ngày. Nay cả hai prompt có "Hôm nay là <thứ>, ngày dd/mm/yyyy" + quy tắc dữ liệu thực tế (dùng / tạo công cụ, không đoán).
+
+RUNTIME (portal, admin): "Giá vàng SJC hôm nay" → `create_new_skill` → tệp `auto_get_gold_price.py`, tên công cụ đúng `get_sjc_gold_price` → gọi ngay trong cùng lượt (25,6 s); kỹ năng sinh ra dùng nguồn đã đóng (SJC XML 403, tygia.com 436) nên trả lỗi — trợ lý báo thật, không bịa giá; tệp thử này đã gỡ. "Hôm nay âm lịch ngày bao nhiêu" → ngày dương đúng 04/10/2026, âm 24/8 Bính Ngọ. `reload_all_skills` bằng lời nói chạy ngay (trước đây đòi duyệt).
+TESTS: 476 pass.

@@ -7,9 +7,11 @@ Responsibilities:
   - Accept a natural-language intent description + failed-execution context.
   - Craft a specialised code-generation prompt and call the LLM.
   - Strip Markdown fences from the response to obtain raw Python source.
-  - Validate syntax with ast.parse (zero-execution safety check).
-  - Route through SafetyGuard for HITL approval.
-  - Write the approved skill file to skills/ and trigger a hot-reload.
+  - Validate the exact file content: syntax, @export_skill structure, no code
+    running at import, no clash with existing tool names, AST security audit.
+  - Write a NEW file under skills/ (never overwrite), hot-reload, confirm the
+    tools registered (roll back otherwise). Without auto_execute the code is
+    parked in skills/pending/ for an administrator to review.
 
 Design Notes:
   - Uses the same OpenAI-compatible SDK as llm_engine but with a separate
@@ -22,12 +24,13 @@ from __future__ import annotations
 import ast
 import logging
 import re
+import sys
 import textwrap
+import unicodedata
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from mateai.config.loader import settings
-from mateai.application.security.safety_guard import safety_guard
 
 logger = logging.getLogger(__name__)
 
@@ -150,62 +153,134 @@ class MetaArchitect:
 
         return self._with_user_phrasing(code_str, intent_description)
 
-    def verify_and_install(
+    def create_skill(
+        self,
+        intent_description: str,
+        skill_name: Optional[str] = None,
+        failed_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Đường DUY NHẤT tạo kỹ năng mới (công cụ `create_new_skill` và tự tạo khi
+        model báo "không có công cụ" đều gọi hàm này).
+
+        Đã có kỹ năng khớp rõ yêu cầu -> trả lại kỹ năng đó, không sinh mã.
+        Trả dict: status "success" | "pending_review" | "error", skill_name (tên
+        CÔNG CỤ để gọi — lấy từ chính mã đã nạp), skill_names, file, message.
+        """
+        desc = " ".join(str(intent_description or "").split())
+        if not desc:
+            return {"status": "error", "message": "Mô tả kỹ năng không được để trống."}
+
+        from mateai.application.skills.skill_router import find_existing_skill
+        existing = find_existing_skill(desc)
+        if existing:
+            logger.info("MetaArchitect: đã có kỹ năng '%s' cho yêu cầu — không tạo mới.", existing)
+            return {
+                "status": "success",
+                "already_exists": True,
+                "skill_name": existing,
+                "skill_names": [existing],
+                "message": f"Đã có kỹ năng '{existing}' làm việc này — hãy gọi nó, không tạo kỹ năng mới.",
+            }
+
+        stem = skill_file_stem(skill_name or desc)
+        logger.info("MetaArchitect: tạo kỹ năng mới '%s' (yêu cầu: %s)", stem, desc[:80])
+        try:
+            code_str = self.synthesize_skill(
+                intent_description=desc,
+                failed_context={**(failed_context or {}), "target_name": stem},
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.error("MetaArchitect: sinh mã thất bại: %s", exc)
+            return {"status": "error", "message": f"Không sinh được mã kỹ năng: {exc}"}
+        return self.install_skill(code_str, stem, intent_description=desc)
+
+    def install_skill(
         self,
         code_str: str,
         skill_filename: str,
-    ) -> bool:
+        intent_description: str = "",
+    ) -> Dict[str, Any]:
         """
-        Validate syntax, run through SafetyGuard, write file, and hot-reload.
+        Kiểm tra -> ghi file MỚI (không ghi đè) -> nạp nóng -> xác nhận đã đăng ký.
 
-        Args:
-            code_str:       Raw Python source to install.
-            skill_filename: Filename stem (without .py) for the new skill module.
-
-        Returns:
-            True if skill was successfully installed and loaded, False otherwise.
+        Kiểm tra trên ĐÚNG nội dung sẽ ghi ra đĩa: cú pháp, cấu trúc (có
+        @export_skill, tên hợp lệ, không chạy lệnh khi nạp), không trùng tên công
+        cụ có sẵn, kiểm toán an ninh AST. Nạp lỗi (vd thiếu thư viện) -> xoá file,
+        nạp lại, báo lỗi — không để file hỏng nằm lại trong skills/.
         """
-        # --- Step 1: AST syntax validation ---
-        if not self._validate_syntax(code_str, skill_filename):
-            return False
-
-        # --- Step 2: Zero-Trust Deep AST Code Inspection ---
+        from core.plugin_manager import plugin_manager  # lazy: tránh import vòng
         from mateai.application.security.safety_guard import security_engine
-        is_safe, sec_reason = security_engine.inspect_generated_code(code_str)
+
+        stem = skill_file_stem(skill_filename)
+        content = _skill_header(stem, intent_description) + code_str.strip() + "\n"
+
+        problem = _structure_problem(content)
+        if problem:
+            logger.error("MetaArchitect: mã kỹ năng '%s' không hợp lệ: %s", stem, problem)
+            return {"status": "error", "message": f"Mã kỹ năng không hợp lệ: {problem}"}
+        names = exported_skill_names(content)
+
+        taken = sorted(set(names) & set(plugin_manager.get_skill_names()))
+        if taken:
+            return {"status": "error",
+                    "message": f"Tên kỹ năng trùng công cụ đã có: {', '.join(taken)} — không ghi đè công cụ có sẵn."}
+
+        is_safe, sec_reason = security_engine.inspect_generated_code(content)
         if not is_safe:
-            logger.error("MetaArchitect: Mã kỹ năng '%s' bị SecurityEngine từ chối: %s", skill_filename, sec_reason)
-            return False
+            logger.error("MetaArchitect: mã kỹ năng '%s' bị từ chối: %s", stem, sec_reason)
+            return {"status": "error", "message": f"Mã kỹ năng bị từ chối khi kiểm tra an ninh: {sec_reason}"}
 
-        # --- Step 3: Safety / HITL gate ---
-        approved, threats = safety_guard.approve_or_reject(code_str, skill_filename)
-        if not approved:
-            logger.warning(
-                "Skill '%s' rejected by user or SafetyGuard (threats=%s).",
-                skill_filename,
-                threats,
-            )
-            return False
+        skills_dir: Path = settings.SKILLS_DIR  # type: ignore[assignment]
+        if not _auto_install_enabled():
+            # Không tự cài: lưu chờ duyệt (thư mục con — plugin_manager không nạp).
+            # Trước đây hiện hộp thoại Windows trên máy chủ; máy chủ chạy nền và
+            # người dùng ra lệnh từ HUD / portal / Telegram nên lượt nói treo chờ
+            # một hộp thoại không ai thấy.
+            target = _unique_path(skills_dir / PENDING_DIR_NAME, stem)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+            logger.warning("MetaArchitect: kỹ năng '%s' chờ duyệt tại %s", stem, target)
+            return {
+                "status": "pending_review",
+                "skill_names": names,
+                "file": str(target.relative_to(skills_dir.parent)),
+                "message": (f"Đã sinh mã kỹ năng {', '.join(names)} nhưng chưa cài vì chưa bật tự cài "
+                            f"(auto_execute). Quản trị viên xem tệp {target.name} trong skills/{PENDING_DIR_NAME}/, "
+                            f"chuyển vào skills/ rồi chạy reload_all_skills."),
+            }
 
-        # --- Step 3: Write to disk ---
-        target_path = self._write_skill_file(code_str, skill_filename)
-        if target_path is None:
-            return False
-
-        # --- Step 4: Hot-reload via PluginManager ---
-        from core.plugin_manager import plugin_manager  # lazy import to avoid circular dep
-
+        target = _unique_path(skills_dir, stem)
         try:
-            loaded = plugin_manager.load_plugins()
-            logger.info(
-                "Skill '%s' installed at %s. Total skills in memory: %d",
-                skill_filename,
-                target_path,
-                loaded,
-            )
-            return True
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Hot-reload failed after installing '%s': %s", skill_filename, exc)
-            return False
+            skills_dir.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return {"status": "error", "message": f"Không ghi được tệp kỹ năng: {exc}"}
+        logger.info("MetaArchitect: đã ghi %s (%d byte)", target, len(content))
+
+        module_name = f"skills.{target.stem}"
+        plugin_manager.load_plugins()
+        modules = plugin_manager.get_skill_modules()
+        missing = [n for n in names if modules.get(n) != module_name]
+        if missing:
+            reason = _import_error(module_name) or "module không đăng ký được kỹ năng"
+            logger.error("MetaArchitect: nạp '%s' thất bại (%s) — gỡ tệp.", module_name, reason)
+            try:
+                target.unlink()
+            except OSError:
+                pass
+            sys.modules.pop(module_name, None)
+            plugin_manager.load_plugins()
+            return {"status": "error", "message": f"Kỹ năng sinh ra không nạp được: {reason}"}
+
+        return {
+            "status": "success",
+            "skill_name": names[0],
+            "skill_names": names,
+            "file": target.name,
+            "message": (f"Đã tạo và nạp kỹ năng mới {', '.join(names)} — gọi ngay "
+                        f"'{names[0]}' để làm tiếp yêu cầu."),
+        }
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -286,55 +361,107 @@ class MetaArchitect:
             return stripped
         return ""
 
-    @staticmethod
-    def _validate_syntax(code_str: str, skill_filename: str) -> bool:
-        """
-        Attempt to parse code_str with ast.parse.
-        Returns True if valid, False (and logs the error) if not.
-        """
-        try:
-            ast.parse(code_str)
-            logger.debug("Syntax validation passed for '%s'.", skill_filename)
-            return True
-        except SyntaxError as exc:
-            logger.error(
-                "Syntax error in synthesised skill '%s': %s (line %d, col %d)",
-                skill_filename,
-                exc.msg,
-                exc.lineno or -1,
-                exc.offset or -1,
-            )
-            return False
+# ---------------------------------------------------------------------------
+# Kiểm tra mã kỹ năng sinh ra (dùng trong install_skill)
+# ---------------------------------------------------------------------------
 
-    def _write_skill_file(
-        self,
-        code_str: str,
-        skill_filename: str,
-    ) -> Optional[Path]:
-        """
-        Write the approved code to skills/{skill_filename}.py.
-        Returns the Path on success, None on failure.
-        """
-        skills_dir: Path = settings.SKILLS_DIR  # type: ignore[assignment]
-        skills_dir.mkdir(parents=True, exist_ok=True)
+#: Tên công cụ hợp lệ: snake_case ASCII — model gọi tool theo tên này.
+_SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
+#: Mã chờ duyệt (khi không bật auto_execute) — plugin_manager chỉ nạp skills/*.py.
+PENDING_DIR_NAME = "pending"
+#: Câu lệnh cấp module chạy NGAY khi nạp (mỗi lần nạp lại kỹ năng lại chạy).
+_RUNS_AT_IMPORT = (ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith)
 
-        # Sanitise filename: only alphanumeric and underscores
-        safe_name = re.sub(r"[^\w]", "_", skill_filename).strip("_") or "auto_skill"
-        target: Path = skills_dir / f"{safe_name}.py"
 
-        header = (
-            f'"""\n'
-            f"Auto-synthesised skill: {safe_name}\n"
-            f"Generated by VN-MateAI MetaArchitect.\n"
-            f'"""\n\n'
-        )
-        try:
-            target.write_text(header + code_str, encoding="utf-8")
-            logger.info("Skill file written: %s (%d bytes)", target, len(code_str))
-            return target
-        except OSError as exc:
-            logger.error("Failed to write skill file '%s': %s", target, exc)
-            return None
+def skill_file_stem(text: str, max_len: int = 40) -> str:
+    """Tên tệp kỹ năng ASCII `auto_<slug>` từ tên gợi ý hoặc câu yêu cầu (bỏ dấu)."""
+    t = unicodedata.normalize("NFD", str(text or ""))
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn").replace("đ", "d").replace("Đ", "D")
+    slug = re.sub(r"[^a-z0-9]+", "_", t.lower()).strip("_")[:max_len].rstrip("_")
+    if not slug:
+        return "auto_skill"
+    return slug if slug.startswith("auto_") else f"auto_{slug}"
+
+
+def exported_skill_names(code_str: str) -> List[Optional[str]]:
+    """Tên công cụ khai báo trong @export_skill(name=...), theo thứ tự trong mã;
+    None cho tên không phải chuỗi cố định."""
+    try:
+        tree = ast.parse(code_str)
+    except SyntaxError:
+        return []
+    names = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not isinstance(dec, ast.Call):
+                continue
+            fname = getattr(dec.func, "id", None) or getattr(dec.func, "attr", None)
+            if fname != "export_skill":
+                continue
+            arg = next((kw.value for kw in dec.keywords if kw.arg == "name"), dec.args[0] if dec.args else None)
+            names.append(arg.value if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else None)
+    return names
+
+
+def _structure_problem(content: str) -> Optional[str]:
+    """Lý do mã không dùng được làm kỹ năng (None nếu ổn)."""
+    try:
+        tree = ast.parse(content)
+    except SyntaxError as exc:
+        return f"sai cú pháp Python dòng {exc.lineno}: {exc.msg}"
+    names = exported_skill_names(content)
+    if not names:
+        return "không có hàm nào gắn @export_skill"
+    if None in names:
+        return "@export_skill phải có name là chuỗi cố định"
+    if len(set(names)) != len(names):
+        return "hai hàm trong mã dùng cùng một tên công cụ"
+    bad = [n for n in names if not _SKILL_NAME_RE.match(n)]
+    if bad:
+        return f"tên công cụ không hợp lệ (cần snake_case ASCII): {', '.join(bad)}"
+    for node in tree.body:
+        if isinstance(node, ast.Expr) and not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)):
+            return f"dòng {node.lineno} chạy lệnh ngay khi nạp kỹ năng (chỉ được khai báo hàm / hằng)"
+        if isinstance(node, _RUNS_AT_IMPORT):
+            return f"dòng {node.lineno} chạy vòng lặp / khối with ngay khi nạp kỹ năng"
+    return None
+
+
+def _skill_header(stem: str, intent_description: str) -> str:
+    """Đầu tệp dạng CHÚ THÍCH (không phải docstring: docstring thứ hai đứng
+    trước `from __future__ import` là lỗi cú pháp)."""
+    phrase = " ".join(str(intent_description or "").split())[:160]
+    lines = [f"# Auto-synthesised skill: {stem}", "# Generated by VN-MateAI MetaArchitect."]
+    if phrase:
+        lines.append(f"# Yêu cầu gốc: {phrase}")
+    return "\n".join(lines) + "\n\n"
+
+
+def _unique_path(directory: Path, stem: str) -> Path:
+    """skills/<stem>.py chưa tồn tại — KHÔNG ghi đè kỹ năng có sẵn (kể cả kỹ năng lõi)."""
+    target = directory / f"{stem}.py"
+    n = 2
+    while target.exists():
+        target = directory / f"{stem}_{n}.py"
+        n += 1
+    return target
+
+
+def _auto_install_enabled() -> bool:
+    return bool(getattr(settings, "auto_execute", False) or getattr(settings, "AUTO_EXECUTE_UNVERIFIED_CODE", False))
+
+
+def _import_error(module_name: str) -> Optional[str]:
+    """Lỗi khi import module kỹ năng (để báo lý do nạp thất bại)."""
+    import importlib
+    try:
+        sys.modules.pop(module_name, None)
+        importlib.import_module(module_name)
+    except Exception as exc:  # pylint: disable=broad-except
+        return f"{type(exc).__name__}: {exc}"
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -206,3 +206,22 @@ def test_answer_style_words_do_not_make_knowledge_question_an_operation(style_ro
 def test_answer_style_words_do_not_hide_the_task(style_router):
     names = _names(style_router.get_tools_for_query("tóm tắt ngắn gọn tình hình máy chủ"))
     assert names[0] == "get_executive_standup_briefing"
+
+
+
+@pytest.mark.parametrize("intent,expected", [
+    ("Lấy dữ liệu ngày âm lịch hôm nay", None),
+    ("Tra cứu ngày âm lịch của ngày hôm nay", None),
+    ("Tra cứu tỷ giá USD sang VND", None),
+    ("gửi tin nhắn telegram cho quản trị viên", "send_telegram_message"),
+    ("liệt kê tiến trình đang chạy chiếm CPU", "get_active_processes"),
+])
+def test_existing_skill_check_on_real_catalog(intent, expected):
+    """Danh mục THẬT (skills/ trong repo): động từ chung ("tra cứu", "lấy dữ
+    liệu") khớp mô tả một tool dữ liệu đủ để ĐƯA tool cho model, nhưng không
+    phải là đã có kỹ năng làm việc đó — trước đây kỹ năng âm lịch không được
+    tạo vì bị coi là trùng `fetch_data_source`. Ngưỡng hiệu chỉnh cho danh mục
+    cỡ thật (~80 tool); danh mục vài tool có thang điểm khác."""
+    from mateai.application.skills.skill_router import dynamic_skill_router, find_existing_skill
+    dynamic_skill_router.rebuild_index()
+    assert find_existing_skill(intent) == expected

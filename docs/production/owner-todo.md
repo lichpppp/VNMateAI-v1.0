@@ -71,3 +71,9 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] **HUD dùng chung schema sự kiện với portal (D4)** — chưa làm: cần viết lại phần nhận sự kiện của `hud.js` và kiểm trên trình duyệt.
 - [ ] **Robot: gộp ba nhánh kết thúc câu nói (L5)** — cần thử trên robot thật (mỗi nhánh gửi thông điệp khác nhau theo firmware). Đồng thời đo `stt_ms` của robot (đã có trong trace, chưa có số vì không có thiết bị lúc đo).
 - [ ] **Đồng thời 50 / 100 phiên** chưa đo: tốn hạn mức 9Router và sẽ đo giới hạn nhà cung cấp; qua WebSocket cần N tài khoản (mỗi người một phiên `/ws/v1/voice-stream`).
+
+## Tạo kỹ năng mới (2026-10-04)
+
+- [ ] **`auto_execute = true`** trong `config.json`: mã do AI sinh được cài NGAY sau kiểm toán AST, không người duyệt. Muốn duyệt tay: đặt `false` → mã sinh ra nằm ở `skills/pending/`, xem rồi chuyển vào `skills/` và nói "nạp lại kỹ năng".
+- [ ] Kỹ năng AI sinh có thể dùng nguồn dữ liệu đã cũ / bị chặn (thử "giá vàng SJC": hai nguồn model chọn đều từ chối). Chưa có tự kiểm tra sau khi tạo (chạy thử có thể gây tác dụng phụ — vd mở trình duyệt). Kỹ năng hỏng thì xoá tệp `skills/auto_*.py` tương ứng rồi "nạp lại kỹ năng" để lần sau trợ lý tạo lại.
+- [ ] `install_skill_from_url` chỉ lưu `SKILL.md` vào thư mục con, không nạp mã — mô tả của công cụ ("tự nạp vào runtime") nói quá; quyết định giữ / sửa mô tả.

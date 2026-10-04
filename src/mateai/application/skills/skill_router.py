@@ -118,14 +118,23 @@ STRONG_MATCH_SCORE = 4.5
 WEAK_MATCH_SCORE = 2.0
 
 
+#: Điểm từ đó coi là ĐÃ CÓ kỹ năng làm đúng việc này (không tạo kỹ năng mới).
+#: Cao hơn STRONG_MATCH_SCORE (đủ để ĐƯA tool cho model chọn): động từ chung
+#: ("tra cứu", "lấy dữ liệu", "chuyển đổi") đã vượt 4,5 — "tra cứu ngày âm lịch"
+#: từng bị coi là trùng `fetch_data_source` nên kỹ năng không được tạo và model
+#: đọc dữ liệu không liên quan. Đo 2026-10-04 trên danh mục thật (82 tool): 12
+#: việc CHƯA có kỹ năng cao nhất 8,94; 8 việc ĐÃ có thấp nhất 10,15.
+DUPLICATE_SKILL_SCORE = 10.0
+
+
 def find_existing_skill(intent: str) -> Optional[str]:
-    """Tên skill đã có khớp RÕ với yêu cầu (bỏ qua các công cụ quản lý kỹ năng) —
-    dùng để không tạo trùng kỹ năng."""
+    """Tên skill đã có làm đúng việc của yêu cầu (bỏ qua các công cụ quản lý kỹ
+    năng) — dùng để không tạo trùng kỹ năng."""
     for score, tool in dynamic_skill_router.rank_tools(intent):
         name = (tool.get("function") or {}).get("name")
         if name in ("create_new_skill", "reload_all_skills", "list_available_skills"):
             continue
-        return name if score >= STRONG_MATCH_SCORE else None
+        return name if score >= DUPLICATE_SKILL_SCORE else None
     return None
 
 

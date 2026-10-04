@@ -76,7 +76,7 @@ _AGENT_SYSTEM_PROMPT = (
     "BẠN PHẢI THỰC THI NGAY MỌI CÔNG CỤ theo yêu cầu (chạy lệnh hệ thống, xóa/ghi file, truy vấn DB, điều khiển thiết bị). "
     "TUYỆT ĐỐI KHÔNG HỎI LẠI, KHÔNG YÊU CẦU PHÊ DUYỆT BẢO MẬT, KHÔNG NÓI 'Tác vụ này yêu cầu phê duyệt bảo mật'. Hãy thực thi ngay và báo cáo kết quả.\n"
     "Quy tắc 3 - Tự động Mở rộng (Self-Expanding Capability): Doanh nghiệp có muôn vàn nghiệp vụ mới. Khi nhận được lệnh mà hệ thống chưa có sẵn Tool, "
-    "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Bắt buộc gọi công cụ `learn_new_skill` (Meta-Tool) để tự động viết mã Python tương tác với hệ điều hành/API nhằm giải quyết ngay lập tức.\n"
+    "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Trước hết dùng công cụ có sẵn (có thể gọi `list_available_skills` để tìm); nếu thật sự chưa có, gọi `create_new_skill` để tự viết kỹ năng Python mới, rồi gọi ngay kỹ năng vừa tạo (tên trả về ở `skill_name`) để hoàn thành yêu cầu.\n"
     "Quy tắc 4 - Điều hướng Đa thiết bị (Master-Worker Routing): Luôn phân tích đối tượng thực thi. Lệnh dành cho máy chủ (Master) hay máy trạm (Client)? "
     "Truyền chính xác tham số `target_client` (ví dụ: máy Kế toán, máy Lễ tân, máy Kho) vào công cụ thực thi.\n"
     "Quy tắc 5 - Giao diện Thị giác Visual Overlay Engine & Text Board (Phase 32.1): Khi người dùng yêu cầu xem dữ liệu trực quan hoặc đọc log dài, "
@@ -110,6 +110,17 @@ _AGENT_SYSTEM_PROMPT = (
 )
 
 
+#: Quy tắc dữ liệu thực tế — dùng cho CẢ prompt trò chuyện lẫn prompt vận hành.
+#: Đo 2026-10-04: thiếu quy tắc này model bịa ngày ("hôm nay là 24/02/2025") hoặc
+#: trả lời "chưa tích hợp API" dù đã được đưa công cụ create_new_skill.
+_LIVE_DATA_RULE = (
+    "Câu cần DỮ LIỆU THỰC TẾ hoặc TÍNH TOÁN CHÍNH XÁC (giá vàng, tỷ giá, thời tiết, tin tức, đổi ngày "
+    "dương lịch sang âm lịch, số liệu máy chủ): dùng công cụ; chưa có công cụ phù hợp thì GỌI "
+    "`create_new_skill` (khi được cung cấp) để tạo kỹ năng rồi gọi kỹ năng đó — không trả lời "
+    "\"chưa tích hợp\" / \"không có công cụ\" khi còn tạo được kỹ năng; không có cách nào thì nói rõ "
+    "em chưa tra được. TUYỆT ĐỐI không đoán số liệu hay ngày tháng."
+)
+
 #: Prompt cho lượt TRÒ CHUYỆN qua giọng nói (Voice Brain, realtime P2): không có
 #: các khối chỉ dùng khi gọi tool (quyền admin, biểu mẫu báo cáo, công cụ tệp,
 #: ERP, robot). Bench Phase 1: prompt đầy đủ ~10.600 ký tự cho cả câu chào.
@@ -123,9 +134,21 @@ _VOICE_SYSTEM_PROMPT = (
     "- KHÔNG dùng Markdown, bảng, code, ký hiệu (**, #, |, `), đường dẫn hay URL.\n"
     "- Không chào hỏi rườm rà ở mỗi câu. Không bịa số liệu về hệ thống, máy chủ hay dữ liệu doanh nghiệp.\n"
     "- Nếu có công cụ phù hợp với việc người dùng yêu cầu thì gọi công cụ; nếu là việc cần làm trên hệ thống "
-    "mà chưa có công cụ nào làm được thì gọi `create_new_skill` (khi được cung cấp). "
-    "Câu hỏi kiến thức hoặc trò chuyện thì trả lời trực tiếp."
-)
+    "mà chưa có công cụ nào làm được thì gọi `create_new_skill` (khi được cung cấp).\n"
+    "- {live_data_rule}\n"
+    "- Câu hỏi kiến thức chung hoặc trò chuyện thì trả lời trực tiếp."
+).replace("{live_data_rule}", _LIVE_DATA_RULE)
+
+
+_WEEKDAYS_VI = ("thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ nhật")
+
+
+def _today_sentence() -> str:
+    """Câu "Hôm nay là <thứ>, ngày dd/mm/yyyy, bây giờ là HH:MM." — viết thành câu:
+    dạng số '2026-10-04 09:15' model hay bỏ qua rồi đoán ngày (đo 2026-10-04)."""
+    import datetime
+    now = datetime.datetime.now()
+    return f"Hôm nay là {_WEEKDAYS_VI[now.weekday()]}, ngày {now:%d/%m/%Y}, bây giờ là {now:%H:%M}."
 
 
 def _read_persona() -> Dict[str, Any]:
@@ -199,7 +222,7 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
     else:
         import datetime
         system_content += (
-            f"\n\n[NGỮ CẢNH]\nThời gian hiện tại: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}. "
+            f"\n\n[NGỮ CẢNH]\n{_today_sentence()} "
             f"Kênh: {str(source_device or 'Master / Hub').strip()}."
         )
 
@@ -292,20 +315,13 @@ def _ops_prompt_blocks(source_device: Optional[str]) -> str:
     except Exception as exc:
         logger.warning("[LLMEngine] Error injecting report_templates into system prompt: %s", exc)
 
-    # Phase 34: Dynamic Real-time Context Injection & Dual-Channel Output Rules
-    import datetime
-    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    context_injection = (
-        f"\n\n[NGỮ CẢNH THỜI GIAN & GIAO TIẾP THỰC TẾ (PHASE 34)]\n"
-        f"Ngữ cảnh hiện tại: Thời gian là {current_time}. Bạn đang giao tiếp qua giọng nói (Voice Interface). "
-        f"Không được chào hỏi rườm rà ở mỗi câu.\n\n"
-        f"[QUY TẮC ĐẦU RA KÉP (DUAL-CHANNEL OUTPUT)]\n"
-        f"Hệ thống VN-MateAI hỗ trợ 2 kênh đầu ra song song:\n"
-        f"1. Kênh Hiển Thị (Display UI): Trình bày chi tiết, chuyên nghiệp, sử dụng định dạng Markdown (bảng biểu, code block, bullet points) cho màn hình Web Portal & HUD.\n"
-        f"2. Kênh Giọng Nói (Speech TTS): Ngắn gọn (1-2 câu), tự nhiên, lịch sự, chỉ tóm tắt ý chính để phát âm thanh qua loa, KHÔNG đọc từng dòng số liệu/bảng biểu/code.\n"
-        f"Khi câu trả lời có bảng biểu, danh sách dài hoặc mã kỹ thuật, hãy đặt câu tóm tắt giọng nói ngắn gọn ở cuối theo cú pháp:\n"
-        f"<!--VOICE: <câu nói ngắn gọn, tự nhiên, súc tích để phát ra loa> -->\n"
-        f"Ví dụ: <!--VOICE: Em đã kiểm tra xong, hệ thống mạng có 13 địa chỉ IP đang hoạt động ổn định. Chi tiết em đã hiển thị trên màn hình. -->"
+    # Phase 34: ngày giờ hiện tại. Khối này từng được dựng (kèm bản sao quy tắc
+    # đầu ra kép đã có ở _AGENT_SYSTEM_PROMPT) nhưng KHÔNG được nối vào prompt —
+    # vòng agent không biết hôm nay là ngày nào và đoán ngày (đo 2026-10-04).
+    system_content += (
+        "\n\n[NGỮ CẢNH THỜI GIAN]\n"
+        f"{_today_sentence()} Bạn đang giao tiếp qua giọng nói. Không chào hỏi rườm rà ở mỗi câu."
+        f"\n\n[DỮ LIỆU THỰC TẾ]\n{_LIVE_DATA_RULE}"
     )
     # Phase 38: Native File System & OS Toolkit instructions (OpenClaw Parity)
     file_system_prompt = (
@@ -1703,6 +1719,10 @@ class LLMEngine:
             "cần được lập trình thêm",
             "tôi không có khả năng",
             "chưa được hỗ trợ",
+            "chưa hỗ trợ",
+            "chưa tích hợp",
+            "chưa thể cung cấp",
+            "chưa có công cụ",
             "i don't have",
             "no tool available",
             "cannot perform",
@@ -1716,30 +1736,19 @@ class LLMEngine:
         meta_architect: Any,
         plugin_manager: Any,
     ) -> Optional[str]:
-        """Attempt to synthesise and install a new skill for the query."""
-        import re as _re
-        from mateai.application.skills.skill_router import find_existing_skill
-        existing = find_existing_skill(query)
-        if existing:
-            # Đã có kỹ năng làm việc này — không sinh bản trùng; model gọi nó.
-            logger.info("MetaArchitect: đã có kỹ năng '%s' cho yêu cầu — không tạo mới.", existing)
-            return existing
-        slug = _re.sub(r"[^\w\s]", "", query.lower())[:40].strip().replace(" ", "_")
-        skill_filename = f"auto_{slug}" if slug else "auto_skill"
+        """Tạo kỹ năng cho câu hỏi khi model báo không có công cụ phù hợp.
 
-        try:
-            code_str = meta_architect.synthesize_skill(
-                intent_description=query,
-                failed_context={"reason": "LLM indicated no suitable tool exists"},
-            )
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("MetaArchitect synthesis failed: %s", exc)
-            return None
-
-        success = meta_architect.verify_and_install(code_str, skill_filename)
-        if success:
-            new_names = plugin_manager.get_skill_names()
-            return new_names[-1] if new_names else skill_filename
+        Cùng quy trình với công cụ `create_new_skill` (`meta_architect.create_skill`).
+        Trả TÊN CÔNG CỤ đã đăng ký (hoặc kỹ năng có sẵn khớp yêu cầu), None nếu
+        không tạo / chưa cài được. Trước đây trả `get_skill_names()[-1]` — danh
+        sách sắp theo chữ cái nên thường là một công cụ KHÁC.
+        """
+        res = meta_architect.create_skill(
+            query, failed_context={"reason": "LLM indicated no suitable tool exists"},
+        )
+        if res.get("status") == "success":
+            return res.get("skill_name")
+        logger.warning("MetaArchitect: không tạo được kỹ năng: %s", res.get("message"))
         return None
 
 
