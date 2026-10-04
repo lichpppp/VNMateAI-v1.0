@@ -1114,6 +1114,7 @@ class _XiaozhiSink:
         self.query = query
         self.started = False
         self.spoken: list = []
+        self.emotion = ""      # biểu cảm đã gửi cho câu đang đọc
 
     async def on_status(self, status: str, **info: Any) -> None:
         return None
@@ -1127,16 +1128,23 @@ class _XiaozhiSink:
         if node.cancel_event.is_set():
             return
         ws = node.websocket
+        # Biểu cảm theo nội dung câu (trước đây luôn "happy", kể cả lúc xin lỗi / báo lỗi).
+        from mateai.application.voice.emotion import emotion_for_text
+        emotion = emotion_for_text(text) if kind == "speech" else (self.emotion or "neutral")
         if not self.started:
             self.started = True
-            await self.gateway.send_ui_payload(device_id, state="speaking", emotion="happy", text=text[:60])
+            self.emotion = emotion
+            await self.gateway.send_ui_payload(device_id, state="speaking", emotion=emotion, text=text[:60])
             try:
                 await ws.send_text(json.dumps({"session_id": device_id, "type": "tts", "state": "start"}))
                 await ws.send_text(json.dumps({
-                    "session_id": device_id, "type": "llm", "emotion": "happy", "text": text[:30],
+                    "session_id": device_id, "type": "llm", "emotion": emotion, "text": text[:30],
                 }))
             except Exception:
                 pass
+        elif emotion != "neutral" and emotion != self.emotion:
+            self.emotion = emotion
+            await self.gateway.send_ui_payload(device_id, state="speaking", emotion=emotion)
         # Phụ đề trên LCD đúng lúc câu được đọc
         try:
             await ws.send_text(json.dumps({

@@ -32,7 +32,10 @@ class XiaozhiUiRequest(BaseModel):
     """Payload for POST /api/v1/xiaozhi/ui."""
     device_id: Optional[str] = Field(default=None, description="Mã thiết bị (để trống để broadcast toàn bộ)")
     state: str = Field(default="listening", description="listening | processing | alert | idle | speaking")
-    emotion: Optional[str] = Field(default=None, description="focused | thinking | alert | sleeping | happy")
+    emotion: Optional[str] = Field(
+        default=None,
+        description="neutral | happy | sad | cry | wow | excited | angry | love | sleepy (và focused / thinking / alert)",
+    )
     text: Optional[str] = Field(default=None, description="Văn bản hiển thị trên màn hình LCD/OLED")
 
 

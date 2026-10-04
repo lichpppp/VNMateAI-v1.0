@@ -35,6 +35,7 @@
 
 #include "config.h"
 #include "motion_core.h"
+#include "face.h"
 
 // ─── Global Instances ────────────────────────────────────────────────────────
 WebSocketsClient webSocket;
@@ -72,12 +73,8 @@ String currentEmotion = "sleeping";
 String currentScreenText = "";
 
 // Thinking dots animation
-uint8_t thinkingDots = 0;
-unsigned long lastThinkingUpdate = 0;
 
 // Lip-sync & animation state
-uint8_t mouthOpenHeight = 2;
-unsigned long lastLipSyncUpdate = 0;
 
 // Touch sensor debounce
 unsigned long lastTouchTime = 0;
@@ -126,14 +123,13 @@ void micRecordTaskLoop(void* arg);
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
 void handleIncomingJson(const char* jsonStr);
 void onSafetyAlert(const char* alertMsg);
-void drawOledFace(const String& state, const String& emotion, uint8_t mouthHeight);
-void drawOledThinking();
 void drawOledPairingCode(const String& code);
-void updateLipSyncAnimation();
-void updateThinkingAnimation();
+// Màn hình mã ghép đôi hiện đè lên gương mặt ngần ấy ms rồi gương mặt vẽ tiếp.
+uint32_t faceOverlayUntil = 0;
 void checkTouchSensor();
 void setConvState(ConvState newState);
 static void sendWakeClip();
+static float chunkRms(const int16_t* s, size_t n);
 static void sendWakeStats();
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
@@ -163,7 +159,7 @@ void setup() {
     setupWiFi();
     setupWebSocket();
 
-    drawOledFace("listening", "happy", 6);
+    Face::setEmotion(Face::EMO_HAPPY, 2500);       // chào khi khởi động
     MotionCore::getInstance().waveArm();
     setConvState(CONV_IDLE);
 }
@@ -192,8 +188,7 @@ void loop() {
     }
 
     checkTouchSensor();
-    if (convState == CONV_SPEAKING)  updateLipSyncAnimation();
-    if (convState == CONV_THINKING)  updateThinkingAnimation();
+    if (millis() >= faceOverlayUntil) Face::tick();
 
     delay(2);
 }
@@ -210,7 +205,8 @@ void setConvState(ConvState newState) {
             digitalWrite(LED2_PIN, LOW);
             currentUiState = "idle";
             currentEmotion = "sleeping";
-            drawOledFace("idle", "sleeping", 2);
+            Face::setMode(Face::MODE_IDLE);
+            Face::relaxEmotion(3000);      // giữ biểu cảm câu trả lời thêm chút rồi về bình thường
             Serial.println(F("[State] → IDLE"));
             break;
 
@@ -219,14 +215,13 @@ void setConvState(ConvState newState) {
             digitalWrite(LED2_PIN, HIGH);
             currentUiState = "listening";
             currentEmotion = "focused";
-            mouthOpenHeight = 2;
             listenEnteredMs = millis();
             lastVoiceMs = millis();
             if (micQueue) {
                 PcmChunk dummy;
                 while (xQueueReceive(micQueue, &dummy, 0) == pdTRUE) {}
             }
-            drawOledFace("listening", "focused", 2);
+            Face::setMode(Face::MODE_LISTENING);
             Serial.println(F("[State] → LISTENING"));
             break;
 
@@ -235,9 +230,7 @@ void setConvState(ConvState newState) {
             digitalWrite(LED2_PIN, LOW);
             currentUiState = "thinking";
             currentEmotion = "thinking";
-            thinkingDots = 0;
-            lastThinkingUpdate = millis();
-            drawOledThinking();
+            Face::setMode(Face::MODE_THINKING);
             Serial.println(F("[State] → THINKING (chờ AI...)"));
             break;
 
@@ -246,8 +239,7 @@ void setConvState(ConvState newState) {
             digitalWrite(LED2_PIN, LOW);
             currentUiState = "speaking";
             currentEmotion = "happy";
-            mouthOpenHeight = 6;
-            drawOledFace("speaking", "happy", 6);
+            Face::setMode(Face::MODE_SPEAKING);
             Serial.println(F("[State] → SPEAKING"));
             break;
     }
@@ -332,8 +324,11 @@ void playPcmToSpeaker(const uint8_t* pcmData, size_t length) {
         for (size_t i = 0; i < batch; ++i) { buf[i*2]=mono[offset+i]; buf[i*2+1]=mono[offset+i]; }
         size_t bw = 0;
         i2s_write(I2S_NUM_1, buf, batch*4, &bw, portMAX_DELAY);
+        Face::setSpeechLevel(chunkRms(mono + offset, batch) / 6000.0f);
+        if (millis() >= faceOverlayUntil) Face::tick();      // tự giới hạn ~15 khung/giây
         offset += batch;
     }
+    Face::setSpeechLevel(0.0f);
 }
 
 // ─── FreeRTOS Task: Thu âm Micro ─────────────────────────────────────────────
@@ -407,8 +402,10 @@ void micRecordTaskLoop(void* arg) {
                 size_t ns = bytesRead / 4;
                 for (size_t i = 0; i < ns; ++i) chunk.samples[i] = micToPcm16(raw32[i]);
                 chunk.len = ns * 2;
-                if (chunkRms(chunk.samples, ns) > max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS * 0.7f))
+                float lvl = chunkRms(chunk.samples, ns);
+                if (lvl > max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS * 0.7f))
                     lastVoiceMs = millis();
+                Face::setListenLevel(lvl / max(wakeNoiseFloor * 6.0f, 3000.0f));
                 if (micQueue) xQueueSend(micQueue, &chunk, 0);
             }
         } else if (WAKE_LISTEN_ENABLED && wakeBuf && isConnectedToServer &&
@@ -461,6 +458,7 @@ void setupOLED() {
         display.clearDisplay(); display.setTextColor(SSD1306_WHITE);
         display.setTextSize(1); display.setCursor(10, 25);
         display.println(F("VN-MateAI Robot v53")); display.display();
+        Face::begin(&display);
     }
 }
 
@@ -863,7 +861,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
             if (length > 0) {
                 setConvState(CONV_SPEAKING);
                 playPcmToSpeaker(payload, length);
-                mouthOpenHeight = (mouthOpenHeight == 2) ? 12 : ((mouthOpenHeight == 12) ? 6 : 2);
             }
             break;
 
@@ -910,8 +907,14 @@ void handleIncomingJson(const char* jsonStr) {
         else if (state == "idle")             setConvState(CONV_IDLE);
         else if (state == "alert") {
             setConvState(CONV_IDLE);
-            drawOledFace("alert", "shocked", 14);
+            Face::setMode(Face::MODE_ALERT);
         }
+        // Biểu cảm theo nội dung câu trả lời (máy chủ chọn): vui, buồn, khóc, wow, …
+        // ("idle" + "sleeping" là khung nghỉ mặc định — gương mặt tự buồn ngủ khi lâu không ai nói.)
+        String emotion = doc["emotion"] | "";
+        uint32_t holdMs = doc["hold_ms"] | 0;
+        if (emotion.length() > 0 && !(state == "idle" && emotion == "sleeping"))
+            Face::setEmotion(Face::parseEmotion(emotion), holdMs);
     }
 
     // ── TTS Start / Stop ──────────────────────────────────────────────────────
@@ -920,7 +923,6 @@ void handleIncomingJson(const char* jsonStr) {
         setConvState(CONV_SPEAKING);
     } else if (type == "tts_end" || type == "tts_stop" || type == "end_of_speech" ||
                (type == "tts" && (doc["state"] | String("")) == "stop")) {
-        mouthOpenHeight = 2;
         setConvState(CONV_IDLE);
     }
 
@@ -961,7 +963,7 @@ void handleIncomingJson(const char* jsonStr) {
 void onSafetyAlert(const char* alertMsg) {
     if (strcmp(alertMsg, "edge_detected") == 0) {
         Serial.println(F("[SAFETY] Cảnh báo mép bàn!"));
-        drawOledFace("alert", "shocked", 14);
+        Face::setMode(Face::MODE_ALERT);
         if (isConnectedToServer) {
             StaticJsonDocument<256> alertDoc;
             alertDoc["type"]="alert"; alertDoc["msg"]="edge_detected";
@@ -993,26 +995,11 @@ void checkTouchSensor() {
 
 // ─── Animations ──────────────────────────────────────────────────────────────
 
-void updateLipSyncAnimation() {
-    if (millis() - lastLipSyncUpdate >= 120) {
-        lastLipSyncUpdate = millis();
-        mouthOpenHeight = random(4, 15);
-        drawOledFace("speaking", "happy", mouthOpenHeight);
-    }
-}
-
-void updateThinkingAnimation() {
-    if (millis() - lastThinkingUpdate >= 500) {
-        lastThinkingUpdate = millis();
-        thinkingDots = (thinkingDots + 1) % 4;
-        drawOledThinking();
-    }
-}
-
 // ─── OLED Renderers ──────────────────────────────────────────────────────────
 
 // Hiển thị mã pairing to và rõ để user đọc nhập vào Web Dashboard
 void drawOledPairingCode(const String& code) {
+    faceOverlayUntil = millis() + 8000;
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
     display.setTextSize(1);
@@ -1031,69 +1018,5 @@ void drawOledPairingCode(const String& code) {
     display.drawFastHLine(0, 44, 128, SSD1306_WHITE);
     display.setCursor(4, 48);
     display.println(F("Nhap ma vao Web UI"));
-    display.display();
-}
-
-// THINKING — mắt nhìn trái/phải theo thinkingDots + dấu "..."
-void drawOledThinking() {
-    display.clearDisplay();
-
-    // Hướng nhìn xoay theo thinkingDots: trái → giữa → phải → giữa
-    int8_t eyeOffsets[4] = {-5, 0, 5, 0};
-    int8_t off = eyeOffsets[thinkingDots % 4];
-
-    display.fillCircle(40, 22, 13, SSD1306_WHITE);
-    display.fillCircle(40 + off, 22, 5, SSD1306_BLACK);
-
-    display.fillCircle(88, 22, 13, SSD1306_WHITE);
-    display.fillCircle(88 + off, 22, 5, SSD1306_BLACK);
-
-    // Dấu "." theo số dots
-    display.setTextSize(2);
-    display.setCursor(44, 44);
-    for (uint8_t i = 0; i < thinkingDots; i++) display.print(".");
-
-    display.display();
-}
-
-// Mặt biểu cảm chính
-void drawOledFace(const String& state, const String& emotion, uint8_t mouthHeight) {
-    display.clearDisplay();
-
-    if (emotion == "sleeping" || (state == "idle" && !isSpeaking)) {
-        display.drawCircle(40, 26, 12, SSD1306_WHITE);
-        display.fillRect(28, 26, 26, 14, SSD1306_BLACK);
-        display.drawCircle(88, 26, 12, SSD1306_WHITE);
-        display.fillRect(76, 26, 26, 14, SSD1306_BLACK);
-        display.drawPixel(64, 48, SSD1306_WHITE);
-        display.drawFastHLine(61, 49, 7, SSD1306_WHITE);
-    }
-    else if (state == "listening" || emotion == "focused") {
-        display.fillCircle(40, 24, 14, SSD1306_WHITE);
-        display.fillCircle(43, 22, 4, SSD1306_BLACK);
-        display.fillCircle(88, 24, 14, SSD1306_WHITE);
-        display.fillCircle(91, 22, 4, SSD1306_BLACK);
-        display.drawFastHLine(58, 48, 12, SSD1306_WHITE);
-    }
-    else if (state == "alert" || emotion == "shocked") {
-        display.drawCircle(38, 22, 16, SSD1306_WHITE);
-        display.fillCircle(38, 22, 7, SSD1306_WHITE);
-        display.drawCircle(90, 22, 16, SSD1306_WHITE);
-        display.fillCircle(90, 22, 7, SSD1306_WHITE);
-        display.fillCircle(64, 48, 8, SSD1306_WHITE);
-        display.fillCircle(64, 48, 6, SSD1306_BLACK);
-        display.setTextSize(1); display.setCursor(35, 56); display.print(F("MEP BAN!"));
-    }
-    else {
-        display.fillCircle(40, 24, 13, SSD1306_WHITE);
-        display.fillRect(27, 24, 28, 15, SSD1306_BLACK);
-        display.drawFastHLine(30, 24, 20, SSD1306_WHITE);
-        display.fillCircle(88, 24, 13, SSD1306_WHITE);
-        display.fillRect(75, 24, 28, 15, SSD1306_BLACK);
-        display.drawFastHLine(78, 24, 20, SSD1306_WHITE);
-        uint8_t h = max((uint8_t)2, min((uint8_t)16, mouthHeight));
-        display.fillRoundRect(56, 46-(h/2), 16, h, 3, SSD1306_WHITE);
-    }
-
     display.display();
 }
