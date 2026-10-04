@@ -82,3 +82,17 @@ def test_both_prompts_tell_the_model_todays_date(conversation):
     prompt = build_system_prompt(source_device="portal", conversation=conversation)
     assert f"ngày {datetime.datetime.now():%d/%m/%Y}" in prompt
     assert "TUYỆT ĐỐI không đoán" in prompt or not conversation
+
+
+def test_voice_prompts_ask_for_natural_short_speech_without_template_phrases():
+    """Người dùng phản ánh (2026-10-04): nghe như đọc mẫu, câu nào cũng kèm "chi tiết
+    đã được hiển thị trên màn hình" và hỏi lại xã giao."""
+    conv = build_system_prompt(source_device="hud", conversation=True)
+    ops_voice = build_system_prompt(source_device="hud", spoken=True)
+    agent = build_system_prompt(source_device="hud")
+    for p in (conv, ops_voice):
+        assert "Nói như người thật" in p
+    assert "TRẢ LỜI BẰNG GIỌNG NÓI" in ops_voice and "TRẢ LỜI BẰNG GIỌNG NÓI" not in agent
+    for p in (conv, ops_voice, agent):
+        assert "BẮT BUỘC kết thúc bằng câu hỏi" not in p
+        assert "chi tiết đã hiển thị trên màn hình. -->" not in p   # ví dụ cũ dạy model nói câu mẫu

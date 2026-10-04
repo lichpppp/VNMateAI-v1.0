@@ -118,7 +118,8 @@ async def test_long_sentence_shortened_for_speech_only(env):
     shown = [e[2] for e in sink.events if e[0] == "sentence"][0]
     spoken = [e[2] for e in sink.events if e[0] == "audio"][0]
     assert shown == long
-    assert len(spoken) < len(long) and spoken.endswith("màn hình.")
+    # Rút gọn khi ĐỌC, không gắn câu mẫu "chi tiết đã hiển thị trên màn hình".
+    assert len(spoken) < len(long) and long.startswith(spoken.rstrip(".")) and "màn hình" not in spoken
 
 
 async def test_hung_tts_sentence_does_not_block_the_rest(env, monkeypatch):

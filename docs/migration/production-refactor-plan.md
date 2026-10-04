@@ -1105,3 +1105,12 @@ TESTS: 476 pass.
 - **Ồn nền** lên nhanh theo tiếng nói (đo tới 10.882) nên ngưỡng bắt tiếng quá cao, chỉ gọi gần ~30 cm mới nghe → ồn nền xuống nhanh / lên rất chậm; ngưỡng bắt tiếng 3× → 2× ồn nền; máy chủ nâng biên độ đoạn gọi nhỏ (tối đa ×8) trước khi nhận dạng; log mức tín hiệu từng đoạn (không nội dung). Sau sửa: ồn nền đo ~1.000.
 - **L5:** ba nhánh hết câu của robot (VAD máy chủ, `listen stop` firmware XiaoZhi gốc, `end_of_speech`) gộp vào `XiaozhiGateway._finish_utterance` + `_pcm16_to_wav`; giữ nguyên từng thông điệp theo firmware — test đặc tả viết TRƯỚC khi gộp (`tests/test_robot_utterance_end.py`, 7 ca) pass trước và sau.
 - TESTS: 515 pass.
+
+## 64. Lời nói tự nhiên, ngắn hơn (2026-10-04)
+
+Người dùng phản ánh: nghe như đọc mẫu; câu nào cũng "Chi tiết cụ thể đã được hiển thị trên màn hình"; luôn hỏi lại.
+- Bỏ câu gắn tự động ở `shorten_for_speech` (gắn vào MỌI câu dài — mỗi câu được rút riêng) và `_make_concise_speech_text`; khối code bị lược khi đọc, không đọc câu thay ("Phần mã em đã hiển thị…").
+- Prompt: bỏ ví dụ VOICE chứa câu đó; bỏ quy tắc "BẮT BUỘC kết thúc bằng câu hỏi" (Phase 36) → chỉ hỏi khi cần thêm thông tin; quy tắc chung `_NATURAL_SPEECH_RULE` (đi thẳng ý chính, không câu khuôn mẫu, làm tròn số khi đọc).
+- Lượt thoại dùng prompt vận hành / vòng agent (`build_system_prompt(spoken=True)`, `ask_async(spoken=True)`): trả lời 1–3 câu văn nói, không bảng / Markdown / thẻ VOICE. Trước đây model viết bản hiển thị dài rồi mới tới thẻ VOICE, đường stream đọc hết.
+- Chạy thật (REST, portal): "máy chủ chạy bao lâu" 18,7 s → 5,8 s ("…hơn 6 ngày rồi anh, tính từ tối ngày 28 tháng 9"); "CPU và RAM" 8,8 s → 5,5 s.
+- TESTS: 524 pass.

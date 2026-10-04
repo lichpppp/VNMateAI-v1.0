@@ -29,7 +29,7 @@ from mateai.infrastructure.tts.tts_stream_engine import apply_pronunciation  # n
     ("Máy 192.168.1.27 chạy Wi-Fi, lỗi COVID-19 - cần kiểm tra.",
      "Máy 192.168.1.27 chạy Wi-Fi, lỗi COVID-19, cần kiểm tra."),
     # Bullet + khối code
-    ("Kết quả:\n- Dòng 1\n- Dòng 2\n```bash\nls -la\n```", "Kết quả: Dòng 1 Dòng 2 Phần mã em đã hiển thị trên màn hình."),
+    ("Kết quả:\n- Dòng 1\n- Dòng 2\n```bash\nls -la\n```", "Kết quả: Dòng 1 Dòng 2"),
     # Khối JSON bỏ cả khối, emoji bỏ
     ('Tool trả về {"status": "ok", "count": 3} rồi ạ ✅', "Tool trả về rồi ạ"),
     # Link Markdown giữ nhãn, URL trần bỏ
@@ -63,7 +63,8 @@ def test_shorten_long_text_keeps_whole_sentences():
     out = shorten_for_speech(long)
     assert len(out) < len(long)
     assert out.startswith("Đây là câu thông tin số 1 trong báo cáo dài.")
-    assert out.endswith("Chi tiết cụ thể đã hiển thị trên màn hình.")
+    # Không gắn câu mẫu "chi tiết đã hiển thị trên màn hình" (người dùng phản ánh lặp lại).
+    assert "màn hình" not in out and out.endswith(".")
 
 
 def test_pronunciation_only_at_tts_boundary():
@@ -94,7 +95,7 @@ def test_streamed_code_block_is_never_spoken(token_size):
     said = " ".join(spoken)
     for leak in ("import", "print", "shutil", "```", "`", "=>", "VNMateaiv1", "/var/log", "{", "}"):
         assert leak not in said, (leak, said)
-    assert "Phần mã em đã hiển thị trên màn hình." in said
+    assert "màn hình" not in said            # khối code bị bỏ hẳn, không đọc câu thay
     assert "config.json" in said and "syslog" in said
     assert "32.5%" in said and "192.168.1.10" in said
 

@@ -23,8 +23,10 @@ import re
 #: Emoji / ký hiệu hình — TTS đọc vấp hoặc đọc tên ký hiệu.
 _EMOJI_RE = re.compile('[\U0001F300-\U0001FAFF☀-➿️‍]')
 
-#: Câu đọc THAY cho một khối code (code đã hiện đầy đủ trên màn hình).
-CODE_PLACEHOLDER = "Phần mã em đã hiển thị trên màn hình."
+#: Khối code khi ĐỌC: bỏ hẳn, không nói gì thay. Trước đây đọc câu "Phần mã em đã
+#: hiển thị trên màn hình." — người dùng thấy lặp lại như câu mẫu (2026-10-04),
+#: và robot không có màn hình.
+CODE_PLACEHOLDER = ""
 
 #: Dòng trông như code / lệnh (khi model viết code KHÔNG bọc trong ```).
 _CODE_LINE_RE = re.compile(
@@ -210,7 +212,10 @@ def sanitise_for_tts(text: str) -> str:
 
 def shorten_for_speech(text: str, max_chars: int = 200) -> str:
     """
-    Rút lời nói dài về 1–2 câu đầu (giữ trọn câu) + báo chi tiết trên màn hình.
+    Rút lời nói dài về 1–2 câu đầu (giữ trọn câu).
+
+    Không gắn thêm câu "Chi tiết cụ thể đã hiển thị trên màn hình." — câu này bị
+    gắn vào MỌI câu dài (mỗi câu được rút riêng) nên nghe lặp lại như câu mẫu.
 
     Dùng khi đọc NGUYÊN câu trả lời một lần (ESP32, mic máy chủ, REST); đường
     stream từng câu không cần. Trước Phase 2 nằm trong `clean_text_for_tts`.
@@ -230,5 +235,7 @@ def shorten_for_speech(text: str, max_chars: int = 200) -> str:
         out = " ".join(short_parts)
         if not out.endswith(('.', '!', '?')):
             out += "."
-        return out + " Chi tiết cụ thể đã hiển thị trên màn hình."
-    return text[:max_chars - 40] + "... Chi tiết đã hiển thị trên màn hình."
+        return out
+    cut = text[:max_chars]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > max_chars // 2 else cut).rstrip(" ,;:") + "."

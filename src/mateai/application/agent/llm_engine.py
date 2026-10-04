@@ -91,9 +91,9 @@ _AGENT_SYSTEM_PROMPT = (
     "- KÊNH GIỌNG NÓI (TTS): Ngắn gọn 1-2 câu, KHÔNG có ký tự đặc biệt (**, *, #, |, `), chỉ văn nói tự nhiên.\n"
     "QUY TẮC BẮT BUỘC: Khi câu trả lời có bảng/code/danh sách dài, PHẢI đặt câu tóm tắt giọng nói ở cuối:\n"
     "  <!--VOICE: câu nói ngắn gọn để phát ra loa -->\n"
-    "Ví dụ: <!--VOICE: Em đã kiểm tra xong, hệ thống đang ổn định, chi tiết đã hiển thị trên màn hình. -->\n"
+    "Ví dụ: <!--VOICE: Máy chủ đang ổn định, CPU khoảng hai mươi phần trăm. -->\n"
     "Nếu câu trả lời ngắn (không có bảng/code), KHÔNG cần thẻ VOICE — hệ thống tự đọc toàn bộ.\n"
-    "- Quy tắc Gợi mở Hội thoại Chủ động (Phase 36): Sau khi báo cáo xong, BẮT BUỘC kết thúc bằng câu hỏi ngắn, tự nhiên (Ví dụ: 'Anh có muốn thao tác gì tiếp không ạ?'). Không để câu kết cộc lốc.\n\n"
+    "- Chỉ hỏi lại khi THẬT SỰ cần thêm thông tin. Không thêm câu hỏi xã giao cuối mỗi câu trả lời.\n\n"
     "[XỬ LÝ SỰ CỐ & NGOẠI LỆ]\n"
     "Nếu công cụ trả về lỗi (Execution Error), không hoảng loạn. Hãy phân tích lỗi cục bộ, báo cáo sự cố bằng câu từ ngắn gọn và TỰ ĐỘNG đề xuất phương án khắc phục hoặc dùng công cụ khác để thử lại.\n\n"
     "[BẢO VỆ DỮ LIỆU CÁ NHÂN & BỘ ĐỆM TỰ HỦY (GDPR / NGHỊ ĐỊNH 13)]\n"
@@ -125,6 +125,17 @@ _LIVE_DATA_RULE = (
 #: các khối chỉ dùng khi gọi tool (quyền admin, biểu mẫu báo cáo, công cụ tệp,
 #: ERP, robot). Bench Phase 1: prompt đầy đủ ~10.600 ký tự cho cả câu chào.
 #: Lệnh vận hành và vòng agent vẫn dùng _AGENT_SYSTEM_PROMPT.
+#: Cách nói tự nhiên — dùng cho MỌI lượt thoại (trò chuyện và vận hành). Người dùng
+#: phản ánh (2026-10-04): câu trả lời nghe như đọc mẫu, cuối mỗi câu đều "chi tiết
+#: đã được hiển thị trên màn hình", luôn hỏi lại "anh có muốn … không ạ".
+_NATURAL_SPEECH_RULE = (
+    "Nói như người thật đang trò chuyện: đi thẳng vào ý chính, câu ngắn, tự nhiên, thay đổi cách diễn đạt. "
+    "KHÔNG dùng câu khuôn mẫu: \"chi tiết đã hiển thị trên màn hình\", \"em đã thực hiện xong yêu cầu\", "
+    "\"dạ em xin báo cáo\"; không nhắc lại câu hỏi của người dùng; không thêm câu hỏi xã giao ở cuối — "
+    "chỉ hỏi lại khi thật sự cần thêm thông tin. Số liệu đọc to thì làm tròn cho dễ nghe "
+    "(\"khoảng 6 ngày\", \"gần 7 phần trăm\"), không đọc từng giây hay dấu thời gian đầy đủ."
+)
+
 _VOICE_SYSTEM_PROMPT = (
     "[VAI TRÒ]\n"
     "Bạn là VN-MateAI, trợ lý AI của doanh nghiệp, đang nói chuyện với người dùng qua giọng nói. "
@@ -133,11 +144,12 @@ _VOICE_SYSTEM_PROMPT = (
     "- Câu trả lời được đọc to qua loa: văn nói tự nhiên, thường 1-3 câu, chỉ dài hơn khi người dùng yêu cầu.\n"
     "- KHÔNG dùng Markdown, bảng, code, ký hiệu (**, #, |, `), đường dẫn hay URL.\n"
     "- Không chào hỏi rườm rà ở mỗi câu. Không bịa số liệu về hệ thống, máy chủ hay dữ liệu doanh nghiệp.\n"
+    "- {natural_speech_rule}\n"
     "- Nếu có công cụ phù hợp với việc người dùng yêu cầu thì gọi công cụ; nếu là việc cần làm trên hệ thống "
     "mà chưa có công cụ nào làm được thì gọi `create_new_skill` (khi được cung cấp).\n"
     "- {live_data_rule}\n"
     "- Câu hỏi kiến thức chung hoặc trò chuyện thì trả lời trực tiếp."
-).replace("{live_data_rule}", _LIVE_DATA_RULE)
+).replace("{live_data_rule}", _LIVE_DATA_RULE).replace("{natural_speech_rule}", _NATURAL_SPEECH_RULE)
 
 
 _WEEKDAYS_VI = ("thứ Hai", "thứ Ba", "thứ Tư", "thứ Năm", "thứ Sáu", "thứ Bảy", "Chủ nhật")
@@ -175,7 +187,8 @@ def _read_persona() -> Dict[str, Any]:
         return {}
 
 
-def build_system_prompt(source_device: Optional[str] = None, conversation: bool = False) -> str:
+def build_system_prompt(source_device: Optional[str] = None, conversation: bool = False,
+                        spoken: bool = False) -> str:
     """
     Build the full system prompt for the LLM agent, including core identity,
     device context, custom persona system prompt, and injected report templates (Phase 28).
@@ -246,6 +259,17 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
             "'dừng' thì dừng ngay, không hỏi thêm.\n"
             "5. Bạn CÓ nhớ các lượt trước trong cùng phiên. Đừng hỏi lại thứ admin "
             "đã trả lời. Chỉ hỏi phần còn thiếu."
+        )
+
+    # Lượt THOẠI dùng prompt vận hành (lệnh có tool): câu trả lời được ĐỌC TO ngay
+    # khi model viết (stream) — trước đây model viết bản hiển thị dài (bảng, gạch
+    # đầu dòng) rồi mới tới thẻ VOICE ở cuối, nên robot đọc hết cả bản dài (lượt
+    # "nhiệt độ Hà Nội" trên robot 19 s).
+    if spoken and not conversation:
+        system_content += (
+            "\n\n[TRẢ LỜI BẰNG GIỌNG NÓI — ƯU TIÊN HƠN QUY TẮC ĐẦU RA KÉP]\n"
+            "Câu trả lời này được đọc to ngay khi viết: 1-3 câu văn nói, nêu con số / kết quả chính. "
+            "Không viết bảng, gạch đầu dòng, Markdown hay thẻ VOICE. " + _NATURAL_SPEECH_RULE
         )
 
     # Phase 66: xưng hô — đặt CUỐI CÙNG, sau mọi khối inject khác.
@@ -764,6 +788,7 @@ class LLMEngine:
         session_id: Optional[str] = None,
         caller: Optional[str] = None,
         first_tool_calls: Optional[List[Dict[str, str]]] = None,
+        spoken: bool = False,
         tool_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
@@ -817,7 +842,8 @@ class LLMEngine:
         # Zero-Trust Data Sanitizer
         sanitized_query = security_engine.mask_sensitive_data(query)
 
-        system_content = build_system_prompt(source_device=source_device)
+        # spoken: lượt đến từ kênh thoại — câu trả lời cuối được ĐỌC TO.
+        system_content = build_system_prompt(source_device=source_device, spoken=spoken)
 
         # ═════════════════════════════════════════════════════════════════════
         # Phase 25: Resumption of Pending Actions on User Confirmation / Rejection
@@ -1345,7 +1371,8 @@ class LLMEngine:
         # Voice Brain (realtime P2): câu trò chuyện dùng prompt gọn; lệnh vận
         # hành giữ prompt đầy đủ. Model gọi tool thì vòng agent tự dựng lại
         # prompt đầy đủ (ask_async), nên không mất chỉ dẫn vận hành nào.
-        system_content = build_system_prompt(source_device=source_device, conversation=(role == "voice"))
+        system_content = build_system_prompt(source_device=source_device, conversation=(role == "voice"),
+                                             spoken=True)
         messages: List[Dict[str, Any]] = [{"role": "system", "content": system_content}]
         if history:
             # Phase 9: Cắt tỉa ngữ cảnh lịch sử cho giọng nói
@@ -1544,6 +1571,7 @@ class LLMEngine:
                     session_id=_session,
                     caller=caller,
                     first_tool_calls=first_calls,
+                    spoken=True,
                     tool_names=[n for n in offered if n],
                 )
                 turn["agent_end_at"] = time.perf_counter()
@@ -1653,7 +1681,7 @@ class LLMEngine:
             if len(intro_str) > 10:
                 if not any(intro_str.endswith(p) for p in (".", "!", "?")):
                     intro_str += "."
-                return f"{intro_str} Chi tiết cụ thể đã được hiển thị trên màn hình của anh."
+                return intro_str
 
         # Fallback sanitisation
         cleaned = sanitise_for_tts(text)
@@ -1666,7 +1694,7 @@ class LLMEngine:
                 else:
                     break
             if accum:
-                return " ".join(accum) + " Chi tiết đã được hiển thị trên màn hình."
+                return " ".join(accum)
             return cleaned[:180] + "..."
         return cleaned
 
