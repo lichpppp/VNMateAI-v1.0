@@ -214,6 +214,8 @@ _STOPWORDS = (
 )
 
 
+#: Câu hỏi lại khi trả lời xong mà chưa nghe chỉ lệnh mới (HUD và robot).
+FOLLOW_UP_PHRASE = "Anh còn cần em hỗ trợ gì nữa không ạ?"
 #: Câu chào khi chờ 30 giây không nghe thấy chỉ lệnh mới (HUD và robot).
 FAREWELL_PHRASE = "Nếu anh không có yêu cầu nào khác thì tạm biệt, hẹn gặp lại anh nhé."
 

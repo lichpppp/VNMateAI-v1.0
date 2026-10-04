@@ -76,8 +76,10 @@ def _clip_level(clip: bytes) -> str:
     return f"RMS {int(np.sqrt(np.mean(a * a)))}, đỉnh {int(np.abs(a).max())}"
 
 
-#: Sau mỗi câu trả lời robot nghe tiếp chỉ lệnh mới; im lặng ngần này thì chào tạm biệt.
-ROBOT_FOLLOW_UP_LISTEN_MS = 30000
+#: Hội thoại liên tục sau mỗi câu trả lời: nghe 10 s; im lặng -> hỏi lại "Anh còn cần
+#: em hỗ trợ gì nữa không ạ?" và nghe thêm 20 s; vẫn im lặng (tổng 30 s) -> tạm biệt.
+ROBOT_FOLLOW_UP_LISTEN_MS = 10000
+ROBOT_FOLLOW_UP_REASK_LISTEN_MS = 20000
 #: Âm thanh gửi trước nhịp phát tối đa ngần này giây (đủ đệm mạng, không dồn hàng
 #: chục giây — trước đây gửi nhanh gấp 1,4 lần: máy chủ tưởng đã đọc xong khi robot
 #: còn vài giây chưa phát, chuyển sang nghe, mic thu chính giọng robot và cắt ngang).
@@ -232,8 +234,9 @@ class XiaozhiNode:
         # Danh tính RBAC khi robot chạy tool. "device:<id>" chỉ khi robot xác thực
         # bằng token RIÊNG — khi đó dùng quyền đặt cho thiết bị ở Web Portal.
         self.caller: str = device_id
-        # Hội thoại liên tục: vừa trả lời xong, robot đang nghe chỉ lệnh tiếp theo.
-        self.follow_up: bool = False
+        # Hội thoại liên tục: 0 = không; 1 = vừa trả lời, đang nghe 10 s; 2 = đã hỏi
+        # lại, nghe nốt 20 s rồi tạm biệt.
+        self.follow_up: int = 0
         # Thời điểm (perf_counter) robot phát XONG phần âm thanh đã gửi — gửi theo
         # nhịp phát thật, biết chính xác lúc nào đọc xong.
         self.play_end: float = 0.0
@@ -598,24 +601,34 @@ class XiaozhiGateway:
             await asyncio.sleep(min(left, 0.1))
         await asyncio.sleep(0.2)   # loa tắt hẳn trước khi mở mic — không thu tiếng vọng
 
-    async def _start_follow_up(self, node: XiaozhiNode) -> None:
-        node.follow_up = True
+    async def _start_follow_up(self, node: XiaozhiNode, stage: int = 1) -> None:
+        node.follow_up = stage
         node.audio_buffer = io.BytesIO()
         node.vad_detector.reset()
+        timeout = ROBOT_FOLLOW_UP_LISTEN_MS if stage == 1 else ROBOT_FOLLOW_UP_REASK_LISTEN_MS
         await self.send_ui_payload(node.device_id, state="listening", emotion="focused",
-                                   listen_timeout_ms=ROBOT_FOLLOW_UP_LISTEN_MS)
+                                   listen_timeout_ms=timeout)
 
-    async def _say_farewell(self, node: XiaozhiNode) -> None:
-        """Hết thời gian chờ chỉ lệnh tiếp: chào tạm biệt rồi nghỉ."""
-        from mateai.application.voice.voice_session import FAREWELL_PHRASE
+    async def _say(self, node: XiaozhiNode, text: str) -> None:
+        """Đọc một câu cố định ra loa robot (theo nhịp phát) và chờ đọc xong."""
         try:
-            audio = await get_tts_engine().synthesise(FAREWELL_PHRASE)
+            audio = await get_tts_engine().synthesise(text)
             sink = _XiaozhiSink(self, node, "")
-            await sink.on_audio(1, audio or b"", FAREWELL_PHRASE, "speech")
+            await sink.on_audio(1, audio or b"", text, "speech")
             await self._wait_playback_done(node)
-            await node.websocket.send_text(json.dumps({"type": "tts_end", "text": FAREWELL_PHRASE}))
+            await node.websocket.send_text(json.dumps({"type": "tts_end", "text": text}))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("[Xiaozhi] Không phát được câu tạm biệt trên [%s]: %s", node.device_id, exc)
+            logger.warning("[Xiaozhi] Không phát được câu '%s' trên [%s]: %s", text, node.device_id, exc)
+
+    async def _on_follow_up_silence(self, node: XiaozhiNode) -> None:
+        """Robot nghe hết thời gian mà không ai nói: lần đầu hỏi lại, lần sau tạm biệt."""
+        from mateai.application.voice.voice_session import FAREWELL_PHRASE, FOLLOW_UP_PHRASE
+        if node.follow_up == 1:
+            await self._say(node, FOLLOW_UP_PHRASE)
+            await self._start_follow_up(node, stage=2)
+            return
+        node.follow_up = 0
+        await self._say(node, FAREWELL_PHRASE)
         await self.send_ui_payload(node.device_id, state="idle", emotion="sleeping")
 
     async def _finish_utterance(
@@ -647,7 +660,7 @@ class XiaozhiGateway:
 
         if transcribed and node.follow_up and _is_stop_reply(transcribed):
             # "Không / thôi / cảm ơn" khi robot đang chờ chỉ lệnh tiếp: đóng ngay (như HUD).
-            node.follow_up = False
+            node.follow_up = 0
             await ws.send_text(json.dumps({"type": "asr_result", "text": transcribed}))
             await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
             return
@@ -724,7 +737,7 @@ class XiaozhiGateway:
 
         device_id = node.device_id
         node.last_active = datetime.utcnow().isoformat()
-        node.follow_up = False   # đang xử lý chỉ lệnh — hết lượt mới nghe tiếp
+        node.follow_up = 0   # đang xử lý chỉ lệnh — hết lượt mới nghe tiếp
 
         await self.send_ui_payload(device_id, state="processing", emotion="thinking")
         await node.websocket.send_text(json.dumps({"type": "llm_start"}))
@@ -799,9 +812,8 @@ class XiaozhiGateway:
             return
 
         # Robot vừa đặt câu hỏi -> giữ mic mở 8s chờ trả lời; không thì về idle sau 1s.
-        # Hội thoại liên tục (sau MỌI câu trả lời, không chỉ khi robot hỏi): nghe tiếp
-        # chỉ lệnh mới; firmware im lặng ROBOT_FOLLOW_UP_LISTEN_MS thì báo "abort" ->
-        # chào tạm biệt. Trước đây chỉ mở mic 8 s khi câu trả lời là câu hỏi, còn lại
+        # Hội thoại liên tục (sau MỌI câu trả lời, không chỉ khi robot hỏi): nghe 10 s;
+        # firmware im lặng hết hạn thì báo "abort" -> hỏi lại, nghe 20 s, rồi tạm biệt. Trước đây chỉ mở mic 8 s khi câu trả lời là câu hỏi, còn lại
         # về nghỉ ngay — muốn hỏi tiếp phải gọi tên lại.
         if not node.cancel_event.is_set():
             await self._start_follow_up(node)
@@ -976,8 +988,7 @@ class XiaozhiGateway:
                             node.vad_detector.reset()
                             node.state = "idle"
                             if node.follow_up:
-                                node.follow_up = False
-                                asyncio.create_task(self._say_farewell(node))
+                                asyncio.create_task(self._on_follow_up_silence(node))
                             continue
                         elif listen_state == "stop":
                             logger.info("[Xiaozhi] Kết thúc thu âm (listen stop) trên [%s]", device_id)
