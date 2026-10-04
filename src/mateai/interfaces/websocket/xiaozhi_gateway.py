@@ -50,6 +50,11 @@ from mateai.config.loader import settings
 
 logger = logging.getLogger("mateai.interfaces.websocket.xiaozhi_gateway")
 
+def _is_stop_reply(text: str) -> bool:
+    from mateai.application.voice.voice_session import is_stop_reply
+    return is_stop_reply(text)
+
+
 def _pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
     """PCM 16-bit mono thô -> WAV (bộ nhận dạng cần định dạng có header)."""
     import wave
@@ -69,6 +74,16 @@ def _clip_level(clip: bytes) -> str:
     if a.size == 0:
         return "rỗng"
     return f"RMS {int(np.sqrt(np.mean(a * a)))}, đỉnh {int(np.abs(a).max())}"
+
+
+#: Sau mỗi câu trả lời robot nghe tiếp chỉ lệnh mới; im lặng ngần này thì chào tạm biệt.
+ROBOT_FOLLOW_UP_LISTEN_MS = 30000
+#: Âm thanh gửi trước nhịp phát tối đa ngần này giây (đủ đệm mạng, không dồn hàng
+#: chục giây — trước đây gửi nhanh gấp 1,4 lần: máy chủ tưởng đã đọc xong khi robot
+#: còn vài giây chưa phát, chuyển sang nghe, mic thu chính giọng robot và cắt ngang).
+PLAYBACK_LEAD_S = 0.5
+#: PCM 16 kHz mono 16 bit = 32.000 byte mỗi giây.
+PCM_BYTES_PER_S = 32000
 
 
 #: Đoạn câu gọi tên robot gửi lúc nghỉ (PCM16 16 kHz): tối thiểu 0,3 s, tối đa 5 s.
@@ -217,6 +232,11 @@ class XiaozhiNode:
         # Danh tính RBAC khi robot chạy tool. "device:<id>" chỉ khi robot xác thực
         # bằng token RIÊNG — khi đó dùng quyền đặt cho thiết bị ở Web Portal.
         self.caller: str = device_id
+        # Hội thoại liên tục: vừa trả lời xong, robot đang nghe chỉ lệnh tiếp theo.
+        self.follow_up: bool = False
+        # Thời điểm (perf_counter) robot phát XONG phần âm thanh đã gửi — gửi theo
+        # nhịp phát thật, biết chính xác lúc nào đọc xong.
+        self.play_end: float = 0.0
 
         # Firmware metadata — được lấp đầy khi thiết bị gửi frame 'hello'.
         # Trước khi handshake thì là "unknown" / rỗng.
@@ -291,6 +311,7 @@ class XiaozhiGateway:
         state: str,
         emotion: Optional[str] = None,
         text: Optional[str] = None,
+        **extra: Any,
     ) -> bool:
         """
         Send formatted UI frame to Xiaozhi LCD / OLED display.
@@ -327,6 +348,7 @@ class XiaozhiGateway:
         }
         if text:
             payload["text"] = text
+        payload.update(extra)
 
         node.state = state
         node.emotion = emotion
@@ -558,6 +580,44 @@ class XiaozhiGateway:
     # Core Pipeline: Speech / Query Execution
     # -----------------------------------------------------------------------
 
+    async def _pace_playback(self, node: XiaozhiNode, n_bytes: int) -> None:
+        """Gửi theo nhịp phát của robot: chờ tới khi phần đã gửi chỉ còn đi trước PLAYBACK_LEAD_S."""
+        now = time.perf_counter()
+        ahead = node.play_end - now
+        if ahead > PLAYBACK_LEAD_S:
+            await asyncio.sleep(ahead - PLAYBACK_LEAD_S)
+            now = time.perf_counter()
+        node.play_end = max(node.play_end, now) + n_bytes / PCM_BYTES_PER_S
+
+    async def _wait_playback_done(self, node: XiaozhiNode) -> None:
+        """Chờ robot phát hết phần âm thanh đã gửi (thoát sớm nếu bị ngắt lời)."""
+        while not node.cancel_event.is_set():
+            left = node.play_end - time.perf_counter()
+            if left <= 0:
+                break
+            await asyncio.sleep(min(left, 0.1))
+        await asyncio.sleep(0.2)   # loa tắt hẳn trước khi mở mic — không thu tiếng vọng
+
+    async def _start_follow_up(self, node: XiaozhiNode) -> None:
+        node.follow_up = True
+        node.audio_buffer = io.BytesIO()
+        node.vad_detector.reset()
+        await self.send_ui_payload(node.device_id, state="listening", emotion="focused",
+                                   listen_timeout_ms=ROBOT_FOLLOW_UP_LISTEN_MS)
+
+    async def _say_farewell(self, node: XiaozhiNode) -> None:
+        """Hết thời gian chờ chỉ lệnh tiếp: chào tạm biệt rồi nghỉ."""
+        from mateai.application.voice.voice_session import FAREWELL_PHRASE
+        try:
+            audio = await get_tts_engine().synthesise(FAREWELL_PHRASE)
+            sink = _XiaozhiSink(self, node, "")
+            await sink.on_audio(1, audio or b"", FAREWELL_PHRASE, "speech")
+            await self._wait_playback_done(node)
+            await node.websocket.send_text(json.dumps({"type": "tts_end", "text": FAREWELL_PHRASE}))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Xiaozhi] Không phát được câu tạm biệt trên [%s]: %s", node.device_id, exc)
+        await self.send_ui_payload(node.device_id, state="idle", emotion="sleeping")
+
     async def _finish_utterance(
         self,
         node: XiaozhiNode,
@@ -584,6 +644,13 @@ class XiaozhiGateway:
 
         audio = _pcm16_to_wav(audio_data) if pcm16_wav else audio_data
         transcribed = await self._transcribe(node, audio)
+
+        if transcribed and node.follow_up and _is_stop_reply(transcribed):
+            # "Không / thôi / cảm ơn" khi robot đang chờ chỉ lệnh tiếp: đóng ngay (như HUD).
+            node.follow_up = False
+            await ws.send_text(json.dumps({"type": "asr_result", "text": transcribed}))
+            await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+            return
 
         if transcribed:
             if xiaozhi_stt:
@@ -654,10 +721,10 @@ class XiaozhiGateway:
         lên HUD/portal (không phát tiếng ở đó), giữ mic mở khi robot vừa hỏi.
         """
         from mateai.application.voice.voice_turn import process_voice_turn
-        from mateai.application.voice.voice_session import looks_like_question
 
         device_id = node.device_id
         node.last_active = datetime.utcnow().isoformat()
+        node.follow_up = False   # đang xử lý chỉ lệnh — hết lượt mới nghe tiếp
 
         await self.send_ui_payload(device_id, state="processing", emotion="thinking")
         await node.websocket.send_text(json.dumps({"type": "llm_start"}))
@@ -695,6 +762,8 @@ class XiaozhiGateway:
                 )
 
             if not node.cancel_event.is_set():
+                await self._wait_playback_done(node)
+            if not node.cancel_event.is_set():
                 try:
                     await node.websocket.send_text(json.dumps({
                         "session_id": device_id, "type": "tts", "state": "stop",
@@ -730,25 +799,12 @@ class XiaozhiGateway:
             return
 
         # Robot vừa đặt câu hỏi -> giữ mic mở 8s chờ trả lời; không thì về idle sau 1s.
+        # Hội thoại liên tục (sau MỌI câu trả lời, không chỉ khi robot hỏi): nghe tiếp
+        # chỉ lệnh mới; firmware im lặng ROBOT_FOLLOW_UP_LISTEN_MS thì báo "abort" ->
+        # chào tạm biệt. Trước đây chỉ mở mic 8 s khi câu trả lời là câu hỏi, còn lại
+        # về nghỉ ngay — muốn hỏi tiếp phải gọi tên lại.
         if not node.cancel_event.is_set():
-            if looks_like_question(result.reply_text):
-                logger.info("[Xiaozhi] Robot vừa đặt câu hỏi → mở listening gate 8s trên [%s]", device_id)
-                await self.send_ui_payload(device_id, state="listening", emotion="focused")
-                try:
-                    await node.websocket.send_text(json.dumps({
-                        "type": "listen", "state": "detect", "mode": "auto",
-                    }))
-                except Exception:
-                    pass
-                for _ in range(80):   # 80 × 0.1s = 8s, thoát sớm nếu bị ngắt lời
-                    if node.cancel_event.is_set():
-                        break
-                    await asyncio.sleep(0.1)
-                if not node.cancel_event.is_set():
-                    await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
-            else:
-                await asyncio.sleep(1.0)
-                await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+            await self._start_follow_up(node)
 
     async def handle_client(self, websocket: WebSocket, device_id: str, auth_method: Optional[str] = None) -> None:
         """
@@ -919,6 +975,9 @@ class XiaozhiGateway:
                             node.audio_buffer = io.BytesIO()
                             node.vad_detector.reset()
                             node.state = "idle"
+                            if node.follow_up:
+                                node.follow_up = False
+                                asyncio.create_task(self._say_farewell(node))
                             continue
                         elif listen_state == "stop":
                             logger.info("[Xiaozhi] Kết thúc thu âm (listen stop) trên [%s]", device_id)
@@ -1183,7 +1242,8 @@ class _XiaozhiSink:
             for offset in range(0, len(pcm), 2048):
                 if node.cancel_event.is_set():
                     break
-                await ws.send_bytes(pcm[offset: offset + 2048])
-                await asyncio.sleep(0.045)
+                chunk = pcm[offset: offset + 2048]
+                await self.gateway._pace_playback(node, len(chunk))
+                await ws.send_bytes(chunk)
         except Exception as stream_err:
             logger.error("[Xiaozhi] Lỗi stream PCM tới [%s]: %s", device_id, stream_err)

@@ -214,6 +214,10 @@ _STOPWORDS = (
 )
 
 
+#: Câu chào khi chờ 30 giây không nghe thấy chỉ lệnh mới (HUD và robot).
+FAREWELL_PHRASE = "Nếu anh không có yêu cầu nào khác thì tạm biệt, hẹn gặp lại anh nhé."
+
+
 def looks_like_question(text: str) -> bool:
     """
     Có nên chờ admin trả lời sau câu này không.

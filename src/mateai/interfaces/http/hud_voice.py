@@ -103,7 +103,7 @@ async def process_command(cmd_query: str, session_id: str = "hud", *, caller: st
 #: Câu hỏi lại sau mỗi câu trả lời không tự kết thúc bằng câu hỏi.
 FOLLOW_UP_QUESTION = "Anh còn cần em hỗ trợ gì nữa không ạ?"
 #: Câu chào khi chờ 30 giây không nghe thấy phản hồi (HUD báo `end_conversation`).
-FAREWELL = "Nếu anh không có yêu cầu nào khác thì tạm biệt, hẹn gặp lại anh nhé."
+from mateai.application.voice.voice_session import FAREWELL_PHRASE as FAREWELL  # noqa: E402 — dùng chung với robot
 
 
 async def say(text: str) -> None:

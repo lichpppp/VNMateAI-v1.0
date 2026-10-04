@@ -106,6 +106,9 @@ volatile float  wakeNoiseFloor = 200.0f; // ước lượng ồn nền (RMS)
 volatile float  wakePeakRms = 0.0f;      // RMS lớn nhất từ lần báo trước (hiệu chỉnh)
 volatile uint32_t lastVoiceMs = 0;       // lần cuối có tiếng nói (khi đang nghe)
 uint32_t listenEnteredMs = 0;
+// Thời gian im lặng tối đa của lượt nghe hiện tại: máy chủ đặt dài hơn (30 s) khi
+// robot vừa trả lời xong và chờ chỉ lệnh tiếp theo.
+uint32_t listenTimeoutMs = LISTEN_SILENCE_TIMEOUT_MS;
 TaskHandle_t micTaskHandle = nullptr;
 
 // ─── Function Declarations ───────────────────────────────────────────────────
@@ -181,8 +184,8 @@ void loop() {
 
     // Đang nghe mà không ai nói (đánh thức nhầm / chạm nhầm): về nghỉ, báo máy chủ.
     if (convState == CONV_LISTENING &&
-        millis() - listenEnteredMs > LISTEN_SILENCE_TIMEOUT_MS &&
-        millis() - lastVoiceMs > LISTEN_SILENCE_TIMEOUT_MS) {
+        millis() - listenEnteredMs > listenTimeoutMs &&
+        millis() - lastVoiceMs > listenTimeoutMs) {
         webSocket.sendTXT("{\"type\":\"listen\",\"state\":\"abort\"}");
         setConvState(CONV_IDLE);
     }
@@ -900,7 +903,11 @@ void handleIncomingJson(const char* jsonStr) {
         if (state.length() > 0) currentUiState = state;
         currentScreenText = doc["text"] | "";
 
-        if (state == "listening")             setConvState(CONV_LISTENING);
+        if (state == "listening") {
+            uint32_t t = doc["listen_timeout_ms"] | 0;
+            listenTimeoutMs = t ? t : LISTEN_SILENCE_TIMEOUT_MS;
+            setConvState(CONV_LISTENING);
+        }
         else if (state == "thinking" ||
                  state == "processing")       setConvState(CONV_THINKING);
         else if (state == "speaking")         setConvState(CONV_SPEAKING);
@@ -983,6 +990,7 @@ void checkTouchSensor() {
         if (digitalRead(TOUCH_PIN) == HIGH && !touchActive && (now - lastTouchTime > 4000)) {
             touchActive = true; lastTouchTime = now;
             Serial.println(F("[Touch] Chạm tay → LISTENING!"));
+            listenTimeoutMs = LISTEN_SILENCE_TIMEOUT_MS;
             setConvState(CONV_LISTENING);
             if (isConnectedToServer) {
                 StaticJsonDocument<256> td;

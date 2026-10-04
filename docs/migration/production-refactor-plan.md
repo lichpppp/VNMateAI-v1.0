@@ -1114,3 +1114,10 @@ Người dùng phản ánh: nghe như đọc mẫu; câu nào cũng "Chi tiết 
 - Lượt thoại dùng prompt vận hành / vòng agent (`build_system_prompt(spoken=True)`, `ask_async(spoken=True)`): trả lời 1–3 câu văn nói, không bảng / Markdown / thẻ VOICE. Trước đây model viết bản hiển thị dài rồi mới tới thẻ VOICE, đường stream đọc hết.
 - Chạy thật (REST, portal): "máy chủ chạy bao lâu" 18,7 s → 5,8 s ("…hơn 6 ngày rồi anh, tính từ tối ngày 28 tháng 9"); "CPU và RAM" 8,8 s → 5,5 s.
 - TESTS: 524 pass.
+
+## 65. Robot: hội thoại liên tục + đọc không bị cắt (2026-10-04)
+
+- **Đọc bị cắt giữa chừng:** máy chủ gửi PCM nhanh gấp 1,4 lần nhịp phát (2048 byte = 64 ms mỗi 45 ms) nên tưởng đọc xong khi robot còn vài giây chưa phát; lúc đó (câu trả lời kết thúc bằng câu hỏi) chuyển robot sang nghe → mic thu giọng robot → lượt mới cắt ngang. Nay gửi theo nhịp phát (`_pace_playback`, đi trước ≤ 0,5 s) và chờ robot phát xong (`_wait_playback_done`) rồi mới `tts stop` / nghe.
+- **Hội thoại liên tục:** sau MỌI câu trả lời robot nghe tiếp (`listen_timeout_ms` = 30 s do máy chủ đặt, firmware `listenTimeoutMs`); im lặng 30 s → firmware `listen abort` → máy chủ đọc câu tạm biệt (`voice_session.FAREWELL_PHRASE`, dùng chung HUD) rồi nghỉ; "không / thôi / cảm ơn" (`is_stop_reply`) → đóng ngay. Chạm để gọi vẫn 8 s.
+- **Nội dung:** prompt thoại nói đủ ý chính (2–5 câu) và gợi ý một bước tiếp theo cụ thể khi có ích (lần trước ép 1–3 câu, không gợi ý — người dùng thấy thiếu).
+- TESTS: 537 pass (+ `tests/test_robot_follow_up.py`).
