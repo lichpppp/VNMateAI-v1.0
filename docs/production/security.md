@@ -62,3 +62,12 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 | Connector M365/eInvoice/Paperless/OCI chưa chạy thật | Chưa kiểm chứng | Bật từng connector trong môi trường thử trước |
 | Chứng chỉ tự ký | Thấp | Thay bằng chứng chỉ CA |
 | `POST /api/v1/clients/{id}/kill-process` và `/deploy-skill` (admin) chạy thẳng trên máy trạm, không qua HITL | Thấp–TB | Chỉ admin, nay có audit (deploy ghi tên tệp + SHA-256 mã). Đưa qua HITL nếu cần duyệt hai người |
+
+
+## Quyền thiết bị (2026-10-04)
+
+| Thành phần | Cơ chế |
+|---|---|
+| Danh tính thiết bị | `device:<id>` — chỉ gán khi WS robot xác thực bằng token riêng (`ws_auth.device_auth_method` = `device_token`); token chung / JWT giữ danh tính cũ |
+| Quyền thiết bị | cột `device_tokens.role` (NULL = quy tắc cũ theo id); `PUT /api/v1/security/devices/{id}/role` (admin, audit `set_device_role`) |
+| Phê duyệt đã nhớ | bảng `approval_grants (principal, tool_name)`; ghi khi người duyệt đồng ý yêu cầu của `device:*`; `tool_gate` bỏ qua bước hỏi duyệt nếu có (audit `APPROVAL_REMEMBERED`), RBAC vẫn áp; chỉ cho danh tính `device:*`; `GET/DELETE /api/v1/security/devices/{id}/approvals` |

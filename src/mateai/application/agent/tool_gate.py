@@ -93,7 +93,10 @@ async def run_tool_with_policy(
             "message": f"Tác vụ '{fn_name}' bị từ chối do vi phạm chính sách bảo mật.",
         })
 
-    if risk_level == "NEED_CONFIRM" and not _is_admin:
+    if risk_level == "NEED_CONFIRM" and not _is_admin and _remembered_approval(caller, fn_name):
+        # Thiết bị đã được duyệt tác vụ này trước đây — không hỏi lại (vẫn qua RBAC bên dưới).
+        security_engine.log_audit(str(caller), fn_name, risk_level, "APPROVAL_REMEMBERED", fn_args)
+    elif risk_level == "NEED_CONFIRM" and not _is_admin:
         logger.warning("Zero-Trust Security: Tác vụ '%s' yêu cầu phê duyệt.", fn_name)
         _chat_id = None
         if source_device and "telegram:" in str(source_device):
@@ -182,6 +185,7 @@ async def execute_approved_tool(item: Dict[str, Any]) -> Dict[str, Any]:
     YÊU CẦU (không phải người duyệt) — duyệt không mở rộng quyền của người hỏi.
     """
     ctx = item.get("context") or {}
+    _remember_approval(item)
     gate = await run_tool_with_policy(
         str(item.get("action_name") or ""),
         {**dict(item.get("params") or {}), "target_client": ctx.get("target_client") or "master"},
@@ -211,6 +215,35 @@ def pending_view(item: Dict[str, Any]) -> Dict[str, Any]:
         "source_device": ctx.get("source_device"),
         "created_at": item.get("created_at"),
     }
+
+
+def _remembered_approval(caller: Optional[str], tool_name: str) -> bool:
+    """Thiết bị (danh tính "device:<id>", chỉ có khi xác thực bằng token riêng) đã
+    được duyệt tác vụ này trước đây — chủ hệ thống chọn "duyệt rồi thì không hỏi lại"."""
+    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
+    c = str(caller or "")
+    if not c.lower().startswith(DEVICE_PRINCIPAL_PREFIX):
+        return False
+    try:
+        from mateai.infrastructure.database.db_manager import db_manager
+        return db_manager.has_approval_grant(c, tool_name)
+    except Exception as exc:  # noqa: BLE001 — lỗi tra cứu: hỏi duyệt như thường
+        logger.warning("Không đọc được phê duyệt đã nhớ cho '%s': %s", c, exc)
+        return False
+
+
+def _remember_approval(item: Dict[str, Any]) -> None:
+    """Người duyệt vừa đồng ý tác vụ do một thiết bị yêu cầu -> nhớ để lần sau không hỏi lại."""
+    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
+    principal = str(item.get("requested_by") or "")
+    tool_name = str(item.get("action_name") or "")
+    if not (principal.lower().startswith(DEVICE_PRINCIPAL_PREFIX) and tool_name):
+        return
+    try:
+        from mateai.infrastructure.database.db_manager import db_manager
+        db_manager.add_approval_grant(principal, tool_name, str(item.get("reviewed_by") or ""))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Không lưu được phê duyệt đã nhớ '%s' / '%s': %s", principal, tool_name, exc)
 
 
 hitl_manager.register_executor(TOOL_KIND, execute_approved_tool)

@@ -91,6 +91,24 @@ class DatabaseManager:
                         );
                         """
                     )
+                    # Quyền riêng của thiết bị (NULL = chưa đặt). Thêm cột cho DB cũ.
+                    _cols = {r[1] for r in cursor.execute("PRAGMA table_info(device_tokens);").fetchall()}
+                    if "role" not in _cols:
+                        cursor.execute("ALTER TABLE device_tokens ADD COLUMN role TEXT;")
+
+                    # 4. Phê duyệt đã nhớ: thiết bị đã được duyệt tác vụ X một lần thì
+                    #    lần sau không hỏi lại (chủ hệ thống chọn, thu hồi ở Web Portal).
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS approval_grants (
+                            principal TEXT NOT NULL,
+                            tool_name TEXT NOT NULL,
+                            granted_by TEXT,
+                            granted_at TEXT NOT NULL,
+                            PRIMARY KEY (principal, tool_name)
+                        );
+                        """
+                    )
 
                     conn.commit()
 
@@ -407,9 +425,59 @@ class DatabaseManager:
     def list_device_tokens(self) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             rows = conn.execute(
-                "SELECT device_id, created_at, created_by, last_seen_at FROM device_tokens ORDER BY device_id;"
+                "SELECT device_id, created_at, created_by, last_seen_at, role FROM device_tokens ORDER BY device_id;"
             ).fetchall()
             return [dict(r) for r in rows]
+
+    def set_device_role(self, device_id: str, role: Optional[str]) -> bool:
+        """Đặt quyền của thiết bị đã có token (None = bỏ, về mặc định). False nếu không có thiết bị."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute("UPDATE device_tokens SET role = ? WHERE device_id = ?;", (role, device_id))
+                conn.commit()
+                return cur.rowcount > 0
+
+    def get_device_role(self, device_id: str) -> Optional[str]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT role FROM device_tokens WHERE device_id = ?;", (device_id,)).fetchone()
+            return row["role"] if row and row["role"] else None
+
+    def add_approval_grant(self, principal: str, tool_name: str, granted_by: str = "") -> None:
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO approval_grants (principal, tool_name, granted_by, granted_at) "
+                    "VALUES (?, ?, ?, ?);",
+                    (principal, tool_name, granted_by, datetime.utcnow().isoformat()),
+                )
+                conn.commit()
+
+    def has_approval_grant(self, principal: str, tool_name: str) -> bool:
+        with self._get_connection() as conn:
+            return conn.execute(
+                "SELECT 1 FROM approval_grants WHERE principal = ? AND tool_name = ?;", (principal, tool_name)
+            ).fetchone() is not None
+
+    def list_approval_grants(self, principal: Optional[str] = None) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            if principal:
+                rows = conn.execute("SELECT * FROM approval_grants WHERE principal = ? ORDER BY tool_name;",
+                                    (principal,)).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM approval_grants ORDER BY principal, tool_name;").fetchall()
+            return [dict(r) for r in rows]
+
+    def revoke_approval_grant(self, principal: str, tool_name: Optional[str] = None) -> int:
+        """Thu hồi một phê duyệt đã nhớ (hoặc tất cả của principal khi tool_name=None)."""
+        with self._lock:
+            with self._get_connection() as conn:
+                if tool_name:
+                    cur = conn.execute("DELETE FROM approval_grants WHERE principal = ? AND tool_name = ?;",
+                                       (principal, tool_name))
+                else:
+                    cur = conn.execute("DELETE FROM approval_grants WHERE principal = ?;", (principal,))
+                conn.commit()
+                return cur.rowcount
 
     def revoke_device_token(self, device_id: str) -> bool:
         with self._lock:

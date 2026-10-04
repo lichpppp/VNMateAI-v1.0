@@ -138,6 +138,11 @@ PORTAL_ROLE_MAP: Dict[str, str] = {
 #
 # Muốn nâng quyền cho một thiết bị: thêm nó vào bảng ERP `employees` với role
 # tương ưng (bước 1 trong _resolve_role sẽ thắng bước 0).
+#: Tiền tố danh tính thiết bị đã xác thực bằng token riêng (xem _resolve_role).
+DEVICE_PRINCIPAL_PREFIX = "device:"
+#: Quyền đặt được cho một thiết bị ở Web Portal.
+DEVICE_ROLES = ("admin", "it_support", "operator", "viewer")
+
 SERVICE_PRINCIPAL_ROLES: Dict[str, str] = {
     # Thiết bị ESP32 / robot gia đình — Cấp full Admin theo yêu cầu quản trị viên
     "esp32": "admin",
@@ -287,6 +292,21 @@ class SecurityGuard:
         clean_id = str(employee_id).strip().lower()
         if not clean_id or clean_id in ("none", "null", "anon", "anonymous", "unknown"):
             return DEFAULT_ROLE
+
+        # Thiết bị đã xác thực bằng token RIÊNG: danh tính "device:<id>" chỉ do máy
+        # chủ gán (gateway robot) — client không tự đặt được. Quyền lấy từ bảng
+        # device_tokens (đặt ở Web Portal); chưa đặt -> quy tắc cũ theo id.
+        if clean_id.startswith(DEVICE_PRINCIPAL_PREFIX):
+            device_id = str(employee_id).strip()[len(DEVICE_PRINCIPAL_PREFIX):]
+            try:
+                from mateai.infrastructure.database.db_manager import db_manager
+                role = db_manager.get_device_role(device_id)
+            except Exception as e:  # noqa: BLE001 — fail-closed
+                logger.warning("Không đọc được quyền thiết bị '%s': %s", device_id, e)
+                return DEFAULT_ROLE
+            if role:
+                return self._normalize_role(role)
+            employee_id, clean_id = device_id, device_id.lower()
 
         # Danh tính có trong DB (người dùng / nhân viên) luôn dùng role trong DB,
         # xét TRƯỚC service principal. Trước đây thứ tự ngược lại: tài khoản

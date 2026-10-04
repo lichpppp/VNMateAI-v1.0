@@ -246,6 +246,64 @@ async def list_device_tokens_endpoint(user: dict = Depends(require_roles(["admin
     }
 
 
+class DeviceRoleRequest(BaseModel):
+    #: "admin" | "it_support" | "operator" | "viewer"; null = bỏ, về quy tắc mặc định theo id.
+    role: Optional[str] = None
+
+
+def _audit(user: dict, action: str, details: Dict[str, Any]) -> None:
+    try:
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(str(user.get("username", "")), action, "SAFE", "SUCCESS", details)
+    except Exception:  # pylint: disable=broad-except
+        pass
+
+
+@router.put("/api/v1/security/devices/{device_id}/role", summary="Đặt quyền cho một thiết bị", tags=["Security"])
+async def set_device_role_endpoint(
+    device_id: str,
+    payload: DeviceRoleRequest,
+    user: dict = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    """Quyền chỉ áp dụng khi thiết bị kết nối bằng token RIÊNG của nó (danh tính
+    "device:<id>" do máy chủ gán) — token dùng chung không mang quyền này.
+    Tác vụ rủi ro cao vẫn cần duyệt; duyệt một lần thì thiết bị được nhớ."""
+    from mateai.application.security.security_guard import DEVICE_ROLES
+    from mateai.infrastructure.database.db_manager import db_manager
+    role = (payload.role or "").strip().lower() or None
+    if role is not None and role not in DEVICE_ROLES:
+        raise HTTPException(status_code=422, detail=f"Quyền phải là một trong: {', '.join(DEVICE_ROLES)}.")
+    if not await run_blocking(db_manager.set_device_role, device_id=device_id, role=role):
+        raise HTTPException(status_code=404, detail=f"Thiết bị '{device_id}' chưa có token riêng — cấp token trước.")
+    _audit(user, "set_device_role", {"device_id": device_id, "role": role})
+    return {"status": "success", "device_id": device_id, "role": role}
+
+
+@router.get("/api/v1/security/devices/{device_id}/approvals",
+            summary="Tác vụ thiết bị đã được duyệt (không hỏi lại)", tags=["Security"])
+async def list_device_approvals_endpoint(device_id: str, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
+    from mateai.infrastructure.database.db_manager import db_manager
+    grants = await run_blocking(db_manager.list_approval_grants, principal=f"{DEVICE_PRINCIPAL_PREFIX}{device_id}")
+    return {"status": "success", "device_id": device_id, "approvals": grants}
+
+
+@router.delete("/api/v1/security/devices/{device_id}/approvals",
+               summary="Thu hồi phê duyệt đã nhớ của thiết bị", tags=["Security"])
+async def revoke_device_approvals_endpoint(
+    device_id: str,
+    tool_name: Optional[str] = None,
+    user: dict = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    """tool_name bỏ trống = thu hồi TẤT CẢ (lần sau mọi tác vụ rủi ro cao lại hỏi duyệt)."""
+    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
+    from mateai.infrastructure.database.db_manager import db_manager
+    n = await run_blocking(db_manager.revoke_approval_grant,
+                           principal=f"{DEVICE_PRINCIPAL_PREFIX}{device_id}", tool_name=tool_name)
+    _audit(user, "revoke_device_approvals", {"device_id": device_id, "tool_name": tool_name, "removed": n})
+    return {"status": "success", "device_id": device_id, "removed": n}
+
+
 @router.delete("/api/v1/security/devices/{device_id}", summary="Thu hồi token của một thiết bị", tags=["Security"])
 async def revoke_device_token_endpoint(device_id: str, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
     from mateai.infrastructure.database.db_manager import db_manager

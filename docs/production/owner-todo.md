@@ -85,3 +85,10 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] **Quyền riêng tư:** micro robot giờ luôn bật lúc nghỉ. Muốn tắt: đặt `WAKE_LISTEN_ENABLED 0` trong `esp32_firmware/src/main.cpp`, build và nạp lại (khi đó chỉ chạm để gọi).
 - [ ] Ồn nền đo được trên robot dao động RMS 1.500–5.000, đỉnh tới 30.000 (gần ngưỡng tràn 16-bit). Nếu robot hay bị đánh thức nhầm hoặc không nghe thấy khi gọi xa, báo lại để chỉnh ngưỡng (log `[Wake] ... ồn nền`).
 - [ ] Câu hỏi đầu tiên trên robot: STT (Google) 715 ms, tiếng câu trả lời đầu sau 7,9 s, hết lượt 19,4 s (LLM-1st 5,6 s).
+
+## Quyền robot (2026-10-04)
+
+- [x] Web Portal → **Bảo mật → Thiết bị & Robot**: đặt quyền từng thiết bị (Quản trị / Hỗ trợ IT / Vận hành / Chỉ xem). `vnmate_robot_01` đã đặt **Quản trị**.
+- Quyền chỉ áp dụng khi thiết bị kết nối bằng **token riêng** (máy chủ gán danh tính `device:<id>`); token dùng chung không mang quyền này.
+- Theo lựa chọn A: tác vụ rủi ro cao (Level ≥ 3: dừng tiến trình, PowerShell, xoá…) robot vẫn **hỏi duyệt lần đầu**; anh bấm Đồng ý một lần thì tác vụ đó được **nhớ** — lần sau robot làm luôn (audit ghi `APPROVAL_REMEMBERED`). Nhớ theo TÊN tác vụ, không theo tham số (duyệt "dừng tiến trình" một lần = sau đó dừng được mọi tiến trình). Thu hồi từng tác vụ hoặc tất cả ở cùng thẻ.
+- Không làm (bị chặn, theo lựa chọn A): robot chạy tác vụ rủi ro cao mà không duyệt lần nào.

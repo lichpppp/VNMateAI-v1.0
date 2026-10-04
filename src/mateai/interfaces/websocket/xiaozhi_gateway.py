@@ -214,6 +214,9 @@ class XiaozhiNode:
         # Đoạn nghi là câu gọi tên (robot gửi lúc nghỉ) đang nhận / đang xét.
         self.wake_buf: Optional[bytearray] = None
         self.wake_busy: bool = False
+        # Danh tính RBAC khi robot chạy tool. "device:<id>" chỉ khi robot xác thực
+        # bằng token RIÊNG — khi đó dùng quyền đặt cho thiết bị ở Web Portal.
+        self.caller: str = device_id
 
         # Firmware metadata — được lấp đầy khi thiết bị gửi frame 'hello'.
         # Trước khi handshake thì là "unknown" / rỗng.
@@ -687,6 +690,7 @@ class XiaozhiGateway:
                     sink=sink,
                     session_id=device_id,
                     source_device=device_id,
+                    caller=node.caller,
                     stt_ms=stt_ms,
                 )
 
@@ -746,7 +750,7 @@ class XiaozhiGateway:
                 await asyncio.sleep(1.0)
                 await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
 
-    async def handle_client(self, websocket: WebSocket, device_id: str) -> None:
+    async def handle_client(self, websocket: WebSocket, device_id: str, auth_method: Optional[str] = None) -> None:
         """
         Handle WebSocket connection lifecycle for a Xiaozhi ESP32 device:
           - Manages binary audio stream from mic.
@@ -758,6 +762,10 @@ class XiaozhiGateway:
         logger.info("[Xiaozhi] Thiết bị [%s] đã kết nối từ IP %s.", device_id, client_host)
 
         node = XiaozhiNode(device_id=device_id, websocket=websocket, client_host=client_host)
+        from mateai.interfaces.http.ws_auth import DEVICE_TOKEN
+        from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
+        if auth_method == DEVICE_TOKEN:
+            node.caller = f"{DEVICE_PRINCIPAL_PREFIX}{device_id}"
         async with self._lock:
             self._nodes[device_id] = node
 

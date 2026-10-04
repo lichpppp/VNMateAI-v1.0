@@ -49,7 +49,8 @@ async def _handle_audio_stream(websocket: WebSocket, device_id: str) -> None:
     """
     from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
-    if not ws_auth.authenticate_device(websocket, device_id):
+    auth_method = ws_auth.device_auth_method(websocket, device_id)
+    if auth_method is None:
         # Ghi đường dẫn + CÓ gửi token hay không (không ghi giá trị) — đủ để biết
         # firmware gọi sai đường / thiếu token / token không khớp device_id.
         has_token = bool(websocket.query_params.get("token")) or \
@@ -64,7 +65,7 @@ async def _handle_audio_stream(websocket: WebSocket, device_id: str) -> None:
         await websocket.close(code=1008, reason="Unauthorized: thiếu enrollment token hợp lệ.")
         return
 
-    await xiaozhi_gateway.handle_client(websocket, device_id)
+    await xiaozhi_gateway.handle_client(websocket, device_id, auth_method=auth_method)
 
 
 @router.websocket("/ws/audio-stream/{device_id}")

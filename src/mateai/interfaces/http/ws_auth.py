@@ -28,8 +28,21 @@ JWT_FALLBACK_ROLES = ("admin", "manager")
 
 
 def authenticate_device(websocket: WebSocket, device_id: str = "esp32-default") -> bool:
+    """Thiết bị được phép kết nối không (xem `device_auth_method`)."""
+    return device_auth_method(websocket, device_id) is not None
+
+
+#: Cách thiết bị xác thực — chỉ "device_token" (token RIÊNG gắn với đúng device_id)
+#: mới chứng minh được danh tính thiết bị; quyền riêng của thiết bị chỉ áp dụng khi đó.
+DEVICE_TOKEN = "device_token"
+SHARED_SECRET = "shared_secret"
+USER_JWT = "jwt"
+
+
+def device_auth_method(websocket: WebSocket, device_id: str = "esp32-default") -> Optional[str]:
     """
-    Xác thực thiết bị ESP32 trước khi cho stream âm thanh.
+    Xác thực thiết bị ESP32 trước khi cho stream âm thanh. Trả cách xác thực
+    (DEVICE_TOKEN / SHARED_SECRET / USER_JWT) hoặc None nếu bị từ chối.
 
     Chấp nhận (một trong ba):
       0. Token RIÊNG của đúng `device_id` này (bảng device_tokens, cấp ở
@@ -54,7 +67,7 @@ def authenticate_device(websocket: WebSocket, device_id: str = "esp32-default") 
         from mateai.infrastructure.database.db_manager import db_manager
         try:
             if db_manager.verify_device_token(device_id, token):
-                return True
+                return DEVICE_TOKEN
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("[Xiaozhi] Lỗi kiểm token thiết bị '%s': %s", device_id, exc)
 
@@ -64,21 +77,21 @@ def authenticate_device(websocket: WebSocket, device_id: str = "esp32-default") 
             if get_config_section("security").get("require_per_device_token", False):
                 logger.warning("[Xiaozhi] Từ chối '%s': token dùng chung đã bị tắt "
                                "(security.require_per_device_token).", device_id)
-                return False
+                return None
             logger.warning("[Xiaozhi] Thiết bị '%s' dùng token CHUNG — hãy cấp token riêng "
                            "(POST /api/v1/security/devices).", device_id)
-            return True
+            return SHARED_SECRET
 
         try:
             payload = auth_manager.decode_access_token(token)
             if payload and "sub" in payload:
                 user = auth_manager.get_user(payload["sub"])
                 if bool(user) and user.get("role") in JWT_FALLBACK_ROLES:
-                    return True
+                    return USER_JWT
         except Exception:
             pass
 
-    return False
+    return None
 
 
 def authenticate_worker(websocket: WebSocket) -> bool:

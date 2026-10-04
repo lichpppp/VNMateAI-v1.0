@@ -6546,6 +6546,94 @@ let securityPolicies = {
   protected_dirs: []
 };
 
+// ─── Thiết bị & Robot: quyền + phê duyệt đã nhớ ─────────────────────────────
+const DEVICE_ROLE_LABELS = {
+  '': 'Mặc định (theo mã thiết bị)',
+  admin: 'Quản trị (admin)',
+  it_support: 'Hỗ trợ IT',
+  operator: 'Vận hành',
+  viewer: 'Chỉ xem',
+};
+
+async function loadDeviceAccess() {
+  const box = document.getElementById('device-access-list');
+  if (!box) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/security/devices`);
+    if (!res.ok) {
+      box.textContent = res.status === 403 ? 'Chỉ tài khoản admin xem được mục này.' : `Lỗi tải (${res.status}).`;
+      return;
+    }
+    const devices = (await res.json()).devices || [];
+    if (!devices.length) {
+      box.textContent = 'Chưa có thiết bị nào được cấp token riêng.';
+      return;
+    }
+    const approvals = await Promise.all(devices.map(async (d) => {
+      try {
+        const r = await apiFetch(`${API_BASE}/api/v1/security/devices/${encodeURIComponent(d.device_id)}/approvals`);
+        return r.ok ? ((await r.json()).approvals || []) : [];
+      } catch (e) { return []; }
+    }));
+    box.innerHTML = devices.map((d, i) => {
+      const id = escapeHtml(d.device_id);
+      const options = Object.entries(DEVICE_ROLE_LABELS).map(([v, label]) =>
+        `<option value="${v}" ${(d.role || '') === v ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
+      const grants = approvals[i];
+      const grantHtml = grants.length
+        ? grants.map((g) => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-mono text-[10px]">${escapeHtml(g.tool_name)}
+            <button type="button" title="Thu hồi" class="text-rose-500 hover:text-rose-700" data-device="${id}" data-tool="${escapeHtml(g.tool_name)}" onclick="revokeDeviceApproval(this.dataset.device, this.dataset.tool)">✕</button></span>`).join(' ')
+          + ` <button type="button" class="text-[10px] text-rose-500 hover:underline" data-device="${id}" onclick="revokeDeviceApproval(this.dataset.device, null)">Thu hồi tất cả</button>`
+        : '<span class="text-slate-400">Chưa có tác vụ nào được duyệt.</span>';
+      return `<div class="p-3 rounded-lg border border-slate-200 dark:border-slate-700 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="font-mono font-semibold text-slate-800 dark:text-slate-100">${id}</div>
+              <div class="text-[10px] text-slate-400">Kết nối gần nhất: ${escapeHtml(d.last_seen_at || 'chưa kết nối')}</div>
+            </div>
+            <label class="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">Quyền
+              <select class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
+                data-device="${id}" onchange="setDeviceRole(this.dataset.device, this.value)">${options}</select>
+            </label>
+          </div>
+          <div class="text-[11px]"><span class="text-slate-500">Đã duyệt (không hỏi lại):</span> ${grantHtml}</div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    console.error('[DeviceAccess]', err);
+    box.textContent = 'Lỗi tải danh sách thiết bị.';
+  }
+}
+
+async function setDeviceRole(deviceId, role) {
+  const res = await apiFetch(`${API_BASE}/api/v1/security/devices/${encodeURIComponent(deviceId)}/role`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: role || null }),
+  });
+  if (res.ok) {
+    showToast(`Đã đặt quyền "${DEVICE_ROLE_LABELS[role || ''] || role}" cho ${deviceId}`, 'success');
+  } else {
+    const err = await res.json().catch(() => ({}));
+    showToast(err.detail || `Không đặt được quyền (${res.status})`, 'error');
+  }
+  loadDeviceAccess();
+}
+
+async function revokeDeviceApproval(deviceId, toolName) {
+  const what = toolName ? `tác vụ "${toolName}"` : 'TẤT CẢ tác vụ đã duyệt';
+  if (!confirm(`Thu hồi ${what} của ${deviceId}? Lần sau thiết bị sẽ phải chờ duyệt lại.`)) return;
+  const q = toolName ? `?tool_name=${encodeURIComponent(toolName)}` : '';
+  const res = await apiFetch(`${API_BASE}/api/v1/security/devices/${encodeURIComponent(deviceId)}/approvals${q}`, {
+    method: 'DELETE',
+  });
+  showToast(res.ok ? 'Đã thu hồi.' : `Không thu hồi được (${res.status})`, res.ok ? 'success' : 'error');
+  loadDeviceAccess();
+}
+window.loadDeviceAccess = loadDeviceAccess;
+window.setDeviceRole = setDeviceRole;
+window.revokeDeviceApproval = revokeDeviceApproval;
+
 async function loadSecurityCenter() {
   try {
     const [blData, auditData] = await Promise.all([
@@ -6561,6 +6649,8 @@ async function loadSecurityCenter() {
       renderSecurityChips();
       updateSecurityPoliciesCount();
     }
+
+    loadDeviceAccess();
 
     // Always fetch pending queue first so audit logs and stats can match with active pending state
     await checkPendingAction();

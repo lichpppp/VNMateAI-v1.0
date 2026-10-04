@@ -805,7 +805,7 @@
                 <line x1="12" y1="19" x2="12" y2="23" />
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
-              <span class="whitespace-nowrap">Thử Lệnh Thoại (Robot)</span>
+              <span class="whitespace-nowrap">Cấu hình Robot - HUD</span>
             </div>
 
             <div class="nav-btn" id="nav-skills" onclick="switchTab('skills')">
@@ -5613,6 +5613,23 @@
         </div>
       </div>
 
+      <!-- ─── THIẾT BỊ & ROBOT: quyền + phê duyệt đã nhớ ─── -->
+      <div id="device-access-card" class="glass-panel p-5 space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🤖</span>
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Thiết Bị &amp; Robot — Quyền Truy Cập</h3>
+          </div>
+          <button type="button" onclick="loadDeviceAccess()"
+            class="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700">Tải lại</button>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">
+          Quyền chỉ áp dụng khi thiết bị kết nối bằng <b>token riêng</b> của nó. Tác vụ rủi ro cao vẫn cần
+          duyệt; đã duyệt một lần thì thiết bị được nhớ và lần sau không hỏi lại (thu hồi ở đây).
+        </p>
+        <div id="device-access-list" class="space-y-2 text-xs text-slate-500">Đang tải…</div>
+      </div>
+
       <!-- ─── PENDING SECURITY APPROVALS QUEUE (HITL) ─── -->
       <div id="security-pending-card" class="glass-panel p-5 space-y-4 border border-amber-500/40 bg-amber-500/5">
         <div class="flex items-center justify-between gap-3">
@@ -7641,7 +7658,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
-  <script src="/static/app.js?v=43.0"></script>
+  <script src="/static/app.js?v=44.0"></script>
 </body>
 
 </html>
