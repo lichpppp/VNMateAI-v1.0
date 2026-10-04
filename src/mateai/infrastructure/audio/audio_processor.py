@@ -58,6 +58,8 @@ _GROQ_WHISPER_MODEL: str = "whisper-large-v3"
 
 _local_whisper_model = None
 _local_whisper_lock = threading.Lock()
+#: Một đoạn câu gọi được nhận dạng một lúc — giới hạn CPU khi nhiều người nói gần robot.
+_wake_clip_lock = threading.Lock()
 
 
 def _get_local_whisper():
@@ -255,6 +257,11 @@ class SileroVADDetector:
         }
 
 
+def warm_local_whisper() -> bool:
+    """Nạp sẵn model faster-whisper cục bộ (gọi trong thread) — câu gọi đầu tiên không chờ 1-2 s."""
+    return _get_local_whisper() is not None
+
+
 def audio_bytes_to_numpy_float32(audio_bytes: bytes) -> np.ndarray:
     """
     Phase 50 Step 2: Pure in-memory conversion of audio bytes to float32 NumPy array.
@@ -378,6 +385,47 @@ class AudioEngine:
 
         except Exception as exc:  # pylint: disable=broad-except
             logger.error("ASR transcription failed [backend=%s]: %s", backend, exc)
+            return ""
+
+    async def transcribe_wake_clip(self, pcm16: bytes) -> str:
+        """
+        Nhận dạng đoạn âm thanh ngắn để tìm câu gọi tên trợ lý — CHỈ offline
+        (faster-whisper cục bộ, không bao giờ chuyển sang dịch vụ đám mây: âm
+        thanh trong phòng lúc chưa gọi trợ lý không rời máy chủ).
+
+        `hotwords` = tên trợ lý: đo 2026-10-04 (model tiny, TTS Hoài My / Nam
+        Minh) nhận đủ 8/8 câu gọi thay vì 7/8, 0/6 câu thường bị nhận nhầm.
+        Trả "" nếu không có model hoặc lỗi.
+        """
+        if not pcm16:
+            return ""
+        try:
+            from mateai.config.loader import get_assistant_name
+            hot = get_assistant_name() or None
+        except Exception:  # noqa: BLE001
+            hot = None
+
+        def _run() -> str:
+            with _wake_clip_lock:
+                return _transcribe(_get_local_whisper())
+
+        def _transcribe(model) -> str:
+            if model is None:
+                return ""
+            audio_np = audio_bytes_to_numpy_float32(pcm16)
+            if len(audio_np) == 0:
+                return ""
+            segments, _info = model.transcribe(
+                audio_np, language="vi", beam_size=1, best_of=1, temperature=0.0,
+                vad_filter=False, condition_on_previous_text=False,
+                hotwords=hot, max_new_tokens=48,
+            )
+            return " ".join(seg.text.strip() for seg in segments).strip()
+
+        try:
+            return await asyncio.to_thread(_run)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[WakeClip] Lỗi nhận dạng offline: %s", exc)
             return ""
 
     async def _transcribe_local_whisper(self, audio_bytes: bytes) -> str:

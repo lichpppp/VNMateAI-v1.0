@@ -77,3 +77,11 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] **`auto_execute = true`** trong `config.json`: mã do AI sinh được cài NGAY sau kiểm toán AST, không người duyệt. Muốn duyệt tay: đặt `false` → mã sinh ra nằm ở `skills/pending/`, xem rồi chuyển vào `skills/` và nói "nạp lại kỹ năng".
 - [ ] Kỹ năng AI sinh có thể dùng nguồn dữ liệu đã cũ / bị chặn (thử "giá vàng SJC": hai nguồn model chọn đều từ chối). Chưa có tự kiểm tra sau khi tạo (chạy thử có thể gây tác dụng phụ — vd mở trình duyệt). Kỹ năng hỏng thì xoá tệp `skills/auto_*.py` tương ứng rồi "nạp lại kỹ năng" để lần sau trợ lý tạo lại.
 - [ ] `install_skill_from_url` chỉ lưu `SKILL.md` vào thư mục con, không nạp mã — mô tả của công cụ ("tự nạp vào runtime") nói quá; quyết định giữ / sửa mô tả.
+
+## Robot: gọi "hey Ly Ly" (2026-10-04)
+
+- [x] Robot `vnmate_robot_01` có token riêng (`certs/robot_vnmate_robot_01.key`, `esp32_firmware/src/secrets.h` — cả hai không vào git). Firmware mới đã nạp qua USB.
+- [x] Gọi tên: lúc nghỉ robot lọc tiếng nói trên chip và chỉ gửi đoạn có tiếng nói (≤ 4 s) cho máy chủ trong LAN; máy chủ nhận dạng OFFLINE (faster-whisper tiny, không gửi ra internet), không ghi log nội dung câu không gọi tên. Đo thật: "hey Ly Ly" nhận ra sau 293 ms.
+- [ ] **Quyền riêng tư:** micro robot giờ luôn bật lúc nghỉ. Muốn tắt: đặt `WAKE_LISTEN_ENABLED 0` trong `esp32_firmware/src/main.cpp`, build và nạp lại (khi đó chỉ chạm để gọi).
+- [ ] Ồn nền đo được trên robot dao động RMS 1.500–5.000, đỉnh tới 30.000 (gần ngưỡng tràn 16-bit). Nếu robot hay bị đánh thức nhầm hoặc không nghe thấy khi gọi xa, báo lại để chỉnh ngưỡng (log `[Wake] ... ồn nền`).
+- [ ] Câu hỏi đầu tiên trên robot: STT (Google) 715 ms, tiếng câu trả lời đầu sau 7,9 s, hết lượt 19,4 s (LLM-1st 5,6 s).

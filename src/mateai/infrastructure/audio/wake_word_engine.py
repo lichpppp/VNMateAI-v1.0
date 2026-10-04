@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import queue
+import re
 import threading
 import time
 from typing import Callable, Optional
@@ -122,6 +123,70 @@ WAKE_COOLDOWN_SEC: float = 2.0
 # Thư mục gốc dự án — không suy từ vị trí file mã nguồn.
 from mateai.config.loader import settings as _settings  # noqa: E402
 _PATTERNS_FILE = os.path.join(str(_settings.PROJECT_ROOT), "wake_word_patterns.json")
+
+
+# ---------------------------------------------------------------------------
+# So khớp câu gọi tên trợ lý — DÙNG CHUNG (mic máy chủ + robot Xiaozhi)
+# ---------------------------------------------------------------------------
+#
+# Nhận dạng giọng nói nghe tên "Ly Ly" rất khác nhau (đo faster-whisper tiny/base/
+# small trên giọng Hoài My / Nam Minh, 2026-10-04): "Hây li lì", "Lý lý ơi",
+# "Lili", "Lilia", "Hey Lily", "Em lý Ly". So theo DẠNG ÂM: bỏ dấu, i ≡ y, các âm
+# tiết của tên liền nhau (có thể bị dính thành một từ). Tên lấy từ cấu hình
+# (get_assistant_name) — đổi tên trợ lý thì câu gọi đổi theo.
+
+#: Từ đệm sau tên ("Ly Ly ơi", "Ly Ly à") — không phải nội dung lệnh.
+_WAKE_FILLERS = {"oi", "ai", "a", "e", "ei", "er", "nhe", "nha", "ha", "hey", "ah"}
+
+
+def _fold(text: str) -> str:
+    import unicodedata
+    t = unicodedata.normalize("NFD", str(text or ""))
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Mn")
+    return t.replace("đ", "d").replace("Đ", "D").lower()
+
+
+def _name_syllables() -> "list[str]":
+    """Âm tiết của tên trợ lý dạng mẫu (bỏ dấu, i ≡ y): "Ly Ly" -> ["l[iy]", "l[iy]"]."""
+    try:
+        from mateai.config.loader import get_assistant_name
+        name = get_assistant_name()
+    except Exception:  # noqa: BLE001
+        name = ""
+    syllables = [re.sub(r"[^a-z0-9]", "", s) for s in _fold(name).split()]
+    syllables = [s for s in syllables if s] or ["ly", "ly"]
+    return [re.sub(r"[iy]", "[iy]", re.escape(s)) for s in syllables]
+
+
+def _is_filler(word: str, syllables: "list[str]") -> bool:
+    """Từ đệm, hoặc âm tiết tên bị nhận dạng lặp ("Ly Ly Ly")."""
+    f = re.sub(r"[^a-z0-9]", "", _fold(word))
+    return f in _WAKE_FILLERS or not f or any(re.fullmatch(s, f) for s in syllables)
+
+
+def find_wake_command(transcript: str) -> Optional[str]:
+    """Câu có GỌI TÊN trợ lý không.
+
+    None  -> không gọi tên.
+    ""    -> chỉ gọi tên ("hey Ly Ly", "Ly Ly ơi").
+    "..." -> phần lệnh nói liền sau tên ("Ly Ly ơi, mấy giờ rồi" -> "mấy giờ rồi").
+    """
+    words = str(transcript or "").split()
+    folded = [re.sub(r"[^a-z0-9]", "", _fold(w)) for w in words]
+    syllables = _name_syllables()
+    pattern = re.compile("".join(syllables))
+    for i in range(len(folded)):
+        if not folded[i]:
+            continue
+        for k in range(1, len(syllables) + 2):
+            if i + k > len(folded):
+                break
+            if pattern.match("".join(folded[i:i + k])):
+                rest = words[i + k:]
+                while rest and _is_filler(rest[0], syllables):
+                    rest = rest[1:]
+                return " ".join(rest).strip(" ,.!?;:")
+    return None
 
 
 def _load_dynamic_patterns() -> tuple[list[str], list[str]]:
@@ -370,6 +435,9 @@ class WakeWordEngine:
     def _is_wake_phrase(self, transcript: str) -> bool:
         if not transcript:
             return False
+        # So khớp theo dạng âm của tên trợ lý — dùng chung với robot Xiaozhi.
+        if find_wake_command(transcript) is not None:
+            return True
         t = transcript.lower().strip()
 
         # 1. Exact phrase match in raw transcript

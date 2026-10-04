@@ -50,6 +50,10 @@ from mateai.config.loader import settings
 
 logger = logging.getLogger("mateai.interfaces.websocket.xiaozhi_gateway")
 
+#: Đoạn câu gọi tên robot gửi lúc nghỉ (PCM16 16 kHz): tối thiểu 0,3 s, tối đa 5 s.
+WAKE_CLIP_MIN_BYTES = 9600
+WAKE_CLIP_MAX_BYTES = 160000
+
 
 def convert_to_pcm16_16k(audio_bytes: bytes) -> bytes:
     """Convert MP3/WAV audio bytes to 16000Hz 16-bit mono raw PCM for ESP32 I2S MAX98357A speaker."""
@@ -186,6 +190,9 @@ class XiaozhiNode:
         self.audio_format: str = "mp3_24k"   # mp3_24k | pcm_24k | opus
         # Thời gian STT của câu gần nhất (ms) — gắn vào trace của lượt thoại.
         self.last_stt_ms: Optional[float] = None
+        # Đoạn nghi là câu gọi tên (robot gửi lúc nghỉ) đang nhận / đang xét.
+        self.wake_buf: Optional[bytearray] = None
+        self.wake_busy: bool = False
 
         # Firmware metadata — được lấp đầy khi thiết bị gửi frame 'hello'.
         # Trước khi handshake thì là "unknown" / rỗng.
@@ -527,6 +534,42 @@ class XiaozhiGateway:
     # Core Pipeline: Speech / Query Execution
     # -----------------------------------------------------------------------
 
+    async def _handle_wake_clip(self, node: XiaozhiNode, clip: bytes) -> None:
+        """Đoạn robot gửi lúc nghỉ: có gọi tên trợ lý không -> lắng nghe / chạy lệnh.
+
+        Nhận dạng OFFLINE (audio_engine.transcribe_wake_clip). Câu không gọi tên
+        thì bỏ — không ghi log nội dung (âm thanh trong phòng lúc chưa gọi trợ lý).
+        Gọi tên kèm lệnh ("Ly Ly ơi, mấy giờ rồi") -> nhận dạng lại bằng bộ nhận
+        dạng chính (chính xác hơn model nhỏ) rồi chạy lệnh luôn.
+        """
+        from mateai.infrastructure.audio.wake_word_engine import find_wake_command
+        try:
+            t0 = time.perf_counter()
+            heard = await audio_engine.transcribe_wake_clip(clip)
+            command = find_wake_command(heard)
+            elapsed_ms = round((time.perf_counter() - t0) * 1000)
+            if command is None:
+                logger.info("[Wake] [%s] đoạn %.1f s không gọi tên (%d ms)", node.device_id, len(clip) / 32000, elapsed_ms)
+                return
+            logger.info("[Wake] [%s] gọi tên sau %d ms: '%s'", node.device_id, elapsed_ms, heard)
+            if command:
+                full = await self._transcribe(node, clip)
+                again = find_wake_command(full)
+                command = again if again is not None else command
+            if node.active_task is not None and not node.active_task.done():
+                return
+            node.audio_buffer = io.BytesIO()
+            node.vad_detector.reset()
+            if command:
+                await node.websocket.send_text(json.dumps({"type": "asr_result", "text": command}))
+                node.active_task = asyncio.create_task(self._execute_pipeline(node, command))
+            else:
+                await self.send_ui_payload(node.device_id, state="listening", emotion="focused")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Wake] [%s] lỗi xử lý câu gọi: %s", node.device_id, exc)
+        finally:
+            node.wake_busy = False
+
     async def _transcribe(self, node: XiaozhiNode, audio: bytes) -> str:
         """STT câu vừa nói (một chỗ cho cả 3 định dạng gói) + đo thời gian cho trace."""
         t0 = time.perf_counter()
@@ -666,6 +709,9 @@ class XiaozhiGateway:
 
         # Send initial idle UI frame to LCD screen
         await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+        # Nạp sẵn model nhận dạng offline cho câu gọi tên (không chặn kết nối).
+        from mateai.infrastructure.audio.audio_processor import warm_local_whisper
+        asyncio.create_task(asyncio.to_thread(warm_local_whisper))
 
         try:
             while True:
@@ -676,6 +722,11 @@ class XiaozhiGateway:
                 # Frame nhị phân: Micro chunks từ ESP32
                 if message.get("bytes") is not None:
                     raw_chunk: bytes = message["bytes"]
+                    if node.wake_buf is not None:
+                        # Thuộc đoạn câu gọi — không vào luồng nhận lệnh.
+                        if len(node.wake_buf) < WAKE_CLIP_MAX_BYTES:
+                            node.wake_buf.extend(raw_chunk)
+                        continue
                     node.audio_buffer.write(raw_chunk)
 
                     # Phase 50 Step 1.2: Silero VAD real-time streaming analysis at 16kHz
@@ -742,6 +793,23 @@ class XiaozhiGateway:
                     action: str = str(ctrl.get("action", "")).lower()
                     is_wakeup: bool = bool(ctrl.get("is_wakeup", False))
 
+                    # Gọi tên trợ lý lúc robot nghỉ (máy chủ nhận dạng offline).
+                    if msg_type == "wake_check":
+                        node.wake_buf = bytearray()
+                        continue
+                    if msg_type == "wake_check_end":
+                        clip = bytes(node.wake_buf or b"")
+                        node.wake_buf = None
+                        busy = node.wake_busy or (node.active_task is not None and not node.active_task.done())
+                        if not busy and len(clip) >= WAKE_CLIP_MIN_BYTES:
+                            node.wake_busy = True
+                            asyncio.create_task(self._handle_wake_clip(node, clip))
+                        continue
+                    if msg_type == "wake_stats":
+                        logger.info("[Wake] [%s] ồn nền RMS %s, đỉnh %s", device_id,
+                                    ctrl.get("noise"), ctrl.get("peak"))
+                        continue
+
                     # -------------------------------------------------------
                     # Phase 72: Official XiaoZhi ESP32 Protocol Handshake ("hello")
                     # -------------------------------------------------------
@@ -801,6 +869,12 @@ class XiaozhiGateway:
                             node.audio_buffer = io.BytesIO()
                             node.vad_detector.reset()
                             await self.send_ui_payload(device_id, state="listening", emotion="focused")
+                            continue
+                        elif listen_state == "abort":
+                            # Robot nghe mãi không thấy ai nói -> tự về nghỉ.
+                            node.audio_buffer = io.BytesIO()
+                            node.vad_detector.reset()
+                            node.state = "idle"
                             continue
                         elif listen_state == "stop":
                             logger.info("[Xiaozhi] Kết thúc thu âm (listen stop) trên [%s]", device_id)

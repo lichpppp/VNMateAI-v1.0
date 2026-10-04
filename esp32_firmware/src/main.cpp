@@ -89,6 +89,26 @@ struct PcmChunk {
     size_t len;
 };
 QueueHandle_t micQueue = nullptr;
+
+// ─── Gọi tên "hey Ly Ly" (máy chủ nhận dạng OFFLINE) ────────────────────────
+// Lúc nghỉ: đọc mic, lọc giọng nói bằng năng lượng ngay trên robot (im lặng không
+// gửi gì), có tiếng nói thì gửi một đoạn ngắn (kèm 0,4 s trước đó) cho máy chủ;
+// máy chủ nghe thấy tên trợ lý thì ra lệnh robot lắng nghe.
+#define WAKE_LISTEN_ENABLED 1
+static const size_t   WAKE_PREROLL_SAMPLES   = 6400;   // 0,4 s @16 kHz
+static const size_t   WAKE_MIN_SAMPLES       = 4800;   // 0,3 s tiếng nói tối thiểu
+static const uint32_t WAKE_END_SILENCE_MS    = 450;    // im ngần này thì hết câu
+static const uint32_t WAKE_COOLDOWN_MS       = 1200;
+static const float    WAKE_MIN_RMS           = 300.0f; // sàn tuyệt đối (mic INMP441 >>14)
+static const uint32_t LISTEN_SILENCE_TIMEOUT_MS = 8000; // đang nghe mà im ngần này -> nghỉ
+int16_t* wakeBuf = nullptr;              // đoạn gửi máy chủ (PSRAM nếu có)
+size_t   wakeCap = 0;                    // sức chứa (mẫu)
+volatile size_t wakeLen = 0;
+volatile bool   wakeReady = false;       // task mic -> vòng loop gửi đi
+volatile float  wakeNoiseFloor = 200.0f; // ước lượng ồn nền (RMS)
+volatile float  wakePeakRms = 0.0f;      // RMS lớn nhất từ lần báo trước (hiệu chỉnh)
+volatile uint32_t lastVoiceMs = 0;       // lần cuối có tiếng nói (khi đang nghe)
+uint32_t listenEnteredMs = 0;
 TaskHandle_t micTaskHandle = nullptr;
 
 // ─── Function Declarations ───────────────────────────────────────────────────
@@ -113,6 +133,8 @@ void updateLipSyncAnimation();
 void updateThinkingAnimation();
 void checkTouchSensor();
 void setConvState(ConvState newState);
+static void sendWakeClip();
+static void sendWakeStats();
 
 // ─── Setup ───────────────────────────────────────────────────────────────────
 void setup() {
@@ -128,6 +150,12 @@ void setup() {
     loadConfigFromNVS();
     generateOrLoadPairingCode();
     setupI2S();
+
+    // Bộ đệm đoạn câu gọi: 4 s nếu có PSRAM, không thì 2,5 s trong RAM thường.
+    wakeCap = psramFound() ? 64000 : 40000;
+    wakeBuf = psramFound() ? (int16_t*)ps_malloc(wakeCap * 2) : (int16_t*)malloc(wakeCap * 2);
+    if (!wakeBuf) { wakeCap = 0; Serial.println(F("[Wake] Không cấp được bộ đệm — tắt gọi tên.")); }
+    else Serial.printf("[Wake] Bộ đệm câu gọi %u mẫu (%s)\n", (unsigned)wakeCap, psramFound() ? "PSRAM" : "RAM");
 
     MotionCore::getInstance().setAlertCallback(onSafetyAlert);
     MotionCore::getInstance().init();
@@ -150,6 +178,17 @@ void loop() {
         if (xQueueReceive(micQueue, &chunk, 0) == pdTRUE) {
             webSocket.sendBIN(reinterpret_cast<uint8_t*>(chunk.samples), chunk.len);
         }
+    }
+
+    if (isConnectedToServer && wakeReady) sendWakeClip();
+    if (isConnectedToServer && convState == CONV_IDLE && WAKE_LISTEN_ENABLED) sendWakeStats();
+
+    // Đang nghe mà không ai nói (đánh thức nhầm / chạm nhầm): về nghỉ, báo máy chủ.
+    if (convState == CONV_LISTENING &&
+        millis() - listenEnteredMs > LISTEN_SILENCE_TIMEOUT_MS &&
+        millis() - lastVoiceMs > LISTEN_SILENCE_TIMEOUT_MS) {
+        webSocket.sendTXT("{\"type\":\"listen\",\"state\":\"abort\"}");
+        setConvState(CONV_IDLE);
     }
 
     checkTouchSensor();
@@ -181,6 +220,8 @@ void setConvState(ConvState newState) {
             currentUiState = "listening";
             currentEmotion = "focused";
             mouthOpenHeight = 2;
+            listenEnteredMs = millis();
+            lastVoiceMs = millis();
             if (micQueue) {
                 PcmChunk dummy;
                 while (xQueueReceive(micQueue, &dummy, 0) == pdTRUE) {}
@@ -297,6 +338,54 @@ void playPcmToSpeaker(const uint8_t* pcmData, size_t length) {
 
 // ─── FreeRTOS Task: Thu âm Micro ─────────────────────────────────────────────
 
+static float chunkRms(const int16_t* s, size_t n) {
+    if (n == 0) return 0.0f;
+    double acc = 0.0;
+    for (size_t i = 0; i < n; ++i) acc += (double)s[i] * (double)s[i];
+    return (float)sqrt(acc / (double)n);
+}
+
+// Lọc giọng nói lúc nghỉ: vòng đệm 0,4 s; vượt ồn nền 3 khối liên tiếp -> bắt đầu
+// ghi; im WAKE_END_SILENCE_MS hoặc đầy bộ đệm -> giao cho vòng loop gửi đi.
+static void wakeProcessChunk(const int16_t* s, size_t n, float rms) {
+    static int16_t preroll[WAKE_PREROLL_SAMPLES];
+    static size_t prePos = 0, preCount = 0;
+    static bool capturing = false;
+    static int loud = 0;
+    static uint32_t lastLoudMs = 0, cooldownUntil = 0;
+    uint32_t now = millis();
+    if (rms > wakePeakRms) wakePeakRms = rms;
+    float startThr = max(wakeNoiseFloor * 3.0f, WAKE_MIN_RMS);
+
+    if (!capturing) {
+        for (size_t i = 0; i < n; ++i) {
+            preroll[prePos] = s[i];
+            prePos = (prePos + 1) % WAKE_PREROLL_SAMPLES;
+            if (preCount < WAKE_PREROLL_SAMPLES) preCount++;
+        }
+        if (rms > startThr && now >= cooldownUntil) {
+            if (++loud >= 3) {
+                capturing = true; lastLoudMs = now; wakeLen = 0;
+                size_t start = (prePos + WAKE_PREROLL_SAMPLES - preCount) % WAKE_PREROLL_SAMPLES;
+                for (size_t i = 0; i < preCount && wakeLen < wakeCap; ++i)
+                    wakeBuf[wakeLen++] = preroll[(start + i) % WAKE_PREROLL_SAMPLES];
+            }
+        } else {
+            loud = 0;
+            wakeNoiseFloor = wakeNoiseFloor * 0.98f + rms * 0.02f;   // chỉ học ồn nền lúc yên
+        }
+        return;
+    }
+    for (size_t i = 0; i < n && wakeLen < wakeCap; ++i) wakeBuf[wakeLen++] = s[i];
+    if (rms > max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS * 0.7f)) lastLoudMs = now;
+    if (now - lastLoudMs > WAKE_END_SILENCE_MS || wakeLen >= wakeCap) {
+        capturing = false; loud = 0; preCount = 0;
+        cooldownUntil = now + WAKE_COOLDOWN_MS;
+        if (wakeLen >= WAKE_PREROLL_SAMPLES / 2 + WAKE_MIN_SAMPLES) wakeReady = true;
+        else wakeLen = 0;
+    }
+}
+
 void micRecordTaskLoop(void* arg) {
     int32_t raw32[256]; PcmChunk chunk; size_t bytesRead = 0;
     for (;;) {
@@ -305,13 +394,48 @@ void micRecordTaskLoop(void* arg) {
                 size_t ns = bytesRead / 4;
                 for (size_t i = 0; i < ns; ++i) chunk.samples[i] = (int16_t)(raw32[i] >> 14);
                 chunk.len = ns * 2;
+                if (chunkRms(chunk.samples, ns) > max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS * 0.7f))
+                    lastVoiceMs = millis();
                 if (micQueue) xQueueSend(micQueue, &chunk, 0);
+            }
+        } else if (WAKE_LISTEN_ENABLED && wakeBuf && isConnectedToServer &&
+                   convState == CONV_IDLE && !wakeReady) {
+            if (i2s_read(I2S_NUM_0, raw32, sizeof(raw32), &bytesRead, pdMS_TO_TICKS(50)) == ESP_OK && bytesRead > 0) {
+                size_t ns = bytesRead / 4;
+                for (size_t i = 0; i < ns; ++i) chunk.samples[i] = (int16_t)(raw32[i] >> 14);
+                wakeProcessChunk(chunk.samples, ns, chunkRms(chunk.samples, ns));
             }
         } else {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
+}
+
+// Gửi đoạn nghi là câu gọi: {"type":"wake_check"} + PCM16 nhị phân + {"type":"wake_check_end"}.
+static void sendWakeClip() {
+    if (convState == CONV_IDLE && wakeLen > 0) {
+        webSocket.sendTXT("{\"type\":\"wake_check\",\"rate\":16000}");
+        for (size_t off = 0; off < wakeLen; off += 2048) {
+            size_t n = min((size_t)2048, (size_t)(wakeLen - off));
+            webSocket.sendBIN(reinterpret_cast<uint8_t*>(wakeBuf + off), n * 2);
+        }
+        webSocket.sendTXT("{\"type\":\"wake_check_end\"}");
+    }
+    wakeLen = 0;
+    wakeReady = false;
+}
+
+// Số liệu hiệu chỉnh ngưỡng (ồn nền, đỉnh) — máy chủ ghi log; không có âm thanh.
+static void sendWakeStats() {
+    static uint32_t last = 0;
+    if (millis() - last < 15000) return;
+    last = millis();
+    char buf[96];
+    snprintf(buf, sizeof(buf), "{\"type\":\"wake_stats\",\"noise\":%.0f,\"peak\":%.0f}",
+             (double)wakeNoiseFloor, (double)wakePeakRms);
+    webSocket.sendTXT(buf);
+    wakePeakRms = 0.0f;
 }
 
 // ─── Hardware: OLED & GPIO ───────────────────────────────────────────────────
