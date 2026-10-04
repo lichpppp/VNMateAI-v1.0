@@ -415,6 +415,11 @@ class AudioEngine:
             audio_np = audio_bytes_to_numpy_float32(pcm16)
             if len(audio_np) == 0:
                 return ""
+            # Gọi từ xa: tín hiệu nhỏ — nâng biên độ đỉnh lên ~0,5 (tối đa ×8)
+            # trước khi nhận dạng.
+            peak = float(np.abs(audio_np).max())
+            if 0.0 < peak < 0.5:
+                audio_np = audio_np * min(0.5 / peak, 8.0)
             segments, _info = model.transcribe(
                 audio_np, language="vi", beam_size=1, best_of=1, temperature=0.0,
                 vad_filter=False, condition_on_previous_text=False,

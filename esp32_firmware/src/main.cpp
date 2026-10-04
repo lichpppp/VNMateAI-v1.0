@@ -338,6 +338,16 @@ void playPcmToSpeaker(const uint8_t* pcmData, size_t length) {
 
 // ─── FreeRTOS Task: Thu âm Micro ─────────────────────────────────────────────
 
+// INMP441: 24 bit căn trái trong khung 32 bit. >>14 giữ độ khuếch đại ×4 so với
+// 16 bit chuẩn (nghe xa tốt hơn) nhưng phải KẸP — ép kiểu thẳng làm tiếng to bị
+// quấn số (+32767 thành -32768…): âm thanh méo, đo được đỉnh luôn ~30.000.
+static inline int16_t micToPcm16(int32_t raw) {
+    int32_t v = raw >> 14;
+    if (v > 32767) v = 32767;
+    else if (v < -32768) v = -32768;
+    return (int16_t)v;
+}
+
 static float chunkRms(const int16_t* s, size_t n) {
     if (n == 0) return 0.0f;
     double acc = 0.0;
@@ -355,7 +365,7 @@ static void wakeProcessChunk(const int16_t* s, size_t n, float rms) {
     static uint32_t lastLoudMs = 0, cooldownUntil = 0;
     uint32_t now = millis();
     if (rms > wakePeakRms) wakePeakRms = rms;
-    float startThr = max(wakeNoiseFloor * 3.0f, WAKE_MIN_RMS);
+    float startThr = max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS);
 
     if (!capturing) {
         for (size_t i = 0; i < n; ++i) {
@@ -372,12 +382,15 @@ static void wakeProcessChunk(const int16_t* s, size_t n, float rms) {
             }
         } else {
             loud = 0;
-            wakeNoiseFloor = wakeNoiseFloor * 0.98f + rms * 0.02f;   // chỉ học ồn nền lúc yên
+            // Ồn nền: xuống nhanh khi phòng yên, lên RẤT chậm — tiếng nói không kéo
+            // nó lên (trước đây lên tới ~10.000, ngưỡng bắt tiếng theo đó, gọi xa không tới).
+            if (rms < wakeNoiseFloor) wakeNoiseFloor = wakeNoiseFloor * 0.90f + rms * 0.10f;
+            else                      wakeNoiseFloor = wakeNoiseFloor * 0.998f + rms * 0.002f;
         }
         return;
     }
     for (size_t i = 0; i < n && wakeLen < wakeCap; ++i) wakeBuf[wakeLen++] = s[i];
-    if (rms > max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS * 0.7f)) lastLoudMs = now;
+    if (rms > max(wakeNoiseFloor * 1.5f, WAKE_MIN_RMS * 0.7f)) lastLoudMs = now;
     if (now - lastLoudMs > WAKE_END_SILENCE_MS || wakeLen >= wakeCap) {
         capturing = false; loud = 0; preCount = 0;
         cooldownUntil = now + WAKE_COOLDOWN_MS;
@@ -392,7 +405,7 @@ void micRecordTaskLoop(void* arg) {
         if (isConnectedToServer && convState == CONV_LISTENING) {
             if (i2s_read(I2S_NUM_0, raw32, sizeof(raw32), &bytesRead, pdMS_TO_TICKS(50)) == ESP_OK && bytesRead > 0) {
                 size_t ns = bytesRead / 4;
-                for (size_t i = 0; i < ns; ++i) chunk.samples[i] = (int16_t)(raw32[i] >> 14);
+                for (size_t i = 0; i < ns; ++i) chunk.samples[i] = micToPcm16(raw32[i]);
                 chunk.len = ns * 2;
                 if (chunkRms(chunk.samples, ns) > max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS * 0.7f))
                     lastVoiceMs = millis();
@@ -402,7 +415,7 @@ void micRecordTaskLoop(void* arg) {
                    convState == CONV_IDLE && !wakeReady) {
             if (i2s_read(I2S_NUM_0, raw32, sizeof(raw32), &bytesRead, pdMS_TO_TICKS(50)) == ESP_OK && bytesRead > 0) {
                 size_t ns = bytesRead / 4;
-                for (size_t i = 0; i < ns; ++i) chunk.samples[i] = (int16_t)(raw32[i] >> 14);
+                for (size_t i = 0; i < ns; ++i) chunk.samples[i] = micToPcm16(raw32[i]);
                 wakeProcessChunk(chunk.samples, ns, chunkRms(chunk.samples, ns));
             }
         } else {

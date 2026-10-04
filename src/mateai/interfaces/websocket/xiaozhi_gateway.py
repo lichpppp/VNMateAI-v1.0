@@ -50,6 +50,27 @@ from mateai.config.loader import settings
 
 logger = logging.getLogger("mateai.interfaces.websocket.xiaozhi_gateway")
 
+def _pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
+    """PCM 16-bit mono thô -> WAV (bộ nhận dạng cần định dạng có header)."""
+    import wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(rate)
+        wf.writeframes(pcm)
+    return buf.getvalue()
+
+
+def _clip_level(clip: bytes) -> str:
+    """Mức tín hiệu của đoạn PCM16 (RMS, đỉnh) — chỉ số đo, không có nội dung lời nói."""
+    import numpy as np
+    a = np.frombuffer(clip[: len(clip) // 2 * 2], dtype=np.int16).astype(np.float32)
+    if a.size == 0:
+        return "rỗng"
+    return f"RMS {int(np.sqrt(np.mean(a * a)))}, đỉnh {int(np.abs(a).max())}"
+
+
 #: Đoạn câu gọi tên robot gửi lúc nghỉ (PCM16 16 kHz): tối thiểu 0,3 s, tối đa 5 s.
 WAKE_CLIP_MIN_BYTES = 9600
 WAKE_CLIP_MAX_BYTES = 160000
@@ -534,6 +555,48 @@ class XiaozhiGateway:
     # Core Pipeline: Speech / Query Execution
     # -----------------------------------------------------------------------
 
+    async def _finish_utterance(
+        self,
+        node: XiaozhiNode,
+        audio_data: bytes,
+        *,
+        pcm16_wav: bool = False,
+        xiaozhi_stt: bool = False,
+    ) -> None:
+        """Hết một câu nói: nhận dạng -> asr_result -> chạy lượt. MỘT nơi cho cả 3
+        cách robot báo hết câu (VAD máy chủ, "listen stop", "end_of_speech") —
+        trước đây chép 3 lần (realtime L5).
+
+        pcm16_wav   — PCM 16 kHz thô (VAD máy chủ): đóng gói WAV trước khi nhận dạng.
+        xiaozhi_stt — firmware XiaoZhi gốc ("listen stop"): asr_start / stt kèm
+                      session_id, không đổi màn hình sang "đang suy nghĩ".
+        """
+        ws = node.websocket
+        device_id = node.device_id
+        if xiaozhi_stt:
+            await ws.send_text(json.dumps({"session_id": device_id, "type": "asr_start"}))
+        else:
+            await self.send_ui_payload(device_id, state="processing", emotion="thinking", text="Đang suy nghĩ...")
+            await ws.send_text(json.dumps({"type": "asr_start"}))
+
+        audio = _pcm16_to_wav(audio_data) if pcm16_wav else audio_data
+        transcribed = await self._transcribe(node, audio)
+
+        if transcribed:
+            if xiaozhi_stt:
+                await ws.send_text(json.dumps({"session_id": device_id, "type": "stt", "text": transcribed}))
+            await ws.send_text(json.dumps({"type": "asr_result", "text": transcribed}))
+            node.active_task = asyncio.create_task(self._execute_pipeline(node, transcribed))
+            return
+
+        if xiaozhi_stt:
+            await ws.send_text(json.dumps({"session_id": device_id, "type": "stt", "text": "",
+                                           "error": "Không nhận diện được giọng nói."}))
+        else:
+            await ws.send_text(json.dumps({"type": "asr_result", "text": "",
+                                           "error": "ASR không nhận diện được giọng nói."}))
+        await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+
     async def _handle_wake_clip(self, node: XiaozhiNode, clip: bytes) -> None:
         """Đoạn robot gửi lúc nghỉ: có gọi tên trợ lý không -> lắng nghe / chạy lệnh.
 
@@ -548,10 +611,12 @@ class XiaozhiGateway:
             heard = await audio_engine.transcribe_wake_clip(clip)
             command = find_wake_command(heard)
             elapsed_ms = round((time.perf_counter() - t0) * 1000)
+            level = _clip_level(clip)
             if command is None:
-                logger.info("[Wake] [%s] đoạn %.1f s không gọi tên (%d ms)", node.device_id, len(clip) / 32000, elapsed_ms)
+                logger.info("[Wake] [%s] đoạn %.1f s không gọi tên (%d ms, %s)",
+                            node.device_id, len(clip) / 32000, elapsed_ms, level)
                 return
-            logger.info("[Wake] [%s] gọi tên sau %d ms: '%s'", node.device_id, elapsed_ms, heard)
+            logger.info("[Wake] [%s] gọi tên sau %d ms (%s): '%s'", node.device_id, elapsed_ms, level, heard)
             if command:
                 full = await self._transcribe(node, clip)
                 again = find_wake_command(full)
@@ -746,36 +811,7 @@ class XiaozhiGateway:
                                 "[Phase50 Silero VAD] Dứt lời sau 500ms im lặng trên [%s] (%d bytes) -> Chạy ASR tức thì!",
                                 device_id, len(audio_data),
                             )
-                            await self.send_ui_payload(device_id, state="processing", emotion="thinking", text="Đang suy nghĩ...")
-                            await websocket.send_text(json.dumps({"type": "asr_start"}))
-
-                            # Phase 50 Step 1.4: Đóng gói raw PCM 16-bit 16kHz thành WAV header chuẩn
-                            import wave
-                            wav_buf = io.BytesIO()
-                            with wave.open(wav_buf, "wb") as wf:
-                                wf.setnchannels(1)
-                                wf.setsampwidth(2)
-                                wf.setframerate(16000)
-                                wf.writeframes(audio_data)
-                            wav_bytes = wav_buf.getvalue()
-
-                            transcribed: str = await self._transcribe(node, wav_bytes)
-
-                            if transcribed:
-                                await websocket.send_text(json.dumps({
-                                    "type": "asr_result",
-                                    "text": transcribed,
-                                }))
-                                node.active_task = asyncio.create_task(
-                                    self._execute_pipeline(node, transcribed)
-                                )
-                            else:
-                                await websocket.send_text(json.dumps({
-                                    "type": "asr_result",
-                                    "text": "",
-                                    "error": "ASR không nhận diện được giọng nói.",
-                                }))
-                                await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+                            await self._finish_utterance(node, audio_data, pcm16_wav=True)
 
                 # Frame văn bản: JSON điều khiển
                 elif message.get("text") is not None:
@@ -881,29 +917,7 @@ class XiaozhiGateway:
                             audio_data = node.audio_buffer.getvalue()
                             node.audio_buffer = io.BytesIO()
                             if audio_data:
-                                await websocket.send_text(json.dumps({"session_id": device_id, "type": "asr_start"}))
-                                transcribed = await self._transcribe(node, audio_data)
-                                if transcribed:
-                                    await websocket.send_text(json.dumps({
-                                        "session_id": device_id,
-                                        "type": "stt",
-                                        "text": transcribed,
-                                    }))
-                                    await websocket.send_text(json.dumps({
-                                        "type": "asr_result",
-                                        "text": transcribed,
-                                    }))
-                                    node.active_task = asyncio.create_task(
-                                        self._execute_pipeline(node, transcribed)
-                                    )
-                                else:
-                                    await websocket.send_text(json.dumps({
-                                        "session_id": device_id,
-                                        "type": "stt",
-                                        "text": "",
-                                        "error": "Không nhận diện được giọng nói."
-                                    }))
-                                    await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+                                await self._finish_utterance(node, audio_data, xiaozhi_stt=True)
                             continue
 
                     # -------------------------------------------------------
@@ -982,29 +996,7 @@ class XiaozhiGateway:
                             continue
 
                         logger.info("[Xiaozhi] end_of_speech từ [%s] (%d bytes)", device_id, len(audio_data))
-                        await self.send_ui_payload(device_id, state="processing", emotion="thinking", text="Đang suy nghĩ...")
-                        await websocket.send_text(json.dumps({"type": "asr_start"}))
-
-                        transcribed: str = await self._transcribe(node, audio_data)
-
-                        if not transcribed:
-                            await websocket.send_text(json.dumps({
-                                "type": "asr_result",
-                                "text": "",
-                                "error": "ASR không nhận diện được giọng nói.",
-                            }))
-                            await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
-                            continue
-
-                        await websocket.send_text(json.dumps({
-                            "type": "asr_result",
-                            "text": transcribed,
-                        }))
-
-                        # Spawn pipeline execution task
-                        node.active_task = asyncio.create_task(
-                            self._execute_pipeline(node, transcribed)
-                        )
+                        await self._finish_utterance(node, audio_data)
 
                     # -------------------------------------------------------
                     # Direct text query

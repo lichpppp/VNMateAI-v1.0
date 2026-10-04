@@ -1098,3 +1098,10 @@ Lỗi đã sửa (mỗi lỗi có test trong `tests/test_meta_architect_install.
 
 RUNTIME (portal, admin): "Giá vàng SJC hôm nay" → `create_new_skill` → tệp `auto_get_gold_price.py`, tên công cụ đúng `get_sjc_gold_price` → gọi ngay trong cùng lượt (25,6 s); kỹ năng sinh ra dùng nguồn đã đóng (SJC XML 403, tygia.com 436) nên trả lỗi — trợ lý báo thật, không bịa giá; tệp thử này đã gỡ. "Hôm nay âm lịch ngày bao nhiêu" → ngày dương đúng 04/10/2026, âm 24/8 Bính Ngọ. `reload_all_skills` bằng lời nói chạy ngay (trước đây đòi duyệt).
 TESTS: 476 pass.
+
+## 63. Robot: nghe xa hơn + L5 gộp ba nhánh hết câu (2026-10-04)
+
+- **Méo âm mic robot:** `(int16_t)(raw32 >> 14)` không kẹp — tiếng to bị quấn số (đỉnh đo được luôn ~30.000). Ảnh hưởng CẢ âm thanh gửi nhận dạng lệnh. Nay `micToPcm16` kẹp, giữ độ khuếch đại.
+- **Ồn nền** lên nhanh theo tiếng nói (đo tới 10.882) nên ngưỡng bắt tiếng quá cao, chỉ gọi gần ~30 cm mới nghe → ồn nền xuống nhanh / lên rất chậm; ngưỡng bắt tiếng 3× → 2× ồn nền; máy chủ nâng biên độ đoạn gọi nhỏ (tối đa ×8) trước khi nhận dạng; log mức tín hiệu từng đoạn (không nội dung). Sau sửa: ồn nền đo ~1.000.
+- **L5:** ba nhánh hết câu của robot (VAD máy chủ, `listen stop` firmware XiaoZhi gốc, `end_of_speech`) gộp vào `XiaozhiGateway._finish_utterance` + `_pcm16_to_wav`; giữ nguyên từng thông điệp theo firmware — test đặc tả viết TRƯỚC khi gộp (`tests/test_robot_utterance_end.py`, 7 ca) pass trước và sau.
+- TESTS: 515 pass.
