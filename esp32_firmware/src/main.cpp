@@ -344,6 +344,11 @@ void loadConfigFromNVS() {
     cfg_device_token= prefs.getString("token",  DEFAULT_DEVICE_TOKEN);
     cfg_pairing_code= prefs.getString("pcode",  "");
     prefs.end();
+    // Ô token trên trang cài đặt để trống thì NVS lưu chuỗi rỗng — vẫn dùng token
+    // biên dịch sẵn (secrets.h). Trước đây robot kết nối không token và bị từ chối.
+    if (cfg_device_token.length() == 0) {
+        cfg_device_token = DEFAULT_DEVICE_TOKEN;
+    }
     if (cfg_server_host == "192.168.100.169" || cfg_server_host.length() == 0) {
         cfg_server_host = DEFAULT_SERVER_HOST;
     }
