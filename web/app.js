@@ -3890,50 +3890,174 @@ function downloadStudioVoiceMP3() {
 // ── PHASE 20: DYNAMIC CLIENT AGENT DISTRIBUTION ──────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── Agent máy trạm: tải gói theo nền tảng, mã đăng ký riêng, quản lý máy ──────
+//
+// Mỗi lần tải là một MÃ ĐĂNG KÝ DÙNG MỘT LẦN cho MỘT máy (hết hạn 7 ngày) — không
+// còn secret chung cho mọi máy. Máy đã đăng ký thu hồi được riêng từng máy.
+// Zero-Trust: gọi bằng fetch + header Authorization, không nhúng token vào URL.
+
+const AGENT_PLATFORMS = [
+  { id: 'windows', pkg: 'windows-exe', label: 'Windows (.exe)', hint: 'Một file, không cần Python. Bấm đúp là tự cài.' },
+  { id: 'macos', pkg: 'macos-bin', label: 'macOS', hint: 'Bản build cho Mac; chưa build thì là gói Python + install_agent_macos.sh.' },
+  { id: 'source', pkg: 'source', label: 'Python (mọi hệ điều hành)', hint: 'Cần Python 3.10+. Cài bằng install_agent.bat / install_agent_macos.sh.' },
+];
+
+async function _agentApi(path, opts = {}) {
+  const resp = await fetch(path, {
+    ...opts,
+    headers: { 'Authorization': `Bearer ${getAuthToken()}`, ...(opts.body ? { 'Content-Type': 'application/json' } : {}) },
+  });
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`;
+    try { const b = await resp.json(); if (b && b.detail) detail = b.detail; } catch (_) { /* không phải JSON */ }
+    throw new Error(detail);
+  }
+  return resp;
+}
+
 async function downloadClientAgent() {
-  const token = getAuthToken();
-  if (!token) {
+  if (!getAuthToken()) {
     showToast('⚠️ Vui lòng đăng nhập trước khi tải Client Agent.', 'warning');
     return;
   }
+  let box = document.getElementById('agent-dialog');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'agent-dialog';
+    box.className = 'fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4';
+    box.addEventListener('click', (e) => { if (e.target === box) box.remove(); });
+    document.body.appendChild(box);
+  }
+  box.innerHTML =
+    `<div class="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl p-5 text-sm text-slate-700 dark:text-slate-200">` +
+    `<div class="flex items-center mb-3"><h3 class="text-base font-bold">Agent máy trạm</h3>` +
+    `<button class="ml-auto text-slate-400 hover:text-rose-500 text-lg" onclick="document.getElementById('agent-dialog').remove()">✕</button></div>` +
+    `<div id="agent-dialog-body" class="text-xs text-slate-400 italic">Đang tải danh sách…</div></div>`;
+  await _renderAgentDialog();
+}
 
-  // Zero-Trust: dùng fetch + header Authorization thay vì nhúng token vào query
-  // string. Token trong URL bị ghi vào access log của server và lọt vào
-  // Referer/History — chỉ dùng query param ở nơi thật sự không có lựa chọn khác
-  // (thẻ <audio src>, WebSocket do browser API không cho gắn header).
-  showToast('⬇️ Đang đóng gói Client Agent kèm cấu hình máy chủ...', 'info');
+async function _renderAgentDialog(newCode) {
+  const body = document.getElementById('agent-dialog-body');
+  if (!body) return;
+  let data;
   try {
-    const resp = await fetch('/api/v1/download-agent', {
-      method: 'GET',
-      headers: { 'Authorization': `Bearer ${token}` },
-    });
-    if (!resp.ok) {
-      let detail = `HTTP ${resp.status}`;
-      try {
-        const body = await resp.json();
-        if (body && body.detail) detail = body.detail;
-      } catch (_) { /* response không phải JSON */ }
-      showToast(`❌ Tải Client Agent thất bại: ${detail}`, 'error');
-      return;
-    }
+    data = await (await _agentApi('/api/v1/agent/devices')).json();
+  } catch (err) {
+    body.innerHTML = `<div class="text-rose-500">Không tải được: ${_esc(err.message)}</div>`;
+    return;
+  }
+  const pk = data.packages || {};
+  const platforms = AGENT_PLATFORMS.map((p) => {
+    const info = pk[p.pkg] || {};
+    const ok = info.available;
+    const note = ok ? `bản ${_esc(info.version)}` : (p.id === 'source' ? 'không có' : 'chưa build — sẽ tải gói Python');
+    return `<label class="flex items-start gap-2 p-2 rounded-lg border border-slate-200 dark:border-slate-700 cursor-pointer">` +
+      `<input type="radio" name="agent-platform" value="${p.id}" ${p.id === 'windows' ? 'checked' : ''} class="mt-0.5">` +
+      `<span><b>${_esc(p.label)}</b> <span class="text-[10px] ${ok ? 'text-emerald-500' : 'text-amber-500'}">${note}</span>` +
+      `<br><span class="text-[10px] text-slate-400">${_esc(p.hint)}</span></span></label>`;
+  }).join('');
 
+  const fmtT = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '—');
+  const devices = (data.devices || []).map((d) => {
+    const st = d.revoked_at ? '<span class="text-rose-500">đã thu hồi</span>'
+      : (d.online ? '<span class="text-emerald-500">trực tuyến</span>' : '<span class="text-slate-400">ngoại tuyến</span>');
+    const m = d.metrics || {};
+    const metr = d.online && m.cpu_percent != null ? `CPU ${Math.round(m.cpu_percent)}% · RAM ${Math.round(m.ram_percent)}%` : '';
+    return `<tr class="border-t border-slate-100 dark:border-slate-800">` +
+      `<td class="py-1 pr-2 font-mono">${_esc(d.client_id)}<div class="text-[10px] text-slate-400">${_esc(d.label || d.hostname || '')}</div></td>` +
+      `<td class="pr-2">${st}<div class="text-[10px] text-slate-400">${_esc(metr)}</div></td>` +
+      `<td class="pr-2">${_esc(d.agent_version || '—')}<div class="text-[10px] text-slate-400">${_esc(d.package || '')}</div></td>` +
+      `<td class="pr-2 text-[10px]">${fmtT(d.last_seen_at)}</td>` +
+      `<td>${d.revoked_at ? '' : `<button class="px-2 py-0.5 rounded bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-[10px] font-bold" onclick="revokeAgentDevice('${_esc(d.client_id)}')">Thu hồi</button>`}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="py-2 text-slate-400 italic">Chưa có máy trạm nào đăng ký.</td></tr>';
+
+  const stateText = { waiting: 'chờ dùng', used: 'đã dùng', expired: 'hết hạn' };
+  const codes = (data.codes || []).slice(0, 15).map((c) =>
+    `<tr class="border-t border-slate-100 dark:border-slate-800"><td class="py-1 pr-2 font-mono text-[10px]">${_esc(c.code_ref)}…</td>` +
+    `<td class="pr-2">${_esc(c.label || '—')}</td><td class="pr-2">${stateText[c.state] || c.state}` +
+    `${c.used_by_client ? ` → <span class="font-mono">${_esc(c.used_by_client)}</span>` : ''}</td>` +
+    `<td class="pr-2 text-[10px]">${fmtT(c.expires_at)}</td>` +
+    `<td>${c.state === 'waiting' ? `<button class="text-[10px] text-rose-500 hover:underline" onclick="deleteAgentEnrollCode('${_esc(c.code_ref)}')">Huỷ</button>` : ''}</td></tr>`
+  ).join('') || '<tr><td colspan="5" class="py-2 text-slate-400 italic">Chưa có mã nào.</td></tr>';
+
+  body.className = '';
+  body.innerHTML =
+    `<div class="grid sm:grid-cols-3 gap-2 mb-2">${platforms}</div>` +
+    `<div class="flex gap-2 items-center mb-1">` +
+    `<input id="agent-label" maxlength="80" placeholder="Tên gợi nhớ máy (vd: Kế toán - Lan)" class="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent text-xs">` +
+    `<button onclick="downloadAgentPackage(this)" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-primary-600 to-blue-600 text-white text-xs font-bold">⬇ Tải gói cho 1 máy</button></div>` +
+    `<p class="text-[10px] text-slate-400 mb-4">Mỗi gói chứa MỘT mã đăng ký dùng một lần (hết hạn 7 ngày). Máy thứ hai cần tải gói khác. Agent tự cập nhật khi máy chủ có bản mới.</p>` +
+    `<h4 class="font-bold text-xs mb-1">Máy trạm đã đăng ký</h4>` +
+    `<table class="w-full text-xs mb-4"><thead class="text-[10px] text-slate-400 text-left"><tr><th>Máy</th><th>Trạng thái</th><th>Phiên bản</th><th>Lần cuối</th><th></th></tr></thead><tbody>${devices}</tbody></table>` +
+    `<div class="flex items-center mb-1"><h4 class="font-bold text-xs">Mã đăng ký</h4>` +
+    `<button onclick="createAgentEnrollCode()" class="ml-auto px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-300 text-[10px] font-bold">+ Tạo mã (cài thủ công)</button></div>` +
+    (newCode ? `<div class="mb-2 p-2 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-400/50 text-[11px]">Mã mới (chỉ hiện MỘT lần): ` +
+      `<code class="select-all font-mono">${_esc(newCode)}</code><br><span class="text-[10px]">Điền vào <code>"enroll_code"</code> trong config.json của máy cần đăng ký.</span></div>` : '') +
+    `<table class="w-full text-xs"><thead class="text-[10px] text-slate-400 text-left"><tr><th>Mã</th><th>Nhãn</th><th>Trạng thái</th><th>Hết hạn</th><th></th></tr></thead><tbody>${codes}</tbody></table>`;
+}
+
+async function downloadAgentPackage(btn) {
+  const platform = (document.querySelector('input[name="agent-platform"]:checked') || {}).value || 'source';
+  const label = (document.getElementById('agent-label') || {}).value || '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang đóng gói…'; }
+  try {
+    const resp = await _agentApi(`/api/v1/download-agent?platform=${encodeURIComponent(platform)}&label=${encodeURIComponent(label)}`);
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'VN-Mate_Agent.zip';
+    a.download = m ? m[1] : 'VN-Mate_Agent.zip';
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // Giải phóng object URL sau khi trình duyệt đã nhận file
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-
-    showToast('⬇️ Tải Client Agent thành công!', 'success');
+    const pkg = resp.headers.get('X-Agent-Package');
+    showToast(platform !== 'source' && pkg === 'source'
+      ? '⬇️ Chưa có bản build cho nền tảng này — đã tải gói Python (kèm script cài).'
+      : '⬇️ Đã tải gói Agent (mã đăng ký dùng một lần cho một máy).', 'success');
+    await _renderAgentDialog();
   } catch (err) {
-    showToast(`❌ Lỗi tải Client Agent: ${err.message || err}`, 'error');
+    showToast(`❌ Tải Client Agent thất bại: ${err.message || err}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '⬇ Tải gói cho 1 máy'; }
   }
 }
+
+async function revokeAgentDevice(clientId) {
+  if (!confirm(`Thu hồi khoá của máy "${clientId}"? Máy bị ngắt ngay và phải cài lại bằng mã mới.`)) return;
+  try {
+    await _agentApi(`/api/v1/agent/devices/${encodeURIComponent(clientId)}/revoke`, { method: 'POST' });
+    showToast(`✔ Đã thu hồi máy ${clientId}`, 'success');
+  } catch (err) {
+    showToast(`✖ Thu hồi thất bại: ${err.message}`, 'error');
+  }
+  await _renderAgentDialog();
+}
+
+async function createAgentEnrollCode() {
+  const label = prompt('Tên gợi nhớ cho máy sẽ dùng mã này (tuỳ chọn):', '') ?? null;
+  if (label === null) return;
+  try {
+    const d = await (await _agentApi('/api/v1/agent/enroll-codes', { method: 'POST', body: JSON.stringify({ label }) })).json();
+    await _renderAgentDialog(d.code);
+  } catch (err) {
+    showToast(`✖ Tạo mã thất bại: ${err.message}`, 'error');
+  }
+}
+
+async function deleteAgentEnrollCode(ref) {
+  try {
+    await _agentApi(`/api/v1/agent/enroll-codes/${encodeURIComponent(ref)}`, { method: 'DELETE' });
+  } catch (err) {
+    showToast(`✖ Huỷ mã thất bại: ${err.message}`, 'error');
+  }
+  await _renderAgentDialog();
+}
+
+Object.assign(window, { downloadClientAgent, downloadAgentPackage, revokeAgentDevice, createAgentEnrollCode, deleteAgentEnrollCode });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ── LƯU CẤU HÌNH TOÀN DIỆN (TAB CẤU HÌNH) ──────────────────────────────────

@@ -388,7 +388,8 @@ async def websocket_client_endpoint(websocket: WebSocket) -> None:
     """
     from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
-    if not ws_auth.authenticate_worker(websocket):
+    principal = ws_auth.authenticate_worker_principal(websocket)
+    if principal is None:
         logger.warning(
             "Từ chối worker WebSocket từ %s: thiếu hoặc sai enrollment token.",
             websocket.client.host if websocket.client else "unknown",
@@ -403,8 +404,15 @@ async def websocket_client_endpoint(websocket: WebSocket) -> None:
         # First message is registration handshake
         init_raw = await websocket.receive_text()
         init_data = json.loads(init_raw)
+        if principal.get("kind") == "device":
+            # Máy có khoá riêng: tên máy do MÁY CHỦ cấp lúc đăng ký — Agent không
+            # tự xưng là máy khác được (trước đây client_id lấy nguyên từ Agent).
+            init_data["client_id"] = principal["client_id"]
+            from mateai.application.devices import worker_enrollment
+            worker_enrollment.touch(principal["client_id"], init_data.get("agent_version"), init_data.get("package"))
         client_id = init_data.get("client_id") or (websocket.client.host if websocket.client else "unknown_worker")
         await orchestrator.register_client(client_id, websocket, init_data)
+        await orchestrator.offer_update(client_id)
 
         # Message loop
         while True:
@@ -420,4 +428,7 @@ async def websocket_client_endpoint(websocket: WebSocket) -> None:
     except Exception as exc:
         logger.error("Worker WebSocket error [%s]: %s", client_id, exc)
     finally:
-        await orchestrator.unregister_client(client_id)
+        await orchestrator.unregister_client(client_id, websocket)
+        if principal.get("kind") == "device":
+            from mateai.application.devices import worker_enrollment
+            worker_enrollment.touch(principal["client_id"])

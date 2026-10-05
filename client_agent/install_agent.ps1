@@ -69,8 +69,9 @@ if (-not (Test-Path $cfgPath)) {
     exit 1
 }
 $cfg = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-if (-not $cfg.enrollment_token) {
-    Write-Host 'config.json không có enrollment_token — máy chủ sẽ từ chối kết nối. Tải lại gói Agent.' -ForegroundColor Red
+$enrolled = Test-Path (Join-Path $AgentDir 'device.json')
+if (-not $enrolled -and -not $cfg.enroll_code) {
+    Write-Host 'config.json không có mã đăng ký (enroll_code) và máy chưa đăng ký — tải gói Agent MỚI từ Portal.' -ForegroundColor Red
     exit 1
 }
 Write-Host "   máy chủ: $($cfg.master_ip):$($cfg.master_port)"

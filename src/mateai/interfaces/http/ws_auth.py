@@ -94,6 +94,53 @@ def device_auth_method(websocket: WebSocket, device_id: str = "esp32-default") -
     return None
 
 
+_LOOPBACK = ("127.0.0.1", "::1", "localhost")
+
+
+def worker_principal(token: str, client_host: str = "") -> Optional[dict]:
+    """
+    Ai đang nối /ws/client (hoặc gọi API cập nhật Agent):
+      - {"kind": "device", "client_id": ...}: máy trạm có KHOÁ RIÊNG (đăng ký bằng mã dùng một lần);
+      - {"kind": "shared"}: enrollment secret chung — CHỈ nhận từ chính máy chủ
+        (worker cục bộ), trừ khi bật `security.allow_shared_worker_secret`;
+      - {"kind": "jwt"}: JWT admin/manager (dò lỗi thủ công).
+    None nếu không hợp lệ / máy đã bị thu hồi.
+    """
+    if not token:
+        return None
+    from mateai.application.devices import worker_enrollment
+    dev = worker_enrollment.authenticate_device_token(token)
+    if dev:
+        return {"kind": "device", "client_id": dev["client_id"], "device": dev}
+    expected = enrollment.get_worker_enrollment_secret()
+    if expected and secrets.compare_digest(token, expected):
+        from mateai.config.loader import get_config_section
+        allow = bool(get_config_section("security").get("allow_shared_worker_secret"))
+        if client_host in _LOOPBACK or allow:
+            return {"kind": "shared"}
+        logger.warning("Từ chối secret chung từ %s — máy trạm phải dùng mã đăng ký riêng.", client_host)
+        return None
+    try:
+        payload = auth_manager.decode_access_token(token)
+    except Exception:
+        return None
+    if not payload or "sub" not in payload:
+        return None
+    user = auth_manager.get_user(payload["sub"])
+    if bool(user) and user.get("role") in JWT_FALLBACK_ROLES:
+        return {"kind": "jwt", "user": user.get("username")}
+    return None
+
+
+def authenticate_worker_principal(websocket: WebSocket) -> Optional[dict]:
+    token = websocket.query_params.get("token") or ""
+    if not token:
+        auth = websocket.headers.get("authorization") or ""
+        token = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    host = websocket.client.host if websocket.client else ""
+    return worker_principal(token, host)
+
+
 def authenticate_worker(websocket: WebSocket) -> bool:
     """
     Xác thực một LAN worker trước khi cho đăng ký vào /ws/client.

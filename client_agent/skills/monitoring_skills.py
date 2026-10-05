@@ -34,8 +34,8 @@ except ImportError:
 
 try:
     import wmi  # type: ignore
-except ImportError:
-    wmi = None
+except Exception:  # noqa: BLE001 — WMI hỏng ném com_error NGAY KHI import (không phải ImportError):
+    wmi = None       # trước đây làm sập cả Agent lúc khởi động; nay chỉ tắt phần dùng WMI.
 
 # Compatibility import for skill registration
 try:

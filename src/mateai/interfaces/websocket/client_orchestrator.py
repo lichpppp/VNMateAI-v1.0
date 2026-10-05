@@ -85,6 +85,7 @@ class Orchestrator:
                 "last_seen": time.time(),
                 "status": "online",
                 "agent_version": str(metadata.get("agent_version") or ""),
+                "package": str(metadata.get("package") or "source"),
                 "metrics": {},
                 "last_heartbeat": None,
             }
@@ -95,9 +96,13 @@ class Orchestrator:
             len(metadata.get("skills", [])),
         )
 
-    async def unregister_client(self, client_id: str) -> None:
+    async def unregister_client(self, client_id: str, websocket: Optional[WebSocket] = None) -> None:
         """Handle client disconnection."""
         async with self._lock:
+            # Kết nối cũ đóng SAU khi máy đã nối lại bằng kết nối mới: đừng xoá phiên mới.
+            current = self._clients.get(client_id, {}).get("websocket")
+            if websocket is not None and current is not None and current is not websocket:
+                return
             if client_id in self._clients:
                 del self._clients[client_id]
                 logger.info("Orchestrator: Máy trạm [%s] đã ngắt kết nối.", client_id)
@@ -110,6 +115,44 @@ class Orchestrator:
                 future.set_exception(
                     ConnectionResetError(f"Máy trạm '{client_id}' đã ngắt kết nối trong khi thực thi tác vụ.")
                 )
+
+    async def offer_update(self, client_id: str) -> bool:
+        """Agent cũ hơn gói đang phát hành cho đúng loại của nó -> báo "update_available"."""
+        session = self._clients.get(client_id)
+        if not session:
+            return False
+        try:
+            from mateai.interfaces.http.agent_packages import latest_version
+            from mateai.config.loader import get_config_section
+            if get_config_section("agent_updates").get("enabled") is False:
+                return False
+            latest = latest_version(session.get("package") or "source")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("offer_update: %s", exc)
+            return False
+        current = session.get("agent_version")
+        if not latest or not current or version_tuple(current) >= version_tuple(latest):
+            return False
+        try:
+            await session["websocket"].send_text(json.dumps(
+                {"action": "update_available", "version": latest, "package": session.get("package")}))
+            logger.info("Đã báo máy trạm [%s] có bản Agent mới %s (đang %s).", client_id, latest, current)
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("offer_update gửi lỗi: %s", exc)
+            return False
+
+    async def disconnect_client(self, client_id: str, reason: str = "") -> bool:
+        """Cắt kết nối một máy trạm (vd vừa bị thu hồi khoá)."""
+        session = self._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            return False
+        try:
+            await session["websocket"].close(code=1008, reason=reason[:100])
+        except Exception:  # noqa: BLE001
+            pass
+        await self.unregister_client(client_id)
+        return True
 
     def is_client_online(self, client_id: str) -> bool:
         """Check if client is currently connected and online."""
@@ -139,6 +182,7 @@ class Orchestrator:
                 "connected_at": info["connected_at_iso"],
                 "uptime": uptime_str,
                 "agent_version": info.get("agent_version") or None,
+                "package": info.get("package") or "source",
                 "metrics": dict(info.get("metrics") or {}),
                 "heartbeat_age_s": int(now - hb) if hb else None,
             })
@@ -164,6 +208,22 @@ class Orchestrator:
                 session["last_heartbeat"] = time.time()
                 if data.get("agent_version"):
                     session["agent_version"] = str(data["agent_version"])
+                if data.get("package"):
+                    session["package"] = str(data["package"])
+            return
+
+        if action == "update_status":
+            # Agent tự cập nhật: báo lên trang giám sát (đang cài / lỗi + lý do).
+            try:
+                from mateai.application.operations.topology_events import emit
+                ok = data.get("status") == "installing"
+                emit("agent_update", stage=str(data.get("status")), node=f"worker:{client_id}",
+                     status="running" if ok else "error",
+                     detail=(f"{data.get('from')} -> {data.get('to')}" if ok
+                             else f"cập nhật lỗi: {data.get('error', '')}"))
+            except Exception:  # noqa: BLE001
+                pass
+            logger.info("Máy trạm [%s] cập nhật Agent: %s", client_id, {k: data.get(k) for k in ("status", "from", "to", "error")})
             return
 
         owner = self._task_owner.get(task_id) if task_id else None

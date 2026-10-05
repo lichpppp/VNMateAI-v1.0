@@ -93,3 +93,7 @@ _archive/
 
 # Sinh ra khi cài editable (pip install -e .)
 *.egg-info/
+
+# Bản build Agent máy trạm (scripts/build_agent.py) — không commit file chạy
+dist/agent/
+build/agent/

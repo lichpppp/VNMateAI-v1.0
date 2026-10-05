@@ -96,6 +96,40 @@ class DatabaseManager:
                     if "role" not in _cols:
                         cursor.execute("ALTER TABLE device_tokens ADD COLUMN role TEXT;")
 
+                    # 5. Máy trạm (Agent): mã đăng ký DÙNG MỘT LẦN + khoá riêng từng máy.
+                    #    Chỉ lưu SHA-256; thu hồi từng máy (revoked_at) mà không ảnh hưởng máy khác.
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS worker_enroll_codes (
+                            code_sha256 TEXT PRIMARY KEY,
+                            label TEXT,
+                            created_by TEXT,
+                            created_at TEXT NOT NULL,
+                            expires_at TEXT NOT NULL,
+                            used_at TEXT,
+                            used_by_client TEXT
+                        );
+                        """
+                    )
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS worker_devices (
+                            client_id TEXT PRIMARY KEY,
+                            token_sha256 TEXT NOT NULL UNIQUE,
+                            label TEXT,
+                            hostname TEXT,
+                            platform TEXT,
+                            package TEXT,
+                            agent_version TEXT,
+                            enrolled_at TEXT NOT NULL,
+                            enrolled_by TEXT,
+                            last_seen_at TEXT,
+                            revoked_at TEXT,
+                            revoked_by TEXT
+                        );
+                        """
+                    )
+
                     # 4. Phê duyệt đã nhớ: thiết bị đã được duyệt tác vụ X một lần thì
                     #    lần sau không hỏi lại (chủ hệ thống chọn, thu hồi ở Web Portal).
                     cursor.execute(
@@ -478,6 +512,108 @@ class DatabaseManager:
                     cur = conn.execute("DELETE FROM approval_grants WHERE principal = ?;", (principal,))
                 conn.commit()
                 return cur.rowcount
+
+    # ── Máy trạm: mã đăng ký dùng một lần + khoá riêng từng máy ─────────────
+
+    def add_worker_enroll_code(self, code_sha256: str, label: str, created_by: str, expires_at: str) -> None:
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO worker_enroll_codes (code_sha256, label, created_by, created_at, expires_at) "
+                    "VALUES (?, ?, ?, ?, ?);",
+                    (code_sha256, label, created_by, datetime.utcnow().isoformat(), expires_at),
+                )
+                conn.commit()
+
+    def consume_worker_enroll_code(self, code_sha256: str, client_id: str) -> Optional[Dict[str, Any]]:
+        """Đánh dấu mã đã dùng — NGUYÊN TỬ: chỉ một lần gọi thắng. None nếu sai / hết hạn / đã dùng."""
+        now = datetime.utcnow().isoformat()
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "UPDATE worker_enroll_codes SET used_at = ?, used_by_client = ? "
+                    "WHERE code_sha256 = ? AND used_at IS NULL AND expires_at > ?;",
+                    (now, client_id, code_sha256, now),
+                )
+                conn.commit()
+                if cur.rowcount != 1:
+                    return None
+                row = conn.execute("SELECT * FROM worker_enroll_codes WHERE code_sha256 = ?;",
+                                   (code_sha256,)).fetchone()
+                return dict(row) if row else None
+
+    def list_worker_enroll_codes(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT substr(code_sha256, 1, 12) AS code_ref, label, created_by, created_at, expires_at, "
+                "used_at, used_by_client FROM worker_enroll_codes ORDER BY created_at DESC LIMIT 200;"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_worker_enroll_code(self, code_ref: str) -> int:
+        """Huỷ mã CHƯA dùng theo 12 ký tự đầu của hash (giao diện không bao giờ thấy mã thật)."""
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "DELETE FROM worker_enroll_codes WHERE substr(code_sha256, 1, 12) = ? AND used_at IS NULL;",
+                    (code_ref,))
+                conn.commit()
+                return cur.rowcount
+
+    def worker_client_id_exists(self, client_id: str) -> bool:
+        with self._get_connection() as conn:
+            return conn.execute("SELECT 1 FROM worker_devices WHERE client_id = ?;",
+                                (client_id,)).fetchone() is not None
+
+    def add_worker_device(self, client_id: str, token_sha256: str, label: str, hostname: str,
+                          platform: str, package: str, agent_version: str, enrolled_by: str) -> None:
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "INSERT INTO worker_devices (client_id, token_sha256, label, hostname, platform, package, "
+                    "agent_version, enrolled_at, enrolled_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);",
+                    (client_id, token_sha256, label, hostname, platform, package, agent_version,
+                     datetime.utcnow().isoformat(), enrolled_by),
+                )
+                conn.commit()
+
+    def get_worker_device_by_token(self, token_sha256: str) -> Optional[Dict[str, Any]]:
+        """Máy trạm CÒN HIỆU LỰC (chưa thu hồi) có khoá này."""
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM worker_devices WHERE token_sha256 = ? AND revoked_at IS NULL;", (token_sha256,)
+            ).fetchone()
+            return dict(row) if row else None
+
+    def touch_worker_device(self, client_id: str, agent_version: Optional[str] = None,
+                            package: Optional[str] = None) -> None:
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(
+                    "UPDATE worker_devices SET last_seen_at = ?, agent_version = COALESCE(?, agent_version), "
+                    "package = COALESCE(?, package) WHERE client_id = ?;",
+                    (datetime.utcnow().isoformat(), agent_version, package, client_id),
+                )
+                conn.commit()
+
+    def list_worker_devices(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT client_id, label, hostname, platform, package, agent_version, enrolled_at, enrolled_by, "
+                "last_seen_at, revoked_at, revoked_by FROM worker_devices ORDER BY enrolled_at DESC;"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def revoke_worker_device(self, client_id: str, revoked_by: str) -> bool:
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "UPDATE worker_devices SET revoked_at = ?, revoked_by = ? "
+                    "WHERE client_id = ? AND revoked_at IS NULL;",
+                    (datetime.utcnow().isoformat(), revoked_by, client_id),
+                )
+                conn.commit()
+                return cur.rowcount > 0
 
     def revoke_device_token(self, device_id: str) -> bool:
         with self._lock:

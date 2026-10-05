@@ -288,6 +288,9 @@ def bundled_agent_version():
 )
 async def download_agent(
     request: Request,
+    platform: str = Query("source", pattern="^(source|windows|macos)$",
+                          description="source = mã Python | windows = VNMateAgent.exe | macos = bản macOS"),
+    label: str = Query("", max_length=80, description="Tên gợi nhớ máy trạm (vd 'Kế toán - Lan')"),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Response:
     """
@@ -325,6 +328,10 @@ async def download_agent(
     port_suffix = "" if port == default_port else f":{port}"
     ws_url = f"{scheme}://{server_ip}:{port}/ws/client"
 
+    from mateai.application.devices import worker_enrollment
+    enroll_code, enroll_info = worker_enrollment.create_enroll_code(
+        created_by=str(current_user.get("username") or "unknown"), label=label)
+
     dynamic_config = {
         "server_url": f"{'https' if scheme == 'wss' else 'http'}://{server_ip}{port_suffix}",
         "ws_url": ws_url,
@@ -333,77 +340,40 @@ async def download_agent(
         "master_port": port,
         "downloaded_at": datetime.utcnow().isoformat() + "Z",
         "downloaded_by": current_user.get("username", "unknown"),
-        # Zero-Trust: enrollment secret để agent đăng ký qua /ws/client.
-        # Chỉ phát cho tài khoản admin/manager (đã kiểm tra ở endpoint này).
-        "enrollment_token": enrollment.get_worker_enrollment_secret(),
+        # Mã đăng ký DÙNG MỘT LẦN, riêng cho máy sẽ cài gói này (hết hạn sau 7
+        # ngày). Trước đây là enrollment secret CHUNG của mọi máy: lộ một gói là
+        # ai cũng nối được, và không thu hồi riêng một máy được.
+        "enroll_code": enroll_code,
+        "enroll_expires_at": enroll_info["expires_at"],
+        "label": label,
     }
 
-    # Build ZIP entirely in RAM — no temporary files written to disk
-    zip_buffer = io.BytesIO()
+    cert_bytes = None
+    try:
+        from mateai.infrastructure.security.tls import CERT_FILE, ensure_ssl_certs
+        ensure_ssl_certs()
+        if CERT_FILE.exists() and CERT_FILE.stat().st_size > 0:
+            cert_bytes = CERT_FILE.read_bytes()
+    except Exception as cert_err:
+        logger.error("Không đọc được chứng chỉ máy chủ để kèm vào gói Agent: %s", cert_err)
 
-    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        template_dir = _CLIENT_AGENT_DIR
-
-        if template_dir.exists() and template_dir.is_dir():
-            for file_path in sorted(template_dir.rglob("*")):
-                # Bỏ __pycache__, log và môi trường ảo của bản Agent chạy trên chính
-                # máy chủ (worker cục bộ) — không phát log / venv của máy chủ ra ngoài.
-                rel_parts = file_path.relative_to(template_dir).parts
-                if "__pycache__" in rel_parts or (rel_parts and rel_parts[0] in ("logs", ".venv", "venv")):
-                    continue
-                if file_path.suffix in (".pyc", ".pyo", ".log"):
-                    continue
-                if file_path.is_file():
-                    arc_name = file_path.relative_to(template_dir)
-                    # Skip any existing config.json or server_cert.pem from template — inject dynamic version below
-                    if str(arc_name) in ("config.json", "server_cert.pem"):
-                        continue
-                    try:
-                        zf.write(file_path, arcname=str(arc_name))
-                    except Exception as write_err:
-                        logger.warning("download-agent: Cannot add file %s: %s", file_path, write_err)
-        else:
-            logger.error("client_agent/ directory not found at %s", template_dir)
-            raise HTTPException(
-                status_code=500,
-                detail="Thư mục client_agent/ không tồn tại trên máy chủ. Liên hệ Admin.",
-            )
-
-        # Phase 29: Read certs/server.crt on server and embed directly into Client Agent ZIP as server_cert.pem
-        try:
-            from mateai.infrastructure.security.tls import CERT_FILE, ensure_ssl_certs
-            ensure_ssl_certs()
-            if CERT_FILE.exists() and CERT_FILE.stat().st_size > 0:
-                cert_bytes = CERT_FILE.read_bytes()
-                zf.writestr("server_cert.pem", cert_bytes)
-                logger.info("Phase 29: Embedded server_cert.pem (%d bytes) into agent zip.", len(cert_bytes))
-            else:
-                logger.warning("Phase 29: CERT_FILE not found at %s", CERT_FILE)
-        except Exception as cert_err:
-            logger.error("Phase 29: Failed to embed server_cert.pem into zip: %s", cert_err)
-
-        # Inject fresh dynamic config.json — OVERWRITES any existing config.json
-        zf.writestr("config.json", json.dumps(dynamic_config, indent=4, ensure_ascii=False))
-
-    # Seek to beginning before reading
-    zip_buffer.seek(0)
-    zip_content = zip_buffer.read()
+    from mateai.interfaces.http import agent_packages
+    filename, zip_content, package = agent_packages.build_download(platform, dynamic_config, cert_bytes)
 
     logger.info(
-        "Phase 85: gói Agent tải về bởi '%s' — cấu hình: %s, dung lượng %d bytes",
-        current_user.get("username"),
-        ws_url,
-        len(zip_content),
+        "Gói Agent (%s -> %s) tải bởi '%s', nhãn '%s', mã đăng ký %s, %d bytes",
+        platform, package, current_user.get("username"), label, enroll_info["code_ref"], len(zip_content),
     )
 
     return Response(
         content=zip_content,
         media_type="application/x-zip-compressed",
         headers={
-            "Content-Disposition": 'attachment; filename="VN-Mate_Agent.zip"',
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "X-Agent-Package": package,
             "Content-Length": str(len(zip_content)),
             "X-Agent-Server-IP": server_ip,
-            "X-Agent-Version": bundled_agent_version() or "unknown",
+            "X-Agent-Version": agent_packages.latest_version(package) or "unknown",
             "X-Agent-Server-Port": str(port),
         },
     )

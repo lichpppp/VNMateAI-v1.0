@@ -26,7 +26,7 @@ except ImportError:
 
 try:
     import wmi  # type: ignore
-except ImportError:
+except Exception:  # noqa: BLE001 — WMI hỏng ném com_error ngay khi import (không phải ImportError)
     wmi = None
 
 from core.plugin_manager import export_skill

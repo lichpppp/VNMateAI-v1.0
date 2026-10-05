@@ -186,6 +186,11 @@ async def auth_middleware(request: Request, call_next):
         "/api/v1/login/",
         "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập
         "/api/v1/health-dashboard",        # telemetry HUD chế độ xem
+        # Agent máy trạm: route tự kiểm mã đăng ký dùng một lần / khoá thiết bị
+        # (routers/agent_devices.py) — Agent không có tài khoản người dùng.
+        "/api/v1/agent/enroll",
+        "/api/v1/agent/update/manifest",
+        "/api/v1/agent/update/package",
     )
     # Endpoint của máy worker (không có tài khoản người dùng): chỉ nhận
     # enrollment secret của worker hoặc JWT admin/manager — cùng luật với
@@ -844,6 +849,9 @@ app.include_router(_r_workers.router)
 
 from mateai.interfaces.http.routers import clients as _r_clients  # noqa: E402
 app.include_router(_r_clients.router)
+
+from mateai.interfaces.http.routers import agent_devices as _r_agent_devices  # noqa: E402
+app.include_router(_r_agent_devices.router)
 
 
 from mateai.interfaces.http.routers import hud as _r_hud  # noqa: E402
