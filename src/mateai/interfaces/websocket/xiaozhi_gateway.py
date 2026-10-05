@@ -55,6 +55,15 @@ def _is_stop_reply(text: str) -> bool:
     return is_stop_reply(text)
 
 
+def _topo(kind: str, **kw: Any) -> None:
+    """Báo trang giám sát /admin/topology (không bao giờ làm hỏng luồng robot)."""
+    try:
+        from mateai.application.operations.topology_events import publish
+        publish(kind, **kw)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
     """PCM 16-bit mono thô -> WAV (bộ nhận dạng cần định dạng có header)."""
     import wave
@@ -603,6 +612,8 @@ class XiaozhiGateway:
 
     async def _start_follow_up(self, node: XiaozhiNode, stage: int = 1) -> None:
         node.follow_up = stage
+        _topo("robot", stage="listen", node=f"robot:{node.device_id}", status="waiting",
+              detail="nghe tiếp chỉ lệnh (10 s)" if stage == 1 else "đã hỏi lại, nghe thêm 20 s")
         node.audio_buffer = io.BytesIO()
         node.vad_detector.reset()
         timeout = ROBOT_FOLLOW_UP_LISTEN_MS if stage == 1 else ROBOT_FOLLOW_UP_REASK_LISTEN_MS
@@ -628,6 +639,7 @@ class XiaozhiGateway:
             await self._start_follow_up(node, stage=2)
             return
         node.follow_up = 0
+        _topo("robot", stage="farewell", node=f"robot:{node.device_id}", detail="im lặng 30 s — tạm biệt")
         await self._say(node, FAREWELL_PHRASE)
         await self.send_ui_payload(node.device_id, state="idle", emotion="sleeping")
 
@@ -700,6 +712,8 @@ class XiaozhiGateway:
                             node.device_id, len(clip) / 32000, elapsed_ms, level)
                 return
             logger.info("[Wake] [%s] gọi tên sau %d ms (%s): '%s'", node.device_id, elapsed_ms, level, heard)
+            _topo("robot", stage="wake", node=f"robot:{node.device_id}", ms=elapsed_ms,
+                  detail="được gọi tên" + (" kèm lệnh" if command else ""))
             if command:
                 full = await self._transcribe(node, clip)
                 again = find_wake_command(full)
@@ -721,10 +735,15 @@ class XiaozhiGateway:
     async def _transcribe(self, node: XiaozhiNode, audio: bytes) -> str:
         """STT câu vừa nói (một chỗ cho cả 3 định dạng gói) + đo thời gian cho trace."""
         t0 = time.perf_counter()
+        text = ""
         try:
-            return await audio_engine.transcribe_audio(audio)
+            text = await audio_engine.transcribe_audio(audio)
+            return text
         finally:
             node.last_stt_ms = (time.perf_counter() - t0) * 1000
+            _topo("robot", stage="stt", source=f"robot:{node.device_id}", target="stt",
+                  status="ok" if text else "error", ms=node.last_stt_ms,
+                  detail="đã nhận dạng câu nói" if text else "không nhận dạng được")
 
     async def _execute_pipeline(self, node: XiaozhiNode, text_query: str) -> None:
         """

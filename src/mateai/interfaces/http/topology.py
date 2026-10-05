@@ -1,0 +1,281 @@
+"""
+mateai/interfaces/http/topology.py
+==================================
+Trạng thái THẬT của hệ thống cho trang `/admin/topology` (docs/realtime/topology-plan.md).
+
+- `snapshot()`: các thành phần + cạnh nối, mỗi thành phần có trạng thái
+  ok | degraded | down | off | unknown, số đo thật, lý do và "từ lúc nào".
+  Không có số đo thì ghi rõ "chưa có số đo" — không điền số giả (trước đây:
+  số máy trạm `max(thật, 17)`, "uptime 99.98%", "latency < 12ms", connector
+  luôn "active").
+- `topology_loop()`: khi có người xem, cứ 2 s đẩy snapshot qua /ws/topology và
+  phát sự kiện khi một thành phần ĐỔI trạng thái.
+- Sự kiện bước xử lý (application/operations/topology_events) được đẩy ngay.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
+
+from mateai.application.operations import topology_events
+
+logger = logging.getLogger(__name__)
+
+SNAPSHOT_INTERVAL_S = 2.0
+#: Thành phần đổi trạng thái lúc nào (để hiện "từ lúc nào" và phát sự kiện).
+_status_since: Dict[str, Tuple[str, float]] = {}
+
+
+def _node(nid: str, kind: str, label: str, status: str, detail: str = "",
+          metrics: Optional[Dict[str, Any]] = None, group: str = "core") -> Dict[str, Any]:
+    prev = _status_since.get(nid)
+    since = prev[1] if prev and prev[0] == status else time.time()
+    return {"id": nid, "kind": kind, "label": label, "status": status, "detail": detail,
+            "metrics": metrics or {}, "group": group, "since": since}
+
+
+def _svc(services: Dict[str, Any], key: str) -> Dict[str, Any]:
+    return services.get(key) or {}
+
+
+def _health_nodes(nodes: List[Dict[str, Any]]) -> None:
+    from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE as H
+    hw = H.get("hardware") or {}
+    services = H.get("services") or {}
+    fresh = time.time() - float(H.get("last_updated") or 0) < 30
+
+    cpu, ram, disk = hw.get("cpu_percent"), hw.get("ram_percent"), hw.get("disk_percent")
+    if not fresh:
+        status, detail = "unknown", "chưa có số đo phần cứng (health_monitor chưa chạy)"
+    elif max(cpu or 0, ram or 0) >= 95 or (disk or 0) >= 95:
+        status, detail = "down", "tài nguyên máy chủ cạn (≥ 95%)"
+    elif max(cpu or 0, ram or 0) >= 85 or (disk or 0) >= 90:
+        status, detail = "degraded", "tài nguyên máy chủ cao"
+    else:
+        status, detail = "ok", ""
+    nodes.append(_node("core", "server", "Máy chủ VN-MateAI", status, detail, {
+        "cpu_percent": cpu, "ram_percent": ram, "disk_percent": disk,
+        "uptime": (H.get("nodes") or {}).get("uptime_human"),
+    }))
+
+    llm = _svc(services, "llm_9router")
+    from mateai.infrastructure.llm.llm_provider import model_health
+    cooling = model_health()
+    if llm.get("status") == "OK":
+        status = "degraded" if cooling else "ok"
+        detail = (f"{len(cooling)} model đang tạm bỏ qua do lỗi" if cooling else "")
+    elif llm.get("status") == "FAIL":
+        status, detail = "down", f"9Router không phản hồi: {llm.get('detail', '')}"
+    else:
+        status, detail = "unknown", "chưa kiểm tra"
+    nodes.append(_node("llm", "llm", "9Router LLM", status, detail, {
+        "latency_ms": llm.get("latency_ms"), "model": llm.get("model"),
+        "models_cooling": sorted(cooling)[:6],
+    }))
+
+    db = _svc(services, "database_sqlite")
+    nodes.append(_node("db", "database", "CSDL SQLite",
+                       {"OK": "ok", "FAIL": "down"}.get(db.get("status"), "unknown"),
+                       db.get("detail") or db.get("message") or ""))
+
+    tg = _svc(services, "telegram_gateway")
+    tg_detail = tg.get("detail") or tg.get("message") or ""
+    tg_status = "ok" if tg.get("status") == "OK" else (
+        "off" if "Chưa cấu hình" in tg_detail else ("down" if tg.get("status") == "FAIL" else "unknown"))
+    nodes.append(_node("telegram", "channel", "Telegram", tg_status, tg_detail, group="channel"))
+
+
+def _voice_nodes(nodes: List[Dict[str, Any]]) -> None:
+    from mateai.application.voice.voice_turn import recent_traces
+    from mateai.config.loader import settings
+    traces = recent_traces(30)
+    last = traces[-1] if traces else None
+    errors = sum(1 for t in traces[-10:] if t.get("outcome") == "error")
+    if not traces:
+        status, detail = "unknown", "chưa có lượt thoại nào từ lúc máy chủ chạy"
+    elif last.get("outcome") == "error":
+        status, detail = "down", "lượt thoại gần nhất lỗi"
+    elif errors:
+        status, detail = "degraded", f"{errors}/10 lượt gần nhất lỗi"
+    else:
+        status, detail = "ok", ""
+    nodes.append(_node("voice", "pipeline", "Lõi hội thoại", status, detail, {
+        "turns": len(traces),
+        "last_outcome": last.get("outcome") if last else None,
+        "last_ttfa_ms": last.get("ttfa_answer_ms") if last else None,
+        "last_ttl_ms": last.get("ttl_ms") if last else None,
+    }))
+
+    stt_vals = [t["stt_ms"] for t in traces if isinstance(t.get("stt_ms"), (int, float))]
+    nodes.append(_node("stt", "stt", "Nhận dạng giọng nói", "ok" if stt_vals else "unknown",
+                       "" if stt_vals else "chưa có số đo", {
+                           "backend": str(getattr(settings, "ASR_BACKEND", "") or ""),
+                           "last_ms": stt_vals[-1] if stt_vals else None}))
+
+    tts_vals = [t["tts_first_latency_ms"] for t in traces if isinstance(t.get("tts_first_latency_ms"), (int, float))]
+    if not tts_vals:
+        status, detail = "unknown", "chưa có số đo"
+    elif tts_vals[-1] > 6000:
+        status, detail = "degraded", "tổng hợp giọng chậm (> 6 s)"
+    else:
+        status, detail = "ok", ""
+    nodes.append(_node("tts", "tts", "Tổng hợp giọng (TTS)", status, detail,
+                       {"last_ms": tts_vals[-1] if tts_vals else None}))
+
+
+def _channel_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    from mateai.interfaces.websocket.realtime_hub import active_hud_websockets, active_portal_websockets
+    hud = len(active_hud_websockets)
+    nodes.append(_node("hud", "channel", "HUD", "ok" if hud else "off",
+                       "" if hud else "không có HUD nào đang mở", {"connections": hud}, group="channel"))
+    portal = len(active_portal_websockets)
+    try:
+        from mateai.interfaces.websocket.realtime_voice_ws import voice_ws_registry
+        voice_sessions = len(getattr(voice_ws_registry, "_sessions", {}))
+    except Exception:  # noqa: BLE001
+        voice_sessions = 0
+    nodes.append(_node("portal", "channel", "Web Portal", "ok" if portal else "off",
+                       "" if portal else "không có trang portal nào đang mở",
+                       {"connections": portal, "voice_sessions": voice_sessions}, group="channel"))
+    edges += [_edge("hud", "voice"), _edge("portal", "voice"), _edge("telegram", "voice")]
+
+    from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
+    robots = xiaozhi_gateway.get_all_nodes()
+    for rid, n in robots.items():
+        nid = f"robot:{rid}"
+        busy = n.active_task is not None and not n.active_task.done()
+        nodes.append(_node(nid, "robot", f"Robot {rid}", "ok", "", {
+            "ip": n.client_host, "state": n.state, "emotion": n.emotion,
+            "busy": busy, "follow_up": getattr(n, "follow_up", 0),
+            "firmware": n.firmware_version, "last_active": n.last_active,
+        }, group="channel"))
+        edges += [_edge(nid, "stt"), _edge("tts", nid)]
+    if not robots:
+        nodes.append(_node("robot:none", "robot", "Robot", "off", "không có robot nào kết nối", group="channel"))
+    edges += [_edge("stt", "voice"), _edge("voice", "llm"), _edge("voice", "tts"), _edge("voice", "tools")]
+
+
+def _tool_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    try:
+        from core.plugin_manager import plugin_manager
+        skills = plugin_manager.get_skill_count()
+    except Exception:  # noqa: BLE001
+        skills = None
+    nodes.append(_node("tools", "tools", "Cổng tool / Kỹ năng", "ok" if skills else "unknown",
+                       "" if skills else "chưa nạp được danh mục kỹ năng",
+                       {"skills": skills}, group="tools"))
+
+    from mateai.application.security.zero_trust import hitl_manager
+    pending = hitl_manager.get_pending_list()
+    nodes.append(_node("hitl", "approval", "Hàng đợi phê duyệt", "degraded" if pending else "ok",
+                       f"{len(pending)} tác vụ chờ duyệt" if pending else "", {
+                           "pending": len(pending),
+                           "items": [{"tool": p.get("action_name"), "by": p.get("requested_by")}
+                                     for p in pending[:5]],
+                       }, group="tools"))
+    edges += [_edge("tools", "hitl"), _edge("tools", "core"), _edge("core", "db"), _edge("voice", "db")]
+
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
+    workers = orchestrator.get_connected_clients()
+    for w in workers:
+        nid = f"worker:{w.get('client_id')}"
+        nodes.append(_node(nid, "worker", f"Máy trạm {w.get('hostname') or w.get('client_id')}", "ok", "",
+                           {"ip": w.get("ip"), "platform": w.get("platform"), "uptime": w.get("uptime")},
+                           group="tools"))
+        edges.append(_edge("tools", nid))
+    if not workers:
+        nodes.append(_node("worker:none", "worker", "Máy trạm LAN", "off", "không có máy trạm nào kết nối",
+                           group="tools"))
+
+    from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
+    from mateai.infrastructure.connectors.base_connector import missing_required_fields
+    for name in CONNECTOR_REGISTRY:
+        try:
+            missing = missing_required_fields(name)
+        except Exception:  # noqa: BLE001
+            missing = ["?"]
+        nid = f"connector:{name}"
+        nodes.append(_node(nid, "connector", f"Connector {name}", "off" if missing else "unknown",
+                           f"chưa cấu hình ({', '.join(missing[:3])})" if missing else "đã cấu hình, chưa kiểm tra kết nối",
+                           group="connector"))
+        edges.append(_edge("tools", nid))
+
+
+def _edge(source: str, target: str) -> Dict[str, Any]:
+    return {"id": f"{source}->{target}", "source": source, "target": target}
+
+
+def snapshot() -> Dict[str, Any]:
+    nodes: List[Dict[str, Any]] = []
+    edges: List[Dict[str, Any]] = []
+    for build in (_health_nodes, _voice_nodes):
+        try:
+            build(nodes)
+        except Exception as exc:  # noqa: BLE001 — một nguồn hỏng không làm mất cả sơ đồ
+            logger.warning("[Topology] %s lỗi: %s", build.__name__, exc)
+    for build in (_channel_nodes, _tool_nodes):
+        try:
+            build(nodes, edges)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Topology] %s lỗi: %s", build.__name__, exc)
+    ids = {n["id"] for n in nodes}
+    edges = [e for e in edges if e["source"] in ids and e["target"] in ids]
+    counts: Dict[str, int] = {}
+    for n in nodes:
+        counts[n["status"]] = counts.get(n["status"], 0) + 1
+    return {"status": "success", "nodes": nodes, "edges": edges, "counts": counts,
+            "timestamp": datetime.now().isoformat(timespec="seconds")}
+
+
+def track_status_changes(snap: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """So với lần trước: thành phần nào đổi trạng thái -> phát sự kiện "status"."""
+    events = []
+    now = time.time()
+    for n in snap["nodes"]:
+        prev = _status_since.get(n["id"])
+        if prev is None:
+            _status_since[n["id"]] = (n["status"], n["since"])
+            continue
+        if prev[0] != n["status"]:
+            _status_since[n["id"]] = (n["status"], now)
+            events.append(topology_events.publish(
+                "status", node=n["id"], status=n["status"],
+                detail=f"{n['label']}: {prev[0]} → {n['status']}" + (f" — {n['detail']}" if n["detail"] else "")))
+    return events
+
+
+# ── Đẩy qua WebSocket ────────────────────────────────────────────────────────
+
+async def _broadcast(payload: Dict[str, Any]) -> None:
+    from mateai.interfaces.websocket.realtime_hub import active_topology_websockets
+    if not active_topology_websockets:
+        return
+    msg = json.dumps(payload, ensure_ascii=False, default=str)
+    for ws in list(active_topology_websockets):
+        try:
+            await ws.send_text(msg)
+        except Exception:  # noqa: BLE001
+            active_topology_websockets.discard(ws)
+
+
+def _on_event(ev: Dict[str, Any]):
+    return _broadcast({"event": "step", **ev})
+
+
+async def topology_loop() -> None:
+    """Chạy suốt đời máy chủ: snapshot 2 s/lần khi có người xem; sự kiện đẩy ngay."""
+    from mateai.interfaces.websocket.realtime_hub import active_topology_websockets
+    topology_events.subscribe(_on_event)
+    while True:
+        try:
+            if active_topology_websockets:
+                snap = snapshot()
+                track_status_changes(snap)
+                await _broadcast({"event": "snapshot", **snap})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Topology] vòng cập nhật lỗi: %s", exc)
+        await asyncio.sleep(SNAPSHOT_INTERVAL_S)

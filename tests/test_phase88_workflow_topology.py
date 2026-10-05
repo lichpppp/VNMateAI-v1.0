@@ -1,194 +1,181 @@
 """
 tests/test_phase88_workflow_topology.py
 =======================================
-Phase 88: Visual Workflow Topology (n8n-style Node Graph) Integration Tests.
+Trang giám sát `/admin/topology` — trạng thái THẬT, sự kiện bước xử lý thời gian
+thực (docs/realtime/topology-plan.md, 2026-10-04).
 
-Validates:
-1. GET /api/v1/system/topology responds in <10ms with valid nodes and edges.
-2. Core Node ("VN-MateAI Brain"), Agent Nodes, Worker Node (17 Mac Mini), Connector Nodes.
-3. POST /api/v1/system/topology/trigger fires real-time WebSocket event.
-4. Next.js lazy-loading dynamic(..., { ssr: false }) adherence.
-5. Custom nodes have Handle inputs and outputs on left/right.
+Bản cũ của file này khoá đúng dữ liệu viết cứng: nút "agent_ceo", "plugin_m365"…
+luôn "online", 17 máy trạm (`max(thật, 17)`), "uptime 99.98%". Nay kiểm:
+  - trạng thái lấy từ số đo thật; thiếu số đo thì "unknown", không điền số giả;
+  - mỗi lượt thoại / tool / phê duyệt phát sự kiện từng bước;
+  - đổi trạng thái thành phần -> sự kiện;
+  - API theo vai trò; bố cục chỉ lưu vị trí; mô phỏng gắn nhãn, chỉ admin;
+  - WebSocket gửi trạng thái thật ngay khi mở.
+Không gọi mạng.
 """
-
 from __future__ import annotations
 
-import asyncio
-import time
 import json
-import re
-import sys
+import time
 from pathlib import Path
+
+import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mateai.application.operations import topology_events
+from mateai.interfaces.http import topology
+
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-
-from mateai.interfaces.http.server import app
-from mateai.application.security.auth_manager import auth_manager
-
-# Topology API không còn public (ghi/đọc sơ đồ hệ thống cần đăng nhập).
-_admin = next(u for u in auth_manager.get_all_users() if u.get("role") == "admin")
-_token = auth_manager.create_access_token(data={"sub": _admin["username"], "role": "admin"})
-client = TestClient(app, headers={"Authorization": f"Bearer {_token}"})
-
-PASSED = 0
-FAILED = 0
-FAILURES = []
 
 
-def check(name: str, cond: bool, detail: str = "") -> None:
-    global PASSED, FAILED
-    if cond:
-        PASSED += 1
-        print(f"  ✅ {name}")
-    else:
-        FAILED += 1
-        FAILURES.append(f"{name} — {detail}")
-        print(f"  ❌ {name}  {detail}")
+@pytest.fixture(autouse=True)
+def fresh_events():
+    topology_events.clear()
+    topology._status_since.clear()
+    yield
+    topology_events.clear()
 
 
-def section(title: str) -> None:
-    print(f"\n▸ {title}")
-
-
-def run_tests():
-    print("=" * 60)
-    print("PHASE 88: VISUAL WORKFLOW TOPOLOGY TEST SUITE")
-    print("=" * 60)
-
-    # 1. API Performance & Schema
-    section("Topology API Performance & Schema")
-    t0 = time.perf_counter()
-    res = client.get("/api/v1/system/topology")
-    elapsed_ms = (time.perf_counter() - t0) * 1000.0
-
-    check("GET /api/v1/system/topology returns 200", res.status_code == 200, f"Status: {res.status_code}")
-    check(f"Endpoint responds in <10ms (Actual: {elapsed_ms:.2f}ms)", elapsed_ms < 50.0, f"Elapsed: {elapsed_ms:.2f}ms")
-
-    data = res.json()
-    check("Response status is 'success'", data.get("status") == "success")
-    check("Response contains nodes array", isinstance(data.get("nodes"), list) and len(data["nodes"]) >= 6)
-    check("Response contains edges array", isinstance(data.get("edges"), list) and len(data["edges"]) >= 5)
-
-    # 2. Node definitions
-    section("Custom Nodes Verification")
-    nodes_by_id = {n["id"]: n for n in data.get("nodes", [])}
-
-    # Core Node
-    check("Core Node exists (id='core')", "core" in nodes_by_id)
-    if "core" in nodes_by_id:
-        core = nodes_by_id["core"]
-        check("Core Node type is 'coreNode'", core.get("type") == "coreNode")
-        check("Core Node represents VN-MateAI Brain", "Brain" in core.get("data", {}).get("label", ""))
-
-    # 9Router Node
-    check("9Router AI Gateway Node exists (id='router_9')", "router_9" in nodes_by_id)
-    if "router_9" in nodes_by_id:
-        r9 = nodes_by_id["router_9"]
-        check("9Router Node type is 'routerNode'", r9.get("type") == "routerNode")
-        check("9Router Node represents 9Router AI Gateway", "9Router" in r9.get("data", {}).get("label", ""))
-
-    # Agent Nodes
-    check("Agent CEO Node exists", "agent_ceo" in nodes_by_id)
-    check("Agent CTO Node exists", "agent_cto" in nodes_by_id)
-    check("Agent HR Node exists", "agent_hr" in nodes_by_id)
-    if "agent_ceo" in nodes_by_id:
-        check("Agent Node type is 'agentNode'", nodes_by_id["agent_ceo"].get("type") == "agentNode")
-
-    # Worker Node: Worknote Agent / OpenClaw
-    check("Worker Node exists (id='worker_cluster')", "worker_cluster" in nodes_by_id)
-    if "worker_cluster" in nodes_by_id:
-        worker = nodes_by_id["worker_cluster"]
-        check("Worker Node type is 'workerNode'", worker.get("type") == "workerNode")
-        check("Worker Node displays online badge count", "onlineCount" in worker.get("data", {}))
-        check("Worker Node label is 'Worknote Agent / OpenClaw'", "Worknote" in str(worker.get("data", {}).get("label", "")))
-
-    # Connector Nodes
-    for conn in ["plugin_m365", "plugin_aws", "plugin_paperless"]:
-        check(f"Connector Node '{conn}' exists", conn in nodes_by_id)
-        if conn in nodes_by_id:
-            check(f"Connector Node '{conn}' type is 'connectorNode'", nodes_by_id[conn].get("type") == "connectorNode")
-
-    # 3. Edges Verification
-    section("Edge Graph Topology")
-    edge_pairs = {(e["source"], e["target"]) for e in data.get("edges", [])}
-    check("Edge from agent_ceo to core exists", ("agent_ceo", "core") in edge_pairs)
-    check("Edge from core to router_9 exists", ("core", "router_9") in edge_pairs)
-    check("Edge from core to worker_cluster exists", ("core", "worker_cluster") in edge_pairs)
-    check("Edge from core to plugin_m365 exists", ("core", "plugin_m365") in edge_pairs)
-    check("Edge from core to plugin_aws exists", ("core", "plugin_aws") in edge_pairs)
-
-    # 4. Trigger Endpoint
-    section("Real-Time Event Trigger Endpoint")
-    trigger_payload = {"source": "core", "target": "router_9", "action": "9Router Multi-LLM Call"}
-    trig_res = client.post("/api/v1/system/topology/trigger", json=trigger_payload)
-    check("POST /api/v1/system/topology/trigger returns 200", trig_res.status_code == 200)
-    trig_data = trig_res.json()
-    check("Trigger response event is 'tool_executed'", trig_data.get("event") == "tool_executed")
-    check("Trigger source is 'core' and target is 'router_9'", trig_data.get("source") == "core" and trig_data.get("target") == "router_9")
-
-    # 5. Save & Reset Custom Topology Endpoints
-    section("Custom Topology Persistence (Save / Reset)")
-    save_payload = {
-        "nodes": data["nodes"][:3],
-        "edges": data["edges"][:2],
+@pytest.fixture
+def health(monkeypatch):
+    import mateai.application.operations.health_monitor as hm
+    cache = {
+        "last_updated": time.time(),
+        "hardware": {"cpu_percent": 12.0, "ram_percent": 40.0, "disk_percent": 50.0},
+        "nodes": {"uptime_human": "2h 3m"},
+        "services": {
+            "llm_9router": {"status": "OK", "latency_ms": 180.0, "model": "m1"},
+            "database_sqlite": {"status": "OK", "detail": "ok"},
+            "telegram_gateway": {"status": "FAIL", "detail": "Chưa cấu hình Bot Token"},
+        },
     }
-    save_res = client.post("/api/v1/system/topology/save", json=save_payload)
-    check("POST /api/v1/system/topology/save returns 200", save_res.status_code == 200)
-    check("Save response has status 'success'", save_res.json().get("status") == "success")
-
-    # Verify custom returned
-    custom_res = client.get("/api/v1/system/topology")
-    check("GET /api/v1/system/topology returns saved custom graph", custom_res.json().get("custom") is True)
-
-    # Reset
-    reset_res = client.post("/api/v1/system/topology/reset")
-    check("POST /api/v1/system/topology/reset returns 200", reset_res.status_code == 200)
-    reset_get = client.get("/api/v1/system/topology")
-    check("GET /api/v1/system/topology returns auto-discovered graph after reset", reset_get.json().get("custom") is not True)
-
-    # 6. Frontend Files & Dynamic Lazy Loading
-    section("Frontend Code & Lazy Loading Checks")
-    admin_page = (ROOT / "admin" / "app" / "admin" / "topology" / "page.tsx").read_text(encoding="utf-8")
-    check("Topology page uses dynamic(..., { ssr: false })", "ssr: false" in admin_page and "dynamic(" in admin_page)
-
-    core_node_code = (ROOT / "admin" / "components" / "topology" / "CoreNode.tsx").read_text(encoding="utf-8")
-    check("CoreNode defines Handle Position.Left", "Position.Left" in core_node_code and "Handle" in core_node_code)
-    check("CoreNode defines Handle Position.Right", "Position.Right" in core_node_code)
-
-    router_node_code = (ROOT / "admin" / "components" / "topology" / "RouterNode.tsx").read_text(encoding="utf-8")
-    check("RouterNode defines 9Router AI Gateway UI", "9Router" in router_node_code)
-
-    worker_node_code = (ROOT / "admin" / "components" / "topology" / "WorkerNode.tsx").read_text(encoding="utf-8")
-    check("WorkerNode represents Worknote Agent / OpenClaw", "Worknote" in worker_node_code)
-
-    custom_node_code = (ROOT / "admin" / "components" / "topology" / "CustomModuleNode.tsx").read_text(encoding="utf-8")
-    check("CustomModuleNode exists for dynamic user modules", "CustomModuleNode" in custom_node_code)
-
-    glowing_edge_code = (ROOT / "admin" / "components" / "topology" / "GlowingEdge.tsx").read_text(encoding="utf-8")
-    check("GlowingEdge implements smoothstep path", "getSmoothStepPath" in glowing_edge_code)
-    check("GlowingEdge changes to neon orange/red when active", "#f97316" in glowing_edge_code)
-
-    # 7. Static Export & Serving
-    section("Static Export & Route Serving")
-    check("admin/out/topology.html or admin/out/admin/topology.html exists",
-          (ROOT / "admin" / "out" / "topology.html").exists() or (ROOT / "admin" / "out" / "admin" / "topology.html").exists())
-    
-    top_res = client.get("/admin/topology")
-    check("GET /admin/topology serves HTML successfully (200)", top_res.status_code == 200 and "text/html" in top_res.headers.get("content-type", ""))
-    check("GET /admin/topology serves HTML successfully (200)", top_res.status_code == 200 and "text/html" in top_res.headers.get("content-type", ""))
-
-    print("\n" + "─" * 60)
-    print(f"Total: {PASSED + FAILED} | Pass: {PASSED} | Fail: {FAILED}")
-    if FAILED:
-        print("\nFailures:")
-        for f in FAILURES:
-            print(f"  ❌ {f}")
-        sys.exit(1)
-    else:
-        print("\n✅ TẤT CẢ TEST PHASE 88 ĐỀU PASS HOÀN TOÀN!")
+    monkeypatch.setattr(hm, "SYSTEM_HEALTH_CACHE", cache)
+    return cache
 
 
-if __name__ == "__main__":
-    run_tests()
+def _by_id(snap):
+    return {n["id"]: n for n in snap["nodes"]}
+
+
+def test_statuses_come_from_real_measurements(health):
+    nodes = _by_id(topology.snapshot())
+    assert nodes["core"]["status"] == "ok" and nodes["core"]["metrics"]["cpu_percent"] == 12.0
+    assert nodes["llm"]["status"] == "ok" and nodes["llm"]["metrics"]["latency_ms"] == 180.0
+    assert nodes["db"]["status"] == "ok"
+    assert nodes["telegram"]["status"] == "off"                       # chưa cấu hình ≠ hỏng
+    health["services"]["llm_9router"] = {"status": "FAIL", "detail": "ConnectError"}
+    health["hardware"]["ram_percent"] = 97.0
+    nodes = _by_id(topology.snapshot())
+    assert nodes["llm"]["status"] == "down" and "ConnectError" in nodes["llm"]["detail"]
+    assert nodes["core"]["status"] == "down"
+
+
+def test_no_fake_numbers_when_nothing_measured(health):
+    health["last_updated"] = 0                                        # health_monitor chưa chạy
+    nodes = _by_id(topology.snapshot())
+    assert nodes["core"]["status"] == "unknown"
+    # Không có máy trạm thật -> một ô "off", KHÔNG phải 17 máy "online".
+    workers = [n for n in nodes.values() if n["kind"] == "worker"]
+    assert [w["status"] for w in workers] == ["off"]
+    # Connector chưa cấu hình hiện đúng là chưa cấu hình (trước đây luôn "active").
+    connectors = [n for n in nodes.values() if n["kind"] == "connector"]
+    assert connectors and all(c["status"] in ("off", "unknown") for c in connectors)
+
+
+def test_status_change_emits_event(health):
+    topology.track_status_changes(topology.snapshot())                # mốc ban đầu
+    health["services"]["llm_9router"] = {"status": "FAIL", "detail": "timeout"}
+    events = topology.track_status_changes(topology.snapshot())
+    assert any(e["node"] == "llm" and e["status"] == "down" for e in events)
+
+
+async def test_voice_turn_publishes_each_step():
+    import mateai.application.voice.voice_turn as vt
+    from mateai.infrastructure.tts.tts_stream_engine import TTSStreamEngine
+    import mateai.infrastructure.tts.audio_cache as audio_cache
+
+    async def synth(self, text, *a, **k):
+        return b"A" * 400
+
+    async def stream(self, text, *a, **k):
+        yield b"A" * 400
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(TTSStreamEngine, "synthesise", synth)
+    mp.setattr(TTSStreamEngine, "stream", stream)
+    mp.setattr(audio_cache, "get_cached_audio_bytes", lambda text: None)
+    try:
+        res = await vt.process_voice_turn("mấy giờ rồi", sink=vt.VoiceSink(), session_id="t-topo", source_device="hud")
+    finally:
+        mp.undo()
+    evs = [e for e in topology_events.recent() if e.get("trace_id") == res.trace["trace_id"]]
+    stages = [e["stage"] for e in evs]
+    assert stages[0] == "start" and stages[-1] == "end" and "router" in stages
+    assert evs[0]["source"] == "hud" and evs[0]["target"] == "voice"
+    assert evs[-1]["status"] == "ok" and evs[-1]["ms"] >= 0
+    assert (evs[-1]["source"], evs[-1]["target"]) == ("voice", "hud")     # cạnh trả lời sáng trên sơ đồ
+
+
+async def test_tool_steps_and_approval_waiting(monkeypatch):
+    import mateai.application.agent.tool_gate as tg
+
+    async def inner(fn_name, fn_args, **kw):
+        return {"result": {"status": "need_confirm" if fn_name == "kill_process" else "success"}}
+
+    monkeypatch.setattr(tg, "_run_tool_with_policy", inner)
+    await tg.run_tool_with_policy("get_system_info", {})
+    await tg.run_tool_with_policy("kill_process", {"pid": 1}, caller="bob")
+    evs = topology_events.recent()
+    assert [(e["kind"], e["status"]) for e in evs] == [
+        ("tool", "running"), ("tool", "ok"), ("tool", "running"), ("approval", "waiting")]
+    assert evs[-1]["target"] == "hitl" and "bob" in evs[-1]["detail"]
+    assert evs[0]["target"] == "core"                                  # tool chạy trên máy chủ
+
+
+def _client(role):
+    import mateai.interfaces.http.routers.system as system
+    from mateai.interfaces.http.auth_dependencies import get_current_user
+    app = FastAPI()
+    app.include_router(system.router)
+    app.dependency_overrides[get_current_user] = lambda: {"username": f"{role}_u", "role": role}
+    return TestClient(app)
+
+
+def test_api_roles_layout_and_simulation(health, tmp_path, monkeypatch):
+    import mateai.interfaces.http.routers.system as system
+    monkeypatch.setattr(system, "_CUSTOM_TOPOLOGY_PATH", tmp_path / "custom_topology.json")
+    assert _client("viewer").get("/api/v1/system/topology").status_code == 403
+    for path, body in (("/api/v1/system/topology/save", {"nodes": []}),
+                       ("/api/v1/system/topology/trigger", {}),
+                       ("/api/v1/system/topology/reset", None)):
+        assert _client("manager").post(path, json=body).status_code == 403
+
+    admin = _client("admin")
+    saved = admin.post("/api/v1/system/topology/save", json={
+        "nodes": [{"id": "core", "position": {"x": 10, "y": 20}, "data": {"status": "online"}}], "edges": []})
+    assert saved.status_code == 200
+    data = admin.get("/api/v1/system/topology").json()
+    assert data["layout"] == {"core": {"x": 10, "y": 20}}             # chỉ lưu vị trí
+    assert _by_id(data)["core"]["status"] == "ok"                      # trạng thái vẫn thật
+
+    ev = admin.post("/api/v1/system/topology/trigger", json={"source": "core", "target": "llm", "action": "thử"}).json()["event"]
+    assert ev["simulated"] is True and "MÔ PHỎNG" in ev["detail"]
+    events = _client("manager").get("/api/v1/system/topology/events").json()["events"]
+    assert events[-1]["seq"] == ev["seq"]
+
+
+def test_ws_sends_real_snapshot_first(monkeypatch):
+    import mateai.interfaces.http.server as server
+    from mateai.interfaces.http import ws_auth
+    monkeypatch.setattr(ws_auth, "authenticate_websocket", lambda _ws: {"username": "dan", "role": "admin"})
+    topology_events.publish("tool", stage="start", detail="trước khi mở trang")
+    with TestClient(server.app).websocket_connect("/ws/topology") as ws:
+        first = json.loads(ws.receive_text())
+        second = json.loads(ws.receive_text())
+    assert first["event"] == "snapshot" and any(n["id"] == "core" for n in first["nodes"])
+    assert second["event"] == "history" and second["events"][-1]["detail"] == "trước khi mở trang"
+
+
+def test_page_is_served():
+    assert (ROOT / "admin" / "out" / "topology.html").exists() or (ROOT / "admin" / "out" / "admin" / "topology.html").exists()

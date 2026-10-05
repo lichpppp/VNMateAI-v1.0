@@ -449,6 +449,13 @@ async def _on_startup() -> None:
     except Exception as hud_exc:
         logger.warning("Phase 33: Could not start HUD telemetry loop: %s", hud_exc)
 
+    # Trang giám sát /admin/topology: trạng thái thật 2 s/lần + sự kiện bước xử lý.
+    try:
+        from mateai.interfaces.http.topology import topology_loop
+        asyncio.create_task(topology_loop())
+    except Exception as topo_exc:
+        logger.warning("Không khởi động được vòng cập nhật topology: %s", topo_exc)
+
     # Phase 43: Start Autonomous Sentinel Background Incident Monitor
     try:
         from mateai.application.operations.autonomous_sentinel import autonomous_sentinel

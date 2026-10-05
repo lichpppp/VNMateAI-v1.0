@@ -94,6 +94,38 @@ class VoiceTurnResult:
 _RECENT_TRACES: "deque[Dict[str, Any]]" = deque(maxlen=500)
 
 
+#: Mốc của lượt thoại hiện trên trang giám sát: tên mốc -> (nguồn, đích, nhãn).
+#: "@channel" = thành phần của kênh (HUD / portal / robot …).
+_TRACE_STEPS = {
+    "router": ("@channel", "voice", "định tuyến (lệnh nhanh / LLM)"),
+    "ack_audio": ("tts", "@channel", "câu xác nhận"),
+    "first_text": ("llm", "voice", "LLM trả câu đầu"),
+    "first_answer_audio": ("tts", "@channel", "tiếng câu trả lời đầu tiên"),
+}
+
+
+def _channel_node(channel: Optional[str]) -> str:
+    """Tên kênh của lượt -> id thành phần trên sơ đồ topology."""
+    c = str(channel or "")
+    if c in ("hud", "portal", "telegram"):
+        return c
+    if c in ("web", "rest"):
+        return "portal"
+    if c in ("server_mic", "bench", ""):
+        return "core"
+    if c.startswith("telegram"):
+        return "telegram"
+    return f"robot:{c}"
+
+
+def _topology(kind: str, **kw: Any) -> None:
+    try:
+        from mateai.application.operations.topology_events import publish
+        publish(kind, **kw)
+    except Exception:  # noqa: BLE001 — giám sát không được làm hỏng lượt thoại
+        pass
+
+
 @dataclass
 class VoiceTurnTrace:
     session_id: str
@@ -111,8 +143,19 @@ class VoiceTurnTrace:
         return int(round((t - self.t0) * 1000))
 
     def mark(self, name: str) -> None:
-        """Ghi mốc lần ĐẦU tiên (các lần sau bỏ qua)."""
-        self.marks.setdefault(name, time.perf_counter())
+        """Ghi mốc lần ĐẦU tiên (các lần sau bỏ qua) và báo trang giám sát."""
+        if name in self.marks:
+            return
+        self.marks[name] = time.perf_counter()
+        step = _TRACE_STEPS.get(name)
+        if step:
+            source, target, label = step
+            _topology(
+                "turn", stage=name, trace_id=self.trace_id, channel=self.channel,
+                source=_channel_node(self.channel) if source == "@channel" else source,
+                target=_channel_node(self.channel) if target == "@channel" else target,
+                ms=self._ms(self.marks[name]), detail=label,
+            )
 
     def mark_status(self, status: str) -> None:
         self.mark("first_status")
@@ -161,6 +204,16 @@ class VoiceTurnTrace:
             "status_steps": list(self.statuses),
         }
         _RECENT_TRACES.append(data)
+        summary = " · ".join(p for p in (
+            outcome,
+            f"LLM {data['llm_first_token_ms']} ms" if data.get("llm_first_token_ms") is not None else "",
+            f"tiếng đầu {data['ttfa_answer_ms']} ms" if data.get("ttfa_answer_ms") is not None else "",
+            "có gọi tool" if data.get("used_agent") else "",
+        ) if p)
+        _topology("turn", stage="end", trace_id=self.trace_id, channel=self.channel,
+                  node="voice", source="voice", target=_channel_node(self.channel),
+                  ms=data.get("ttl_ms"), detail=summary,
+                  status={"error": "error", "cancelled": "cancelled"}.get(outcome, "ok"))
         logger.info("[VoiceTrace] %s", json.dumps({k: v for k, v in data.items() if k != "status_steps"},
                                                    ensure_ascii=False))
         return data
@@ -260,6 +313,9 @@ async def process_voice_turn(
     # cảnh thiết bị trong prompt và RBAC) — trace ghi tên kênh "server_mic".
     trace = VoiceTurnTrace(session_id=session_id, channel=source_device or "server_mic",
                            stt_ms=stt_ms, **({"request_id": request_id} if request_id else {}))
+    _topology("turn", stage="start", trace_id=trace.trace_id, channel=trace.channel,
+              source=_channel_node(trace.channel), target="voice", status="running",
+              detail=f"nhận câu: {query}" + (f" (STT {round(stt_ms)} ms)" if stt_ms is not None else ""))
     result: Optional[VoiceTurnResult] = None
     outcome = "error"
     try:

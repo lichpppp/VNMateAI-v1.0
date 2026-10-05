@@ -36,7 +36,9 @@ def test_rejects_without_token(path):
 def test_topology_accepts_logged_in_user(monkeypatch):
     monkeypatch.setattr(ws_auth, "authenticate_websocket", lambda _ws: {"username": "dan", "role": "admin"})
     with TestClient(server.app).websocket_connect("/ws/topology") as ws:
-        assert json.loads(ws.receive_text())["event"] == "connected"
+        first = json.loads(ws.receive_text())
+        # Gói đầu là trạng thái THẬT (trước đây "connected" + "active_nodes": 11 viết cứng).
+        assert first["event"] == "snapshot" and first["nodes"]
 
 
 def test_voice_runs_as_logged_in_user(monkeypatch):

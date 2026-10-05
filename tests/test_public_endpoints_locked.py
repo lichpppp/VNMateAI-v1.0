@@ -33,7 +33,7 @@ LOCKED = [
     ("POST", "/api/v1/admin/departments/save"),
     ("POST", "/api/v1/admin/cross-report"),
     ("POST", "/api/v1/admin/ephemeral-cache/flush"),
-    ("GET", "/api/v1/admin/topology"),
+    ("GET", "/api/v1/system/topology/events"),
     ("GET", "/api/v1/clients"),
     ("GET", "/api/v1/worknodes/status"),
 ]

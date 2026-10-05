@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any, Dict, Optional, Set
 
 from mateai.application.security.safety_guard import security_engine
@@ -28,7 +29,49 @@ logger = logging.getLogger(__name__)
 TOOL_KIND = "tool"
 
 
-async def run_tool_with_policy(
+_LOCAL_TARGETS = ("master", "local", "server", "chính", "cục bộ")
+
+
+def _topo(kind: str, **kw: Any) -> None:
+    try:
+        from mateai.application.operations.topology_events import publish
+        publish(kind, **kw)
+    except Exception:  # noqa: BLE001 — giám sát không được làm hỏng tác vụ
+        pass
+
+
+async def run_tool_with_policy(fn_name: str, fn_args: Optional[Dict[str, Any]] = None, **kw: Any) -> Dict[str, Any]:
+    """Cổng tool (xem `_run_tool_with_policy`) + báo từng bước cho trang giám sát
+    `/admin/topology`: bắt đầu, xong / lỗi / bị chặn / chờ duyệt, thời gian chạy."""
+    target = str((fn_args or {}).get("target_client_id") or (fn_args or {}).get("target_client") or "master")
+    # Chạy trên máy chủ -> ô "core" (trước: "tools" -> "tools", cạnh tự nối vào chính nó).
+    where = "core" if target.strip().lower() in _LOCAL_TARGETS else f"worker:{target}"
+    _topo("tool", stage="start", source="tools", target=where, status="running",
+          detail=f"{fn_name} @ {target}")
+    t0 = time.perf_counter()
+    try:
+        gate = await _run_tool_with_policy(fn_name, fn_args, **kw)
+    except Exception as exc:
+        _topo("tool", stage="end", source="tools", target=where, status="error",
+              ms=(time.perf_counter() - t0) * 1000, detail=f"{fn_name}: {type(exc).__name__}")
+        raise
+    ms = (time.perf_counter() - t0) * 1000
+    res = gate.get("result") if isinstance(gate, dict) else None
+    res = res if isinstance(res, dict) else {}
+    st = res.get("status")
+    if st in ("need_confirm", "awaiting_approval"):
+        _topo("approval", stage="request", source="tools", target="hitl", status="waiting", ms=ms,
+              detail=f"{fn_name} chờ duyệt (người yêu cầu: {kw.get('caller') or '?'})")
+    elif st == "success" or res.get("success") is True:
+        _topo("tool", stage="end", source=where, target="tools", status="ok", ms=ms, detail=fn_name)
+    else:
+        why = str(res.get("code") or res.get("error") or res.get("message") or st or "lỗi")
+        _topo("tool", stage="end", source=where, target="tools", status="error", ms=ms,
+              detail=f"{fn_name}: {why}")
+    return gate
+
+
+async def _run_tool_with_policy(
     fn_name: str,
     fn_args: Dict[str, Any],
     *,
@@ -186,6 +229,8 @@ async def execute_approved_tool(item: Dict[str, Any]) -> Dict[str, Any]:
     """
     ctx = item.get("context") or {}
     _remember_approval(item)
+    _topo("approval", stage="approved", source="hitl", target="tools", status="ok",
+          detail=f"{item.get('action_name')} được duyệt bởi {item.get('reviewed_by') or '?'}")
     gate = await run_tool_with_policy(
         str(item.get("action_name") or ""),
         {**dict(item.get("params") or {}), "target_client": ctx.get("target_client") or "master"},

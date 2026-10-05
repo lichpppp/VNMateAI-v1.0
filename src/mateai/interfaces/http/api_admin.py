@@ -3,7 +3,7 @@ core/api_admin.py
 =================
 API Quản Trị Trung Tâm Điều Hành Doanh Nghiệp (Enterprise Admin Control Center).
 Cung cấp các endpoint:
-  1. GET  /api/v1/admin/topology: Sinh bản đồ kiến trúc đa trạm, agents và connectors.
+  (Sơ đồ hệ thống: /api/v1/system/topology — trạng thái thật, interfaces/http/topology.py.)
   2. GET  /api/v1/admin/departments/overview: Danh sách phòng ban, nguồn dữ liệu và cảnh báo.
   3. POST /api/v1/admin/departments/save: Lưu cấu hình phòng ban & nguồn dữ liệu động (No-Code Form).
   4. POST /api/v1/worknodes/heartbeat: Nhận ping từ các máy trạm Mac Mini OpenClaw và phát sóng live event.
@@ -16,13 +16,19 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from mateai.infrastructure.database.erp_database import erp_db
 from mateai.application.enterprise.department_engine import department_engine
 from mateai.application.devices.elastic_grid_manager import elastic_grid_manager
 from mateai.application.agent.agent_orchestrator import multi_agent_system
+from mateai.interfaces.http.auth_dependencies import require_roles
+
+# Vai trò: middleware chỉ kiểm ĐĂNG NHẬP — trước đây viewer cũng gọi được mọi API
+# quản trị ở đây, kể cả xoá toàn bộ bộ đệm RAM.
+_READ = Depends(require_roles(["manager", "admin"]))
+_ADMIN = Depends(require_roles(["admin"]))
 
 logger = logging.getLogger("mateai.interfaces.http.api_admin")
 
@@ -58,184 +64,8 @@ class CrossReportRequest(BaseModel):
 
 # ─── Endpoints ─────────────────────────────────────────────────────────────
 
-@router.get("/admin/topology")
-async def get_admin_topology() -> Dict[str, Any]:
-    """
-    Trả về cấu trúc toàn bộ đồ thị mạng lưới:
-    - VN-MateAI Brain Core
-    - 9Router Multi-Model Gateway
-    - Sub-Agents (CFO, HR, CTO)
-    - Phòng ban & Data Connectors (eInvoice, M365, AWS, Paperless)
-    - Elastic Standby Worker Grid (Các máy Mac Mini Online/Standby)
-    """
-    grid_info = elastic_grid_manager.get_grid_overview()
-    depts = erp_db.get_enterprise_departments()
-
-    nodes: List[Dict[str, Any]] = [
-        # Core & Hub
-        {
-            "id": "core",
-            "type": "core",
-            "label": "VN-MateAI Brain Core",
-            "subtitle": "Ubuntu Master (FastAPI :443)",
-            "status": "online",
-            "icon": "brain",
-            "x": 400,
-            "y": 200,
-        },
-        {
-            "id": "router_9",
-            "type": "gateway",
-            "label": "9Router AI Gateway",
-            "subtitle": "Port :20128 Multi-Model",
-            "status": "online",
-            "icon": "network",
-            "x": 400,
-            "y": 50,
-        },
-        # Agents
-        {
-            "id": "agent_ceo",
-            "type": "agent",
-            "label": "CEO Router Agent",
-            "subtitle": "Virtual COO & Inter-Agent Bus",
-            "status": "online",
-            "icon": "crown",
-            "x": 200,
-            "y": 120,
-        },
-        {
-            "id": "agent_cfo",
-            "type": "agent",
-            "label": "CFO Agent",
-            "subtitle": "Finance & Cashflow",
-            "status": "online",
-            "icon": "cash",
-            "x": 100,
-            "y": 220,
-        },
-        {
-            "id": "agent_hr",
-            "type": "agent",
-            "label": "HR Agent",
-            "subtitle": "People & Policy RAG",
-            "status": "online",
-            "icon": "users",
-            "x": 100,
-            "y": 320,
-        },
-        {
-            "id": "agent_cto",
-            "type": "agent",
-            "label": "CTO Agent",
-            "subtitle": "Cloud & AIOps",
-            "status": "online",
-            "icon": "server",
-            "x": 200,
-            "y": 420,
-        },
-        # Connectors
-        {
-            "id": "conn_m365",
-            "type": "connector",
-            "label": "Microsoft 365",
-            "subtitle": "Teams & Outlook Graph",
-            "status": "active",
-            "icon": "mail",
-            "x": 650,
-            "y": 80,
-        },
-        {
-            "id": "conn_einvoice",
-            "type": "connector",
-            "label": "eInvoice Hub",
-            "subtitle": "VNPT / Viettel / MISA",
-            "status": "active",
-            "icon": "receipt",
-            "x": 650,
-            "y": 180,
-        },
-        {
-            "id": "conn_paperless",
-            "type": "connector",
-            "label": "Paperless DMS",
-            "subtitle": "OCR & Legal Vault",
-            "status": "active",
-            "icon": "file-text",
-            "x": 650,
-            "y": 280,
-        },
-        {
-            "id": "conn_cloud",
-            "type": "connector",
-            "label": "AWS & OCI Cloud",
-            "subtitle": "FinOps Cost Monitoring",
-            "status": "active",
-            "icon": "cloud",
-            "x": 650,
-            "y": 380,
-        },
-        # Elastic Grid Hub
-        {
-            "id": "worker_grid_cluster",
-            "type": "worker_cluster",
-            "label": "Elastic Standby Grid",
-            "subtitle": f"{grid_info['online_nodes_count']} Online | {grid_info['standby_queue_length']} Standby Tasks",
-            "status": "online" if grid_info["online_nodes_count"] > 0 else "standby",
-            "icon": "cpu",
-            "x": 400,
-            "y": 420,
-        },
-    ]
-
-    edges: List[Dict[str, Any]] = [
-        {"id": "e_core_9r", "source": "router_9", "target": "core", "label": "LLM Stream", "active": True},
-        {"id": "e_core_ceo", "source": "core", "target": "agent_ceo", "label": "Orchestrate", "active": True},
-        {"id": "e_ceo_cfo", "source": "agent_ceo", "target": "agent_cfo", "label": "Bus Dispatch"},
-        {"id": "e_ceo_hr", "source": "agent_ceo", "target": "agent_hr", "label": "Bus Dispatch"},
-        {"id": "e_ceo_cto", "source": "agent_ceo", "target": "agent_cto", "label": "Bus Dispatch"},
-        {"id": "e_core_m365", "source": "core", "target": "conn_m365", "label": "Graph API"},
-        {"id": "e_cfo_inv", "source": "agent_cfo", "target": "conn_einvoice", "label": "Invoice Data"},
-        {"id": "e_core_paperless", "source": "core", "target": "conn_paperless", "label": "RAG Sync"},
-        {"id": "e_cto_cloud", "source": "agent_cto", "target": "conn_cloud", "label": "Cost Metrics"},
-        {"id": "e_core_grid", "source": "core", "target": "worker_grid_cluster", "label": "Zero-Trust RPA", "active": grid_info["online_nodes_count"] > 0},
-    ]
-
-    # Đưa các node Mac Mini thật vào sơ đồ nếu đang Online
-    y_offset = 480
-    for idx, wn in enumerate(grid_info["nodes"]):
-        if wn["is_online"]:
-            wn_id = f"node_{wn['node_id']}"
-            nodes.append({
-                "id": wn_id,
-                "type": "worknode",
-                "label": f"Mac Mini: {wn['node_id']}",
-                "subtitle": f"{wn['ip']} | CPU {wn['cpu_percent']}% | RAM {wn['ram_percent']}%",
-                "status": "online",
-                "icon": "desktop",
-                "x": 250 + (idx % 3) * 180,
-                "y": y_offset,
-            })
-            edges.append({
-                "id": f"e_grid_{wn_id}",
-                "source": "worker_grid_cluster",
-                "target": wn_id,
-                "label": "Heartbeat",
-                "active": True,
-            })
-
-    return {
-        "status": "success",
-        "nodes": nodes,
-        "edges": edges,
-        "grid_summary": grid_info,
-        "departments_count": len(depts),
-        "timestamp": datetime.utcnow().isoformat(),
-    }
-
-
 @router.get("/admin/departments/overview")
-async def get_departments_overview() -> Dict[str, Any]:
+async def get_departments_overview(user: dict = _READ) -> Dict[str, Any]:
     """Lấy danh sách các phòng ban kèm các nguồn dữ liệu đang kết nối."""
     depts = erp_db.get_enterprise_departments()
     result = []
@@ -257,7 +87,7 @@ async def get_departments_overview() -> Dict[str, Any]:
 
 
 @router.post("/admin/departments/save")
-async def save_department_config(req: DepartmentSaveRequest) -> Dict[str, Any]:
+async def save_department_config(req: DepartmentSaveRequest, user: dict = _ADMIN) -> Dict[str, Any]:
     """Khai báo hoặc cập nhật cấu hình phòng ban & nguồn dữ liệu qua No-Code Web UI."""
     saved_dept = department_engine.register_department({
         "dept_code": req.dept_code,
@@ -319,7 +149,7 @@ async def receive_worknode_heartbeat(req: WorknodeHeartbeatRequest) -> Dict[str,
 
 
 @router.get("/worknodes/status")
-async def get_worknodes_status() -> Dict[str, Any]:
+async def get_worknodes_status(user: dict = _READ) -> Dict[str, Any]:
     """Lấy danh sách các trạm ngoại vi và hàng đợi Standby."""
     return {
         "status": "success",
@@ -328,7 +158,7 @@ async def get_worknodes_status() -> Dict[str, Any]:
 
 
 @router.post("/admin/cross-report")
-async def generate_cross_report_api(req: CrossReportRequest) -> Dict[str, Any]:
+async def generate_cross_report_api(req: CrossReportRequest, user: dict = _ADMIN) -> Dict[str, Any]:
     """Kích hoạt báo cáo liên phòng ban tức thời từ Admin Web UI."""
     return multi_agent_system.generate_cross_domain_report(
         query_context="Yêu cầu từ Admin Web UI",
@@ -338,7 +168,7 @@ async def generate_cross_report_api(req: CrossReportRequest) -> Dict[str, Any]:
 
 
 @router.get("/admin/ephemeral-cache")
-async def get_ephemeral_cache_stats() -> Dict[str, Any]:
+async def get_ephemeral_cache_stats(user: dict = _ADMIN) -> Dict[str, Any]:
     """Giám sát bộ đệm RAM tự hủy theo tiêu chuẩn GDPR / Nghị định 13."""
     from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
     return {
@@ -354,7 +184,7 @@ async def get_ephemeral_cache_stats() -> Dict[str, Any]:
 
 
 @router.post("/admin/ephemeral-cache/flush")
-async def flush_ephemeral_cache_all() -> Dict[str, Any]:
+async def flush_ephemeral_cache_all(user: dict = _ADMIN) -> Dict[str, Any]:
     """Tiêu hủy khẩn cấp toàn bộ dữ liệu tạm trên RAM (Emergency RAM Flush)."""
     from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
     flushed = ephemeral_cache.sweep_expired()

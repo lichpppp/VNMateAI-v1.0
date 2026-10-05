@@ -30,7 +30,6 @@ from mateai.interfaces.websocket.realtime_hub import (
     broadcast_hud,
     broadcast_hud_binary,
     broadcast_portal_ui,
-    broadcast_topology_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,24 +173,24 @@ async def websocket_topology_endpoint(websocket: WebSocket) -> None:
     active_topology_websockets.add(websocket)
     logger.info("Topology viewer connected (%d active sessions).", len(active_topology_websockets))
     try:
-        # Gói tin chào mừng
-        await websocket.send_text(json.dumps({
-            "event": "connected",
-            "message": "Topology WebSocket synchronized",
-            "active_nodes": 11,
-            "timestamp": datetime.utcnow().isoformat(),
-        }, ensure_ascii=False))
+        # Mở trang: gửi ngay trạng thái THẬT + sự kiện gần đây (trước đây gửi
+        # "active_nodes": 11 viết cứng). Sau đó vòng topology_loop đẩy snapshot
+        # 2 s/lần và từng sự kiện bước xử lý ngay khi xảy ra.
+        from mateai.interfaces.http.topology import snapshot
+        from mateai.application.operations import topology_events
+        snap = await asyncio.to_thread(snapshot)
+        await websocket.send_text(json.dumps({"event": "snapshot", **snap}, ensure_ascii=False, default=str))
+        await websocket.send_text(json.dumps({"event": "history", "events": topology_events.recent(150)},
+                                             ensure_ascii=False, default=str))
 
         while True:
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
+                # Chỉ còn ping: client không được phát sự kiện lên sơ đồ của người khác
+                # (trước đây ai đăng nhập cũng bơm được "trigger" giả hiện như thật).
                 if msg.get("action") == "ping":
                     await websocket.send_text(json.dumps({"event": "pong"}))
-                elif msg.get("event") == "trigger":
-                    src = msg.get("source", "core")
-                    tgt = msg.get("target", "plugin_m365")
-                    await broadcast_topology_event(src, tgt, msg.get("action", ""))
             except Exception:
                 pass
     except WebSocketDisconnect:
