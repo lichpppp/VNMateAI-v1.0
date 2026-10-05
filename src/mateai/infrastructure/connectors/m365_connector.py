@@ -76,6 +76,12 @@ class Microsoft365Connector:
 
         return None
 
+    def _not_sent(self, channel: str, destination: str, subject: str) -> Dict[str, Any]:
+        reason = ("chưa cấu hình M365_TENANT_ID / M365_CLIENT_ID / M365_CLIENT_SECRET"
+                  if not self.is_configured else "không lấy được access token từ Microsoft Entra ID")
+        logger.warning("[M365 %s] KHÔNG gửi tới %s (%s): %s", channel, destination, reason, subject)
+        return {"status": "error", "code": "not_sent", "detail": reason, "destination": destination}
+
     async def send_teams_channel_message(
         self,
         team_id: str,
@@ -86,14 +92,9 @@ class Microsoft365Connector:
         """Bắn cảnh báo, thông báo trực tiếp vào Channel Microsoft Teams."""
         token = await self.get_access_token()
         if not token:
-            logger.info("[M365 MOCK] Không có Azure M365 Credentials thật — Giả lập gửi Teams thành công tới channel %s: %s", channel_id, subject)
-            return {
-                "status": "success",
-                "mode": "simulated",
-                "destination": f"teams://{team_id}/{channel_id}",
-                "subject": subject,
-                "timestamp": time.time(),
-            }
+            # Trước đây trả "success" (mode "simulated") — người gọi tưởng cảnh báo đã
+            # tới Teams trong khi không có gì được gửi.
+            return self._not_sent("Teams", f"teams://{team_id}/{channel_id}", subject)
 
         url = f"https://graph.microsoft.com/v1.0/teams/{team_id}/channels/{channel_id}/messages"
         headers = {
@@ -129,14 +130,7 @@ class Microsoft365Connector:
         """Gửi email điều hành từ hòm thư hệ thống qua Microsoft Graph API."""
         token = await self.get_access_token()
         if not token:
-            logger.info("[M365 MOCK] Giả lập gửi Outlook email thành công tới %s: %s", to_recipients, subject)
-            return {
-                "status": "success",
-                "mode": "simulated",
-                "recipients": to_recipients,
-                "subject": subject,
-                "timestamp": time.time(),
-            }
+            return self._not_sent("Outlook", ", ".join(to_recipients), subject)
 
         url = f"https://graph.microsoft.com/v1.0/users/{self.system_email}/sendMail"
         headers = {
