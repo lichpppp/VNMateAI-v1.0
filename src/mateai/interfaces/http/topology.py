@@ -249,7 +249,7 @@ def _automation_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) 
             "last_alert": _ago(last),
         }, group="automation"))
     edges += [_edge("sentinel", "core"), _edge("sentinel", "db"), _edge("sentinel", "ad"),
-              _edge("sentinel", "telegram"), _edge("sentinel", "robot:*")]
+              _edge("sentinel", "alerts"), _edge("sentinel", "robot:*")]
 
     pm = _loaded("mateai.application.skills.builtin.proactive_manager", "proactive_manager")
     if pm is None:
@@ -308,7 +308,7 @@ def _automation_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) 
                                "tickets": len(hist),
                                "last_ticket": hist[0].get("received_at") if hist else None,
                            }, group="channel"))
-    edges += [_edge("email", "db"), _edge("email", "telegram")]
+    edges += [_edge("email", "db"), _edge("email", "alerts")]
 
     stats = _loaded("mateai.interfaces.http.webhook_gateway", "WEBHOOK_STATS")
     if stats is None:
@@ -318,7 +318,7 @@ def _automation_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) 
             "received": stats.get("received"), "duplicates": stats.get("duplicates"),
             "last": _ago(stats.get("last_at")), "last_source": stats.get("last_source"),
         }, group="channel"))
-    edges += [_edge("webhook", "telegram"), _edge("webhook", "robot:*")]
+    edges += [_edge("webhook", "alerts"), _edge("webhook", "robot:*")]
 
     alive = _thread_alive("vnmate-udp-beacon")
     nodes.append(_node("beacon", "beacon", "UDP Beacon (tìm máy chủ)", "ok" if alive else "down",
@@ -395,6 +395,47 @@ def _knowledge_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -
     edges += [_edge("voice", "cache")]
 
 
+def _alert_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    """Khâu cảnh báo chung + từng kênh gửi ra (Teams, Email, Outlook, Slack, Webhook)."""
+    from mateai.application.operations import alert_dispatcher
+    from mateai.infrastructure.notifications import load_rules
+    chans = alert_dispatcher.channel_status()
+    ready = [c for c in chans if c["configured"] and c["enabled"]]
+    rules = load_rules()
+    last = alert_dispatcher.HISTORY[0] if alert_dispatcher.HISTORY else None
+    if not ready:
+        status, detail = "degraded", "chưa kênh nào kết nối — cảnh báo không tới được ai"
+    elif last and not last["resolved"] and last["delivered"] == 0 and last["results"]:
+        status, detail = "down", "lần gửi gần nhất không tới được kênh nào"
+    else:
+        status, detail = "ok", ""
+    nodes.append(_node("alerts", "alerts", "Khâu cảnh báo", status, detail, {
+        "channels_ready": f"{len(ready)}/{len(chans)}",
+        "min_severity": rules["min_severity"],
+        "watch_topology": rules["watch_topology"],
+        "last_alert": (f"{last['title']} ({last['delivered']}/{len(last['results'])} kênh)" if last else None),
+    }, group="alerts"))
+    edges.append(_edge("alerts", "telegram"))
+    for c in chans:
+        if c["id"] == alert_dispatcher.TELEGRAM:
+            continue
+        if not c["configured"]:
+            st, why = "off", "chờ kết nối — thiếu: " + ", ".join(c["missing_fields"])
+        elif not c["enabled"]:
+            st, why = "off", "đã tắt trong cấu hình"
+        elif c.get("last_status") == "error":
+            st, why = "down", f"lần gửi gần nhất lỗi: {c.get('last_detail', '')}"
+        elif c.get("last_status") == "ok":
+            st, why = "ok", ""
+        else:
+            st, why = "unknown", "đã kết nối, chưa gửi lần nào (bấm Gửi thử)"
+        nodes.append(_node(c["node"], "notify", c["display_name"], st, why, {
+            "sent": c.get("sent", 0), "failed": c.get("failed", 0),
+            "last": _ago(c.get("last_at")),
+        }, group="alerts"))
+        edges.append(_edge("alerts", c["node"]))
+
+
 def _expand_wildcards(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """`robot:*` -> mọi ô robot hiện có (kể cả ô "robot:none" khi chưa có robot)."""
     robots = [n["id"] for n in nodes if n["kind"] == "robot"]
@@ -419,7 +460,7 @@ def snapshot() -> Dict[str, Any]:
             build(nodes)
         except Exception as exc:  # noqa: BLE001 — một nguồn hỏng không làm mất cả sơ đồ
             logger.warning("[Topology] %s lỗi: %s", build.__name__, exc)
-    for build in (_channel_nodes, _tool_nodes, _automation_nodes, _knowledge_nodes):
+    for build in (_channel_nodes, _tool_nodes, _automation_nodes, _knowledge_nodes, _alert_nodes):
         try:
             build(nodes, edges)
         except Exception as exc:  # noqa: BLE001
@@ -470,16 +511,23 @@ def _on_event(ev: Dict[str, Any]):
     return _broadcast({"event": "step", **ev})
 
 
+#: Không ai mở trang vẫn kiểm tra (để tự gửi cảnh báo), nhưng thưa hơn.
+IDLE_INTERVAL_S = 10.0
+
+
 async def topology_loop() -> None:
-    """Chạy suốt đời máy chủ: snapshot 2 s/lần khi có người xem; sự kiện đẩy ngay."""
+    """Chạy suốt đời máy chủ: snapshot 2 s/lần khi có người xem (10 s khi không ai
+    xem — vẫn theo dõi để tự gửi cảnh báo); sự kiện bước xử lý đẩy ngay."""
     from mateai.interfaces.websocket.realtime_hub import active_topology_websockets
+    from mateai.application.operations import alert_dispatcher
     topology_events.subscribe(_on_event)
     while True:
         try:
+            snap = await asyncio.to_thread(snapshot)
+            track_status_changes(snap)
             if active_topology_websockets:
-                snap = snapshot()
-                track_status_changes(snap)
                 await _broadcast({"event": "snapshot", **snap})
+            asyncio.create_task(alert_dispatcher.evaluate_topology(snap))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[Topology] vòng cập nhật lỗi: %s", exc)
-        await asyncio.sleep(SNAPSHOT_INTERVAL_S)
+        await asyncio.sleep(SNAPSHOT_INTERVAL_S if active_topology_websockets else IDLE_INTERVAL_S)

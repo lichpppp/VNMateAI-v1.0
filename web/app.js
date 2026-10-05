@@ -11538,7 +11538,9 @@ let _ccConfigFocus = null;
 // Extensions registered by enterprise plugins (populated at runtime).
 let _ccExtensions = [];
 // Tên trường bí mật — KHÔNG bao giờ chép vào value của <input>, chỉ ghi "đã lưu".
-const CC_SECRET_FIELDS = ['secret_access_key', 'api_token', 'client_secret', 'access_key_id'];
+// Kênh cảnh báo: URL webhook Teams / Slack chính là khoá — không đưa vào DOM.
+const CC_SECRET_FIELDS = ['secret_access_key', 'api_token', 'client_secret', 'access_key_id',
+  'webhook_url', 'hmac_secret', 'password'];
 
 function _ccGet(id) { return document.getElementById(id); }
 
@@ -13747,11 +13749,20 @@ function _ccRenderCard(c) {
     `<button type="button" onclick="saveConnectorConfig('${c.id}', this)"` +
     ` class="mt-3 w-full px-3 py-1.5 text-[10px] font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition">` +
     `Lưu cấu hình ${_esc(c.display_name || c.id)}</button>` +
+    (c.kind === 'alert_channel'
+      ? `<button type="button" onclick="testAlertChannel('${c.id}', this)"` +
+        ` class="mt-2 w-full px-3 py-1.5 text-[10px] font-semibold rounded-lg border border-sky-500/50 text-sky-600 dark:text-sky-300 hover:bg-sky-50 dark:hover:bg-sky-900/30 transition">` +
+        `Gửi thử cảnh báo</button>`
+      : '') +
     `</div>`
   );
 }
 
 /** Dựng lại toàn bộ form connector từ schema. */
+/** Danh mục lần dựng gần nhất — kênh cảnh báo lấy trạng thái "chờ kết nối" từ đây
+ *  (endpoint health chỉ có 4 connector dữ liệu). */
+let _ccCatalog = {};
+
 async function renderConnectorForms() {
   const box = _ccGet('cc-connector-config-forms');
   if (!box) return;
@@ -13762,6 +13773,7 @@ async function renderConnectorForms() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const body = await res.json();
     const list = Object.values(body?.connectors || {});
+    _ccCatalog = body?.connectors || {};
     if (!list.length) {
       box.innerHTML =
         `<div class="col-span-full py-6 text-center text-xs text-amber-600 dark:text-amber-400 italic">` +
@@ -13782,7 +13794,9 @@ async function loadConnectorConfigAll() {
   // Phải dựng form TRƯỚC rồi mới nạp giá trị: `loadConnectorConfig` tìm ô
   // theo id, mà id chỉ tồn tại sau khi form được sinh ra.
   await renderConnectorForms();
-  for (const name of CC_CONNECTORS) {
+  // Mọi thẻ server trả về (4 connector dữ liệu + kênh cảnh báo), không chỉ danh sách cố định.
+  const names = Object.keys(_ccCatalog).length ? Object.keys(_ccCatalog) : CC_CONNECTORS;
+  for (const name of names) {
     await loadConnectorConfig(name);
   }
 }
@@ -13844,7 +13858,7 @@ async function loadConnectorConfig(connectorName) {
     let missing = null;
     try {
       const h = await _ccFetchConnectorHealth();
-      const info = (h?.connectors || {})[connectorName];
+      const info = (h?.connectors || {})[connectorName] || _ccCatalog[connectorName];
       if (info) missing = Array.isArray(info.missing_fields) ? info.missing_fields : [];
     } catch (_e) {
       missing = null; // Không gọi được health -> không được khẳng định cả
@@ -13869,6 +13883,34 @@ async function loadConnectorConfig(connectorName) {
     _ccSetStatus(_ccGet(`${connectorName}-config-status`), false, 'Chưa cấu hình', `Lỗi tải: ${err.message}`);
   }
 }
+
+/** Gửi một cảnh báo THỬ qua kênh — kết quả là phản hồi thật của Teams / SMTP / Graph… */
+async function testAlertChannel(channelId, btn) {
+  const label = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang gửi…'; }
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/system/notifications/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${getAuthToken()}` },
+      body: JSON.stringify({ channel: channelId }),
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try { detail = (await res.json()).detail || detail; } catch (_) { /* không phải JSON */ }
+      throw new Error(detail);
+    }
+    const d = await res.json();
+    const r = (d.results || [])[0];
+    if (!r) throw new Error('Kênh chưa kết nối hoặc đang tắt — điền đủ ô bắt buộc (*) rồi Lưu.');
+    if (r.status !== 'ok') throw new Error(r.detail || r.status);
+    showToast(`✔ Đã gửi thử: ${r.detail}`, 'success');
+  } catch (err) {
+    showToast(`✖ Gửi thử thất bại: ${err.message}`, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = label; }
+  }
+}
+window.testAlertChannel = testAlertChannel;
 
 async function saveConnectorConfig(connectorName, btn) {
   const label = btn ? btn.dataset.label || btn.textContent.trim() : `Lưu cấu hình ${connectorName.toUpperCase()}`;

@@ -449,6 +449,10 @@ async def _on_startup() -> None:
     except Exception as hud_exc:
         logger.warning("Phase 33: Could not start HUD telemetry loop: %s", hud_exc)
 
+    # Khâu cảnh báo chung: notify() gọi từ thread (email, phân tích…) đẩy về loop này.
+    from mateai.application.operations import alert_dispatcher
+    alert_dispatcher.bind_loop(asyncio.get_running_loop())
+
     # Trang giám sát /admin/topology: trạng thái thật 2 s/lần + sự kiện bước xử lý.
     try:
         from mateai.interfaces.http.topology import topology_loop

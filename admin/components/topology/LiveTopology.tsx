@@ -35,6 +35,7 @@ import {
   Plug, RotateCcw, Save, Server, ShieldCheck, Volume2, Wrench, Wifi, WifiOff, Play,
   Cloud, Layers, FileText, Receipt, Send, Network,
   Radar, Mail, CalendarClock, ListChecks, BookOpen, Brain, Users, Webhook, RadioTower, MemoryStick,
+  BellRing, Hash, Inbox, Send as SendIcon,
 } from 'lucide-react';
 import { authFetch, sessionToken } from '@/lib/api';
 import { CyberNode, CyberNodeData } from './CyberNode';
@@ -99,6 +100,7 @@ const STAGE_TEXT: Record<string, string> = {
   listen: 'đang lắng nghe', farewell: 'tạm biệt',
   alert_out: 'gửi cảnh báo', ticket: 'tạo ticket', received: 'nhận webhook', duplicate: 'trùng, bỏ qua',
   alert: 'phát hiện sự cố', resolved: 'đã khôi phục', audit: 'rà soát đôn đốc',
+  dispatch: 'bắt đầu gửi cảnh báo', notify: 'gửi tới kênh', dispatched: 'kết quả gửi',
 };
 const KIND_TEXT: Record<string, string> = {
   turn: 'Lượt hội thoại', tool: 'Tool', approval: 'Phê duyệt', robot: 'Robot',
@@ -121,6 +123,8 @@ const METRIC_TEXT: Record<string, string> = {
   port: 'Cổng UDP', employees: 'Nhân viên', computers: 'Máy tính', last_sync: 'Đồng bộ gần nhất',
   chunks: 'Đoạn tài liệu', graph_entities: 'Thực thể (Graph)', graph_relations: 'Quan hệ (Graph)',
   records: 'Bản ghi', agents: 'Tác tử', interactions: 'Lượt trao đổi', active_items: 'Mục trong RAM',
+  channels_ready: 'Kênh đã kết nối', min_severity: 'Mức tối thiểu', watch_topology: 'Theo dõi sơ đồ',
+  sent: 'Đã gửi',
   sessions: 'Phiên',
 };
 
@@ -130,6 +134,7 @@ const KIND_ICON: Record<string, React.ElementType> = {
   worker: Monitor, connector: Plug,
   sentinel: Radar, email: Mail, scheduler: CalendarClock, jobs: ListChecks, knowledge: BookOpen,
   memory: Brain, directory: Users, webhook: Webhook, beacon: RadioTower, agents: Network, cache: MemoryStick,
+  alerts: BellRing, notify: SendIcon,
 };
 
 /**
@@ -141,8 +146,10 @@ function defaultColumn(n: TopoNode): number {
   if (['stt', 'beacon', 'sentinel', 'scheduler'].includes(n.id)) return 1; // nghe + dịch vụ tự chạy
   if (n.id === 'voice' || n.id === 'cache') return 2;
   if (n.id === 'llm' || n.id === 'tts' || n.id === 'tools') return 3;
-  if (n.kind === 'connector') return 5;
-  if (['db', 'ad', 'rag', 'memory'].includes(n.id)) return 6;              // dữ liệu & tri thức
+  if (n.id === 'alerts') return 4;                                        // khâu cảnh báo chung
+  if (n.kind === 'notify') return 5;                                       // kênh gửi cảnh báo ra
+  if (n.kind === 'connector') return 6;
+  if (['db', 'ad', 'rag', 'memory'].includes(n.id)) return 7;              // dữ liệu & tri thức
   return 4;   // core, hitl, máy trạm, đa tác tử, tác vụ nền
 }
 
@@ -212,6 +219,8 @@ const KIND_STYLE: Record<string, [string, string]> = {
   memory: ['COGNITIVE MEMORY', '#d946ef'],
   agents: ['MULTI-AGENT // C-SUITE', '#a855f7'],
   cache: ['EPHEMERAL CACHE // RAM', '#94a3b8'],
+  alerts: ['ALERT HUB // ĐA KÊNH', '#f97316'],
+  notify: ['KÊNH CẢNH BÁO', '#fb7185'],
 };
 const ID_STYLE: Record<string, [string, string, React.ElementType]> = {
   hud: ['KÊNH // HUD', '#38bdf8', Monitor],
@@ -221,6 +230,11 @@ const ID_STYLE: Record<string, [string, string, React.ElementType]> = {
   'connector:oci': ['ORACLE OCI', '#ef4444', Layers],
   'connector:paperless': ['PAPERLESS-NGX', '#14b8a6', FileText],
   'connector:einvoice': ['E-INVOICE VN', '#10b981', Receipt],
+  'notify:teams': ['MICROSOFT TEAMS', '#6264a7', MessageSquare],
+  'notify:email': ['EMAIL // SMTP', '#38bdf8', Mail],
+  'notify:outlook': ['OUTLOOK // M365', '#0078d4', Inbox],
+  'notify:slack': ['SLACK', '#e01e5a', Hash],
+  'notify:webhook': ['WEBHOOK RA', '#c084fc', Webhook],
 };
 const METRIC_PICK: Record<string, string[]> = {
   server: ['cpu_percent', 'ram_percent', 'disk_percent', 'uptime'],
@@ -242,6 +256,8 @@ const METRIC_PICK: Record<string, string[]> = {
   memory: ['records'],
   agents: ['agents', 'interactions'],
   cache: ['active_items', 'sessions'],
+  alerts: ['channels_ready', 'min_severity', 'last_alert'],
+  notify: ['sent', 'failed', 'last'],
 };
 
 function toCyber(n: TopoNode, glowColor: string | undefined, runs: number | undefined): CyberNodeData {
@@ -259,6 +275,12 @@ function toCyber(n: TopoNode, glowColor: string | undefined, runs: number | unde
 }
 
 const nodeTypes = { cyber: CyberNode };
+
+/** Ô trên sơ đồ -> id kênh cho API gửi thử ('' = mọi kênh đã kết nối). */
+const ALERT_CHANNEL_OF: Record<string, string> = {
+  alerts: '', telegram: 'telegram', 'notify:teams': 'alert_teams', 'notify:email': 'alert_email',
+  'notify:outlook': 'alert_outlook', 'notify:slack': 'alert_slack', 'notify:webhook': 'alert_webhook',
+};
 const edgeTypes = { glowing: GlowingEdge };
 
 // ── Trang ───────────────────────────────────────────────────────────────────
@@ -512,6 +534,28 @@ export default function LiveTopology() {
     else setNotice(res.status === 403 ? 'Chỉ admin được đặt lại bố cục.' : `Đặt lại lỗi (HTTP ${res.status}).`);
   };
 
+  const [testing, setTesting] = useState(false);
+  /** Gửi cảnh báo THỬ thật (chỉ admin) — kết quả từng kênh hiện ở thông báo + "Luồng trực tiếp". */
+  const testAlert = async (channel: string) => {
+    setTesting(true);
+    try {
+      const res = await authFetch('/api/v1/system/notifications/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: channel || null }),
+      });
+      if (res.status === 403) { setNotice('Chỉ admin được gửi thử cảnh báo.'); return; }
+      const d = await res.json();
+      const rs: { channel: string; status: string; detail: string }[] = d.results ?? [];
+      setNotice(rs.length
+        ? rs.map((r) => `${r.channel}: ${r.status === 'ok' ? 'đã gửi' : r.status === 'cancelled' ? 'chờ kết nối' : 'lỗi'} — ${r.detail}`).join(' · ')
+        : 'Chưa kênh nào kết nối — cấu hình ở Portal → Cấu hình kết nối ngoại vi.');
+    } catch (e) {
+      setNotice(`Gửi thử lỗi: ${(e as Error).message}`);
+    } finally {
+      setTesting(false);
+    }
+  };
+
   /** Mô phỏng CỤC BỘ một lượt thoại để thử giao diện — không gửi lên máy chủ. */
   const simulate = () => {
     const steps: [string, string, string, string][] = [
@@ -670,6 +714,15 @@ export default function LiveTopology() {
                   <div className="mb-1 font-mono text-slate-500">{selNode.id}</div>
                   {selNode.detail && <p className="mb-2 text-slate-300">{selNode.detail}</p>}
                   <p className="mb-3 text-slate-500">{fmtSince(selNode.since)}</p>
+                  {selNode.id in ALERT_CHANNEL_OF && (
+                    <button
+                      onClick={() => testAlert(ALERT_CHANNEL_OF[selNode.id])}
+                      disabled={testing}
+                      className="mb-3 w-full rounded-lg border border-orange-500/50 bg-orange-950/40 px-2 py-1.5 text-xs font-bold text-orange-300 hover:bg-orange-900/50 disabled:opacity-50"
+                    >
+                      {testing ? 'Đang gửi…' : selNode.id === 'alerts' ? 'Gửi thử tới mọi kênh đã kết nối' : 'Gửi thử cảnh báo qua kênh này'}
+                    </button>
+                  )}
                   <table className="mb-4 w-full">
                     <tbody>
                       {Object.entries(selNode.metrics).length === 0 && <tr><td className="text-slate-500">Chưa có số đo.</td></tr>}

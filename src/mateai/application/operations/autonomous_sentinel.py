@@ -230,18 +230,16 @@ class AutonomousSentinel:
 
         self._last_alert_times[category] = now
         from mateai.application.operations.topology_events import emit
-        emit("incident", stage="alert", source="sentinel", target="telegram", status="error",
+        emit("incident", stage="alert", source="sentinel", target="alerts", status="error",
              detail=f"[{category}] {title}")
         logger.warning("[AutonomousSentinel] PHÁT HIỆN SỰ CỐ [%s]: %s — %s", category, title, message)
 
-        # 1. Broadcast Telegram Alert
-        try:
-            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-            if telegram_gateway and telegram_gateway._running:
-                tg_text = f"🚨 *[SENTINEL INCIDENT ALERT]* 🚨\n\n*Tiêu đề:* {title}\n*Chi tiết:* {message}\n*Thời gian:* {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"
-                telegram_gateway.send_incident_alert(tg_text)
-        except Exception as tg_err:
-            logger.debug("[AutonomousSentinel] Telegram alert dispatch error: %s", tg_err)
+        # 1. Khâu cảnh báo chung: Telegram + Teams + Email + Outlook + Slack + Webhook
+        #    (kênh nào đã kết nối). Trước đây chỉ Telegram, và gửi cú pháp Markdown
+        #    vào kênh HTML nên tin hiện nguyên dấu `*`.
+        from mateai.application.operations import alert_dispatcher
+        await alert_dispatcher.dispatch(title, message, severity="critical", category=f"sentinel:{category}",
+                                        source="Autonomous Sentinel", force=force)
 
         # 2. Step 4: Wake Xiaozhi Desktop Robot with blinking red LCD and voice (async non-blocking)
         try:
@@ -275,24 +273,15 @@ class AutonomousSentinel:
         """
         raw_title = incident.get("title", category)
         from mateai.application.operations.topology_events import emit
-        emit("incident", stage="resolved", source="sentinel", target="telegram", status="ok",
+        emit("incident", stage="resolved", source="sentinel", target="alerts", status="ok",
              detail=f"[{category}] đã khôi phục: {raw_title}")
         res_title = f"Khôi Phục Kết Nối: {raw_title}"
         res_msg = f"Sự cố [{category}] đã tự động được khôi phục thành công. Dịch vụ AI & Mạng đã trực tuyến và phản hồi bình thường."
         logger.info("[AutonomousSentinel] SỰ CỐ ĐÃ KHÔI PHỤC [%s]: %s", category, res_title)
 
-        try:
-            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-            if telegram_gateway and telegram_gateway._running:
-                tg_text = (
-                    f"✅ *[SENTINEL INCIDENT RESOLVED]* ✅\n\n"
-                    f"*Tiêu đề:* {res_title}\n"
-                    f"*Chi tiết:* {res_msg}\n"
-                    f"*Thời gian:* {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"
-                )
-                telegram_gateway.send_incident_alert(tg_text)
-        except Exception as tg_err:
-            logger.debug("[AutonomousSentinel] Telegram resolution dispatch error: %s", tg_err)
+        from mateai.application.operations import alert_dispatcher
+        await alert_dispatcher.dispatch(res_title, res_msg, category=f"sentinel:{category}",
+                                        source="Autonomous Sentinel", resolved=True)
 
         try:
             from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE

@@ -35,6 +35,9 @@ router = APIRouter()
 
 # Khoá nào phải che (không bao giờ trả về giá trị, kể cả khi đã cấu hình).
 _CONNECTOR_SECRET_FIELDS = frozenset({
+    "webhook_url",
+    "hmac_secret",
+    "password",
     "secret_access_key",
     "api_token",
     "client_secret",
@@ -934,6 +937,30 @@ def _build_connector_config_schema(name: str) -> Dict[str, Any]:
     }
 
 
+def _alert_channel_catalog() -> Dict[str, Any]:
+    """Kênh cảnh báo (Teams, Email, Outlook, Slack, Webhook) + quy tắc chung, cùng
+    định dạng connector để Portal dựng form "chờ kết nối" và lưu vào config.json."""
+    from mateai.infrastructure.notifications import CHANNELS, RULES_ID, config_schema, load_settings, missing_fields
+    out: Dict[str, Any] = {
+        RULES_ID: {
+            "id": RULES_ID, "kind": "alert_rules", "display_name": "Quy tắc cảnh báo",
+            "description": "Mức gửi tối thiểu, chống lặp, tự báo khi thành phần trên sơ đồ hệ thống bị lỗi.",
+            "configured": True, "missing_fields": [], "actions": [], "max_risk_level": None,
+            "config_schema": config_schema(RULES_ID),
+        },
+    }
+    for cid, spec in CHANNELS.items():
+        s = load_settings(cid)
+        missing = missing_fields(cid, s)
+        out[cid] = {
+            "id": cid, "kind": "alert_channel", "display_name": f"Cảnh báo · {spec['display_name']}",
+            "description": spec["description"], "configured": not missing, "enabled": bool(s.get("enabled")),
+            "missing_fields": missing, "actions": [], "max_risk_level": None,
+            "config_schema": config_schema(cid),
+        }
+    return out
+
+
 @router.get(
     "/api/v1/enterprise/connectors/catalog",
     summary="Danh mục connector + JSON Schema cấu hình (Admin No-code form)",
@@ -993,6 +1020,7 @@ async def api_connectors_catalog(
                 "config_schema": _build_connector_config_schema(name),
             }
 
+        items.update(_alert_channel_catalog())
         return {"status": "success", "connectors": items}
     except Exception as e:
         return {"status": "error", "error": str(e)}

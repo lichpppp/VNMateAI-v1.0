@@ -50,7 +50,7 @@ const subtab = cutConst('CC_SUBTABS', "    if (name === 'webhook') loadWebhookAl
 
 const secrets = cut(
   "const CC_SECRET_FIELDS =",
-  "const CC_SECRET_FIELDS = ['secret_access_key', 'api_token', 'client_secret', 'access_key_id'];",
+  "'webhook_url', 'hmac_secret', 'password'];",
 );
 
 const webhookCard = cut("const CC_WEBHOOK_SEVERITY = {", "    + `</div>`;\n}");
@@ -127,7 +127,9 @@ function showToast() {}
   writeFileSync(f, mod);
   const { CC_SECRET_FIELDS } = await import(pathToFileURL(f).href);
 
-  for (const k of ['secret_access_key', 'api_token', 'client_secret', 'access_key_id']) {
+  // Kênh cảnh báo (2026-10-05): URL webhook Teams / Slack chính là khoá.
+  for (const k of ['secret_access_key', 'api_token', 'client_secret', 'access_key_id',
+                   'webhook_url', 'hmac_secret', 'password']) {
     check(`"${k}" được đánh dấu bí mật`, CC_SECRET_FIELDS.includes(k));
   }
   check('"region" KHÔNG bị đánh dấu bí mật', !CC_SECRET_FIELDS.includes('region'));

@@ -190,3 +190,46 @@ async def reset_custom_topology(user: dict = Depends(require_roles(["admin"]))) 
     except Exception as exc:
         logger.error("[Topology] Lỗi khi khôi phục custom_topology: %s", exc)
         raise HTTPException(status_code=500, detail=f"Không thể khôi phục sơ đồ: {exc}")
+
+
+# ── Khâu cảnh báo chung (application/operations/alert_dispatcher) ─────────────
+
+class AlertTestRequest(BaseModel):
+    channel: Optional[str] = Field(default=None, description="id kênh (vd alert_teams, telegram); bỏ trống = mọi kênh đã kết nối")
+
+
+@router.get(
+    "/api/v1/system/notifications",
+    summary="Kênh cảnh báo: đã kết nối / chờ kết nối, kết quả gửi gần nhất, lịch sử",
+    tags=["System", "Alerts"],
+)
+async def get_notification_channels(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    """Chỉ trả TÊN khoá còn thiếu — không bao giờ trả URL webhook / mật khẩu."""
+    from mateai.application.operations import alert_dispatcher
+    from mateai.infrastructure.notifications import load_rules
+    return {
+        "status": "success",
+        "rules": await run_blocking(load_rules),
+        "channels": await run_blocking(alert_dispatcher.channel_status),
+        "history": list(alert_dispatcher.HISTORY)[:20],
+    }
+
+
+@router.post(
+    "/api/v1/system/notifications/test",
+    summary="Gửi cảnh báo THỬ tới một kênh (hoặc mọi kênh đã kết nối) — chỉ admin",
+    tags=["System", "Alerts"],
+)
+async def test_notification_channel(
+    payload: AlertTestRequest,
+    user: dict = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    from mateai.application.operations import alert_dispatcher
+    from mateai.infrastructure.notifications import CHANNELS
+    if payload.channel and payload.channel not in CHANNELS and payload.channel != alert_dispatcher.TELEGRAM:
+        raise HTTPException(status_code=400, detail=f"Không có kênh '{payload.channel}'")
+    return await alert_dispatcher.dispatch(
+        "Gửi thử cảnh báo",
+        f"Tin thử do {user.get('username')} gửi từ VN-MateAI để kiểm tra kênh cảnh báo. Không cần xử lý.",
+        severity="info", category=f"test:{payload.channel or 'all'}", source="Kiểm tra kết nối",
+        force=True, only=payload.channel)

@@ -499,11 +499,9 @@ class AnalyticsEngine:
             # Phát cảnh báo khẩn cấp sang Telegram. Chỉ khi có số đo thật —
             # nhánh NO_DATA đã trả về từ trên nên không bao giờ tới đây mà
             # chưa có giao dịch.
-            try:
-                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-                telegram_gateway.send_incident_alert(alert_message)
-            except Exception:
-                pass
+            from mateai.application.operations import alert_dispatcher
+            alert_dispatcher.notify("Dòng tiền ở mức nguy hiểm", alert_message, severity="critical",
+                                    category="finance:runway", source="Phân tích tài chính")
 
         elif is_warning:
             alert_level = "WARNING_YELLOW"

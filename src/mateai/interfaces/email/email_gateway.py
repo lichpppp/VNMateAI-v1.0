@@ -234,19 +234,14 @@ class EmailGateway:
             if len(self._history) > 100:
                 self._history.pop()
 
-        # Đẩy cảnh báo sang Telegram nếu là P1 / P2
+        # P1 / P2: báo qua khâu cảnh báo chung (mọi kênh đã kết nối, không chỉ Telegram)
         if priority in ("P1-Critical", "P2-High"):
-            try:
-                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-                telegram_gateway.send_incident_alert(
-                    f"🚨 [EMAIL KHẨN CẤP TỪ KHÁCH HÀNG - {priority}]\n"
-                    f"• Người gửi: {sender}\n"
-                    f"• Vấn đề: {clean_subj}\n"
-                    f"• Ticket ID: #{ticket_id}\n"
-                    f"Đã tự động tạo task và điều phối nhân sự xử lý."
-                )
-            except Exception:
-                pass
+            from mateai.application.operations import alert_dispatcher
+            alert_dispatcher.notify(
+                f"Email khẩn từ khách hàng ({priority}): {clean_subj}",
+                f"Người gửi: {sender}\nTicket: #{ticket_id}\nĐã tự động tạo task và điều phối nhân sự xử lý.",
+                severity="critical" if priority == "P1-Critical" else "warning",
+                category=f"email:{ticket_id}", source="Email Gateway")
 
         logger.info("[EmailGateway] Đã tiếp nhận và tạo Ticket #%s từ %s (Ưu tiên: %s).", ticket_id, sender, priority)
         return ticket_data

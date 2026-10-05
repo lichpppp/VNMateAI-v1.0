@@ -142,5 +142,49 @@
     "local_path": "./storage/vector_db",
     "microservice_host": "http://localhost:8000",
     "microservice_port": 8000
+  },
+  "alert_rules": {
+    "min_severity": "warning",
+    "cooldown_s": 300,
+    "watch_topology": true,
+    "down_after_s": 30,
+    "alert_on_degraded": false,
+    "ignore_nodes": "voice,hud,portal"
+  },
+  "alert_teams": {
+    "enabled": true,
+    "webhook_url": "",
+    "min_severity": ""
+  },
+  "alert_email": {
+    "enabled": true,
+    "smtp_host": "",
+    "smtp_port": 587,
+    "use_ssl": false,
+    "username": "",
+    "password": "",
+    "from_address": "",
+    "to_addresses": "",
+    "min_severity": ""
+  },
+  "alert_outlook": {
+    "enabled": true,
+    "tenant_id": "",
+    "client_id": "",
+    "client_secret": "",
+    "sender_mailbox": "",
+    "to_addresses": "",
+    "min_severity": ""
+  },
+  "alert_slack": {
+    "enabled": true,
+    "webhook_url": "",
+    "min_severity": ""
+  },
+  "alert_webhook": {
+    "enabled": true,
+    "webhook_url": "",
+    "hmac_secret": "",
+    "min_severity": ""
   }
 }

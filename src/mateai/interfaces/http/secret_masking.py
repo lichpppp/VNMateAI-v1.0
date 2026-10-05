@@ -41,6 +41,10 @@ _SECRET_FIELD_NAMES = frozenset({
     # được khôi phục khi người dùng gửi lại form.
     "groq_api_key",
     "direct_api_key",
+    # Kênh cảnh báo: URL webhook Teams / Slack chứa chữ ký truy cập — lộ URL là
+    # ai cũng đăng được vào kênh.
+    "webhook_url",
+    "hmac_secret",
 })
 
 

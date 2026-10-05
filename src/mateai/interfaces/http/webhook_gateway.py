@@ -34,7 +34,6 @@ from pydantic import BaseModel, Field
 
 from mateai.config.loader import settings
 from mateai.application.skills.builtin.proactive_manager import proactive_manager
-from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
 from mateai.application.security.zero_trust import log_security_audit
 
 logger = logging.getLogger(__name__)
@@ -244,7 +243,7 @@ class AlertProcessor:
         """
         results = {
             "proactive_manager": False,
-            "telegram": False,
+            "alerts": False,
             "hud": False,
         }
 
@@ -279,13 +278,16 @@ class AlertProcessor:
         except Exception as e:
             logger.error("[WebhookGateway] Proactive Manager dispatch failed: %s", e)
 
-        # 2. Telegram (nếu cấu hình)
-        try:
-            if telegram_gateway.is_running:
-                telegram_gateway.send_incident_alert(viet_text)
-                results["telegram"] = True
-        except Exception as e:
-            logger.error("[WebhookGateway] Telegram dispatch failed: %s", e)
+        # 2. Khâu cảnh báo chung (Telegram / Teams / Email / Outlook / Slack / Webhook)
+        from mateai.application.operations import alert_dispatcher
+        sev = str(payload.severity or "").lower()
+        out = await alert_dispatcher.dispatch(
+            payload.title or f"Cảnh báo từ {payload.source}", viet_text,
+            severity="critical" if sev in ("critical", "high", "alarm", "error")
+            else "warning" if sev in ("warning", "medium", "warn") else "info",
+            category=f"webhook:{payload.source}:{payload.resource_id or payload.event_type}",
+            source=f"Webhook {payload.source}")
+        results["alerts"] = out.get("delivered", 0) > 0
 
         # 3. HUD WebSocket (broadcast to portal)
         try:
@@ -508,7 +510,7 @@ async def receive_webhook(
         details={"alert_id": alert_id, "source": source, "event_type": payload.event_type},
     )
 
-    emit("webhook", stage="received", source="webhook", target="telegram", status="ok",
+    emit("webhook", stage="received", source="webhook", target="alerts", status="ok",
          detail=f"{alert_id} · {source}: {payload.event_type}")
 
     # Dispatch in background
