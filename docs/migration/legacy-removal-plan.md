@@ -41,6 +41,21 @@
 
 `skills/auto_*.py` (4), `skills/generate_pdf.py`, `scripts/close_tab.py`, `bao_cao_he_thong.md`, thay đổi chưa commit ở `identity_core.md`, `skills/registry.json`, `web/hud.html`. Không đụng tới trong refactor.
 
+## 2.4 Trạng thái sau khi làm (2026-10-05, prompt Supervisor P2–P13)
+
+| # | Trạng thái | Bằng chứng |
+|---|---|---|
+| L1, L2, L3 | **ĐÃ GỘP** — mọi đường thực thi tool dùng `policy_engine.authorize()`; luật cấu hình được cổng áp dụng | RULE-017 = 0, `test_policy_engine.py` |
+| L4 | **GIỮ** — 4 hàm là lớp chuyển đổi tham số mỏng tới MỘT hàm ghi (`erp_db.write_audit_log`) và MỘT bảng; không có logic audit trùng | `test_audit_single_store.py` |
+| L5 | còn — `plugin_registry` vẫn giữ tool đăng ký động; đường duyệt riêng đã bỏ (cổng chính sách quyết định) | — |
+| L6 | **ĐÃ GỘP** — đôn đốc / phân công đi qua `alert_dispatcher` | `proactive_manager.py` |
+| L7 | **ĐÃ GỘP** — truy vấn chuyển vào phương thức repository của `ERPDatabase` | RULE-024 = 0 |
+| L8 | **GIỮ** — client Whisper đồng bộ có miễn trừ RULE-011 ghi rõ (STT, không phải LLM) | `test_core_rules.py` ALLOWED |
+| L9 | **ĐÃ GỘP** — skill đi qua `TTSStreamEngine` | RULE-012 = 0 |
+| L10 | còn — cần kiểm trên trình duyệt (HUD) | — |
+| L11 | **ĐÃ XOÁ** — `src/mateai/domain/` + test riêng của nó (không caller, không dùng động: đã kiểm import chuỗi / registry / cấu hình / frontend) | `git rm`, `find_spec('mateai.domain') is None` |
+| L12 | **GIỮ, có đo** — log không ghi đường WS nên chưa có bằng chứng; nay ghi `[DEPRECATED]` mỗi lần thiết bị dùng alias. Gỡ khi log sạch một thời gian | `routers/websockets.py` |
+
 ## 3. Thứ tự
 
 P2 (L1–L3) → P6 (L5, L8, L9, L10) → P7 (L4, L6) → P8 (L7) → P13 (L11, L12, quét rác cuối §203).

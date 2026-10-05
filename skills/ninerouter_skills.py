@@ -251,24 +251,27 @@ def ninerouter_generate_image(prompt: str, model: str = "openai/dall-e-3", size:
         "required": ["text"]
     }
 )
-def ninerouter_text_to_speech(text: str, voice_model: str = "edge-tts/vi-VN-HoaiMyNeural", **kwargs) -> Dict[str, Any]:
-    """Tạo giọng nói qua 9Router /v1/audio/speech."""
-    payload = {
-        "model": voice_model,
-        "input": text,
-    }
+async def ninerouter_text_to_speech(text: str, voice_model: str = "edge-tts/vi-VN-HoaiMyNeural", **kwargs) -> Dict[str, Any]:
+    """Tạo giọng nói qua engine TTS CHUẨN (`TTSStreamEngine`: cache, 9Router, Edge dự phòng).
+
+    Trước đây skill tự gọi `/v1/audio/speech` — đường TTS thứ hai, ngoài cache / dự phòng
+    và ngoài kiểm tra RULE-012. Giọng dạng "edge-tts/<tên>" được chuyển thành tên giọng."""
+    from mateai.infrastructure.tts.tts_stream_engine import get_tts_engine
+    voice = voice_model.split("/", 1)[1] if voice_model.startswith("edge-tts/") else None
     try:
-        # Gọi với query ?response_format=json để lấy audio base64 nếu có
-        res = _send_9router_request("/v1/audio/speech?response_format=json", payload=payload)
-        return {
-            "status": "success",
-            "voice_model": voice_model,
-            "length_chars": len(text),
-            "audio_format": res.get("format", "mp3"),
-            "audio_base64_preview": res.get("audio", "")[:100] + "..." if "audio" in res else None,
-        }
-    except Exception as e:
-        return {"error": str(e), "text_preview": text[:50]}
+        audio = await get_tts_engine().synthesise(text, voice=voice)
+    except Exception as e:  # noqa: BLE001
+        return {"status": "error", "error": str(e), "text_preview": text[:50]}
+    if not audio:
+        return {"status": "error", "error": "Không tổng hợp được giọng nói (mọi nguồn TTS đều lỗi).",
+                "text_preview": text[:50]}
+    return {
+        "status": "success",
+        "voice_model": voice_model,
+        "length_chars": len(text),
+        "audio_format": "mp3",
+        "audio_bytes": len(audio),
+    }
 
 
 # ─── 5. 9Router Embeddings ───────────────────────────────────────────────────

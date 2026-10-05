@@ -48,6 +48,13 @@ async def _handle_audio_stream(websocket: WebSocket, device_id: str) -> None:
     """
     from mateai.interfaces.websocket.xiaozhi_gateway import xiaozhi_gateway
 
+    # Alias cũ `/ws/audio-stream`: firmware trong repo đã dùng `/api/v1/xiaozhi/ws`.
+    # Chỉ gỡ alias khi log chạy thật cho thấy không thiết bị nào còn dùng
+    # (docs/migration/legacy-removal-plan.md L12) — cảnh báo này là bằng chứng đó.
+    if websocket.url.path.startswith("/ws/audio-stream"):
+        logger.warning("[DEPRECATED] Thiết bị '%s' (%s) dùng đường cũ %s — nên chuyển sang /api/v1/xiaozhi/ws.",
+                       device_id, websocket.client.host if websocket.client else "unknown", websocket.url.path)
+
     auth_method = ws_auth.device_auth_method(websocket, device_id)
     if auth_method is None:
         # Ghi đường dẫn + CÓ gửi token hay không (không ghi giá trị) — đủ để biết

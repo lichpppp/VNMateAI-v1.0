@@ -176,12 +176,14 @@ class ProactiveManager:
         return summary_result
 
     def _dispatch_reminder(self, message: str, task: Dict[str, Any]) -> None:
-        """Gửi thông điệp đôn đốc tới Telegram hoặc kênh thông báo."""
+        """Gửi thông điệp đôn đốc qua khâu cảnh báo chung (mọi kênh đã kết nối, chống trùng).
+        Trước đây gọi thẳng Telegram — ngoài bộ phát cảnh báo chung."""
         try:
-            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-            telegram_gateway.send_incident_alert(message)
+            from mateai.application.operations import alert_dispatcher
+            alert_dispatcher.notify("Đôn đốc công việc", message, severity="warning",
+                                    category=f"proactive:task:{task.get('id')}", source="Proactive Manager")
         except Exception as exc:
-            logger.debug("[ProactiveManager] Telegram alert skip: %s", exc)
+            logger.debug("[ProactiveManager] Alert skip: %s", exc)
 
 
 proactive_manager = ProactiveManager()
@@ -268,9 +270,10 @@ def assign_task_intelligently(
         )
 
         try:
-            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-            telegram_gateway.send_incident_alert(notify_msg)
-        except Exception:
+            from mateai.application.operations import alert_dispatcher
+            alert_dispatcher.notify("Phân công công việc", notify_msg, severity="info",
+                                    category=f"proactive:assign:{task_res.get('id')}", source="Proactive Manager")
+        except Exception:  # noqa: BLE001
             pass
 
         return {
