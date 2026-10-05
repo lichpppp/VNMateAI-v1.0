@@ -1,5 +1,7 @@
 # Sẵn sàng vận hành — đường thoại realtime
 
+> **2026-10-05:** điểm sẵn sàng toàn hệ thống (kiến trúc, bảo mật, tự trị, dữ liệu…) ở `readiness-score.md`. Tệp này chỉ đánh giá đường thoại realtime, ngày 2026-10-03.
+
 Đánh giá 2026-10-03, sau realtime Phase 0–P6. Số đo: `docs/realtime/performance-before-after.md`, `docs/realtime/bench-2026-10-03-final.json`. Việc cần chủ dự án làm / quyết định: `owner-todo.md` § "Thoại realtime".
 
 **Kết luận:** dùng được cho **một văn phòng, một tiến trình máy chủ**. Chưa đạt mục tiêu độ trễ < 1,5 s tới tiếng đầu với câu cần LLM. Nguyên nhân là nhà cung cấp LLM/TTS, không phải máy chủ. Hai việc nên làm trước khi dùng rộng: nghe thử trên trình duyệt sau khi đổi bộ phát audio, và rút ngắn chuỗi thử model dự phòng.

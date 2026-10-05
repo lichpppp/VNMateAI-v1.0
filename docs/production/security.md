@@ -19,7 +19,8 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 ## 2. Phân quyền tool (RBAC)
 
-- Cổng duy nhất: `mateai.application.agent.tool_gate.run_tool_with_policy` → `security_guard.check_permission` (mọi kênh: chat, voice, REST, Telegram).
+- Cổng cho tool do AI gọi: `mateai.application.agent.tool_gate.run_tool_with_policy` → `security_guard.check_permission` (chat, voice, REST, Telegram). **Lưu ý (audit 2026-10-05):** chưa phải cổng duy nhất — `POST /api/v1/skills/execute` và Plugin Registry có đường duyệt riêng, điều phối đa tác nhân gọi hàm trực tiếp; danh sách `security.forbidden_keywords` / `require_confirmation_actions` chưa được cổng áp dụng. Chi tiết: `docs/security/security-architecture.md` §3.
+- Bỏ qua bước duyệt (từ 2026-10-05): chỉ tài khoản **admin** đăng nhập (bảng `users`) — áp dụng cho mọi mức rủi ro. Robot (token riêng) và Telegram (theo chat_id): duyệt lần đầu, sau đó nhớ theo từng tool, thu hồi được.
 - Danh tính dùng để xét quyền = **người đã đăng nhập** (không phải `source_device` do client gửi).
 - Thứ tự xác định role: (1) tài khoản/nhân viên trong CSDL → role trong CSDL; (2) service principal khai báo tường minh; (3) id do server gán có tiền tố `esp32`, `xiaozhi`, `telegram`, `hud`, `robot` → **admin** (quyết định của chủ dự án, f389bbe); (4) còn lại / lỗi tra cứu → `viewer` (fail-closed).
 - Role portal → role RBAC: `admin`→`admin`, `manager`→`it_support`, `viewer`→`operator`.

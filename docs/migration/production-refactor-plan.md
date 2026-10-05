@@ -3,6 +3,49 @@
 > Cập nhật Phase 0 · 2026-10-01. Thay thế bản trước (bản trước ghi Phase 2–11 đã xong, nhưng phần code của các phase đó nằm trong `src/mateai/` và chưa được nối vào runtime).
 > Số liệu hiện trạng: `docs/architecture/current-vs-target.md`. Trùng lặp: `docs/architecture/duplication-matrix.md`.
 
+## 0. Kế hoạch "Enterprise Autonomous AI Supervisor" (2026-10-05) — đọc trước
+
+> Yêu cầu nguồn: `prompupdatequytrinchuan.txt` (do chủ dự án cung cấp ngày 2026-10-05). Phase 0 của yêu cầu này **đã xong, không sửa mã** — các mục §1–§48 bên dưới là lịch sử refactor trước đó (vẫn đúng cho phần đã làm).
+> Tài liệu Phase 0: `docs/architecture/{current-vs-target,canonical-components,dependency-rules}.md`, `docs/autonomy/{autonomy,policy,risk,task}-model.md`, `docs/realtime/{voice-architecture,call-graph}.md`, `docs/security/{security-architecture,threat-model}.md`, `docs/migration/legacy-removal-plan.md`, `docs/production/readiness-score.md`.
+
+### 0.1 Kết luận Phase 0
+
+- **Thoại realtime đã có đường chuẩn duy nhất** (§41–§58 phần lớn đạt). Không dựng "Voice Engine V2"; việc còn lại là tối ưu đo được (B1–B5 trong `voice-architecture.md` §5).
+- **Khoảng trống lớn nhất là lớp kiểm soát tự trị** (§10–§36): chưa có Policy Engine chuẩn (luật rải 4 nơi, luật cấu hình không được áp dụng), không DENY / L5, 3 đường phân quyền tool, đa tác nhân gọi hàm thẳng, không kill switch, không danh tính tác nhân, không sổ tác vụ / bằng chứng / kiểm chứng.
+- Theo §190 ("bảo mật trước, tự trị sau"): **không tăng tự trị** (không thêm hành động tự động mới) cho tới khi P2–P3 xong.
+
+### 0.2 Quyết định cần chủ dự án (chặn các phase tương ứng)
+
+| Mã | Câu hỏi | Đề xuất | Chặn |
+|---|---|---|---|
+| A1 | Admin ra lệnh qua AI có được chạy tác vụ mức 5 / L5 không? (hôm nay: có, không hỏi) | Không | P2 bước DENY |
+| A2 | Email gateway có được tự trả lời ra ngoài? | Chỉ khi bật rõ + danh sách miền | P3 |
+| A3 | Uỷ quyền "duyệt rồi nhớ" có hạn dùng? | 30 ngày | P3 |
+| A4 | Ai bật/tắt kill switch? | Admin, có audit | P3 |
+| A5 | `src/mateai/domain/*` (0 caller): dùng làm kiểu cho control plane / task ledger hay xoá? | Dùng lại `domain/tasks`, `domain/audit`, `domain/identity`; xoá phần còn lại ở P13 | P1 |
+| D3 | Gộp 2 mô hình vai trò | (giữ từ trước) | P2 ABAC |
+| D5 | Khi nào chuyển PostgreSQL | sau P8 gộp truy vấn | P8 |
+
+### 0.3 Thứ tự thực hiện (mỗi bước: test khoá hành vi → chuyển → test → chạy thật → báo cáo §214)
+
+| Phase (§187) | Việc cụ thể trên mã hiện có | Điều kiện xong |
+|---|---|---|
+| **P1** Call graph + bản đồ chuẩn | Xong trong Phase 0 (tài liệu trên). Bổ sung test kiến trúc RULE-017…026 ở chế độ baseline (ghi nhận vi phạm hiện có, cấm thêm) | test kiến trúc mới pass với baseline |
+| **P2** Bảo mật / chính sách / thẩm quyền | Chuyển phần quyết định của `tool_gate` + `zero_trust` (rủi ro) + `security_guard` (RBAC) vào **một** module control plane (`authorize()`); thứ tự: kill switch → DENY → RBAC → rủi ro → uỷ quyền; nối `security.forbidden_keywords` / `require_confirmation_actions`; L5; `routers/skills.py` + `plugin_registry` + `agent_orchestrator` đi qua cổng (L1–L3) | RULE-017/018/019/020 pass; test §207 (xoá DB → DENY) pass |
+| **P3** Control plane tự trị | `agent_id` cho từng tác nhân (thoại, Telegram, sentinel, email, proactive); kill switch toàn cục / tác nhân / tool / phiên (lưu cấu hình, đọc ở cổng); ngân sách thời gian + số tool + token (đọc `usage` từ provider); hạn cho `approval_grants`; chính sách giao tiếp ngoài cho email gateway | RULE-021/022 pass; bật kill switch → không tool nào chạy |
+| **P4** Task / goal / incident | Sổ tác vụ `op_tasks` + bước + bằng chứng (`task-model.md`); sentinel tạo task incident thay vì chỉ cảnh báo; ưu tiên tất định | không task nào `COMPLETED` khi chưa kiểm chứng (test bất biến) |
+| **P5** Tối ưu thoại | B4 (CPU chặn loop), B1 (dùng lại lựa chọn tool, giới hạn thời gian thử model), đo lại bằng `scripts/bench_voice.py` | số đo trước/sau trong `docs/realtime/performance-before-after.md` |
+| **P6** Gộp LLM / TTS / WS | L5, L8, L9, L10 (`legacy-removal-plan.md`) | RULE-011/012 baseline = 0; HUD dùng sự kiện portal (kiểm trên trình duyệt) |
+| **P7** Trí nhớ / bằng chứng / quan sát | một API audit có trường chuẩn (L4); trace thoại lưu bền; đếm token / chi phí; tách bộ nhớ hội thoại / dài hạn có nguồn + độ tin cậy; tệp bảo vệ khỏi `write_file` (S4) | `/api/v1/voice/metrics` còn số sau khởi động lại |
+| **P8** DB / Redis / storage | L7 (SQL ra khỏi application); sau đó mới bàn PostgreSQL (D5) | RULE-024 pass |
+| **P9** Worker / sự kiện | idempotency cho hành động gửi tin / giao việc; tắt máy đóng pool HTTP, email gateway, proactive, WS máy trạm (`server.py:1023`) | test tắt máy |
+| **P10** API / domain | tách nghiệp vụ còn trong router (ví dụ `routers/enterprise.py` 1 436 dòng) | — |
+| **P11** Siết bảo mật | rate limit đăng nhập (S6), nhãn dữ liệu không tin cậy (S5), bỏ `shell=True` (S12), cảnh báo mật khẩu mặc định (S7), kịch bản `threat-model.md` §3 | các test đối kháng pass |
+| **P12** Kiểm thử / đánh giá | bộ đánh giá agent (§130–§132): 10 kịch bản vàng | báo cáo `docs/evaluation/*` |
+| **P13** Gỡ mã cũ | L11, L12, quét rác §203 | — |
+| **P14** Production | backup / khôi phục có kiểm, CI thêm lint + type-check + scan, runbook | `readiness-score.md` cập nhật |
+| **P15** Audit cuối | trả lời §213 bằng bằng chứng | — |
+
 ## 1. Nguyên tắc
 
 1. **Một tính năng = một implementation.** Không thêm bản mới bên cạnh bản cũ. Trình tự mỗi bước: chứng minh bản thay thế → chuyển caller → xóa bản cũ.

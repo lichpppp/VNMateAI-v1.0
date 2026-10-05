@@ -1,4 +1,6 @@
 # BÁO CÁO KIỂM TOÁN KIẾN TRÚC VOICE PIPELINE (PHASE 0)
+
+> **Đã được thay (2026-10-05)** bởi `docs/realtime/voice-architecture.md`. Giữ để đối chiếu lịch sử; mô tả bên dưới là hiện trạng ngày 2026-10-01 (trước khi chuyển sang `src/mateai/`).
 **Dự án**: VN-MateAI — Realtime Voice Performance Revamp
 **Thời gian kiểm toán**: 2026-10-01
 **Mục tiêu**: Phân tích toàn diện hiện trạng hệ thống Voice Pipeline, nhận diện các điểm nghẽn độ trễ và chuẩn bị nền tảng chuyển dịch sang chuẩn thời gian thực (Jarvis / XiaoZhi-like responsiveness).

@@ -1,5 +1,7 @@
 # Audit kiến trúc voice realtime — Phase 0
 
+> **Đã được thay (2026-10-05)** bởi `docs/realtime/voice-architecture.md`. Giữ để đối chiếu; đính chính hiện trạng ở `call-graph.md` §0.
+
 Phase 0 (chỉ đọc), 2026-10-03, commit `71efe78`. Không sửa, xoá, đổi tên code. Tài liệu đi kèm: `call-graph.md`, `canonical-components.md`, `duplicate-components.md`, `migration-plan.md`.
 
 ## 1. Hiện trạng tóm tắt

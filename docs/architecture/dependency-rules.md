@@ -81,7 +81,7 @@ Yêu cầu ban đầu (giữ để đối chiếu):
 | RULE-015 | Không module nào trong lõi import `core.server` (hoặc `interfaces/*`) | đồ thị import |
 | RULE-016 | Mỗi tên tool chỉ được đăng ký ở một registry | so khớp tên từ `plugin_manager` và `plugin_registry` lúc khởi động |
 
-## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`src/mateai/`, `core/`) — cập nhật 2026-10-02 (sau Phase 4)
+## V. TRẠNG THÁI TUÂN THỦ CỦA CODE ĐANG CHẠY (`src/mateai/`, `core/`) — cập nhật 2026-10-02 (sau Phase 4), sửa RULE-007/016 ngày 2026-10-05 (audit Supervisor Phase 0)
 
 Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo trên mã thật; baseline ở `tests/architecture/core_rules_baseline.json` chỉ được giảm (vi phạm mới = test fail).
 
@@ -89,7 +89,7 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 |---|---|---|
 | RULE-001/002 | Đạt (Phase 4 xong) | toàn bộ code chạy thật nằm trong `src/mateai` theo tầng domain/application/infrastructure/interfaces; `test_architecture_boundaries` giữ ranh giới (RULE-003: application không import web framework/sqlite; RULE-004: interfaces không chạy SQL). `core/` chỉ còn `plugin_manager` (API plugin công khai) |
 | RULE-005 | Một phần | mọi kênh thoại dùng chung `mateai.application.voice.voice_turn.process_voice_turn`; handler WS vẫn nằm trong `server.py` |
-| RULE-007 | Đạt (một cổng) | mọi tool qua `agent_voice_loop.run_tool_with_policy` → `security_guard`; một HITL (`zero_trust`). Còn hai mô hình role (portal ↔ RBAC, ánh xạ cố định) |
+| RULE-007 | **Chưa đạt** (2026-10-05) | Tool do LLM gọi qua `tool_gate.run_tool_with_policy`; nhưng còn 2 đường khác: `routers/skills.py:233–245` (RBAC + `execute_with_hitl` riêng) và cổng duyệt trong `plugin_registry.py:441–514`; `agent_orchestrator.py:252,264` gọi hàm skill thẳng, không qua cổng. Danh sách `security.forbidden_keywords` / `require_confirmation_actions` không được áp dụng ở cổng (chỉ `routers/security.py:166` dùng). Còn hai mô hình role (portal ↔ RBAC) |
 | RULE-008 | Một phần | `plugin_registry`: timeout + circuit breaker; client httpx riêng còn lại đã phân loại có lý do (plan §19) |
 | RULE-009 | Chỉ kênh portal/HUD | huỷ lượt khi có lệnh mới (barge-in) |
 | RULE-010 | Đạt | `/livez`, `/startupz`, `/readyz` (`test_health_probes`) |
@@ -98,4 +98,21 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 | RULE-013 | **0** | `config_loader` là cổng duy nhất (plan §18) |
 | RULE-014 | **0** | `mateai.infrastructure.database.erp_database.open_sqlite` là đường mở duy nhất (plan §23) |
 | RULE-015 | **0** | trạng thái kết nối + phát sóng ở `mateai/interfaces/websocket/realtime_hub.py`, helper xuất file ở `mateai/infrastructure/files/file_export.py` (plan §27) |
-| RULE-016 | Đạt | danh mục tool duy nhất là `plugin_manager`; `plugin_registry` chỉ là chính sách thực thi (plan §10); log khởi động không còn cảnh báo đăng ký trùng |
+| RULE-016 | Đạt về tên trùng; **hai danh mục** | không tên nào đăng ký hai lần; nhưng `plugin_registry` vẫn giữ tool riêng đăng ký lúc khởi động (`server.py:575–587`: connector qua `tool_bridge`, computer-use) — `plugin_manager` không chứa chúng. Gộp ở Phase 6 |
+
+## VI. QUY TẮC KIỂM SOÁT TỰ TRỊ (bổ sung 2026-10-05 — prompt Supervisor §118, §122)
+
+Chưa có test tự động cho các quy tắc này; trạng thái là kết quả audit Phase 0 (`docs/architecture/current-vs-target.md` §3).
+
+| Mã | Quy tắc | Trạng thái hôm nay | Cách kiểm tự động (Phase 2–3) |
+|---|---|---|---|
+| RULE-017 | Không đường thực thi tool nào bỏ qua cổng kiểm soát chuẩn (`tool_gate` → control plane) | Chưa đạt (3 đường + orchestrator gọi thẳng) | AST: `execute_skill(`, `execute_tool(` và import hàm skill builtin chỉ được xuất hiện trong module cổng |
+| RULE-018 | Chính sách DENY luôn thắng — kể cả với admin, kể cả khi đã duyệt | Chưa đạt (DENY chỉ 2 tên tool; admin bỏ qua mọi mức rủi ro) | test thuộc tính: mọi tool trong danh sách DENY → không thực thi với mọi role / mọi cờ `approved` |
+| RULE-019 | Luật bảo mật trong cấu hình (`security.*`) phải được chính cổng thực thi đọc | Chưa đạt | test: thêm từ khoá cấm vào cấu hình → tool chứa từ khoá đó bị chặn ở `run_tool_with_policy` |
+| RULE-020 | Kiểm tra quyền (RBAC) chạy **trước** khi tạo yêu cầu duyệt | Chưa đạt (`tool_gate.py:127–186`: rủi ro → HITL → RBAC) | test: role không có quyền → không sinh yêu cầu HITL |
+| RULE-021 | Mọi hành động tự trị có danh tính tác nhân (`agent_id`) + người uỷ quyền + `trace_id` trong audit | Chưa đạt (không có `agent_id`) | test: payload audit của tool chạy từ vòng agent có đủ 3 trường |
+| RULE-022 | Mọi vòng agent / tác vụ tự trị có giới hạn bước, thời gian, chi phí và tôn trọng kill switch | Một phần (6 vòng/lượt; không giới hạn thời gian/chi phí; không kill switch) | test: bật kill switch → không tool nào chạy; vượt ngân sách → dừng |
+| RULE-023 | Nội dung ngoài (kết quả tool, RAG, email, web, tệp) không được đưa vào phần chỉ thị hệ thống | Chưa đạt (`identity_core.md` đọc vào system prompt và ghi được bằng `write_file`) | AST/grep: chỉ hằng số + cấu hình được vào system prompt; tệp trong danh sách bảo vệ không ghi được qua tool |
+| RULE-024 | Application không truy vấn SQL trực tiếp (RULE-003 mở rộng cho `application/`) | Chưa đạt: `agent_orchestrator`, `onboarding_workflow`, `proactive_manager` | mở rộng `test_architecture_boundaries` sang `get_connection()` / `.execute(` |
+| RULE-025 | Không `subprocess(..., shell=True)` | 2 chỗ (`domain_sync.py:101,193`, lệnh hằng số) | AST, baseline = 2, chỉ được giảm |
+| RULE-026 | Hàm `async` không gọi API chặn (`psutil.cpu_percent(interval>0)`, `time.sleep`, `requests`) | Chưa đạt (`fast_command_router.py:267,291`) | AST trong thân `async def` |

@@ -2,6 +2,23 @@
 
 Phase 0 (chỉ đọc), 2026-10-03, commit `71efe78`. Lần theo code + đường gọi thật, không suy từ tên tệp. Đường dẫn rút gọn: `app/` = `src/mateai/application`, `infra/` = `src/mateai/infrastructure`, `ifc/` = `src/mateai/interfaces`.
 
+## 0. Đính chính 2026-10-05 (commit `128c87d`) — đọc trước các mục dưới
+
+Các mục 1–6 dưới đây giữ nguyên bản 2026-10-03 để đối chiếu lịch sử. Những điểm sau **đã thay đổi**, kiểm lại bằng mã:
+
+| Bản 2026-10-03 ghi | Hiện trạng 2026-10-05 | Bằng chứng |
+|---|---|---|
+| Portal / HUD nhận dạng bằng Web Speech API trong trình duyệt | Portal ghi âm WAV 16 kHz rồi gửi **STT máy chủ** `POST /api/v1/voice/transcribe` (manager/admin); HUD chưa đổi | `routers/voice.py` (transcribe), `web/app.js` `toggleBrowserSpeechRecognition` |
+| REST `/api/v1/voice-command` đi `ask_async` riêng | Đi `process_voice_turn` (lõi chung) | `routers/voice.py:135` |
+| Mic máy chủ có lối dự phòng LLM thứ hai (`process_voice_command_sync`) | Đã gỡ | `voice_controller.py:691` (chú thích) |
+| Bí danh `/ws/voice` | Đã gỡ — còn 9 route WS | `routers/websockets.py` |
+| Hàng đợi audio đầu ra không giới hạn | Có giới hạn (`maxsize=max(2, max_audio_buffered)`) | `tts_queue_pipeline.py:110–111` |
+| System prompt ~11 300 ký tự mọi lượt | Prompt vòng agent **10 603** ký tự; prompt hội thoại thoại **3 523** ký tự (đo `build_system_prompt` ngày 2026-10-05) | `llm_engine.py:192` |
+| — | Robot có thêm: kiểm tra âm thanh, báo trạng thái, lệnh âm lượng / khởi động lại (firmware 54, chưa nạp) | `routers/robots.py`, `xiaozhi_gateway.py` |
+| — | Kết quả tool gửi về portal: `audio_stream_complete.tools` (tên, đích, trạng thái, mã duyệt — không gửi tham số / kết quả) | `realtime_voice_ws.tool_summary` |
+
+Đường tool và kiểm soát (tool_gate → rủi ro → HITL → RBAC) xem `docs/architecture/current-vs-target.md` §2–§3. Bản tổng hợp kiến trúc thoại mới nhất: `docs/realtime/voice-architecture.md`.
+
 ## 1. Năm điểm vào voice
 
 | Kênh | Client | Endpoint | STT | Use case |

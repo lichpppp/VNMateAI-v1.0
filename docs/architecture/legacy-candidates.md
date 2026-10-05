@@ -1,5 +1,7 @@
 # Ứng viên legacy / xóa (Legacy Candidates)
 
+> **2026-10-05:** danh sách hiện hành (đã kiểm lại) ở `docs/migration/legacy-removal-plan.md`. Tệp này giữ lịch sử những gì đã xoá; vài mục "chưa làm" bên dưới thực tế đã xong — xem bảng đính chính ở tệp mới §1.
+
 > Phase 0 — chỉ phân loại, **chưa xóa gì**. Thay thế `docs/cleanup-candidates.md` (tài liệu đó tham chiếu các file đã không còn, ví dụ `core/api_voice_stream.py`, `scratch/`, `vnmateai.db.bak-*`).
 > Bằng chứng xem `duplication-matrix.md`. Điều kiện xóa (Phase C): thay thế đã có, caller đã chuyển, test pass, đã chạy thử runtime.
 

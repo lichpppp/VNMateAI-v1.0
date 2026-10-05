@@ -1,140 +1,127 @@
-# VN-MateAI — Hiện trạng và mục tiêu (Current vs Target)
+# Hiện trạng và đích — VN-MateAI
 
-> Phase 0 · audit chỉ đọc · 2026-10-01 · commit `4f6464a` (+ một sửa lỗi chưa commit ở `core/config_loader.py`)
-> Bản này **thay thế** số liệu của bản trước. Bản trước đếm 1.776 file / 2,25 triệu dòng (lẫn `node_modules`, `.venv`, file âm thanh), 169 HTTP route, 13 WebSocket — các con số đó không khớp với code.
-> Chi tiết trùng lặp: `duplication-matrix.md` · ứng viên xóa: `legacy-candidates.md` · bản chính: `canonical-components.md`.
+> **Phase 0 (chỉ đọc) — 2026-10-05**, branch `refactor/phase-0-1-safety-net`, commit `128c87d`.
+> Thay bản 2026-10-01: bản đó mô tả `core/` là runtime. Từ đó mã chạy thật đã chuyển sang `src/mateai/` (quyết định D1). `core/` chỉ còn `plugin_manager.py`.
+> Mọi nhận định dưới đây có bằng chứng `file:dòng` hoặc lệnh kiểm. Chỗ nào chưa đo thì ghi **chưa đo**.
+> Đích nhắm tới là "Enterprise Autonomous AI Supervisor" theo yêu cầu `prompupdatequytrinchuan.txt` (§10–§36, §160–§166).
 
-## 1. Cách đo
+## 1. Bản đồ repository (mã chạy thật)
 
-| Số liệu | Cách đo |
-|---|---|
-| File, dòng | `git ls-files` (chỉ file được theo dõi) + `wc -l` |
-| Phụ thuộc | script AST: import top-level, import trong hàm, `importlib`, chuỗi tên module first-party |
-| Route | khởi tạo `core.server.app` rồi đọc `app.routes` |
-| Test | chạy **từng file test riêng** (pytest cho file có `def test_`, `python` cho file dạng script) |
-| Tài nguyên | `Get-Process` trên tiến trình server đang chạy, 10 giây khi rảnh |
-
-## 2. Quy mô thực tế
-
-| Hạng mục | Giá trị |
-|---|---|
-| File được git theo dõi | 382 |
-| Python | 269 file · 71.359 dòng |
-| JavaScript (`web/`) | 4 file · 17.413 dòng (`web/app.js` 14.365 dòng) |
-| TSX / TS (`admin/`) | 36 + 7 file · 6.531 + 824 dòng |
-| HTML | 3 file · 9.347 dòng (`web/index.html` 7.653 dòng) |
-| C++/Arduino (`esp32_firmware/`) | 3 `.cpp` + 5 `.h` + 1 `.ino` |
-
-| Thư mục | File | Dòng Python |
-|---|---|---|
-| `core/` | 87 | 42.791 |
-| `tests/` | 59 | 10.524 |
-| `skills/` | 35 | 4.232 |
-| `client_agent/` | 14 | 3.966 |
-| `client_template/` | 16 | 3.947 |
-| `src/mateai/` | 69 | 3.679 |
-| `workers/` | 5 | 1.237 |
-
-File lớn nhất: `core/server.py` 8.898 · `core/llm_engine.py` 2.261 · `core/database.py` 1.641 · `core/xiaozhi_gateway.py` 1.122 · `core/voice_controller.py` 1.045 · `core/telegram_gateway.py` 1.001.
-
-## 3. Tiến trình và giao diện mạng lúc chạy
-
-- **Một tiến trình Python** (`main.py`): khay hệ thống `pystray` ở main thread, Uvicorn chạy trong thread daemon với **hai listener trên cùng một event loop**: HTTPS `:443` (TLS tự ký) và HTTP/WS `:8000` (cho IoT). Cùng tiến trình còn có wake-word engine, voice controller (mic máy chủ), các vòng lặp nền.
-- Tiến trình con: `client_agent/agent.py` (worker cục bộ `MASTER_LOCAL_WORKER`, bật từ portal), `core/voice_widget.py` (widget nổi), `overlay_ui.py`/`popup_ui.py`.
-- Dịch vụ ngoài: 9Router (`localhost:20128`) cho LLM và TTS dự phòng, Edge-TTS, Groq (STT dự phòng), Telegram, các connector AWS/OCI/M365/Paperless/eInvoice.
-- **HTTP: 165 cặp method+path, 0 trùng** · 139 dưới `/api/v1`, 5 dưới `/api/erp`, còn lại là trang (`/`, `/hud`, `/roi`, `/admin/*`) và `/health`.
-- **WebSocket: 10 decorator, 8 chức năng** (xem `duplication-matrix.md` §12).
-
-Tài nguyên khi rảnh (đo thật, Windows 10, mô hình Whisper `tiny` đã nạp): working set **405 MB**, private **748 MB**, **65 thread**, CPU **6,4 %** một core. Bản cũ ghi "~90 MB, 0 % CPU" — không khớp cấu hình đang chạy.
-
-## 4. Bounded context đang tồn tại (trong `core/`)
-
-| Context | Module chính | Ghi chú |
-|---|---|---|
-| Voice | `realtime_voice_ws`, `agent_voice_loop`, `audio/*`, `audio_processor`, `audio_cache`, `voice_controller`, `voice_session`, `wake_word_engine`, `voice_widget`, phần HUD trong `server.py` | **5 pipeline song song** (P1–P5) |
-| Device (ESP32) | `xiaozhi_gateway` | trộn transport thiết bị với logic hội thoại |
-| LLM / Agent | `llm_engine`, `llm_provider`, `connection_pool`, `agents/agent_orchestrator`, `orchestrator`, `meta_architect`, `analytics_engine` | 3 đường gọi LLM trong `llm_engine` + 5 module tự tạo client |
-| Skills / Tools | `plugin_manager`, `plugin_registry`, `dynamic_skill_router`, `fast_command_router`, `core/skills/*`, `skills/*`, `connectors/tool_bridge`, `plugins/*` | 2 registry |
-| Identity / Security | `auth_manager`, `security_guard`, `safety_guard`, `zero_trust`, `security/hitl_manager`, `security_tls` | 2 HITL, 3 audit sink, 2 mô hình vai trò |
-| Data | `database`, `db_manager`, `domain_sync`, `department_engine`, `ephemeral_cache`, `cognitive_memory`, `rag_engine`, `knowledge/*` | bảng `tasks` hai chủ, user ở hai nơi |
-| Conversation | `memory_manager`, `history_pruner`, `voice_session`, `state_manager` | 3 kho lịch sử |
-| Connectors | `connectors/*`, `telegram_gateway`, `email_gateway`, `webhook_gateway` | 17 `httpx` client tự tạo |
-| Client agent | `client_agent/`, `client_template/`, `workers/*`, `worknodes/*` | 2 bản fork của cùng một runtime |
-| Operations | `health_monitor`, `autonomous_sentinel`, `background_workers`, `task_manager`, `download_queue` | đo CPU/RAM ở 5 nơi |
-
-## 5. Dữ liệu và trạng thái
-
-| Dữ liệu | Nơi lưu | Chủ sở hữu (code) | Vấn đề |
+| Vùng | Đường dẫn | Quy mô | Vai trò thật |
 |---|---|---|---|
-| ERP (phòng ban, nhân sự, thiết bị, hồ sơ, tài chính, chấm công), audit | `vnmateai.db` (SQLite WAL) | `ERPDatabase` | — |
-| `tasks` | `vnmateai.db` | **`db_manager` và `ERPDatabase`** | schema phụ thuộc lớp nào tạo bảng trước; trên máy này `client_id`, `task_message` là `NOT NULL` |
-| User | `users.json` **và** bảng `users` | `auth_manager` (đăng nhập) / `db_manager` (copy một chiều) | hai nguồn sự thật |
-| HR/AD | `hr_kpi.db` (`employees`, `computers`) | `domain_sync` | bảng `employees` thứ hai, khác schema |
-| Vector memory | `storage/chroma_db`, `storage/vector_db` | `cognitive_memory`, `rag_engine` | — |
-| Cache âm thanh | `storage/audio_cache/*.mp3` | `audio_cache` | không có chính sách dọn |
-| Cấu hình | `config.json` | `config_loader` + 14 chỗ đọc trực tiếp | khóa trùng 2–6 lần |
-| Data source tùy chỉnh | `config/data_sources.json` | `connectors/custom_registry` | — |
-| Secret | `config.json`, biến môi trường, `certs/` | nhiều module | không có secret thật nào bị commit (đã quét) |
+| Ứng dụng máy chủ | `src/mateai/` | 125 file `.py`, 45 782 dòng | Toàn bộ runtime; điểm vào `main.py` → `mateai.interfaces.http.server:app` |
+| ↳ application | `src/mateai/application/{agent,voice,commands,conversation,skills,security,operations,devices,knowledge,analytics,enterprise,administration}` | ~14 600 dòng | Use case: vòng agent, lượt thoại, lệnh nhanh, cổng tool, HITL, sentinel, giao việc |
+| ↳ infrastructure | `src/mateai/infrastructure/{llm,tts,audio,database,connectors,http,cache,memory,notifications,security,directory,files,websocket}` | ~12 200 dòng | Adapter: LLM provider, TTS, STT/VAD, SQLite, connector ngoài |
+| ↳ interfaces | `src/mateai/interfaces/{http,websocket,telegram,email,desktop}` | ~10 300 dòng | 204 route HTTP, 9 route WebSocket, Telegram, email, mic máy chủ |
+| ↳ domain | `src/mateai/domain/*` | 595 dòng | Entity Python thuần — **0 nơi dùng ngoài test** (`grep mateai.domain.<x>` = 0) |
+| ↳ config | `src/mateai/config/{loader,secret_box}.py` | 821 dòng | Cấu hình Pydantic + mã hoá bí mật Fernet (`enc:v1:`) |
+| Bộ nạp skill | `core/plugin_manager.py` | 498 dòng | Quét `skills/*.py`, decorator `@export_skill` (102 skill) |
+| Skill | `skills/*.py` | 33 file | 12 file là lớp chuyển tiếp ≤ 36 dòng sang `application/skills/builtin`; còn lại là skill thật |
+| Worker phụ | `workers/` | 4 file | Computer-use (self-healing UI, vault phiên trình duyệt, OS driver, daemon từ xa) |
+| Agent máy trạm | `client_agent/` | — | Agent 2.2.1 (Windows .exe, macOS), giao thức `/ws/client` |
+| Firmware robot | `esp32_firmware/src/main.cpp` | — | ESP32-S3, giao thức `/api/v1/xiaozhi/ws` |
+| Frontend | `web/` (portal `app.js`, HUD `hud.html`/`hud.js`), `admin/` (Next.js) | — | Portal quản trị, HUD thoại |
+| Test | `tests/` | 106 file pytest + 14 file `.mjs` | **664 pass** (lần chạy 2026-10-05) |
+| CI | `.github/workflows/tests.yml` | — | Chỉ chạy `pytest -q`; không lint, type-check, scan, deploy |
+| Dữ liệu | `vnmateai.db`, `hr_kpi.db` (SQLite, không commit) | — | Nguồn dữ liệu chính duy nhất hiện nay |
 
-Trạng thái trong RAM tiến trình: **54 singleton cấp module** (`memory_manager`, `voice_sessions`, `state_manager`, hai `hitl_manager`, `ephemeral_cache`, `task_manager`, …) và 5 tập hợp WebSocket/task toàn cục trong `server.py` (`active_hud_websockets`, `active_portal_websockets`, `active_topology_websockets`, `active_audio_nodes`, `_hud_voice_tasks`). Hệ quả: **không thể chạy hơn một instance** mà không mất session, HITL đang chờ, lịch sử hội thoại.
+## 2. Đồ thị gọi thật (tóm tắt — chi tiết: `docs/realtime/call-graph.md`)
 
-## 6. Phụ thuộc
+```
+Portal mic ─┐  /ws/v1/voice-stream ── realtime_voice_ws.py:316 ─┐
+HUD        ─┤  /ws/hud ─────────────── hud_voice.py:224 ─────────┤
+Robot      ─┤  /api/v1/xiaozhi/ws ─── xiaozhi_gateway.py:890 ────┼─► voice_turn.process_voice_turn
+Mic máy chủ ┤  (luồng desktop) ────── voice_controller.py:662 ───┤      ├─ fast_command_router.dispatch   (không LLM)
+REST        ┘  POST /api/v1/voice-command ─ routers/voice.py:135 ┘      ├─ classify_intent → acoustic ACK (cache)
+                                                                        ├─ llm_engine.stream_voice_response → provider.stream
+Telegram ── telegram_gateway.py:199 ── llm_engine.ask_async ◄───────────┘   (câu cần tool → ask_async)
+                                              │
+                                              ▼  vòng agent ≤ MAX_TOOL_ROUNDS = 6 (llm_engine.py:57)
+                               tool_gate.run_tool_with_policy (tool_gate.py:84)
+                                  risk (zero_trust) → HITL → RBAC (security_guard) → thực thi → audit
+                                              │
+               ┌──────────────────────────────┼─────────────────────────────┐
+     plugin_registry.execute_tool     plugin_manager.execute_skill     orchestrator (máy trạm /ws/client)
+```
 
-- Không có vòng import ở top-level (đã được gỡ bằng import trong hàm).
-- Tính cả import trong hàm: **một khối liên thông mạnh gồm 37 module** (gần như toàn bộ lõi) + một vòng nhỏ `sentence_buffer ↔ sentence_streamer`.
-- **10 module lõi import ngược `core.server` (không tính `main.py`)** (lớp lõi phụ thuộc lớp giao tiếp).
-- Module được import nhiều nhất: `plugin_manager` (55), `config_loader` (23), `database` (15), `server` (13), `zero_trust` (11), `telegram_gateway` (11).
+## 3. Hiện trạng theo năng lực đích
 
-## 7. Baseline test (chạy thật ngày 2026-10-01)
+Ký hiệu: ✅ có và chạy · 🟡 có một phần · ❌ không có.
 
-Repo **không khai báo** `pytest`/`pytest-asyncio` (đã cài tạm vào `.venv` để chạy). Không chạy được bằng một lệnh `pytest tests`: các file dạng script gọi `sys.exit()` khi import làm hỏng collection.
-
-**47 file Python: 38 pass, 9 fail.** (11 file `.mjs` chưa chạy trong Phase 0.)
-
-| File fail | Nguyên nhân | Loại |
+| Năng lực đích (prompt §) | Hiện trạng | Bằng chứng |
 |---|---|---|
-| `test_hud_barge_in_and_tts_flow.py` (4/38 check) | đòi hàng đợi task TTS trong đường HUD — code HUD đã đổi sang `TTSStreamEngine` | test lệch code |
-| `test_phase67_voice_latency.py` (10/41) | đòi hàm bọc TTS có timeout cho HUD — như trên | test lệch code |
-| `test_phase85_may_tram_that_muc.py` (2/64) | kiểm tra cấu trúc HTML `web/index.html` | test lệch UI |
-| `test_phase1_realtime_ws.py::test_metric_trace_tracker` | `sleep(0.02)` trên Windows đo được 15 ms < ngưỡng 20 ms | test phụ thuộc đồng hồ |
-| `unit/test_repositories.py::test_audit_repository` | đòi DB của máy dev có ≥ 2.459 dòng audit (máy mới có 26) | test phụ thuộc dữ liệu máy |
-| `test_phase62_data_source.py` (1 check) | đòi quyền file `0600` — Windows trả `0666` | phụ thuộc OS |
-| `test_phase73_no_fake_data.py`, `test_phase75_roi_real_data.py` | `WinError 32`: file SQLite tạm còn bị giữ khi dọn → kết nối chưa được đóng | rò kết nối (lộ ra trên Windows) |
-| `test_phase68_no_hardcoded_models.py` (2/68) | gọi model thật qua 9Router, một model trả HTTP 400 | phụ thuộc mạng |
+| Một đường thoại chuẩn (§41) | ✅ 5 kênh thoại đều qua `process_voice_turn` | các dòng gọi ở §2 |
+| LLM stream (§44) | ✅ `provider.stream` | `llm_provider.py:116,178,294,582` |
+| Tách câu + TTS theo câu (§47–§49) | ✅ `SentenceBuffer` → `StreamingTTSWorkerPipeline` | `voice_turn.py:465–501` |
+| Hàng đợi audio có giới hạn (§51) | ✅ hàng đợi câu `maxsize=5` | `tts_queue_pipeline.py:98` |
+| Audio nhị phân (§52) | ✅ portal, HUD, robot; Base64 còn ở REST | `binary_transport.py` |
+| Câu đệm (ACK) cache (§57) | ✅ không gọi LLM | `voice_turn.py:432–435` |
+| Lệnh nhanh không LLM (§56) | ✅ nhưng "kiểm tra CPU" **chặn event loop 50 ms** | `fast_command_router.py:267,291` (`psutil.cpu_percent(interval=0.05)` trong hàm async) |
+| Một abstraction LLM (§45) | 🟡 `BaseLLMProvider` + 3 adapter; Whisper STT tự dựng `OpenAI()` | `audio_processor.py:490` |
+| Một TTS (§49) | 🟡 `TTSStreamEngine`; skill `ninerouter_skills` tự gọi `/audio/speech` | `skills/ninerouter_skills.py:255` |
+| Policy Engine (§14) | ❌ không có module chính sách độc lập; luật nằm rải ở 4 nơi (bảng rủi ro, RBAC, danh sách cấm, cấu hình) | `risk-model.md`, `policy-model.md` |
+| Danh sách cấm / bắt duyệt trong cấu hình | ❌ **không được áp dụng** ở cổng tool — chỉ dùng ở nút thử của trang bảo mật | `safety_guard.py:257` chỉ được gọi từ `routers/security.py:166`; `tool_gate.py:116` dùng hàm khác |
+| Risk Engine (§15) | 🟡 thang 1–5 theo **tên** tool + khai báo registry; không xét môi trường, đích, khả năng hoàn tác | `zero_trust.py:58–125,164–231` |
+| Mức tự trị L0–L5 (§16) | ❌ chỉ có ngưỡng "≥ 3 phải duyệt"; tài khoản admin bỏ qua mọi mức, kể cả mức 5 | `zero_trust.py:43`, `tool_gate.py:128` |
+| Lệnh từ chối tuyệt đối (DENY) | 🟡 chỉ 2 tên tool (`format_drive`, `wipe_all_data`); nhánh `BLOCKED` của cổng **không bao giờ chạy** | `security_guard.py:109`; `zero_trust.py:781` chỉ trả SAFE/NEED_CONFIRM |
+| Thứ tự kiểm tra | 🟡 rủi ro → duyệt → **rồi mới** RBAC: có thể sinh yêu cầu duyệt cho việc người hỏi không có quyền | `tool_gate.py:127–186` |
+| Danh tính tác nhân AI (§11–§12) | ❌ không có `agent_id`; hành động ghi theo người/thiết bị gọi | `grep agent_id` = 0 |
+| HITL (§32) | ✅ hàng đợi duyệt bền (khôi phục từ audit), hết hạn không tự cho phép | `zero_trust.py:127–779` |
+| Số đường phân quyền tool (§17) | 🟡 **3 đường**: `tool_gate`, `execute_with_hitl` (router skills), cổng duyệt riêng trong `plugin_registry` | `tool_gate.py:84`, `routers/skills.py:233–245`, `plugin_registry.py` |
+| Tác nhân con gọi thẳng hàm | ❌ `agent_orchestrator` gọi `assign_task_intelligently`… **không qua cổng** | `agent_orchestrator.py:252,264` |
+| Giới hạn vòng agent (§35) | 🟡 6 vòng/lượt; không giới hạn thời gian, chi phí, số tool tổng, phạm vi dữ liệu | `llm_engine.py:57,1046` |
+| Kill switch (§95) | ❌ không có công tắc toàn cục / theo tool / theo tác nhân | `grep kill_switch` = 0 |
+| Task ledger tự trị (§21–§22) | ❌ có 4 khái niệm "task" khác nhau, không cái nào là sổ tác vụ tự trị có máy trạng thái | `task-model.md` |
+| Goal / Priority / Incident (§20, §23, §153) | ❌ | `grep goal_id, incident_id` = 0 |
+| Evidence ledger, kiểm chứng sau hành động (§27–§30) | ❌ kết quả tool là chuỗi trả về; không bước verify | — |
+| Escalation engine (§80) | 🟡 có bộ phát cảnh báo đa kênh (Telegram/Teams/email/Slack/webhook) nhưng không có luật leo thang | `alert_dispatcher.py` |
+| Audit bất biến (§68–§69) | ✅ một bảng `audit_logs`, chỉ INSERT; 5 hàm ghi đều đổ về `erp_db.write_audit_log` | `erp_database.py:882` |
+| Quan sát (§71–§74) | 🟡 trace thoại đủ mốc nhưng **chỉ trong RAM** (`deque(maxlen=500)`), mất khi khởi động lại; không OpenTelemetry; không đếm token/chi phí | `voice_turn.py:94` |
+| Health (§100) | ✅ `/livez`, `/readyz`, `/startupz` | `server.py:322,328,368` |
+| Tắt máy an toàn (§101) | 🟡 dừng worker nền, sentinel, Telegram; **không** đóng pool HTTP, email gateway, luồng proactive, WebSocket máy trạm | `server.py:1023–1052`; `connection_pool.close_all` không có caller |
+| Giới hạn tần suất (§78) | ❌ không có cho đăng nhập / WS / LLM / API quản trị (chỉ connector ngoài) | `grep rate_limit` |
+| Dữ liệu (§62–§65) | 🟡 SQLite là nguồn duy nhất; 3 module application truy vấn SQL thẳng; không Redis/PostgreSQL/object storage | `agent_orchestrator.py`, `onboarding_workflow.py`, `proactive_manager.py` |
+| Nhiều tenant / phòng ban (§67) | ❌ không có `tenant_id`, không lọc dữ liệu theo phòng ban | — |
+| Chống prompt injection (§92–§94) | ❌ kết quả tool đi vào hội thoại dưới vai `tool` mà không đánh dấu "dữ liệu không tin cậy"; `identity_core.md` đọc thẳng vào system prompt | `llm_engine.py:1173,230` |
+| Che dữ liệu trước khi gửi LLM (§91) | ✅ câu hỏi và kết quả tool qua `mask_sensitive_data` | `llm_engine.py:847,896,1170,1340` |
+| Không `shell=True` (§19) | 🟡 còn 2 chỗ, lệnh là hằng số (không chèn được) | `domain_sync.py:101,193` |
+| Mở rộng ngang (§114) | ❌ phiên thoại, hàng đợi TTS, WS, task chờ, trace đều nằm trong RAM một tiến trình | `call-graph.md` §5 |
 
-Một số test ghi vào `config.json`, `vnmateai.db` và kho data source **thật** (có khôi phục lại). Phase 0 đã sao lưu trước khi chạy; dữ liệu sau khi chạy giống bản sao lưu.
+## 4. Kiến trúc đích (giữ "modular monolith", §161)
 
-Commit trước ghi "100 % pass": không đúng (`tests/unit/test_repositories.py` fail ngay trên máy mới). Ngoài ra **9 file `tests/unit/*` chỉ kiểm tra `src/mateai/`** — cây code không chạy trong runtime — nên không bảo vệ `core/`.
+```
+interfaces (http · websocket · telegram · email · desktop)        ← chỉ chuyển đổi giao thức
+      │
+application
+  voice/        process_voice_turn (giữ nguyên — đã là bản chuẩn)
+  agent/        llm_engine (vòng agent) ──► control/  ◄── MỌI tác nhân, router, tác vụ nền
+  control/      [MỚI, GỘP TỪ CÓ SẴN] PolicyEngine · RiskEngine · AutonomyLevel · KillSwitch · LoopBudget
+                = tool_gate + zero_trust(risk, HITL) + security_guard(RBAC) + settings.security
+  tasks/        [GỘP] một Task Ledger có máy trạng thái (thay 4 khái niệm task hiện có cho phần tự trị)
+  evidence/     [MỚI] bằng chứng + kiểm chứng sau hành động
+  operations/   sentinel → sinh task (không tự xử lý) · alert_dispatcher → escalation
+infrastructure (llm · tts · audio · database · connectors · notifications)
+domain         entity thuần — chỉ giữ cái được dùng thật
+```
 
-## 8. Vi phạm kiến trúc (đã kiểm chứng)
+Nguyên tắc: **không tạo bản mới bên cạnh bản cũ**. `control/` được hình thành bằng cách **chuyển** `tool_gate.py` + phần rủi ro/HITL của `zero_trust.py` + phần RBAC của `security_guard.py` vào một chỗ, rồi buộc `routers/skills.py`, `plugin_registry` và `agent_orchestrator` đi qua nó. Chi tiết thứ tự: `docs/migration/production-refactor-plan.md` §0.
 
-| # | Vi phạm | Bằng chứng |
+## 5. Câu hỏi §213 — trả lời theo hiện trạng (Phase 0)
+
+| # | Câu hỏi | Trả lời hôm nay |
 |---|---|---|
-| V1 | Một tính năng, nhiều implementation | 5 voice pipeline, 2 TTS engine, 3 hàm làm sạch text, 3 vòng fallback LLM, 2 HITL, 3 audit sink, 2 registry, 3 kho lịch sử, 2 bản client agent |
-| V2 | Kiến trúc đích dựng song song nhưng không nối | `src/mateai/` 0 importer production |
-| V3 | Lõi phụ thuộc lớp giao tiếp | 10 module lõi import `core.server`; khối SCC 37 module |
-| V4 | God module | `server.py` 8.898 dòng: 165 route + 10 WS + pipeline voice HUD + race TTS + vòng telemetry + quản lý worker |
-| V5 | Bỏ qua lớp trừu tượng | 5 module tự tạo client OpenAI; 14 chỗ tự đọc `config.json`; 3 module tự mở `sqlite3` |
-| V6 | Dữ liệu hai chủ | bảng `tasks`; user (`users.json` + bảng `users`); `employees` ở hai DB |
-| V7 | Trạng thái chỉ trong RAM | 54 singleton + 5 tập hợp toàn cục trong `server.py` |
-| V8 | Phụ thuộc thiếu khai báo | `gTTS` không có trong `requirements.txt` → nhánh dự phòng cuối của TTS luôn lỗi im lặng; `pytest` không được khai báo |
-| V9 | Kiểm tra kiến trúc giả xanh | `tests/architecture/` chỉ quét `src/mateai/` và chỉ 3/10 quy tắc; không quét `core/` |
-| V10 | Test không cô lập | ghi vào `config.json`/DB thật; phụ thuộc dữ liệu máy dev, mạng, đồng hồ |
-
-## 9. So sánh với mục tiêu
-
-| Năng lực | Hiện trạng | Mục tiêu | Khoảng cách |
-|---|---|---|---|
-| Voice pipeline | 5 pipeline | 1 (P1), các kênh khác chỉ là transport | lớn |
-| Giao thức voice | `/ws/v1/voice-stream`, `/ws/hud`, XiaoZhi, REST | 1 giao thức voice + transport thiết bị riêng | trung bình |
-| LLM | provider abstraction có, nhưng 3 vòng fallback + 5 client riêng | mọi lời gọi qua `LLMProvider` | trung bình |
-| TTS | 2 engine + race riêng | `TTSStreamEngine` duy nhất | trung bình |
-| Tool registry | 2 | 1 | trung bình |
-| Security policy | 2 HITL, 3 audit, 2 role model | 1 đường policy | lớn, rủi ro cao |
-| Persistence | SQLite, DAO dùng chung bảng | repository + PostgreSQL làm system of record | lớn |
-| State | RAM tiến trình | Redis cho state chia sẻ | lớn |
-| Cấu hình | khóa trùng + đọc trực tiếp | 1 loader, secret tách khỏi config | nhỏ |
-| Health | `/health` | `/livez`, `/readyz`, `/startupz` | nhỏ |
-| Observability | log văn bản, trace riêng cho P1 | log có cấu trúc + metric + trace | lớn |
-| Triển khai | 1 tiến trình Windows có khay hệ thống | tiến trình api/realtime/worker tách được, container | lớn |
-| Test | 38/47 pass, không có runner chung | 1 lệnh chạy, cô lập, có CI | trung bình |
+| 1 | Đường thoại chuẩn | `application/voice/voice_turn.process_voice_turn` |
+| 2 | Abstraction LLM | `infrastructure/llm/llm_provider.BaseLLMProvider` (ngoại lệ: Whisper STT) |
+| 3 | Đường TTS | `infrastructure/tts/tts_stream_engine.TTSStreamEngine` (ngoại lệ: một skill) |
+| 4 | Giao thức WS thoại | `/ws/v1/voice-stream` cho portal; HUD còn schema riêng `/ws/hud`; robot `/api/v1/xiaozhi/ws` (+ alias `/ws/audio-stream`) |
+| 5–6 | Registry tool / skill | **Hai**: `core/plugin_manager` (skill `@export_skill`) và `plugin_registry` (tool đăng ký động: connector, computer-use) |
+| 7 | Policy Engine | Chưa có bản chuẩn — 4 nguồn luật rời |
+| 8 | Đường phân quyền | 3 (xem §3) |
+| 9 | Vòng đời task | Không có vòng đời chung |
+| 10 | Đường audit | Một bảng `audit_logs`; 5 hàm ghi |
+| 16–17 | LLM có vượt được phân quyền? Tác nhân chạy tool không qua chính sách? | LLM không tự nâng quyền được (RBAC theo `caller`), nhưng (a) tài khoản admin chạy được tool mức 5 không cần duyệt; (b) `agent_orchestrator` gọi hàm trực tiếp; (c) danh sách cấm trong cấu hình không được áp dụng |
+| 18 | Tự trị chạy vô hạn? | Một lượt ≤ 6 vòng tool; tác vụ nền (sentinel, proactive, email) chạy mãi theo thiết kế, **không có kill switch** |
+| 19 | Người dừng được tác nhân? | Dừng được lượt thoại (barge-in / huỷ); **không** dừng toàn cục được |
+| 28 | p50/p95/p99 thoại | Xem `docs/realtime/voice-architecture.md` §4 (đo 2026-10-03, p99 chưa có đủ mẫu) |
+| 29 | Tỷ lệ thành công tác vụ tự trị | **Chưa đo** — chưa có sổ tác vụ |
+| 30 | Chưa sẵn sàng production | `docs/production/readiness-score.md` |
