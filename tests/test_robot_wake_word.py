@@ -53,8 +53,27 @@ def test_ordinary_speech_does_not_wake(heard):
 def test_name_comes_from_config(monkeypatch):
     import mateai.config.loader as loader
     monkeypatch.setattr(loader, "get_assistant_name", lambda: "Mai Anh")
+    monkeypatch.setattr(loader, "get_config_section", lambda name: {})
+    monkeypatch.setattr(loader, "read_raw_config", lambda *a, **k: {})
     assert find_wake_command("Mai Anh ơi bật đèn") == "bật đèn"
     assert find_wake_command("Hey Ly Ly") is None
+
+
+def test_configured_wake_phrase_also_works(monkeypatch):
+    """Ô "Câu đánh thức" (Persona) từng chỉ để hiển thị. Nay gọi được bằng tên trong
+    câu đó (bỏ "Hey"/"ơi") VÀ bằng tên trợ lý."""
+    import mateai.config.loader as loader
+    monkeypatch.setattr(loader, "get_assistant_name", lambda: "Ly Ly")
+    monkeypatch.setattr(loader, "get_config_section",
+                        lambda name: {"wake_word": "Hey Bé Na"} if name == "persona" else {})
+    assert find_wake_command("bé na ơi mấy giờ rồi") == "mấy giờ rồi"
+    assert find_wake_command("Ly Ly ơi bật đèn") == "bật đèn"
+    assert find_wake_command("hôm nay trời đẹp") is None
+    # Câu đánh thức chỉ là tên trợ lý viết liền: vẫn tách âm tiết theo tên.
+    monkeypatch.setattr(loader, "get_config_section",
+                        lambda name: {"wake_word": "Hey Lyly"} if name == "persona" else {})
+    from mateai.infrastructure.audio.wake_word_engine import wake_names
+    assert wake_names() == ["Ly Ly"] and find_wake_command("ly ly ơi") == ""
 
 
 # ── Gateway: đoạn câu gọi -> lắng nghe / chạy lệnh ─────────────────────────

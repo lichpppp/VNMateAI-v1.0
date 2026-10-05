@@ -3521,22 +3521,6 @@
                 </div>
               </div>
 
-              <!-- Streaming Switch (Dùng chung cho cả 2 chế độ) -->
-              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.02] border border-slate-200 dark:border-white/10 flex items-center justify-between gap-3">
-                <div class="flex items-center gap-2.5">
-                  <div class="w-7 h-7 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-sm">
-                    ⚡
-                  </div>
-                  <div>
-                    <div class="font-bold text-slate-800 dark:text-white text-xs">Chế Độ Streaming (Token By Token)</div>
-                    <p class="text-[10px] text-slate-400 mt-0.5">Phản hồi văn bản xuất hiện ngay lập tức theo thời gian thực.</p>
-                  </div>
-                </div>
-                <div class="switch-track" id="ai-switch-streaming" onclick="toggleAISwitch('ai-switch-streaming')">
-                  <div class="switch-knob"></div>
-                </div>
-              </div>
-
               <!-- Test Result Status -->
               <div id="ai-status-test-llm" class="hidden text-xs p-3 rounded-xl transition-all"></div>
             </div>
@@ -3739,8 +3723,7 @@
                   <div class="space-y-1.5">
                     <label class="font-semibold text-slate-700 dark:text-slate-200 text-[11px]">BỘ MÁY (ENGINE)</label>
                     <select id="ai-tts-engine" class="input-dark w-full" onchange="onAITTSEngineChange()">
-                      <option value="edge-tts">Edge-TTS (Microsoft Tiếng Việt)</option>
-                      <option value="local">Local TTS (Offline Piper)</option>
+                      <option value="edge-tts">9Router TTS → Edge-TTS dự phòng (Tiếng Việt)</option>
                       <option value="elevenlabs">ElevenLabs (Cloud AI)</option>
                     </select>
                   </div>
@@ -3884,7 +3867,8 @@
                   <select id="ai-asr-engine" class="input-dark w-full" onchange="onAIASREngineChange()">
                     <option value="google">Google Speech STT (Mặc định — Tiếng Việt chuẩn)</option>
                     <option value="groq">Groq Whisper (Cloud API — Siêu tốc)</option>
-                    <option value="whisper">Whisper Local (OpenAI Engine chuẩn)</option>
+                    <option value="whisper">Whisper qua 9Router (API)</option>
+                    <option value="local_whisper">Whisper cục bộ (offline — faster-whisper trên máy chủ)</option>
                   </select>
                 </div>
 
@@ -7658,7 +7642,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
-  <script src="/static/app.js?v=46.0"></script>
+  <script src="/static/app.js?v=47.0"></script>
 </body>
 
 </html>

@@ -4515,13 +4515,6 @@ async function _doLoadAIManagerConfig() {
   setVal('ai-llm-model', modelName);
   setVal('ai-llm-key', apiKey);
 
-  // Streaming toggle
-  const streamingSwitch = document.getElementById('ai-switch-streaming');
-  if (streamingSwitch) {
-    if (llm.streaming) streamingSwitch.classList.add('on');
-    else streamingSwitch.classList.remove('on');
-  }
-
   // ── Phase 91: Dual-Mode Routing (Độc quyền 1 trong 2)
   const routingMode = (llm.routing_mode === 'direct') ? 'direct' : 'router';
   const directUrl   = llm.direct_url   || 'https://api.deepseek.com';
@@ -4539,9 +4532,12 @@ async function _doLoadAIManagerConfig() {
     if (triBrainEnabled) triSwitch.classList.add('is-active', 'on');
     else triSwitch.classList.remove('is-active', 'on');
   }
-  const cModel = llm.controller_model || modelName || 'ag/gemini-3.6-flash-high';
-  const vModel = llm.voice_model || modelName || 'ag/gemini-3.6-flash-high';
-  const oModel = llm.ops_model || llm.specialist_model || 'VN-MateAi';
+  // Chưa đặt riêng thì dùng model chính — đúng như máy chủ (llm_engine.get_brain_model).
+  // Trước đây ô "Vận hành" tự điền "VN-MateAi": model KHÔNG có trong 9Router, bấm
+  // Lưu một lần là mọi lệnh có tool gọi vào model không tồn tại.
+  const cModel = llm.controller_model || modelName;
+  const vModel = llm.voice_model || modelName;
+  const oModel = llm.ops_model || modelName;
 
   setVal('ai-tribrain-controller-model', cModel);
   setVal('ai-tribrain-voice-model',      vModel);
@@ -4594,7 +4590,8 @@ async function _doLoadAIManagerConfig() {
 
   // ── Card 3: Audio / TTS / ASR
   const audio = cfg.audio || {};
-  const ttsEngine = audio.tts_engine || 'edge-tts';
+  // "local" (Piper) từng có trên giao diện nhưng máy chủ chưa từng hỗ trợ.
+  const ttsEngine = (audio.tts_engine && audio.tts_engine !== 'local') ? audio.tts_engine : 'edge-tts';
   const ttsVoice = audio.tts_voice || cfg.TTS_VOICE || 'vi-VN-HoaiMyNeural';
   setVal('ai-tts-engine', ttsEngine);
   setVal('ai-tts-voice', ttsVoice);
@@ -4661,16 +4658,32 @@ async function saveAIConfig() {
     });
   };
 
-  setLoading(true);
-
   const getVal = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
-  const isOn = id => { const el = document.getElementById(id); return el ? el.classList.contains('on') : false; };
+
+  // Model không có trong danh sách 9Router đang phục vụ -> mọi lời gọi sẽ lỗi rồi
+  // chuyển dự phòng (chậm thêm vài giây mỗi lượt). Hỏi lại trước khi lưu.
+  if ((getVal('ai-routing-mode') || 'router') === 'router' && Array.isArray(routerModelList) && routerModelList.length) {
+    const known = new Set(routerModelList);
+    const missing = [
+      ['Model chính', getVal('ai-llm-model')],
+      ['Não Điều phối', getVal('ai-tribrain-controller-model')],
+      ['Não Giao tiếp', getVal('ai-tribrain-voice-model')],
+      ['Não Vận hành', getVal('ai-tribrain-ops-model')],
+    ].filter(([, m]) => m && !known.has(m));
+    if (missing.length && !confirm(
+      'Các model sau KHÔNG có trong 9Router đang phục vụ:\n'
+      + missing.map(([k, m]) => `• ${k}: ${m}`).join('\n')
+      + '\n\nMọi lượt dùng chúng sẽ lỗi rồi chuyển model dự phòng (chậm thêm). Vẫn lưu?')) {
+      return;
+    }
+  }
+
+  setLoading(true);
 
   const baseUrl = getVal('ai-llm-base') || 'http://localhost:20128/v1';
   const modelName = getVal('ai-llm-model') || '';
   const typedApiKey = getVal('ai-llm-key');
   const apiKey = (typedApiKey && typedApiKey !== SECRET_MASK) ? typedApiKey : (currentConfig?.llm?.api_key || '');
-  const streaming = isOn('ai-switch-streaming');
 
   const aiName = getVal('ai-persona-name') || 'Ly Ly';
   const wakeWord = getVal('ai-persona-wake') || 'Hey Ly Ly';
@@ -4710,7 +4723,6 @@ async function saveAIConfig() {
       base_url: baseUrl,
       model_name: modelName,
       api_key: apiKey,
-      streaming: streaming,
       router_models: (currentConfig?.llm?.router_models && currentConfig.llm.router_models.length > 0)
         ? [modelName, ...currentConfig.llm.router_models.filter(m => m !== modelName)]
         : fallbackModels(modelName),
@@ -4722,10 +4734,12 @@ async function saveAIConfig() {
       direct_model:   getVal('ai-direct-model') || '',
       direct_api_key: directApiKey,
       // Phase 94: Tri-Brain Specialized Architecture
-      tri_brain_enabled: document.getElementById('ai-switch-tribrain')?.classList.contains('is-active') || document.getElementById('ai-switch-tribrain')?.classList.contains('on') || true,
+      // Trước đây `... || true` — công tắc Tri-Brain không bao giờ tắt được.
+      tri_brain_enabled: !!(document.getElementById('ai-switch-tribrain')?.classList.contains('is-active')
+                         || document.getElementById('ai-switch-tribrain')?.classList.contains('on')),
       controller_model:  getVal('ai-tribrain-controller-model') || modelName,
       voice_model:       getVal('ai-tribrain-voice-model') || modelName,
-      ops_model:         getVal('ai-tribrain-ops-model') || 'VN-MateAi',
+      ops_model:         getVal('ai-tribrain-ops-model') || modelName,
     },
     persona: {
       ai_name: aiName,
@@ -5280,6 +5294,8 @@ async function testAILLMConnection() {
     });
     const data = await res.json();
     if (data.success) {
+      const latEl = document.getElementById('ai-status-latency');
+      if (latEl && data.latency_ms) latEl.textContent = `${Math.round(data.latency_ms)}ms (vừa đo)`;
       if (data.fallback_triggered) {
         statusEl.className = 'mt-3 text-xs p-3.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-200';
         statusEl.innerHTML = `
@@ -5288,9 +5304,9 @@ async function testAILLMConnection() {
             ⚡ Auto-Fallback Đã Kích Hoạt! (Độ trễ: ${data.latency_ms || 0}ms)
           </div>
           <div class="text-[11px] opacity-90 mb-1 leading-relaxed">
-            Mô hình chính <code>${data.requested_model}</code> gặp sự cố. Hệ thống đã tự động chuyển đổi sang: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">${data.resolved_model}</strong>.
+            Mô hình chính <code>${_esc(data.requested_model)}</code> gặp sự cố. Hệ thống đã tự động chuyển đổi sang: <strong class="text-emerald-600 dark:text-emerald-400 font-mono">${_esc(data.resolved_model)}</strong>.
           </div>
-          ${data.reply ? `<div class="text-[11px] mt-1.5 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${data.reply}"</div>` : ''}
+          ${data.reply ? `<div class="text-[11px] mt-1.5 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${_esc(data.reply)}"</div>` : ''}
         `;
         showToast(`⚡ Chuyển đổi sang ${data.resolved_model}!`, 'info');
       } else {
@@ -5306,8 +5322,8 @@ async function testAILLMConnection() {
             </div>
             ${modeBadge}
           </div>
-          <div class="text-[11px] opacity-80 mt-1">Endpoint: <code>${baseUrl}</code> | Mô hình: <code>${data.resolved_model || modelName || 'mặc định'}</code></div>
-          ${data.reply ? `<div class="text-[11px] mt-2 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${data.reply}"</div>` : ''}
+          <div class="text-[11px] opacity-80 mt-1">Endpoint: <code>${_esc(baseUrl)}</code> | Mô hình: <code>${_esc(data.resolved_model || modelName || 'mặc định')}</code></div>
+          ${data.reply ? `<div class="text-[11px] mt-2 p-2 rounded bg-black/10 dark:bg-black/30 font-mono">Phản hồi: "${_esc(data.reply)}"</div>` : ''}
         `;
         showToast(isDirect ? '⚡ Kết nối Direct LLM siêu tốc thành công!' : '⚡ Kết nối 9Router Gateway thành công!', 'success');
       }
@@ -5317,7 +5333,7 @@ async function testAILLMConnection() {
       if (data.suggestion) {
         suggestionHtml = `
           <div class="mt-2.5 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px] leading-relaxed">
-            ${data.suggestion}
+            ${_esc(data.suggestion)}
           </div>
         `;
       }
@@ -5327,7 +5343,7 @@ async function testAILLMConnection() {
           <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
           Kết nối thất bại!
         </div>
-        <div class="text-[11px] opacity-90 break-words font-mono bg-black/20 p-2 rounded">${errMsg}</div>
+        <div class="text-[11px] opacity-90 break-words font-mono bg-black/20 p-2 rounded">${_esc(errMsg)}</div>
         ${suggestionHtml}
       `;
       showToast('❌ Kiểm tra kết nối LLM thất bại', 'error');
@@ -5340,7 +5356,7 @@ async function testAILLMConnection() {
         <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
         Kết nối thất bại!
       </div>
-      <div class="text-[11px] opacity-90 break-words">${e.message}</div>
+      <div class="text-[11px] opacity-90 break-words">${_esc(e.message)}</div>
     `;
     showToast('❌ Kiểm tra kết nối LLM thất bại: ' + e.message, 'error');
   } finally {
@@ -5371,9 +5387,17 @@ function updateAIManagerTelemetry() {
   const curWake = document.getElementById('ai-persona-wake')?.value?.trim() || currentConfig?.persona?.wake_word || currentConfig?.WAKE_WORD || 'Hey Ly Ly';
   if (wakeEl) wakeEl.textContent = curWake;
 
-  if (typeof SYSTEM_HEALTH_CACHE === 'object' && SYSTEM_HEALTH_CACHE?.services?.llm_9router) {
-    const lat = SYSTEM_HEALTH_CACHE.services.llm_9router.latency_ms || SYSTEM_HEALTH_CACHE.services.llm_9router.latency || 0;
-    if (lat && latencyEl) latencyEl.textContent = `~${Math.round(lat)}ms`;
+  if (latencyEl) {
+    apiFetch('/api/v1/health-dashboard')
+      .then((r) => (r instanceof Response ? r.json() : r))
+      .then((h) => {
+        const llmSvc = h?.services?.llm_9router;
+        if (!llmSvc) return;
+        latencyEl.textContent = llmSvc.status === 'OK' && llmSvc.latency_ms
+          ? `${Math.round(llmSvc.latency_ms)}ms (đo định kỳ)`
+          : (llmSvc.status === 'FAIL' ? 'không phản hồi' : '—');
+      })
+      .catch(() => {});
   }
 }
 
@@ -5448,7 +5472,14 @@ function updatePromptStats() {
   const tokenBadge = document.getElementById('ai-prompt-tokens-badge');
   const ctxEl = document.getElementById('ai-prompt-context-pct');
 
-  if (charEl) charEl.textContent = `${charCount} ký tự`;
+  if (!charCount) {
+    // Để trống: máy chủ dùng prompt mặc định (dựng theo kênh, quyền thiết bị, ngày giờ).
+    if (charEl) charEl.textContent = 'Để trống = dùng prompt mặc định của hệ thống';
+    if (tokenBadge) tokenBadge.textContent = 'MẶC ĐỊNH';
+    if (ctxEl) ctxEl.textContent = '';
+    return;
+  }
+  if (charEl) charEl.textContent = `${charCount} ký tự (bổ sung vào prompt hệ thống)`;
   if (tokenBadge) tokenBadge.textContent = `~${tokenEst} tokens`;
   if (ctxEl) ctxEl.textContent = `${contextPct}% context`;
 }

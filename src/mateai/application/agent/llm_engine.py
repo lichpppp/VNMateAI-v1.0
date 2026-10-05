@@ -621,15 +621,14 @@ class LLMEngine:
           - 'ops':        Bộ Não Vận Hành Kỹ Năng Hệ Thống (Operations & Tools)
         """
         cfg = settings.llm
+        main = getattr(cfg, "model_name", "") or ""
         if not getattr(cfg, "tri_brain_enabled", True):
-            return cfg.model_name or "ag/gemini-3.6-flash-high"
-
-        if role == "voice":
-            return getattr(cfg, "voice_model", "") or getattr(cfg, "model_name", "") or "ag/gemini-3.6-flash-high"
-        elif role == "ops":
-            return getattr(cfg, "ops_model", "") or getattr(cfg, "specialist_model", "") or getattr(cfg, "model_name", "") or "VN-MateAi"
-        else:  # controller
-            return getattr(cfg, "controller_model", "") or getattr(cfg, "model_name", "") or "ag/gemini-3.6-flash-high"
+            return main
+        # Não chưa đặt model riêng -> model chính. Không có tên model viết cứng:
+        # trước đây dự phòng là "VN-MateAi" / "ag/gemini-3.6-flash-high" — tên phụ
+        # thuộc nhà cung cấp, có thể không tồn tại trên 9Router đang chạy.
+        field = {"voice": "voice_model", "ops": "ops_model"}.get(role, "controller_model")
+        return getattr(cfg, field, "") or main
 
     @staticmethod
     def classify_intent(query: str) -> dict:

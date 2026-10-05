@@ -146,13 +146,42 @@ def _fold(text: str) -> str:
     return t.replace("đ", "d").replace("Đ", "D").lower()
 
 
-def _name_syllables() -> "list[str]":
-    """Âm tiết của tên trợ lý dạng mẫu (bỏ dấu, i ≡ y): "Ly Ly" -> ["l[iy]", "l[iy]"]."""
+#: Lời chào đứng trước / sau tên trong câu đánh thức ("Hey Ly Ly", "Ly Ly ơi").
+_WAKE_GREETINGS = {"hey", "hi", "hello", "ok", "okay", "alo", "e", "oi", "nay", "a"}
+
+
+def wake_names() -> "list[str]":
+    """Các tên GỌI được: tên trợ lý + phần tên trong "Câu đánh thức" (Portal → Quản
+    Lý Trợ Lý AI → Persona, bỏ lời chào) nếu khác. Trước đây ô "Câu đánh thức" chỉ
+    để hiển thị — nhận câu gọi luôn và chỉ theo tên trợ lý."""
+    phrase = ""
+    try:
+        from mateai.config.loader import get_config_section, read_raw_config
+        phrase = str(get_config_section("persona").get("wake_word") or read_raw_config().get("WAKE_WORD") or "")
+    except Exception:  # noqa: BLE001
+        phrase = ""
+    words = phrase.split()
+    while words and _fold(words[0]).strip(",.!?") in _WAKE_GREETINGS:
+        words.pop(0)
+    while words and _fold(words[-1]).strip(",.!?") in _WAKE_GREETINGS:
+        words.pop()
     try:
         from mateai.config.loader import get_assistant_name
-        name = get_assistant_name()
+        assistant = get_assistant_name()
     except Exception:  # noqa: BLE001
-        name = ""
+        assistant = ""
+    compact = lambda t: re.sub(r"[^a-z0-9]", "", _fold(t))  # noqa: E731
+    names = [assistant] if compact(assistant) else []
+    # Câu đánh thức chỉ là tên trợ lý (viết liền "Lyly" hay rời "Ly Ly"): đã có.
+    if words and compact(" ".join(words)) not in {compact(n) for n in names}:
+        names.append(" ".join(words))
+    return names or ["Ly Ly"]
+
+
+def _name_syllables(name: Optional[str] = None) -> "list[str]":
+    """Âm tiết của tên gọi dạng mẫu (bỏ dấu, i ≡ y): "Ly Ly" -> ["l[iy]", "l[iy]"]."""
+    if name is None:
+        name = wake_names()[0]
     syllables = [re.sub(r"[^a-z0-9]", "", s) for s in _fold(name).split()]
     syllables = [s for s in syllables if s] or ["ly", "ly"]
     return [re.sub(r"[iy]", "[iy]", re.escape(s)) for s in syllables]
@@ -173,19 +202,20 @@ def find_wake_command(transcript: str) -> Optional[str]:
     """
     words = str(transcript or "").split()
     folded = [re.sub(r"[^a-z0-9]", "", _fold(w)) for w in words]
-    syllables = _name_syllables()
-    pattern = re.compile("".join(syllables))
+    candidates = [_name_syllables(n) for n in wake_names()]
     for i in range(len(folded)):
         if not folded[i]:
             continue
-        for k in range(1, len(syllables) + 2):
-            if i + k > len(folded):
-                break
-            if pattern.match("".join(folded[i:i + k])):
-                rest = words[i + k:]
-                while rest and _is_filler(rest[0], syllables):
-                    rest = rest[1:]
-                return " ".join(rest).strip(" ,.!?;:")
+        for syllables in candidates:
+            pattern = re.compile("".join(syllables))
+            for k in range(1, len(syllables) + 2):
+                if i + k > len(folded):
+                    break
+                if pattern.match("".join(folded[i:i + k])):
+                    rest = words[i + k:]
+                    while rest and _is_filler(rest[0], syllables):
+                        rest = rest[1:]
+                    return " ".join(rest).strip(" ,.!?;:")
     return None
 
 
