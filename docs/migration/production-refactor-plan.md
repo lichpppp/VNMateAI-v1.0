@@ -26,6 +26,27 @@
 | D3 | Gộp 2 mô hình vai trò | (giữ từ trước) | P2 ABAC |
 | D5 | Khi nào chuyển PostgreSQL | sau P8 gộp truy vấn | P8 |
 
+### 0.2b Trạng thái (2026-10-05, sau P15)
+
+| Phase | Trạng thái | Commit |
+|---|---|---|
+| P0 audit | xong | `b949d57` |
+| P1 test kiến trúc RULE-017/024/025/026 | xong | `7ba41de` |
+| P2 Policy / Risk Engine, danh tính, bảo vệ chỉ thị | xong | `7ba41de` |
+| P3 kill switch, ngân sách, email, ranh giới tin cậy | xong | `7d9930d` |
+| P4 sổ tác vụ, kiểm chứng, bằng chứng, sự cố | xong | `76202fd` |
+| P5 ngân sách thử model + đo lại | xong (số đo trung thực trong `performance-before-after.md`) | `41a5f5e` |
+| P6 gộp TTS / cảnh báo | phần lớn; còn L5 (2 danh mục tool), L10 (HUD) | `10adf6f`, `1ce9488` |
+| P7 quan sát | xong phần một tiến trình (trace bền, token, bảng Supervisor); chưa OpenTelemetry | `e20b4ae` |
+| P8 dữ liệu | SQL ra khỏi application; chưa PostgreSQL / Redis (D5) | `e20b4ae` |
+| P9 worker / sự kiện | tắt máy an toàn, idempotency giao việc | `e20b4ae` |
+| P10 API / domain | **chưa** — router lớn (`enterprise.py` 1 436 dòng) còn nghiệp vụ; không viết lại hàng loạt khi chưa có test khoá hành vi từng endpoint | — |
+| P11 siết bảo mật | xong các lỗ đã phát hiện; còn S7 (mật khẩu mặc định — việc của chủ hệ thống), S10 (ABAC) | `e20b4ae` |
+| P12 đánh giá | kịch bản vàng + đối kháng; chưa đánh giá model trên LLM thật | `e20b4ae` |
+| P13 gỡ mã cũ | lớp domain chết đã xoá; alias WS giữ có đo | `10adf6f` |
+| P14 production | sao lưu / khôi phục kiểm chứng, CI, runbook | `5f03aca` |
+| P15 audit cuối | xong | (commit tài liệu P15) |
+
 ### 0.3 Thứ tự thực hiện (mỗi bước: test khoá hành vi → chuyển → test → chạy thật → báo cáo §214)
 
 | Phase (§187) | Việc cụ thể trên mã hiện có | Điều kiện xong |

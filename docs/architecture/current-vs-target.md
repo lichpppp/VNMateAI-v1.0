@@ -1,5 +1,7 @@
 # Hiện trạng và đích — VN-MateAI
 
+> **Trạng thái sau P1–P15 (2026-10-05):** bảng §3 dưới đây là ảnh chụp Phase 0. Hiện trạng: `docs/migration/final-audit.md` §0 (30 câu §213) và `docs/production/readiness-score.md`.
+
 > **Phase 0 (chỉ đọc) — 2026-10-05**, branch `refactor/phase-0-1-safety-net`, commit `128c87d`.
 > Thay bản 2026-10-01: bản đó mô tả `core/` là runtime. Từ đó mã chạy thật đã chuyển sang `src/mateai/` (quyết định D1). `core/` chỉ còn `plugin_manager.py`.
 > Mọi nhận định dưới đây có bằng chứng `file:dòng` hoặc lệnh kiểm. Chỗ nào chưa đo thì ghi **chưa đo**.

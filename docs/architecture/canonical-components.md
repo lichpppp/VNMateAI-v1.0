@@ -74,7 +74,23 @@
 | Cấu hình | `config/loader.settings` + `secret_box` | — | KEEP | CAO |
 | Entity domain | `src/mateai/domain/*` | — | **0 caller runtime** → REVIEW: dùng thật khi dựng control plane, hoặc DELETE | CAO |
 
-## Đếm trùng lặp (§184) — hôm nay
+## Đếm trùng lặp (§184) — sau P15 (2026-10-05)
+
+| Câu hỏi | Phase 0 | Nay | Ghi chú |
+|---|---|---|---|
+| Đường thoại | 1 | 1 | — |
+| Abstraction LLM | 1 (+ Whisper) | 1 (+ Whisper, miễn có ghi) | STT, không phải LLM |
+| TTS | 1 (+ skill) | **1** | skill 9Router qua engine |
+| Giao thức WS thoại | 2 + robot | 2 + robot | HUD chưa gộp (L10) |
+| Fast router | 1 | 1 | — |
+| Tool registry (danh mục) | 2 | 2 | L5 chưa gộp; thực thi đã qua một cổng |
+| Policy engine | 0 chuẩn / 4 nguồn | **1** (`policy_engine`) | 4 nguồn luật gộp vào một hàm quyết định |
+| Đường phân quyền tool | 3 | **1** (`authorize()`) | RULE-017 = 0 |
+| Task engine | 3 khái niệm + 0 sổ tự trị | 3 khái niệm nghiệp vụ + **1 sổ tác vụ AI** | việc máy trạm / ERP / tác vụ nền là dữ liệu nghiệp vụ khác nhau |
+| Audit pipeline | 1 kho / 5 hàm | 1 kho / 1 hàm ghi + 4 lớp chuyển đổi | L4 giữ có lý do |
+| Worker nền trùng trách nhiệm | 0 | 0 | — |
+
+## Đếm trùng lặp — ảnh chụp Phase 0
 
 | Câu hỏi | Số | Lý do / việc cần làm |
 |---|---|---|
