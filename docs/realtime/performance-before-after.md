@@ -4,6 +4,25 @@ Mỗi bước đo bằng cùng một lệnh với baseline (`scripts/bench_voice
 
 **Lưu ý về nhiễu:** độ trễ của nhà cung cấp LLM thay đổi đáng kể giữa hai lần chạy cách nhau vài chục phút. Đối chứng là **lệnh vận hành**, đường mà P2 không đổi (vẫn 11.333 ký tự prompt, 5 tool). Nó vẫn nhanh hơn ~30% ở lần chạy sau. Vì vậy chỉ kết luận ở những chỉ số đổi vượt mức đó, hoặc đổi theo cơ chế đo được trực tiếp (kích thước prompt, số tool, câu xác nhận).
 
+## Supervisor P2–P5 (2026-10-05): `bench-2026-10-03-final.json` → `bench-2026-10-05-supervisor.json`
+
+Cùng lệnh đo, cùng máy (thêm `--memory-turns 100`). Thay đổi giữa hai lần: Policy Engine + sổ tác vụ + kiểm chứng trên đường tool, ngân sách thử model dự phòng (12 s stream / 16 s complete), đo CPU chạy ngoài event loop, quy tắc ranh giới tin cậy (+456 ký tự, chỉ prompt vòng agent; prompt thoại không đổi). ms, p50 / p95, n = 20.
+
+| Loại lượt | Chỉ số (máy chủ) | Trước | Sau | Đọc thế nào |
+|---|---|---|---|---|
+| Lệnh nhanh | TTFT | 27 / 53 | 27 / 54 | không đổi |
+| Lệnh nhanh | tiếng câu trả lời | 51,5 / 1 694 | 53 / 1 888 | trong nhiễu (p95 = câu có giờ phút phải tổng hợp TTS) |
+| Câu cần LLM | chữ đầu LLM | 2 510 / 8 156 | 3 463 / 7 364 | nhà cung cấp dao động — đường mã thoại không đổi |
+| Câu cần LLM | tiếng câu trả lời | 4 399 / 10 410 | 4 858 / 13 700 | như trên |
+| Lệnh vận hành | tiếng câu trả lời | 12 752 / 40 703 | 12 020 / 12 681 | **p95 giảm vì ngân sách thử model**, KHÔNG vì trả lời nhanh hơn: trong lúc đo, 9Router trả 503 / timeout liên tục — 19/20 lượt chạm ngân sách 12 s rồi trả câu "quá tải" (log `Dừng thử model: hết 12s`); chỉ 1/20 lượt chạy được vòng agent (`agent_ms` n = 1, trước n = 18). Kết luận đúng: thời gian **chờ một lỗi** giảm từ tới 40,7 s xuống ≤ 12,7 s; tỷ lệ trả lời được phụ thuộc nhà cung cấp |
+| Lệnh vận hành | câu xác nhận | 1 / 1 | 1 / 1 | không đổi |
+| Lệnh nhanh "kiểm tra cpu" (in-process) | thời gian lệnh | 50,8 / 51,4 | 51,3 / 52,0 | lệnh vẫn đo CPU 50 ms; khác biệt là 50 ms đó nay chạy ở luồng phụ — **bench này không đo** việc các phiên khác hết bị đứng (chỉ khẳng định bằng mã + test RULE-026) |
+| TTS câu đầu (engine) | — | 1 032 / 1 777 | 1 216 / 2 783 | nhà cung cấp TTS dao động (n = 10) |
+| Đồng thời 10 phiên | tiếng câu trả lời | 4 670 / 5 317 | 4 395 / 6 664 | trong nhiễu |
+| 100 lượt liên tiếp | RSS / task nền | 132,1 → 132,0 MB / 1 → 1 | 143,0 → 143,9 MB / 1 → 1 | +0,9 MB sau 100 lượt — **cần theo dõi**, chưa đủ để kết luận rò bộ nhớ; không rò task |
+
+Lỗi WebSocket: 0 ở cả ba nhóm. p99: không báo (n = 20 không đủ).
+
 ## Tổng kết: Phase 1 (baseline) → sau P2–P6
 
 Cùng lệnh đo (`bench_voice.py --ws wss://localhost --ws-rounds 20 --tts-rounds 10 --concurrency 1,5,10 --memory-turns 100`), cùng máy, cùng nhà cung cấp. `bench-2026-10-03-phase1.json` → `bench-2026-10-03-final.json`. ms, p50 / p95.

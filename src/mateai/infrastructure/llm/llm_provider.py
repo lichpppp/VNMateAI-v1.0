@@ -56,6 +56,12 @@ class LLMStreamChunk:
 #: Phase 5 mỗi lượt thử lại từ đầu cả danh sách: 6 model hỏng × tới 5s mỗi cái
 #: = chữ đầu tiên sau ~22s (đo 2026-10-01).
 MODEL_COOLDOWN_S = 120.0
+
+#: Tổng thời gian tối đa cho chuỗi thử model dự phòng của MỘT lời gọi (realtime P5).
+#: Bench 2026-10-03: lệnh vận hành p95 40,7 s — mọi model trong danh sách lần lượt
+#: chờ 5 s rồi mới tới câu "quá tải". Hết ngân sách thì dừng, tầng trên trả lời dự phòng.
+STREAM_FAILOVER_BUDGET_S = 12.0
+COMPLETE_FAILOVER_BUDGET_S = 16.0
 #: Model nhà cung cấp báo "đã ngừng" không tự sống lại — xếp cuối lâu hơn để
 #: mỗi lượt không mất thêm một vòng gọi vô ích (đo được: 3 model ngừng + timeout
 #: làm một lượt REST mất 88 s). Vẫn thử lại sau đó phòng khi cấu hình đổi model.
@@ -311,6 +317,11 @@ class NineRouterLLMProvider(BaseLLMProvider):
         primed: List[Any] = []
 
         for model_name in models:
+            remaining = STREAM_FAILOVER_BUDGET_S - (time.monotonic() - t0)
+            if remaining <= 0.5:
+                last_err = TimeoutError(f"hết {STREAM_FAILOVER_BUDGET_S:.0f}s thử model dự phòng")
+                logger.warning("[NineRouterLLMProvider] Dừng thử model: %s", last_err)
+                break
             kwargs_api: Dict[str, Any] = {
                 "model": model_name,
                 "messages": messages,
@@ -327,7 +338,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 logger.info("[NineRouterLLMProvider] Thử kết nối stream: role=%s, model=%s", brain_role, model_name)
                 candidate = await asyncio.wait_for(
                     self.client.chat.completions.create(**kwargs_api),
-                    timeout=5.0,
+                    timeout=min(5.0, remaining),
                 )
                 iterator = candidate.__aiter__()  # duyệt MỘT lần: đọc trước rồi đọc tiếp
                 primed, retired_text = await self._probe_retired(iterator, candidate)
@@ -443,8 +454,15 @@ class NineRouterLLMProvider(BaseLLMProvider):
         # mặc định giữ hành vi cũ: 8s, tắt "thinking".
         timeout_s = float(kwargs.get("timeout", 8.0))
         extra_body = kwargs.get("extra_body", {"thinking": {"budget_tokens": 0}})
+        budget_s = max(COMPLETE_FAILOVER_BUDGET_S, timeout_s)
+        t0 = time.monotonic()
         last_err = None
         for model_name in models:
+            remaining = budget_s - (time.monotonic() - t0)
+            if remaining <= 0.5:
+                last_err = TimeoutError(f"hết {budget_s:.0f}s thử model dự phòng")
+                logger.warning("[NineRouterLLMProvider] Dừng thử model: %s", last_err)
+                break
             kwargs_api: Dict[str, Any] = {
                 "model": model_name,
                 "messages": messages,
@@ -460,7 +478,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
             try:
                 response = await asyncio.wait_for(
                     self.client.chat.completions.create(**kwargs_api),
-                    timeout=timeout_s,
+                    timeout=min(timeout_s, remaining),
                 )
                 msg = response.choices[0].message if getattr(response, "choices", None) else None
                 content = getattr(msg, "content", "") or ""
