@@ -882,10 +882,7 @@ function switchTab(tabId) {
     loadADSyncStatus();
   }
   if (tabId === 'voice') {
-    loadMicStatus();
-    updateVoiceTelemetry();
-    loadAudioNodes();
-    loadVoiceStudioVoices();
+    updateVoiceTelemetry({ silent: true });
   }
   if (tabId === 'logs') {
     if (typeof LogViewer !== 'undefined') {
@@ -2873,6 +2870,7 @@ async function loadMicStatus() {
     const res = await apiFetch('/api/v1/voice/mic-status');
     if (res && res.ok) {
       const data = await res.json();
+      _applyVoiceIdentity(data);
       if (typeof data.mic_enabled === 'boolean') {
         _applyMicUI(data.mic_enabled);
         return;
@@ -2914,7 +2912,8 @@ async function toggleMicHardware() {
       const newEnabled = typeof data.mic_enabled === 'boolean' ? data.mic_enabled : targetState;
       _applyMicUI(newEnabled);
       if (newEnabled) {
-        showToast('🎙 Đã BẬT Micro lắng nghe ngầm! Hãy nói "Hey Lyly" hoặc "Xin chào Lyly" để đánh thức trợ lý!', 'warning');
+        const names = (_wakeNames.length ? _wakeNames : ['tên trợ lý']).map((n) => `"${n} ơi"`).join(' hoặc ');
+        showToast(`🎙 Đã BẬT Micro lắng nghe ngầm! Hãy gọi ${names} để đánh thức trợ lý.`, 'warning');
       } else {
         showToast('🎙 Đã TẮT Microphone và giải phóng phần cứng thành công.', 'success');
       }
@@ -2939,16 +2938,31 @@ async function toggleMicHardware() {
   }
 }
 
-async function updateVoiceTelemetry() {
-  await loadMicStatus();
-  await loadAudioNodes();
-  if (!_allTTSVoices.length) {
-    await loadVoiceStudioVoices();
-  } else {
-    const countEl = document.getElementById('voice-stat-tts-count');
-    if (countEl) countEl.textContent = `${_allTTSVoices.length} GIỌNG`;
+async function updateVoiceTelemetry(opts = {}) {
+  await Promise.all([
+    loadMicStatus(),
+    loadAudioNodes(),
+    _allTTSVoices.length ? Promise.resolve() : loadVoiceStudioVoices(),
+  ]);
+  const countEl = document.getElementById('voice-stat-tts-count');
+  if (countEl && _allTTSVoices.length) countEl.textContent = `${_allTTSVoices.length} GIỌNG`;
+  // Chỉ báo khi người dùng BẤM làm mới (trước đây hiện mỗi lần mở tab).
+  if (!opts.silent) showToast('🔄 Đã cập nhật trạng thái âm thanh & telemetry', 'info');
+}
+
+/** Tên gọi đánh thức + giọng đọc THẬT từ máy chủ (trước: "Hey Lyly" / "Hoài My Neural" viết cứng). */
+let _wakeNames = [];
+function _applyVoiceIdentity(data) {
+  if (Array.isArray(data.wake_names) && data.wake_names.length) _wakeNames = data.wake_names;
+  const wakeEl = document.getElementById('voice-stat-wakeword-val');
+  if (wakeEl && _wakeNames.length) wakeEl.textContent = _wakeNames.map((n) => `"${n}"`).join(' / ');
+  const ttsEl = document.getElementById('voice-stat-tts-val');
+  if (ttsEl && data.tts_voice) {
+    const v = String(data.tts_voice);
+    const friendly = v.includes('HoaiMy') ? 'Hoài My (Nữ)' : v.includes('NamMinh') ? 'Nam Minh (Nam)' : v;
+    ttsEl.textContent = friendly;
+    ttsEl.title = `${v} · ${data.tts_engine || ''}`;
   }
-  showToast('🔄 Đã cập nhật trạng thái âm thanh & telemetry', 'info');
 }
 
 async function loadAudioNodes() {
@@ -2971,7 +2985,7 @@ async function loadAudioNodes() {
         statNodesBadge.textContent = 'ONLINE';
         statNodesBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 shrink-0';
       } else {
-        statNodesBadge.textContent = 'LAN READY';
+        statNodesBadge.textContent = 'CHỜ KẾT NỐI';
         statNodesBadge.className = 'px-2 py-0.5 rounded-full text-[9px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/30 shrink-0';
       }
     }
@@ -2982,7 +2996,7 @@ async function loadAudioNodes() {
       nodesContainer.innerHTML = `
         <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-center">
           <div class="text-xs text-slate-500 dark:text-slate-400 font-medium">Chưa phát hiện Robot Trợ Lý trong LAN</div>
-          <div class="text-[11px] text-slate-400 mt-1">Cổng WebSocket âm thanh <code class="font-mono text-cyan-400">:443/api/v1/xiaozhi/ws</code> đang sẵn sàng lắng nghe kết nối Opus 24kHz.</div>
+          <div class="text-[11px] text-slate-400 mt-1">Cổng WebSocket <code class="font-mono text-cyan-400">/api/v1/xiaozhi/ws</code> sẵn sàng (âm thanh PCM 16 kHz). Bật robot, nối Wi-Fi rồi nhập mã ghép đôi 6 số bên dưới.</div>
         </div>
       `;
       return;
@@ -3027,7 +3041,8 @@ async function loadAudioNodes() {
     }).join('');
   } catch (err) {
     console.warn('[AudioNodes] Lỗi lấy danh sách node âm thanh:', err);
-    if (statNodesVal) statNodesVal.textContent = '0 THIẾT BỊ';
+    // Không biết thì nói không biết — trước đây hiện "0 THIẾT BỊ" như số đo thật.
+    if (statNodesVal) statNodesVal.textContent = 'KHÔNG TẢI ĐƯỢC';
   }
 }
 
@@ -3088,12 +3103,17 @@ async function broadcastAudioAnnouncement() {
       body: JSON.stringify({ text: announceText }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Lỗi server');
+    if (!res.ok) {
+      const err = new Error(data.detail || 'Lỗi server');
+      err.status = res.status;
+      throw err;
+    }
     showToast(`✅ ${data.message}`, 'success');
     await loadAudioNodes();
   } catch (e) {
-    // Fallback: nếu không có robot online, phát trong browser
-    showToast('⚠️ Không có robot online — phát trong browser thay thế.', 'warning');
+    showToast(e.status === 503
+      ? '⚠️ Không có robot online — phát trong trình duyệt thay thế.'
+      : `⚠️ Phát ra robot lỗi (${e.message}) — phát trong trình duyệt thay thế.`, 'warning');
     try {
       const audioUrl = await apiTTS(announceText);
       const audio = document.getElementById('audio-player');
@@ -3498,7 +3518,7 @@ async function sendVoiceCommand() {
 
   if (card && textEl) {
     card.classList.remove('hidden');
-    textEl.innerHTML = `<div class="flex items-center gap-2 text-cyan-500 animate-pulse text-xs"><svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span>Đang kết nối Neural Stream (TTFA &lt; 800ms)...</span></div>`;
+    textEl.innerHTML = `<div class="flex items-center gap-2 text-cyan-500 animate-pulse text-xs"><svg class="animate-spin" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10"/></svg><span id="voice-progress-text">Đang kết nối...</span></div>`;
   }
   if (streamBadge) streamBadge.classList.remove('hidden');
   if (stopBtn) stopBtn.classList.remove('hidden');
@@ -3559,7 +3579,13 @@ async function sendVoiceCommand() {
       if (typeof event.data === 'string') {
         try {
           const msg = JSON.parse(event.data);
-          if (msg.type === 'text_delta' || msg.type === 'text_chunk') {
+          if (msg.type === 'status' && !accumulatedText) {
+            // Máy chủ báo từng bước (định tuyến / suy nghĩ / đang đọc) — trước đây bị bỏ qua,
+            // lệnh chạy công cụ vài giây mà màn hình chỉ có "đang kết nối".
+            const label = { routing: 'Đang phân tích yêu cầu…', thinking: 'Đang suy nghĩ / chạy công cụ…', speaking: 'Đang đọc câu trả lời…' }[msg.status];
+            const prog = document.getElementById('voice-progress-text');
+            if (label && prog) prog.textContent = label;
+          } else if (msg.type === 'text_delta' || msg.type === 'text_chunk') {
             accumulatedText += msg.content;
             if (textEl) {
               textEl.innerHTML = renderPortalMarkdown(accumulatedText);

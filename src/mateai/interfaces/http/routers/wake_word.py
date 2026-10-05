@@ -47,12 +47,29 @@ async def get_mic_status(
         enabled = is_mic_enabled()
     except Exception:
         enabled = False
+    # Tên gọi đánh thức THẬT (cùng bộ nhận câu gọi của robot / HUD) và giọng đọc đang
+    # cấu hình — trước đây thẻ trên Portal ghi cứng "Hey Lyly" / "Hoài My Neural".
+    try:
+        from mateai.infrastructure.audio.wake_word_engine import wake_names
+        names = wake_names()
+    except Exception:  # noqa: BLE001
+        names = []
+    try:
+        from mateai.config.loader import get_config_section, settings
+        audio = get_config_section("audio")
+        voice = audio.get("tts_voice") or getattr(settings, "TTS_VOICE", "") or ""
+        engine = "ElevenLabs" if audio.get("tts_engine") == "elevenlabs" else "9Router TTS → Edge-TTS dự phòng"
+    except Exception:  # noqa: BLE001
+        voice, engine = "", ""
     return {
         "status": "success",
         "mic_enabled": enabled,
         "is_listening": enabled,
         "hardware_state": "listening" if enabled else "released",
         "message": "Microphone đang lắng nghe ngầm." if enabled else "Microphone đã tắt hoàn toàn (phần cứng giải phóng).",
+        "wake_names": names,
+        "tts_voice": voice,
+        "tts_engine": engine,
     }
 
 
