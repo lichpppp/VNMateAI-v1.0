@@ -76,6 +76,38 @@ def _pcm16_to_wav(pcm: bytes, rate: int = 16000) -> bytes:
     return buf.getvalue()
 
 
+def pcm_levels(pcm: bytes) -> Dict[str, Optional[float]]:
+    """RMS / đỉnh của PCM16 (số mẫu thô + dBFS) — chỉ số đo, không có nội dung lời nói."""
+    import math
+    import numpy as np
+    a = np.frombuffer(pcm[: len(pcm) // 2 * 2], dtype=np.int16).astype(np.float32)
+    if a.size == 0:
+        return {"rms": None, "peak": None, "rms_dbfs": None, "seconds": 0.0}
+    rms = float(np.sqrt(np.mean(a * a)))
+    return {"rms": round(rms, 1), "peak": float(np.abs(a).max()),
+            "rms_dbfs": round(20 * math.log10(max(rms, 1.0) / 32768.0), 1),
+            "seconds": round(a.size / 16000.0, 2)}
+
+
+def audio_check_verdict(text: str, wake_ok: bool, speech_rms: Optional[float], noise_rms: Optional[float]) -> Dict[str, Any]:
+    """Kết luận kiểm tra âm thanh + gợi ý (thuần — test được)."""
+    import math
+    snr = None
+    if speech_rms and noise_rms and noise_rms > 0:
+        snr = round(20 * math.log10(speech_rms / noise_rms), 1)
+    if not text:
+        grade, advice = "kém", "Không nhận dạng được câu nói. Nói to / gần robot hơn, hoặc giảm tiếng ồn quanh robot."
+    elif snr is not None and snr < 10:
+        grade, advice = "yếu", (f"Giọng chỉ to hơn tiếng ồn {snr} dB (nên ≥ 15 dB). Ngồi gần hơn hoặc giảm ồn "
+                                "(quạt, điều hoà, TV).")
+    elif not wake_ok:
+        grade, advice = "trung bình", ("Nhận dạng được câu nhưng không nghe ra tên gọi. Gọi rõ tên trợ lý ở đầu câu, "
+                                       "hoặc đổi 'Câu đánh thức' cho dễ nhận dạng hơn.")
+    else:
+        grade, advice = "tốt", "Micro nghe rõ ở khoảng cách này; gọi tên được nhận ra."
+    return {"grade": grade, "snr_db": snr, "advice": advice}
+
+
 def _clip_level(clip: bytes) -> str:
     """Mức tín hiệu của đoạn PCM16 (RMS, đỉnh) — chỉ số đo, không có nội dung lời nói."""
     import numpy as np
@@ -254,6 +286,13 @@ class XiaozhiNode:
         # Trước khi handshake thì là "unknown" / rỗng.
         self.firmware_version: str = "unknown"
         self.capabilities: str = ""
+        self.features: List[str] = []
+        # Số đo micro robot gửi định kỳ (wake_stats: ồn nền / đỉnh RMS) — trước chỉ ghi log.
+        self.audio_stats: Dict[str, Any] = {}
+        # Báo cáo trạng thái firmware ≥ 54 (âm lượng, Wi-Fi, bộ nhớ, thời gian chạy).
+        self.status_report: Dict[str, Any] = {}
+        # Kiểm tra âm thanh đang chạy / kết quả gần nhất (Portal -> Robot).
+        self.audio_check: Optional[Dict[str, Any]] = None
 
         # Active tasks & cancellation
         self.active_task: Optional[asyncio.Task] = None
@@ -668,6 +707,9 @@ class XiaozhiGateway:
             await ws.send_text(json.dumps({"type": "asr_start"}))
 
         audio = _pcm16_to_wav(audio_data) if pcm16_wav else audio_data
+        if node.audio_check and node.audio_check.get("status") == "listening":
+            await self._finish_audio_check(node, audio_data if pcm16_wav else b"", audio)
+            return
         transcribed = await self._transcribe(node, audio)
 
         if transcribed and node.follow_up and _is_stop_reply(transcribed):
@@ -691,6 +733,67 @@ class XiaozhiGateway:
             await ws.send_text(json.dumps({"type": "asr_result", "text": "",
                                            "error": "ASR không nhận diện được giọng nói."}))
         await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
+
+    # ── Điều khiển từ Portal (routers/robots.py) ───────────────────────────────
+
+    async def speak(self, device_id: str, text: str) -> bool:
+        node = self._nodes.get(device_id)
+        if not node:
+            return False
+        await self._say(node, text)
+        await self.send_ui_payload(device_id, state="idle", emotion="happy")
+        return True
+
+    async def send_command(self, device_id: str, payload: Dict[str, Any]) -> bool:
+        node = self._nodes.get(device_id)
+        if not node:
+            return False
+        await node.websocket.send_text(json.dumps(payload, ensure_ascii=False))
+        return True
+
+    async def start_audio_check(self, device_id: str, listen_s: int = 8) -> bool:
+        """Robot mời người dùng gọi tên + một câu từ vị trí thường ngồi, đo mức tiếng
+        nói so với ồn nền, nhận dạng và kiểm tra có nghe ra tên gọi không."""
+        from mateai.infrastructure.audio.wake_word_engine import wake_names
+        node = self._nodes.get(device_id)
+        if not node:
+            return False
+        name = (wake_names() or ["Ly Ly"])[0]
+        node.audio_check = {"status": "prompting", "started": time.time(), "prompt": f"{name} ơi, mấy giờ rồi"}
+        node.follow_up = 0
+        await self._say(node, f"Kiểm tra micro. Mời anh ngồi ở chỗ quen thuộc và nói: {name} ơi, mấy giờ rồi.")
+        node.audio_buffer = io.BytesIO()
+        node.vad_detector.reset()
+        node.audio_check["status"] = "listening"
+        await self.send_ui_payload(device_id, state="listening", emotion="focused",
+                                   listen_timeout_ms=listen_s * 1000)
+
+        async def _timeout() -> None:
+            await asyncio.sleep(listen_s + 4)
+            if node.audio_check and node.audio_check.get("status") == "listening":
+                node.audio_check.update(status="done", finished=time.time(), heard="", wake_ok=False,
+                                        levels=None, **audio_check_verdict("", False, None, None))
+                node.audio_check["advice"] = "Không nghe thấy tiếng nói nào trong lúc kiểm tra. " + node.audio_check["advice"]
+                await self.send_ui_payload(device_id, state="idle", emotion="sad")
+        asyncio.create_task(_timeout())
+        return True
+
+    async def _finish_audio_check(self, node: XiaozhiNode, pcm: bytes, audio: bytes) -> None:
+        from mateai.infrastructure.audio.wake_word_engine import find_wake_command
+        node.audio_check["status"] = "analysing"
+        levels = pcm_levels(pcm) if pcm else None
+        text = await self._transcribe(node, audio)
+        wake_ok = find_wake_command(text or "") is not None
+        noise = (node.audio_stats or {}).get("noise")
+        verdict = audio_check_verdict(text, wake_ok, (levels or {}).get("rms"), float(noise) if noise else None)
+        node.audio_check.update(status="done", finished=time.time(), heard=text or "", wake_ok=wake_ok,
+                                levels=levels, noise_rms=noise, **verdict)
+        _topo("robot", stage="audio_check", node=f"robot:{node.device_id}",
+              status="ok" if verdict["grade"] in ("tốt", "trung bình") else "error",
+              detail=f"kiểm tra âm thanh: {verdict['grade']}")
+        await self._say(node, f"Kết quả: {verdict['grade']}. {verdict['advice']}")
+        await self.send_ui_payload(node.device_id, state="idle",
+                                   emotion="happy" if verdict["grade"] == "tốt" else "thinking")
 
     async def _handle_wake_clip(self, node: XiaozhiNode, clip: bytes) -> None:
         """Đoạn robot gửi lúc nghỉ: có gọi tên trợ lý không -> lắng nghe / chạy lệnh.
@@ -939,6 +1042,14 @@ class XiaozhiGateway:
                     if msg_type == "wake_stats":
                         logger.info("[Wake] [%s] ồn nền RMS %s, đỉnh %s", device_id,
                                     ctrl.get("noise"), ctrl.get("peak"))
+                        node.audio_stats = {"noise": ctrl.get("noise"), "peak": ctrl.get("peak"), "at": time.time()}
+                        continue
+                    if msg_type == "status_report":
+                        node.status_report = {k: ctrl.get(k) for k in (
+                            "reason", "version", "volume", "rssi", "ip", "heap", "psram", "uptime_s", "noise", "peak")}
+                        node.status_report["at"] = time.time()
+                        if ctrl.get("noise") is not None:
+                            node.audio_stats = {"noise": ctrl.get("noise"), "peak": ctrl.get("peak"), "at": time.time()}
                         continue
 
                     # -------------------------------------------------------
@@ -951,6 +1062,9 @@ class XiaozhiGateway:
                         )
                         node.firmware_version = str(ctrl.get("version", 1))
                         node.capabilities = json.dumps(ctrl.get("features", {}))
+                        feats = ctrl.get("features", "")
+                        node.features = ([f.strip() for f in feats.split(",") if f.strip()] if isinstance(feats, str)
+                                         else [str(f) for f in feats] if isinstance(feats, list) else [])
 
                         req_params = ctrl.get("audio_params", {})
                         fmt = req_params.get("format", "opus")

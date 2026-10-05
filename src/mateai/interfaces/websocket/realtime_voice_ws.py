@@ -21,7 +21,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -31,6 +31,30 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Session Manager & Active Task Cancellation Registry
 # ---------------------------------------------------------------------------
+
+def tool_summary(calls: Any) -> List[Dict[str, Any]]:
+    """Công cụ đã chạy trong lượt cho Portal: tên, máy, trạng thái, mã phê duyệt (nếu
+    phải chờ duyệt) — KHÔNG gửi tham số / dữ liệu kết quả (có thể nhạy cảm)."""
+    out: List[Dict[str, Any]] = []
+    for c in calls or []:
+        res = c.get("result") if isinstance(c, dict) else None
+        res = res if isinstance(res, dict) else {}
+        # Trình chạy plugin bọc kết quả skill: {"success": true, "data": {"success": false,
+        # "error": "..."}} — lớp ngoài chỉ nói "đã chạy được skill". Đọc lớp TRONG.
+        inner = res.get("data")
+        if isinstance(inner, dict) and ("success" in inner or "error" in inner or "status" in inner):
+            res = {**res, **inner}
+        status = str(res.get("status") or ("success" if res.get("success") is True else
+                                            "error" if (res.get("error") or res.get("success") is False) else "done"))
+        item = {"skill": str(c.get("skill") or "?"), "target": str(c.get("target_client") or "master"),
+                "status": status}
+        if res.get("approval_id"):
+            item["approval_id"] = str(res["approval_id"])
+        if status not in ("success", "done") and (res.get("message") or res.get("error")):
+            item["message"] = str(res.get("message") or res.get("error"))[:200]
+        out.append(item)
+    return out
+
 
 class RealtimeVoiceSession:
     """Đại diện cho một kết nối WebSocket Realtime của người dùng."""
@@ -310,6 +334,8 @@ async def _execute_voice_turn(
 
         await session.send_event("audio_stream_complete", {
             "request_id": request_id, "metrics": metrics, "ttfa_ms": metrics.get("ttfa_ms"),
+            "tools": tool_summary(result.tool_calls_made),
+            "requires_confirmation": result.requires_confirmation,
         })
         await session.send_event("session_ended", {"request_id": request_id, "metrics": metrics})
         logger.info(

@@ -860,6 +860,9 @@ app.include_router(_r_clients.router)
 from mateai.interfaces.http.routers import agent_devices as _r_agent_devices  # noqa: E402
 app.include_router(_r_agent_devices.router)
 
+from mateai.interfaces.http.routers import robots as _r_robots  # noqa: E402
+app.include_router(_r_robots.router)
+
 
 from mateai.interfaces.http.routers import hud as _r_hud  # noqa: E402
 app.include_router(_r_hud.router)

@@ -104,6 +104,10 @@ volatile size_t wakeLen = 0;
 volatile bool   wakeReady = false;       // task mic -> vòng loop gửi đi
 volatile float  wakeNoiseFloor = 200.0f; // ước lượng ồn nền (RMS)
 volatile float  wakePeakRms = 0.0f;      // RMS lớn nhất từ lần báo trước (hiệu chỉnh)
+// v54: âm lượng loa 0..100 (lưu NVS "vol"), đổi từ Portal — trước đây cố định.
+uint8_t speakerVolume = 100;
+#define FIRMWARE_VERSION "54.0"
+static void sendStatusReport(const char* reason);
 volatile uint32_t lastVoiceMs = 0;       // lần cuối có tiếng nói (khi đang nghe)
 uint32_t listenEnteredMs = 0;
 // Thời gian im lặng tối đa của lượt nghe hiện tại: máy chủ đặt dài hơn (30 s) khi
@@ -140,7 +144,7 @@ void setup() {
     Serial.begin(115200);
     delay(500);
     Serial.println(F("\n======================================================="));
-    Serial.println(F("   VN-MATE AI // ROBOTICS COMPANION FIRMWARE v53.0    "));
+    Serial.println(F("   VN-MATE AI // ROBOTICS COMPANION FIRMWARE v54.0    "));
     Serial.println(F("   Pairing Code + XiaoZhi Conversation Flow           "));
     Serial.println(F("======================================================="));
 
@@ -324,7 +328,11 @@ void playPcmToSpeaker(const uint8_t* pcmData, size_t length) {
     size_t offset = 0;
     while (offset < n) {
         size_t batch = min((size_t)128, n - offset);
-        for (size_t i = 0; i < batch; ++i) { buf[i*2]=mono[offset+i]; buf[i*2+1]=mono[offset+i]; }
+        for (size_t i = 0; i < batch; ++i) {
+            // Âm lượng phần mềm (v54): nhân tuyến tính, không thể vượt biên độ gốc.
+            int32_t v = ((int32_t)mono[offset+i] * speakerVolume) / 100;
+            buf[i*2] = (int16_t)v; buf[i*2+1] = (int16_t)v;
+        }
         size_t bw = 0;
         i2s_write(I2S_NUM_1, buf, batch*4, &bw, portMAX_DELAY);
         Face::setSpeechLevel(chunkRms(mono + offset, batch) / 6000.0f);
@@ -451,6 +459,24 @@ static void sendWakeStats() {
     wakePeakRms = 0.0f;
 }
 
+// v54: trạng thái thật của robot cho Portal (âm lượng, Wi-Fi, bộ nhớ, ồn nền micro).
+static void sendStatusReport(const char* reason) {
+    StaticJsonDocument<384> d;
+    d["type"]      = "status_report";
+    d["reason"]    = reason;
+    d["version"]   = FIRMWARE_VERSION;
+    d["volume"]    = speakerVolume;
+    d["rssi"]      = WiFi.RSSI();
+    d["ip"]        = WiFi.localIP().toString();
+    d["heap"]      = ESP.getFreeHeap();
+    d["psram"]     = psramFound() ? ESP.getFreePsram() : 0;
+    d["uptime_s"]  = millis() / 1000;
+    d["noise"]     = (int)wakeNoiseFloor;
+    d["peak"]      = (int)wakePeakRms;
+    String out; serializeJson(d, out);
+    webSocket.sendTXT(out);
+}
+
 // ─── Hardware: OLED & GPIO ───────────────────────────────────────────────────
 
 void setupOLED() {
@@ -460,7 +486,7 @@ void setupOLED() {
     } else {
         display.clearDisplay(); display.setTextColor(SSD1306_WHITE);
         display.setTextSize(1); display.setCursor(10, 25);
-        display.println(F("VN-MateAI Robot v53")); display.display();
+        display.println(F("VN-MateAI Robot v54")); display.display();
         Face::begin(&display);
     }
 }
@@ -481,6 +507,8 @@ void loadConfigFromNVS() {
     cfg_server_port = prefs.getUShort("port",   DEFAULT_SERVER_PORT);
     cfg_device_token= prefs.getString("token",  DEFAULT_DEVICE_TOKEN);
     cfg_pairing_code= prefs.getString("pcode",  "");
+    speakerVolume   = prefs.getUChar("vol", 100);
+    if (speakerVolume > 100) speakerVolume = 100;
     prefs.end();
     // Ô token trên trang cài đặt để trống thì NVS lưu chuỗi rỗng — vẫn dùng token
     // biên dịch sẵn (secrets.h). Trước đây robot kết nối không token và bị từ chối.
@@ -848,12 +876,13 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 StaticJsonDocument<256> doc;
                 doc["type"]         = "hello";
                 doc["device_id"]    = DEFAULT_DEVICE_ID;
-                doc["version"]      = "53.0";
+                doc["version"]      = FIRMWARE_VERSION;
                 doc["pairing_code"] = cfg_pairing_code.c_str();
-                doc["features"]     = "motor_l298n,tof_safety,servo_kinematics,oled_lipsync,touch_wake,i2s_audio,pairing_code";
+                doc["features"]     = "motor_l298n,tof_safety,servo_kinematics,oled_lipsync,touch_wake,i2s_audio,pairing_code,volume_ctrl,reboot,status_report";
                 String hs; serializeJson(doc, hs);
                 webSocket.sendTXT(hs);
             }
+            sendStatusReport("connected");
             break;
 
         case WStype_TEXT:
@@ -895,6 +924,29 @@ void handleIncomingJson(const char* jsonStr) {
         drawOledPairingCode(cfg_pairing_code);  // Hiển thị mã to để user đọc
         delay(4000);
         setConvState(CONV_IDLE);
+        return;
+    }
+
+    // ── v54: điều khiển từ Portal ───────────────────────────────────────────
+    if (type == "set_volume") {
+        int lvl = doc["level"] | -1;
+        if (lvl >= 0 && lvl <= 100) {
+            speakerVolume = (uint8_t)lvl;
+            prefs.begin("vnmate", false);
+            prefs.putUChar("vol", speakerVolume);
+            prefs.end();
+        }
+        sendStatusReport("set_volume");
+        return;
+    }
+    if (type == "get_status") {
+        sendStatusReport("requested");
+        return;
+    }
+    if (type == "reboot") {
+        sendStatusReport("rebooting");
+        delay(300);
+        ESP.restart();
         return;
     }
 

@@ -304,6 +304,31 @@ async def api_voice_session_close(
     return {"status": "success", "closed": True, "session": session.to_client()}
 
 
+@router.post(
+    "/api/v1/voice/transcribe",
+    summary="Nhận dạng giọng nói từ micro trình duyệt bằng bộ nhận dạng của MÁY CHỦ",
+    tags=["Voice"],
+)
+async def api_voice_transcribe(
+    request: Request,
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """Thân yêu cầu: file WAV (PCM 16 kHz mono). Dùng cùng bộ nhận dạng với robot / HUD
+    (Whisper cục bộ / Groq / Google theo cấu hình). Trước đây nút micro trên Portal
+    dùng Web Speech API của Chrome: âm thanh gửi thẳng lên Google, chỉ chạy trên
+    Chrome/Edge, không theo cấu hình nhận dạng của hệ thống."""
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Không có âm thanh.")
+    if len(body) > 4 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Đoạn ghi âm quá dài (tối đa ~2 phút).")
+    from mateai.infrastructure.audio.audio_processor import audio_engine
+    t0 = time.perf_counter()
+    text = await audio_engine.transcribe_audio(body)
+    return {"status": "success", "text": text or "", "ms": int((time.perf_counter() - t0) * 1000),
+            "backend": str(getattr(settings, "ASR_BACKEND", "") or "")}
+
+
 @router.get(
     "/api/v1/voice/model-stats",
     summary="Hiệu năng theo não + model (p50/p95, lỗi, chuyển dự phòng) — lượt gần nhất",

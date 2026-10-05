@@ -883,6 +883,7 @@ function switchTab(tabId) {
   }
   if (tabId === 'voice') {
     updateVoiceTelemetry({ silent: true });
+    initVoiceSubTabs();
   }
   if (tabId === 'logs') {
     if (typeof LogViewer !== 'undefined') {
@@ -2992,6 +2993,8 @@ async function loadAudioNodes() {
 
     if (!nodesContainer) return;
 
+    if (nodes.length && await loadRobotPanel()) return;
+
     if (nodes.length === 0) {
       nodesContainer.innerHTML = `
         <div class="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 text-center">
@@ -3126,90 +3129,310 @@ async function broadcastAudioAnnouncement() {
 // ── IN-BROWSER SPEECH RECOGNITION (WEB SPEECH API) ─────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
-let _browserSpeechRecognition = null;
-let _isBrowserListening = false;
+// ── Micro trình duyệt -> nhận dạng bằng bộ nhận dạng của MÁY CHỦ ───────────
+// Trước đây dùng Web Speech API: âm thanh gửi thẳng lên Google, chỉ Chrome/Edge,
+// không theo cấu hình nhận dạng của hệ thống. Nay: thu PCM 16 kHz trong trình
+// duyệt, tự dừng khi im lặng ~1,2 s (tối đa 15 s), gửi WAV lên /api/v1/voice/transcribe.
+let _micRec = null;
 
-function toggleBrowserSpeechRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+function _pcmToWav(samples, rate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const w = (o, str) => { for (let i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) v.setInt16(44 + i * 2, samples[i], true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
+function _setMicButton(active) {
   const statusEl = document.getElementById('browser-mic-status');
   const btn = document.getElementById('btn-browser-mic');
   const icon = document.getElementById('browser-mic-icon');
-  const input = document.getElementById('voice-input');
+  if (statusEl) statusEl.classList.toggle('hidden', !active);
+  if (btn) btn.className = active
+    ? 'absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-rose-500/20 text-rose-500 border border-rose-500/50 shadow-sm animate-pulse transition'
+    : 'absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-cyan-500/20 text-slate-500 dark:text-slate-400 hover:text-cyan-500 transition active:scale-95';
+  if (icon) icon.setAttribute('stroke', active ? '#ef4444' : 'currentColor');
+}
 
-  if (!SpeechRecognition) {
-    showToast('⚠️ Trình duyệt của bạn không hỗ trợ Web Speech API. Khuyên dùng Chrome, Edge hoặc Safari.', 'warning');
+async function toggleBrowserSpeechRecognition() {
+  if (_micRec) { _micRec.stop('user'); return; }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showToast('⚠️ Trình duyệt không cho dùng micro (cần HTTPS và quyền micro).', 'warning');
     return;
   }
-
-  if (_isBrowserListening) {
-    if (_browserSpeechRecognition) {
-      _browserSpeechRecognition.stop();
-    }
-    return;
-  }
-
+  let stream;
   try {
-    _browserSpeechRecognition = new SpeechRecognition();
-    _browserSpeechRecognition.lang = 'vi-VN';
-    _browserSpeechRecognition.continuous = false;
-    _browserSpeechRecognition.interimResults = true;
-
-    _browserSpeechRecognition.onstart = () => {
-      _isBrowserListening = true;
-      if (statusEl) statusEl.classList.remove('hidden');
-      if (btn) {
-        btn.className = 'absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-rose-500/20 text-rose-500 border border-rose-500/50 shadow-sm animate-pulse transition';
-      }
-      if (icon) icon.setAttribute('stroke', '#ef4444');
-      showToast('🎙️ Micro trình duyệt đang lắng nghe... Hãy nói câu lệnh của bạn!', 'info');
-    };
-
-    _browserSpeechRecognition.onresult = (event) => {
-      let finalTranscript = '';
-      let interimTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          interimTranscript += event.results[i][0].transcript;
-        }
-      }
-      if (input) {
-        input.value = finalTranscript || interimTranscript;
-      }
-    };
-
-    _browserSpeechRecognition.onerror = (event) => {
-      console.warn('[BrowserSpeech] Lỗi:', event.error);
-      if (event.error === 'not-allowed') {
-        showToast('❌ Trình duyệt bị từ chối quyền truy cập Microphone. Vui lòng cấp quyền Microphone trên thanh địa chỉ.', 'error');
-      } else if (event.error !== 'no-speech') {
-        showToast(`⚠️ Lỗi nhận dạng giọng nói: ${event.error}`, 'warning');
-      }
-    };
-
-    _browserSpeechRecognition.onend = () => {
-      _isBrowserListening = false;
-      if (statusEl) statusEl.classList.add('hidden');
-      if (btn) {
-        btn.className = 'absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-cyan-500/20 text-slate-500 dark:text-slate-400 hover:text-cyan-500 transition active:scale-95';
-      }
-      if (icon) icon.setAttribute('stroke', 'currentColor');
-
-      const query = input?.value?.trim();
-      if (query && query.length >= 2) {
-        showToast(`⚡ Đã nhận lệnh: "${query}". Đang thực thi...`, 'success');
-        sendVoiceCommand();
-      }
-    };
-
-    _browserSpeechRecognition.start();
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
   } catch (err) {
-    console.error('[BrowserSpeech] Không thể khởi động:', err);
-    showToast(`❌ Không thể mở micro trình duyệt: ${err.message}`, 'error');
-    _isBrowserListening = false;
+    showToast('❌ Không được dùng micro: ' + (err.name === 'NotAllowedError' ? 'hãy cấp quyền micro trên thanh địa chỉ.' : err.message), 'error');
+    return;
+  }
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = ctx.createMediaStreamSource(stream);
+  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const chunks = [];
+  let heardSpeech = false, lastLoud = performance.now();
+  const t0 = performance.now();
+  const ratio = ctx.sampleRate / 16000;
+  proc.onaudioprocess = (e) => {
+    const x = e.inputBuffer.getChannelData(0);
+    let sum = 0;
+    for (let i = 0; i < x.length; i++) sum += x[i] * x[i];
+    const rms = Math.sqrt(sum / x.length);
+    if (rms > 0.02) { heardSpeech = true; lastLoud = performance.now(); }
+    const out = new Int16Array(Math.floor(x.length / ratio));
+    for (let i = 0; i < out.length; i++) out[i] = Math.max(-32768, Math.min(32767, x[Math.floor(i * ratio)] * 32767));
+    chunks.push(out);
+    const now = performance.now();
+    if ((heardSpeech && now - lastLoud > 1200) || now - t0 > 15000) _micRec?.stop('auto');
+  };
+  src.connect(proc); proc.connect(ctx.destination);
+  _setMicButton(true);
+  showToast('🎙️ Đang nghe… nói câu lệnh, ngừng nói ~1 giây là tự gửi.', 'info');
+  _micRec = {
+    stop: async (why) => {
+      if (!_micRec) return;
+      _micRec = null;
+      proc.disconnect(); src.disconnect(); stream.getTracks().forEach((t) => t.stop()); ctx.close();
+      _setMicButton(false);
+      const n = chunks.reduce((a, c) => a + c.length, 0);
+      if (!heardSpeech || n < 16000 * 0.4) { if (why === 'auto') showToast('Không nghe thấy tiếng nói.', 'info'); return; }
+      const all = new Int16Array(n);
+      let o = 0; for (const c of chunks) { all.set(c, o); o += c.length; }
+      const input = document.getElementById('voice-input');
+      try {
+        if (input) input.value = '… đang nhận dạng';
+        const res = await apiFetch('/api/v1/voice/transcribe', { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: _pcmToWav(all, 16000) });
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
+        if (input) input.value = d.text || '';
+        if (d.text && d.text.trim().length >= 2) {
+          showToast(`⚡ Nhận dạng (${d.backend || 'máy chủ'}, ${d.ms} ms): "${d.text}"`, 'success');
+          sendVoiceCommand();
+        } else {
+          showToast('Không nhận dạng được câu nói — thử nói rõ / gần micro hơn.', 'warning');
+        }
+      } catch (err) {
+        if (input) input.value = '';
+        showToast('❌ Nhận dạng thất bại: ' + err.message, 'error');
+      }
+    },
+  };
+}
+
+// ── Công cụ đã chạy trong lượt (+ Duyệt / Từ chối ngay tại chỗ) ─────────────
+const _TOOL_STATUS = {
+  success: ['đã chạy', 'text-emerald-600 dark:text-emerald-400'],
+  done: ['đã chạy', 'text-emerald-600 dark:text-emerald-400'],
+  need_confirm: ['chờ phê duyệt', 'text-amber-600 dark:text-amber-400'],
+  awaiting_approval: ['chờ phê duyệt', 'text-amber-600 dark:text-amber-400'],
+  blocked: ['bị chặn', 'text-rose-500'],
+  error: ['lỗi', 'text-rose-500'],
+};
+
+function renderVoiceTools(tools, needsConfirm) {
+  const box = document.getElementById('voice-tools-box');
+  if (!box) return;
+  if (!tools.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="text-[10px] font-bold text-slate-500 uppercase">Công cụ trong lượt này</div>` + tools.map((t) => {
+    const [label, cls] = _TOOL_STATUS[t.status] || [t.status, 'text-slate-500'];
+    const where = t.target && t.target !== 'master' ? ` @ ${_esc(t.target)}` : '';
+    const actions = t.approval_id
+      ? `<span class="ml-auto flex gap-1" id="voice-appr-${_esc(t.approval_id)}">` +
+        `<button class="px-2 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-bold" onclick="decideVoiceApproval('${_esc(t.approval_id)}', true)">Duyệt</button>` +
+        `<button class="px-2 py-0.5 rounded bg-rose-500/15 text-rose-500 text-[10px] font-bold" onclick="decideVoiceApproval('${_esc(t.approval_id)}', false)">Từ chối</button></span>`
+      : '';
+    return `<div class="flex items-center gap-2 p-2 rounded-lg bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10 text-xs">` +
+      `<span class="font-mono">${_esc(t.skill)}${where}</span><span class="${cls} font-semibold">${label}</span>` +
+      (t.message ? `<span class="text-[10px] text-slate-400 truncate" title="${_esc(t.message)}">${_esc(t.message)}</span>` : '') +
+      actions + `</div>`;
+  }).join('');
+}
+
+async function decideVoiceApproval(id, approve) {
+  const slot = document.getElementById(`voice-appr-${id}`);
+  try {
+    const res = await apiFetch(`/api/v1/enterprise/hitl/${approve ? 'approve' : 'reject'}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ approval_id: id, reason: approve ? '' : 'Từ chối trên Portal (tab Hội thoại)' }),
+    });
+    const d = await res.json();
+    if (!res.ok || d.status === 'error') throw new Error(d.detail || d.error || d.message || `HTTP ${res.status}`);
+    if (slot) slot.innerHTML = `<span class="text-[10px] font-bold ${approve ? 'text-emerald-600' : 'text-rose-500'}">${approve ? 'Đã duyệt' : 'Đã từ chối'}</span>`;
+    showToast(approve ? '✅ Đã duyệt — tác vụ đang chạy.' : '🚫 Đã từ chối tác vụ.', approve ? 'success' : 'info');
+  } catch (err) {
+    showToast('❌ ' + err.message, 'error');
   }
 }
+
+// ── Tab con ────────────────────────────────────────────────────────────────
+function showVoiceSubTab(name) {
+  const root = document.getElementById('tab-voice');
+  if (!root) return;
+  const all = name === 'all';
+  root.querySelectorAll('[data-voice-sub]').forEach((el) => el.classList.toggle('hidden', !all && el.dataset.voiceSub !== name));
+  for (const [id, span] of [['voice-col-left', 'lg:col-span-5'], ['voice-col-right', 'lg:col-span-7']]) {
+    const col = document.getElementById(id);
+    if (!col) continue;
+    col.classList.toggle(span, all);
+    col.classList.toggle('lg:col-span-12', !all);
+  }
+  root.querySelectorAll('.voice-subtab').forEach((b) => {
+    const on = b.dataset.voiceSubtab === name;
+    b.classList.toggle('bg-primary-600', on); b.classList.toggle('text-white', on);
+    b.classList.toggle('text-slate-600', !on); b.classList.toggle('dark:text-slate-300', !on);
+  });
+  try { localStorage.setItem('vnmate_voice_subtab', name); } catch (_) { /* bỏ qua */ }
+  if (name === 'history' || all) loadVoiceHistory();
+}
+
+function initVoiceSubTabs() {
+  let saved = 'robot';
+  try { saved = localStorage.getItem('vnmate_voice_subtab') || 'robot'; } catch (_) { /* bỏ qua */ }
+  showVoiceSubTab(saved);
+}
+
+// ── Lịch sử lượt thoại + thời gian từng bước ───────────────────────────────
+async function loadVoiceHistory() {
+  const box = document.getElementById('voice-history');
+  if (!box) return;
+  const ch = document.getElementById('voice-history-channel')?.value || '';
+  try {
+    const res = await apiFetch(`/api/v1/voice/metrics?recent=40${ch ? `&channel=${encodeURIComponent(ch)}` : ''}`);
+    if (res.status === 403) { box.innerHTML = '<span class="italic">Chỉ admin xem được lịch sử lượt thoại (có mã phiên / thiết bị).</span>'; return; }
+    const d = await res.json();
+    const rows = d.recent || [];
+    if (!rows.length) { box.innerHTML = '<span class="italic">Chưa có lượt thoại nào từ lúc máy chủ khởi động.</span>'; return; }
+    const maxT = Math.max(...rows.map((r) => (r.stt_ms || 0) + (r.ttl_ms || 0)), 1);
+    const seg = (ms, cls, title) => (ms > 0 ? `<div class="${cls} h-full" style="width:${(ms / maxT) * 100}%" title="${title}: ${Math.round(ms)} ms"></div>` : '');
+    box.className = 'space-y-1.5';
+    box.innerHTML = rows.map((r) => {
+      const stt = r.stt_ms || 0;
+      const router = r.router_ms || 0;
+      const llm = Math.max(0, (r.llm_first_token_ms ?? router) - router);
+      const firstAudio = Math.max(0, (r.ttfa_answer_ms ?? r.ttfa_ms ?? 0) - Math.max(router, r.llm_first_token_ms || 0));
+      const rest = Math.max(0, (r.ttl_ms || 0) - router - llm - firstAudio);
+      const fb = r.model && r.model_requested && r.model !== r.model_requested;
+      const bad = r.outcome === 'error';
+      return `<div class="grid grid-cols-12 gap-2 items-center text-[11px]">` +
+        `<div class="col-span-3 truncate"><span class="font-semibold ${bad ? 'text-rose-500' : ''}">${_esc(r.channel || '?')}</span> ` +
+        `<span class="text-slate-400">${_esc(r.fast_command ? 'lệnh nhanh' : (r.brain || ''))}${r.used_agent ? ' · công cụ' : ''}</span>` +
+        `<div class="text-[10px] text-slate-400 font-mono truncate" title="${_esc(r.model || '')}">${_esc(r.model || '')}${fb ? ' <b class="text-amber-500">(dự phòng)</b>' : ''}</div></div>` +
+        `<div class="col-span-7 h-3 rounded bg-slate-100 dark:bg-white/5 flex overflow-hidden">` +
+        seg(stt, 'bg-violet-500', 'Nhận dạng giọng') + seg(router, 'bg-sky-500', 'Định tuyến') + seg(llm, 'bg-amber-500', 'Chờ LLM') +
+        seg(firstAudio, 'bg-emerald-500', 'Tới tiếng đầu') + seg(rest, 'bg-slate-400', 'Đọc hết') + `</div>` +
+        `<div class="col-span-2 text-right font-mono ${bad ? 'text-rose-500' : ''}">${bad ? 'LỖI · ' : ''}${Math.round((r.ttl_ms || 0) + stt)} ms</div></div>`;
+    }).join('');
+  } catch (err) {
+    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(err.message)}</span>`;
+  }
+}
+
+// ── Bảng điều khiển từng robot ─────────────────────────────────────────────
+let _robotAnimations = {};
+
+function _robotCard(r) {
+  const id = _esc(r.device_id);
+  const st = r.status_report || {};
+  const au = r.audio_stats || {};
+  const ago = (t) => (t ? `${Math.max(0, Math.round(Date.now() / 1000 - t))} s trước` : '—');
+  const facts = [
+    ['Firmware', r.firmware_version],
+    ['IP', r.client_host],
+    ['Wi-Fi', st.rssi != null ? `${st.rssi} dBm` : '—'],
+    ['Âm lượng', st.volume != null ? `${st.volume}%` : '—'],
+    ['Chạy được', st.uptime_s != null ? `${Math.floor(st.uptime_s / 60)} phút` : '—'],
+    ['Bộ nhớ trống', st.heap != null ? `${Math.round(st.heap / 1024)} KB` : '—'],
+    ['Ồn nền / đỉnh', au.noise != null ? `${au.noise} / ${au.peak} (${ago(au.at)})` : '—'],
+    ['Nghe tiếp', r.follow_up ? `mức ${r.follow_up}` : 'không'],
+    ['Quyền', r.own_token ? (r.role || 'mặc định') : 'chưa có token riêng'],
+    ['Đã duyệt sẵn', r.approval_grants && r.approval_grants.length ? r.approval_grants.join(', ') : '—'],
+  ];
+  const need54 = (ok) => (ok ? '' : ' disabled title="Cần firmware 54 trở lên"');
+  const chk = r.audio_check || null;
+  const chkHtml = !chk ? '' : chk.status !== 'done'
+    ? `<div class="text-[11px] text-sky-500 animate-pulse">Kiểm tra âm thanh: ${chk.status === 'listening' ? 'đang nghe — hãy nói câu mẫu' : 'đang xử lý…'}</div>`
+    : `<div class="p-2 rounded-lg text-[11px] ${chk.grade === 'tốt' ? 'bg-emerald-500/10' : 'bg-amber-500/10'}">` +
+      `<b>Kiểm tra âm thanh: ${_esc(chk.grade)}</b>${chk.snr_db != null ? ` · giọng hơn ồn ${chk.snr_db} dB` : ''}` +
+      `${chk.levels && chk.levels.rms_dbfs != null ? ` · mức ${chk.levels.rms_dbfs} dBFS` : ''} · tên gọi ${chk.wake_ok ? 'nhận ra ✓' : 'không nhận ra ✗'}` +
+      `<div>Nghe được: "${_esc(chk.heard || '')}"</div><div class="text-slate-500">${_esc(chk.advice || '')}</div></div>`;
+  const animOpts = Object.entries(_robotAnimations).map(([k, v]) => `<option value="${k}">${_esc(v)}</option>`).join('');
+  return `<div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 space-y-2">` +
+    `<div class="flex items-center gap-2"><span class="text-lg">🤖</span><span class="font-mono font-bold text-xs">${id}</span>` +
+    `<span class="text-[10px] px-1.5 rounded bg-cyan-500/10 text-cyan-500">${_esc(r.state)}${r.busy ? ' · đang xử lý' : ''}</span>` +
+    `<button class="ml-auto text-[10px] px-2 py-0.5 rounded border border-slate-200 dark:border-white/10"${need54(r.supports?.status)} onclick="robotAction('${id}','status')">Làm mới</button></div>` +
+    `<div class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">${facts.map(([k, v]) => `<div class="flex justify-between gap-2"><span class="text-slate-400">${k}</span><span class="font-mono truncate" title="${_esc(String(v))}">${_esc(String(v ?? '—'))}</span></div>`).join('')}</div>` +
+    `<div class="flex gap-1"><input id="robot-say-${id}" maxlength="300" placeholder="Câu robot sẽ đọc…" class="flex-1 px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-[11px]">` +
+    `<button class="px-2 py-1 rounded-lg bg-cyan-600 text-white text-[10px] font-bold" onclick="robotAction('${id}','say')">Đọc</button></div>` +
+    `<div class="flex flex-wrap items-center gap-1 text-[10px]">` +
+    `<select id="robot-anim-${id}" class="px-1.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent">${animOpts}</select>` +
+    `<button class="px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10" onclick="robotAction('${id}','animate')">Cử động</button>` +
+    `<label class="flex items-center gap-1 ml-1">🔊<input type="range" min="0" max="100" value="${st.volume ?? 100}" id="robot-vol-${id}"${need54(r.supports?.volume)} onchange="robotAction('${id}','volume')"></label>` +
+    `<button class="px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10" onclick="robotAction('${id}','audio-check')">Kiểm tra âm thanh</button>` +
+    `<button class="px-2 py-1 rounded-lg text-rose-500 border border-rose-500/30"${need54(r.supports?.reboot)} onclick="robotAction('${id}','reboot')">Khởi động lại</button>` +
+    `</div>${chkHtml}` +
+    (r.supports?.volume ? '' : `<div class="text-[10px] text-amber-500">Firmware ${_esc(r.firmware_version)}: chưa có âm lượng / khởi động lại / báo trạng thái — nạp firmware 54 (cắm USB, <code>pio run -e esp32s3 -t upload</code>).</div>`) +
+    `</div>`;
+}
+
+async function loadRobotPanel() {
+  const box = document.getElementById('audio-nodes-list');
+  try {
+    const res = await apiFetch('/api/v1/robots');
+    if (!res.ok) return false;                 // viewer: giữ danh sách đơn giản
+    const d = await res.json();
+    _robotAnimations = d.animations || {};
+    if (!d.robots || !d.robots.length) return false;
+    if (box) box.innerHTML = d.robots.map(_robotCard).join('');
+    return true;
+  } catch (_) { return false; }
+}
+
+async function robotAction(id, action) {
+  const enc = encodeURIComponent(id);
+  let body = null;
+  if (action === 'say') {
+    const text = (document.getElementById(`robot-say-${id}`)?.value || '').trim();
+    if (!text) { showToast('Nhập câu cho robot đọc.', 'info'); return; }
+    body = { text };
+  } else if (action === 'animate') {
+    body = { animation: document.getElementById(`robot-anim-${id}`)?.value };
+  } else if (action === 'volume') {
+    body = { level: parseInt(document.getElementById(`robot-vol-${id}`)?.value || '100', 10) };
+  } else if (action === 'reboot' && !confirm(`Khởi động lại robot ${id}?`)) {
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/v1/robots/${enc}/${action}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined,
+    });
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.detail || `HTTP ${res.status}`);
+    if (d.message) showToast(`✅ ${d.message}`, 'success');
+    if (action === 'audio-check') _pollAudioCheck(id);
+    setTimeout(loadRobotPanel, action === 'reboot' ? 25000 : 1500);
+  } catch (err) {
+    showToast('❌ ' + err.message, 'error');
+  }
+}
+
+function _pollAudioCheck(id, tries = 0) {
+  if (tries > 20) return;
+  setTimeout(async () => {
+    await loadRobotPanel();
+    try {
+      const d = await (await apiFetch(`/api/v1/robots/${encodeURIComponent(id)}/audio-check`)).json();
+      if (d.check && d.check.status !== 'done') _pollAudioCheck(id, tries + 1);
+    } catch (_) { /* bỏ qua */ }
+  }, 2000);
+}
+
+Object.assign(window, { showVoiceSubTab, loadVoiceHistory, robotAction, decideVoiceApproval, toggleBrowserSpeechRecognition });
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ── WAVEFORM VISUALIZER HELPERS ───────────────────────────────────────────
@@ -3512,6 +3735,7 @@ async function sendVoiceCommand() {
 
   const card = document.getElementById('voice-response-card');
   const textEl = document.getElementById('voice-response-text');
+  renderVoiceTools([], false);
   const streamBadge = document.getElementById('voice-stream-badge');
   const ttfaBadge = document.getElementById('voice-ttfa-badge');
   const stopBtn = document.getElementById('btn-stop-voice-stream');
@@ -3621,6 +3845,7 @@ async function sendVoiceCommand() {
                 _webChatHistory = _webChatHistory.slice(-_MAX_HISTORY_TURNS * 2);
               }
             }
+            renderVoiceTools(msg.tools || [], !!msg.requires_confirmation);
             // Save combined audio blob for replay & download
             const blob = _currentAudioStreamQueue.getCombinedBlob();
             if (blob) {

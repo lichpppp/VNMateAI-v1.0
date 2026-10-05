@@ -4521,10 +4521,19 @@
         </div>
       </div>
 
+      <!-- ── Tab con (2026-10-05) ── -->
+      <div id="voice-subtabs" class="glass-panel p-1.5 flex flex-wrap gap-1 text-xs font-semibold">
+        <button type="button" data-voice-subtab="robot" onclick="showVoiceSubTab('robot')" class="voice-subtab px-3 py-2 rounded-lg">🤖 Robot & Micro</button>
+        <button type="button" data-voice-subtab="chat" onclick="showVoiceSubTab('chat')" class="voice-subtab px-3 py-2 rounded-lg">💬 Hội thoại</button>
+        <button type="button" data-voice-subtab="history" onclick="showVoiceSubTab('history')" class="voice-subtab px-3 py-2 rounded-lg">⏱️ Lịch sử lượt thoại</button>
+        <button type="button" data-voice-subtab="studio" onclick="showVoiceSubTab('studio')" class="voice-subtab px-3 py-2 rounded-lg">🎚️ Studio giọng đọc</button>
+        <button type="button" data-voice-subtab="all" onclick="showVoiceSubTab('all')" class="voice-subtab px-3 py-2 rounded-lg ml-auto text-slate-400">Xem tất cả</button>
+      </div>
+
       <!-- Main Two-Column Layout -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <!-- Left Column: Mic Controller & Audio Nodes (5 cols) -->
-        <div class="lg:col-span-5 space-y-6">
+        <div id="voice-col-left" data-voice-sub="robot" class="lg:col-span-5 space-y-6">
           <!-- Card 1: Hardware Mic Controller -->
           <div class="glass-panel p-6">
             <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
@@ -4648,7 +4657,7 @@
         </div>
 
         <!-- Right Column: Interactive Voice & AI Execution Console (7 cols) -->
-        <div class="lg:col-span-7 space-y-6">
+        <div id="voice-col-right" data-voice-sub="chat" class="lg:col-span-7 space-y-6">
           <div class="glass-panel p-6 space-y-5">
             <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
               <div>
@@ -4756,6 +4765,9 @@
                 id="voice-response-text">
               </div>
 
+              <!-- Công cụ đã chạy trong lượt + duyệt tại chỗ -->
+              <div id="voice-tools-box" class="hidden space-y-1.5"></div>
+
               <!-- Dynamic Audio Waveform Visualizer Bar -->
               <div id="voice-waveform-container"
                 class="p-3 rounded-xl bg-slate-900/40 border border-cyan-500/20 flex items-center justify-center gap-1.5 h-12 overflow-hidden">
@@ -4825,8 +4837,28 @@
         </div>
       </div>
 
+      <!-- Lịch sử lượt thoại + thời gian từng bước -->
+      <div data-voice-sub="history" class="glass-panel p-6 space-y-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <h3 class="font-bold text-slate-800 dark:text-white text-sm">⏱️ Lịch sử lượt thoại</h3>
+          <span class="text-[10px] text-slate-400">Từng bước của mỗi lượt (đo thật, tối đa 500 lượt gần nhất, mất khi khởi động lại máy chủ).</span>
+          <select id="voice-history-channel" onchange="loadVoiceHistory()" class="ml-auto px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10 bg-transparent text-xs">
+            <option value="">Mọi kênh</option><option value="portal">Portal</option><option value="hud">HUD</option><option value="server_mic">Micro máy chủ</option>
+          </select>
+          <button type="button" onclick="loadVoiceHistory()" class="text-[10px] px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10">Làm mới</button>
+        </div>
+        <div class="flex flex-wrap gap-3 text-[10px] text-slate-500">
+          <span><i class="inline-block w-2.5 h-2.5 rounded-sm bg-violet-500 align-middle"></i> Nhận dạng giọng</span>
+          <span><i class="inline-block w-2.5 h-2.5 rounded-sm bg-sky-500 align-middle"></i> Định tuyến</span>
+          <span><i class="inline-block w-2.5 h-2.5 rounded-sm bg-amber-500 align-middle"></i> Chờ LLM (chữ đầu)</span>
+          <span><i class="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-500 align-middle"></i> Tới tiếng đầu</span>
+          <span><i class="inline-block w-2.5 h-2.5 rounded-sm bg-slate-400 align-middle"></i> Đọc hết câu trả lời</span>
+        </div>
+        <div id="voice-history" class="text-xs text-slate-400 italic">Đang tải…</div>
+      </div>
+
       <!-- Edge-TTS Studio & Voice Synthesizer Section -->
-      <div class="glass-panel p-6 space-y-5">
+      <div data-voice-sub="studio" class="glass-panel p-6 space-y-5">
         <div
           class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
           <div>
@@ -7666,7 +7698,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
-  <script src="/static/app.js?v=52.0"></script>
+  <script src="/static/app.js?v=53.0"></script>
 </body>
 
 </html>

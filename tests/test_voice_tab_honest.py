@@ -43,7 +43,7 @@ def test_cards_filled_from_server_and_single_load_on_open():
 def test_progress_status_shown_and_errors_honest():
     assert "msg.type === 'status'" in APP and "voice-progress-text" in APP
     assert "'KHÔNG TẢI ĐƯỢC'" in APP
-    bc = APP[APP.index("async function broadcastAudioAnnouncement("):APP.index("let _browserSpeechRecognition")]
+    bc = APP[APP.index("async function broadcastAudioAnnouncement("):APP.index("let _micRec = null;")]
     assert "e.status === 503" in bc
 
 
