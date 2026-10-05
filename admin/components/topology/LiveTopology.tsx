@@ -33,9 +33,11 @@ import 'reactflow/dist/style.css';
 import {
   Activity, AlertTriangle, Bot, Cpu, Database, Gauge, Headphones, MessageSquare, Monitor,
   Plug, RotateCcw, Save, Server, ShieldCheck, Volume2, Wrench, Wifi, WifiOff, Play,
-  Check, Loader2, Pause, HelpCircle,
+  Cloud, Layers, FileText, Receipt, Send, Network,
 } from 'lucide-react';
 import { authFetch, sessionToken } from '@/lib/api';
+import { CyberNode, CyberNodeData } from './CyberNode';
+import { GlowingEdge } from './GlowingEdge';
 
 // ── Kiểu dữ liệu từ máy chủ ─────────────────────────────────────────────────
 type Status = 'ok' | 'degraded' | 'down' | 'off' | 'unknown';
@@ -124,12 +126,12 @@ function defaultColumn(n: TopoNode): number {
   if (n.id === 'stt') return 1;
   if (n.id === 'voice') return 2;
   if (n.id === 'llm' || n.id === 'tts' || n.id === 'tools') return 3;
-  if (n.id === 'db') return 5;
-  return 4;   // core, hitl, máy trạm, connector
+  if (n.id === 'db' || n.kind === 'connector') return 5;
+  return 4;   // core, hitl, máy trạm
 }
 
-const COL_W = 230;
-const ROW_H = 150;
+const COL_W = 420;
+const ROW_H = 290;
 
 function defaultPositions(nodes: TopoNode[]): Record<string, { x: number; y: number }> {
   const cols: Record<number, string[]> = {};
@@ -167,79 +169,59 @@ function eventText(e: TopoEvent): string {
 }
 
 // ── Ô thành phần ────────────────────────────────────────────────────────────
-interface NodeData { node: TopoNode; pulse?: string; running?: boolean; runs?: number }
+type NodeData = CyberNodeData;
 
-/** Dòng phụ dưới tên ô: số đo đáng xem nhất (kiểu "1 item" của n8n). */
-function subtitle(n: TopoNode): string {
-  const m = n.metrics || {};
-  const num = (k: string, unit = '') => (typeof m[k] === 'number' ? `${fmtValue(m[k])}${unit}` : null);
-  switch (n.kind) {
-    case 'server': return [num('cpu_percent', '% CPU'), num('ram_percent', '% RAM')].filter(Boolean).join(' · ');
-    case 'llm': return [num('latency_ms', ' ms'), m.model ? String(m.model) : null].filter(Boolean).join(' · ');
-    case 'pipeline': return [num('turns', ' lượt'), num('last_ttfa_ms', ' ms')].filter(Boolean).join(' · ');
-    case 'stt': case 'tts': return num('last_ms', ' ms') ?? '';
-    case 'channel': return typeof m.connections === 'number' ? `${m.connections} kết nối` : '';
-    case 'robot': return [m.state ? String(m.state) : null, m.ip ? String(m.ip) : null].filter(Boolean).join(' · ');
-    case 'tools': return num('skills', ' kỹ năng') ?? '';
-    case 'approval': return typeof m.pending === 'number' ? `${m.pending} chờ duyệt` : '';
-    case 'worker': return m.ip ? String(m.ip) : '';
-    default: return '';
-  }
-}
-
-const HANDLE_STYLE: React.CSSProperties = {
-  width: 10, height: 10, background: '#9ca3af', border: '2px solid #1f1f29',
+/** Huy hiệu + màu nhấn theo loại thành phần (giữ phong cách giao diện ban đầu). */
+const KIND_STYLE: Record<string, [string, string]> = {
+  server: ['CORE BRAIN // MÁY CHỦ', '#00f2fe'],
+  llm: ['AI DISPATCH GATEWAY', '#818cf8'],
+  pipeline: ['VOICE PIPELINE // LÕI', '#a855f7'],
+  stt: ['SPEECH → TEXT', '#e879f9'],
+  tts: ['TEXT → SPEECH', '#f472b6'],
+  channel: ['KÊNH VÀO', '#38bdf8'],
+  robot: ['ROBOT // ESP32-S3', '#10b981'],
+  tools: ['TOOL GATEWAY // ZERO-TRUST', '#f59e0b'],
+  approval: ['HITL // PHÊ DUYỆT', '#fb923c'],
+  worker: ['WORKER NODE // LAN', '#10b981'],
+  database: ['DATABASE // SQLITE', '#3b82f6'],
+  connector: ['EXTERNAL CONNECTOR', '#2dd4bf'],
+};
+const ID_STYLE: Record<string, [string, string, React.ElementType]> = {
+  hud: ['KÊNH // HUD', '#38bdf8', Monitor],
+  portal: ['KÊNH // WEB PORTAL', '#22d3ee', MessageSquare],
+  telegram: ['TELEGRAM BOT GATEWAY', '#0ea5e9', Send],
+  'connector:aws': ['AWS CLOUD', '#f59e0b', Cloud],
+  'connector:oci': ['ORACLE OCI', '#ef4444', Layers],
+  'connector:paperless': ['PAPERLESS-NGX', '#14b8a6', FileText],
+  'connector:einvoice': ['E-INVOICE VN', '#10b981', Receipt],
+};
+const METRIC_PICK: Record<string, string[]> = {
+  server: ['cpu_percent', 'ram_percent', 'disk_percent', 'uptime'],
+  llm: ['latency_ms', 'model', 'models_cooling'],
+  pipeline: ['turns', 'last_outcome', 'last_ttfa_ms', 'last_ttl_ms'],
+  stt: ['backend', 'last_ms'], tts: ['last_ms'],
+  channel: ['connections', 'voice_sessions'],
+  robot: ['state', 'ip', 'emotion', 'follow_up'],
+  tools: ['skills'], approval: ['pending'],
+  worker: ['ip', 'platform', 'uptime'],
 };
 
-function StatusNode({ data, selected }: NodeProps<NodeData>) {
-  const n = data.node;
-  const color = STATUS_COLOR[n.status] ?? STATUS_COLOR.unknown;
-  const Icon = KIND_ICON[n.kind] ?? Gauge;
-  const trigger = n.group === 'channel';           // kênh vào = "trigger" (bo tròn bên trái như n8n)
-  const Badge = data.running ? Loader2
-    : n.status === 'ok' ? Check
-      : n.status === 'down' || n.status === 'degraded' ? AlertTriangle
-        : n.status === 'off' ? Pause : HelpCircle;
-  const badgeColor = data.running ? '#38bdf8' : color;
-  const sub = subtitle(n);
-  return (
-    <div className="flex flex-col items-center" style={{ width: 150 }} title={n.detail || STATUS_TEXT[n.status]}>
-      <div
-        className="relative flex items-center justify-center bg-[#2b2b36]"
-        style={{
-          width: 92, height: 92,
-          borderRadius: trigger ? '46px 12px 12px 46px' : 12,
-          border: `2px solid ${selected ? '#ff6d5a' : data.pulse ?? (n.status === 'ok' ? '#3f3f4f' : color)}`,
-          boxShadow: data.pulse ? `0 0 0 3px ${data.pulse}55, 0 0 22px ${data.pulse}` : '0 2px 6px #0006',
-          transition: 'box-shadow 0.25s, border-color 0.25s',
-          opacity: n.status === 'off' ? 0.55 : 1,
-        }}
-      >
-        {!trigger && <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />}
-        <Icon style={{ width: 40, height: 40, color: n.status === 'off' ? '#9ca3af' : '#e5e7eb' }} strokeWidth={1.5} />
-        <span
-          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1f1f29]"
-          style={{ background: badgeColor }}
-          title={data.running ? 'Đang chạy' : STATUS_TEXT[n.status]}
-        >
-          <Badge className={`h-3.5 w-3.5 text-[#111] ${data.running ? 'animate-spin' : ''}`} strokeWidth={3} />
-        </span>
-        {!!data.runs && (
-          <span className="absolute -bottom-2 rounded-full bg-[#3f3f4f] px-1.5 text-[10px] font-semibold text-slate-200" title="Số sự kiện 10 phút qua">
-            {data.runs}
-          </span>
-        )}
-        <Handle type="source" position={Position.Right} style={HANDLE_STYLE} />
-      </div>
-      <div className="mt-2 max-w-[150px] text-center text-[12px] font-semibold leading-tight text-slate-100">{n.label}</div>
-      <div className="max-w-[150px] truncate text-center text-[10.5px]" style={{ color: n.status === 'ok' ? '#9ca3af' : color }}>
-        {n.status === 'ok' ? sub || STATUS_TEXT.ok : `${STATUS_TEXT[n.status]}${n.detail ? ` — ${n.detail}` : ''}`}
-      </div>
-    </div>
-  );
+function toCyber(n: TopoNode, glowColor: string | undefined, runs: number | undefined): CyberNodeData {
+  const [badge, accent] = ID_STYLE[n.id] ?? KIND_STYLE[n.kind] ?? ['MODULE', '#00f2fe'];
+  const icon = ID_STYLE[n.id]?.[2] ?? KIND_ICON[n.kind] ?? Gauge;
+  const m = n.metrics || {};
+  const metrics = (METRIC_PICK[n.kind] ?? [])
+    .filter((k) => m[k] !== undefined && m[k] !== null && !(Array.isArray(m[k]) && !(m[k] as unknown[]).length))
+    .map((k) => [METRIC_TEXT[k] ?? k, fmtValue(m[k])] as [string, string]);
+  return {
+    id: n.id, kind: n.kind, label: n.label, status: n.status, statusText: STATUS_TEXT[n.status] ?? n.status,
+    detail: n.detail, since: fmtSince(n.since), badge, accent, icon, metrics,
+    glowColor, running: glowColor === EVENT_COLOR.running, runs, wide: n.id === 'core' || n.id === 'voice',
+  };
 }
 
-const nodeTypes = { status: StatusNode };
+const nodeTypes = { cyber: CyberNode };
+const edgeTypes = { glowing: GlowingEdge };
 
 // ── Trang ───────────────────────────────────────────────────────────────────
 const EDGE_GLOW_MS = 2500;
@@ -398,9 +380,9 @@ export default function LiveTopology() {
         return {
           ...(old[n.id] ?? {}),
           id: n.id,
-          type: 'status',
+          type: 'cyber',
           position: old[n.id]?.position ?? savedLayout.current[n.id] ?? defaults[n.id],
-          data: { node: n, pulse: g?.color, running: g?.color === EVENT_COLOR.running, runs: runs[n.id] },
+          data: toCyber(n, g?.color, runs[n.id]),
           selected: n.id === selected,
         };
       });
@@ -414,7 +396,7 @@ export default function LiveTopology() {
     if (fitted.current && (rf as unknown as { _n?: number })._n === key) return;
     (rf as unknown as { _n?: number })._n = key;
     fitted.current = true;
-    const t = setTimeout(() => rf.fitView({ padding: 0.15, duration: 300 }), 80);
+    const t = setTimeout(() => rf.fitView({ padding: 0.08, duration: 300 }), 80);
     return () => clearTimeout(t);
   }, [rf, nodes.length]);
 
@@ -444,18 +426,18 @@ export default function LiveTopology() {
     }
     return Object.entries(pairs).map(([id, p]) => {
       const g = lit[id];
-      const targetDown = byId[p.target]?.status === 'down';
-      const stroke = g?.color ?? (targetDown ? '#ef444488' : '#6b7280');
+      const target = byId[p.target];
+      const targetDown = target?.status === 'down';
       return {
-        id, source: p.source, target: p.target, animated: !!g,
+        id, source: p.source, target: p.target, type: 'glowing',
         hidden: p.temp && !g,
-        label: g?.label,
-        labelStyle: { fill: '#e5e7eb', fontSize: 11, fontWeight: 600 },
-        labelBgStyle: { fill: '#1f1f29' },
-        labelBgPadding: [6, 3] as [number, number],
-        labelBgBorderRadius: 4,
-        markerEnd: { type: MarkerType.ArrowClosed, color: g?.color ?? (targetDown ? '#ef4444' : '#6b7280'), width: 16, height: 16 },
-        style: { stroke, strokeWidth: g ? 3 : 2, strokeDasharray: p.temp ? '6 4' : undefined },
+        data: {
+          isActive: !!g,
+          activeColor: g?.color,
+          isError: targetDown && !g,
+          label: g?.label ?? (targetDown ? `${target.label}: ${target.detail || 'lỗi'}` : undefined),
+        },
+        markerEnd: { type: MarkerType.ArrowClosed, color: g?.color ?? (targetDown ? '#f43f5e' : '#00f2fe'), width: 14, height: 14 },
       };
     });
   }, [snap, glow]);
@@ -481,7 +463,7 @@ export default function LiveTopology() {
       if (snap) {
         const d = defaultPositions(snap.nodes);
         setNodes((nds) => nds.map((n) => ({ ...n, position: d[n.id] ?? n.position })));
-        setTimeout(() => rf?.fitView({ padding: 0.15, duration: 300 }), 80);
+        setTimeout(() => rf?.fitView({ padding: 0.08, duration: 300 }), 80);
       }
       setNotice('Đã đặt lại bố cục mặc định.');
     }
@@ -530,11 +512,19 @@ export default function LiveTopology() {
   const stale = lastUpdate && Date.now() - lastUpdate > 10000;
 
   return (
-    <div className="flex h-full w-full flex-col bg-[#020817] text-slate-100">
+    <div className="flex h-full w-full flex-col bg-[#01060e] text-slate-100">
       {/* Thanh trên */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-slate-800 px-4 py-2">
-        <h1 className="text-base font-bold tracking-wide">Sơ đồ hệ thống — giám sát thời gian thực</h1>
-        <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs ${wsState === 'live' ? 'bg-green-900/50 text-green-300' : wsState === 'connecting' ? 'bg-sky-900/50 text-sky-300' : 'bg-red-900/50 text-red-300'}`}>
+      <div className="z-20 flex flex-wrap items-center gap-3 border-b border-cyan-500/30 bg-slate-950/95 px-4 py-2 shadow-xl backdrop-blur-2xl">
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg border border-cyan-400/40 bg-cyan-500/20 p-1.5 text-cyan-300">
+            <Network className="h-4 w-4 animate-pulse" />
+          </div>
+          <div className="flex flex-col">
+            <span className="font-orbitron text-xs font-extrabold tracking-wider text-cyan-300">VN-MATEAI</span>
+            <span className="font-mono text-[9px] tracking-tight text-slate-400">TOPOLOGY · GIÁM SÁT THỜI GIAN THỰC</span>
+          </div>
+        </div>
+        <span className={`flex items-center gap-1 rounded-lg border border-slate-800 px-2 py-0.5 font-mono text-xs ${wsState === 'live' ? 'bg-green-900/50 text-green-300' : wsState === 'connecting' ? 'bg-sky-900/50 text-sky-300' : 'bg-red-900/50 text-red-300'}`}>
           {wsState === 'live' ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
           {wsState === 'live' ? 'Trực tiếp' : wsState === 'connecting' ? 'Đang kết nối…' : 'Mất kết nối — hỏi lại mỗi 5 s'}
         </span>
@@ -545,20 +535,20 @@ export default function LiveTopology() {
         )}
         <div className="flex gap-2 text-xs">
           {(['down', 'degraded', 'ok', 'off', 'unknown'] as Status[]).map((s) => (
-            <span key={s} className="flex items-center gap-1 rounded bg-slate-800/70 px-2 py-0.5">
+            <span key={s} className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-0.5 font-mono">
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[s] }} />
               {STATUS_TEXT[s]}: <b>{counts[s] ?? 0}</b>
             </span>
           ))}
         </div>
         <div className="ml-auto flex gap-2">
-          <button onClick={simulate} className="flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800" title="Chạy thử hiệu ứng trên trình duyệt này, không gửi lên máy chủ">
+          <button onClick={simulate} className="flex items-center gap-1 rounded-lg bg-gradient-to-r from-orange-600 to-amber-600 px-3 py-1 font-mono text-xs font-bold text-white shadow-[0_0_15px_rgba(249,115,22,0.4)] hover:from-orange-500 hover:to-amber-500" title="Chạy thử hiệu ứng trên trình duyệt này, không gửi lên máy chủ">
             <Play className="h-3 w-3" /> Mô phỏng
           </button>
-          <button onClick={saveLayout} className="flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800">
+          <button onClick={saveLayout} className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-950/80 px-2 py-1 font-mono text-xs font-semibold text-emerald-300 hover:bg-emerald-900">
             <Save className="h-3 w-3" /> Lưu bố cục
           </button>
-          <button onClick={resetLayout} className="flex items-center gap-1 rounded border border-slate-700 px-2 py-1 text-xs hover:bg-slate-800">
+          <button onClick={resetLayout} className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-300 hover:text-rose-400">
             <RotateCcw className="h-3 w-3" /> Đặt lại
           </button>
         </div>
@@ -577,28 +567,28 @@ export default function LiveTopology() {
             nodes={nodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
             onInit={setRf}
             onNodeClick={(_, n) => { setSelected(n.id); setTab('detail'); }}
             onPaneClick={() => setSelected(null)}
-            defaultEdgeOptions={{ type: 'default' }}
             nodesConnectable={false}
-            minZoom={0.2}
-            maxZoom={2}
+            minZoom={0.15}
+            maxZoom={2.2}
             proOptions={{ hideAttribution: true }}
-            style={{ background: '#1f1f29' }}
           >
-            <Background variant={BackgroundVariant.Dots} color="#4b4b5c" gap={20} size={1.4} />
-            <Controls showInteractive={false} position="bottom-left" />
-            <MiniMap pannable zoomable nodeColor={(n) => STATUS_COLOR[(n.data as NodeData).node.status] ?? '#64748b'} maskColor="#1f1f2999" style={{ background: '#2b2b36' }} />
+            <Background variant={BackgroundVariant.Dots} gap={24} size={1.5} color="#00f2fe25" className="bg-[#01060e]" />
+            <Controls showInteractive={false} className="!overflow-hidden !rounded-xl !border-slate-800 !bg-slate-950/90 !shadow-2xl [&>button]:!border-b [&>button]:!border-slate-800 [&>button]:!bg-transparent [&>button]:!fill-cyan-400 hover:[&>button]:!bg-slate-900" />
+            <MiniMap pannable zoomable className="!rounded-xl !border !border-cyan-500/30 !bg-slate-950/90 !shadow-2xl" nodeStrokeColor="#00f2fe"
+              nodeColor={(n) => { const d = n.data as NodeData; return d.status === 'down' ? '#f43f5e' : d.status === 'ok' ? d.accent : '#334155'; }} maskColor="#01060ecc" />
           </ReactFlow>
         </div>
 
         {/* Bảng bên */}
-        <div className="flex w-[380px] shrink-0 flex-col border-l border-slate-800 bg-slate-950">
+        <div className="flex w-[380px] shrink-0 flex-col border-l border-cyan-500/30 bg-slate-950/95 font-mono">
           <div className="flex border-b border-slate-800 text-xs">
             {([['flow', `Luồng trực tiếp`], ['incidents', `Sự cố (${incidents.bad.length})`], ['detail', 'Chi tiết']] as [Tab, string][]).map(([k, label]) => (
-              <button key={k} onClick={() => setTab(k)} className={`flex-1 px-2 py-2 ${tab === k ? 'border-b-2 border-sky-400 text-sky-300' : 'text-slate-400 hover:text-slate-200'}`}>
+              <button key={k} onClick={() => setTab(k)} className={`flex-1 px-2 py-2 ${tab === k ? 'border-b-2 border-cyan-400 text-cyan-300' : 'text-slate-400 hover:text-slate-200'}`}>
                 {k === 'incidents' && incidents.bad.length > 0 && <AlertTriangle className="mr-1 inline h-3 w-3 text-red-400" />}
                 {label}
               </button>
