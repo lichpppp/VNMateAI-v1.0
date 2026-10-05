@@ -125,7 +125,7 @@ const METRIC_TEXT: Record<string, string> = {
   records: 'Bản ghi', agents: 'Tác tử', interactions: 'Lượt trao đổi', active_items: 'Mục trong RAM',
   channels_ready: 'Kênh đã kết nối', min_severity: 'Mức tối thiểu', watch_topology: 'Theo dõi sơ đồ',
   sent: 'Đã gửi',
-  sessions: 'Phiên',
+  sessions: 'Phiên', agent_version: 'Phiên bản Agent', heartbeat_age_s: 'Nhịp tim (s trước)',
 };
 
 const KIND_ICON: Record<string, React.ElementType> = {
@@ -244,7 +244,7 @@ const METRIC_PICK: Record<string, string[]> = {
   channel: ['connections', 'voice_sessions'],
   robot: ['state', 'ip', 'emotion', 'follow_up'],
   tools: ['skills'], approval: ['pending'],
-  worker: ['ip', 'platform', 'uptime'],
+  worker: ['cpu_percent', 'ram_percent', 'disk_percent', 'agent_version'],
   sentinel: ['active_incidents', 'interval_s', 'last_alert'],
   scheduler: ['schedule', 'runs', 'last_run', 'last_result'],
   jobs: ['running', 'pending', 'completed', 'failed'],

@@ -163,6 +163,73 @@ logging.basicConfig(
 )
 logger = logging.getLogger("client_agent")
 
+#: Phiên bản Agent — gửi lên máy chủ khi đăng ký + mỗi nhịp tim. Máy chủ so với
+#: bản đang phát hành (cùng file này) để báo máy trạm nào cần tải lại Agent.
+AGENT_VERSION = "2.1.0"
+HEARTBEAT_INTERVAL_S = 30
+import re as _re  # noqa: E402 — không sửa khối import / bí danh `core` ở đầu file
+_SKILL_FILE_RE = _re.compile(r"^[A-Za-z0-9_]{1,64}\.py$")
+
+
+def _setup_file_log() -> None:
+    """Ghi log ra logs/agent.log (xoay vòng 3 x 2 MB). Khi chạy nền bằng pythonw
+    (Task Scheduler) không có cửa sổ console — trước đây log mất hết."""
+    from logging.handlers import RotatingFileHandler
+    try:
+        log_dir = _AGENT_ROOT / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(log_dir / "agent.log", maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        fh.setFormatter(logging.Formatter("%(asctime)s | %(levelname)-8s | [WORKER] %(message)s",
+                                          "%Y-%m-%d %H:%M:%S"))
+        logging.getLogger().addHandler(fh)
+    except OSError as exc:
+        logger.warning("Không mở được file log: %s", exc)
+
+
+def _acquire_single_instance(port: int):
+    """Chỉ một Agent mỗi máy: giữ cổng 127.0.0.1:<port>. Hai bản cùng chạy sẽ đăng ký
+    cùng client_id và giành kết nối của nhau trên máy chủ. Trả socket (giữ suốt đời
+    tiến trình) hoặc None nếu đã có bản khác."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+        s.listen(1)
+        return s
+    except OSError:
+        s.close()
+        return None
+
+
+def safe_skill_filename(filename: str) -> Optional[str]:
+    """Tên file skill hợp lệ (chỉ chữ/số/_ + .py, không thư mục). Trước đây ghi thẳng
+    `skills/<filename>` — tên kiểu `../agent.py` ghi đè được file ngoài thư mục skills."""
+    name = str(filename or "").strip()
+    if name and not name.endswith(".py"):
+        name += ".py"
+    return name if _SKILL_FILE_RE.match(name) else None
+
+
+def build_heartbeat(client_id: str, skills_count: int) -> Dict[str, Any]:
+    """Số đo THẬT của máy trạm cho máy chủ (trang /admin/topology, cảnh báo)."""
+    import psutil
+    disk_root = os.environ.get("SystemDrive", "C:") + "\\" if os.name == "nt" else "/"
+    try:
+        disk = psutil.disk_usage(disk_root).percent
+    except OSError:
+        disk = None
+    boot = psutil.boot_time()
+    return {
+        "action": "heartbeat",
+        "client_id": client_id,
+        "agent_version": AGENT_VERSION,
+        "cpu_percent": psutil.cpu_percent(interval=None),
+        "ram_percent": psutil.virtual_memory().percent,
+        "disk_percent": disk,
+        "uptime_s": int(time.time() - boot),
+        "skills_count": skills_count,
+        "time": time.time(),
+    }
+
 
 def _redact_url(url: str) -> str:
     """URL để ghi log / in ra: che giá trị `token=` (enrollment secret)."""
@@ -244,19 +311,26 @@ class ClientAgent:
                         "ip": self.ip_address,
                         "skills": client_plugin_manager.get_skill_names(),
                         "status": "online",
+                        "agent_version": AGENT_VERSION,
                     }
                     await ws.send(json.dumps(handshake, ensure_ascii=False))
                     logger.info("Đã gửi bản tin xác thực danh tính [%s] tới Master.", self.client_id)
 
-                    # 2. Lắng nghe và xử lý tác vụ từ Master
-                    async for raw_message in ws:
-                        try:
-                            data = json.loads(raw_message)
-                        except json.JSONDecodeError:
-                            logger.warning("Nhận dữ liệu không phải JSON: %s", raw_message[:100])
-                            continue
+                    # 2. Nhịp tim: số đo thật mỗi HEARTBEAT_INTERVAL_S giây
+                    hb_task = asyncio.create_task(self._heartbeat_loop(ws))
 
-                        await self._dispatch_message(ws, data)
+                    # 3. Lắng nghe và xử lý tác vụ từ Master
+                    try:
+                        async for raw_message in ws:
+                            try:
+                                data = json.loads(raw_message)
+                            except json.JSONDecodeError:
+                                logger.warning("Nhận dữ liệu không phải JSON: %s", raw_message[:100])
+                                continue
+
+                            await self._dispatch_message(ws, data)
+                    finally:
+                        hb_task.cancel()
 
             except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as e:
                 logger.warning("Mất kết nối tới Master Server: %s. Sẽ thử lại sau %ds...", e, backoff)
@@ -265,6 +339,22 @@ class ClientAgent:
 
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, max_backoff)
+
+    async def _heartbeat_loop(self, ws: websockets.WebSocketClientProtocol) -> None:
+        """Gửi số đo máy trạm định kỳ; dừng khi mất kết nối."""
+        loop = asyncio.get_event_loop()
+        while True:
+            try:
+                hb = await loop.run_in_executor(
+                    None, build_heartbeat, self.client_id, client_plugin_manager.get_skill_count())
+                await ws.send(json.dumps(hb, ensure_ascii=False))
+            except asyncio.CancelledError:
+                raise
+            except websockets.exceptions.ConnectionClosed:
+                return
+            except Exception as exc:  # noqa: BLE001 — số đo lỗi không được làm rớt kết nối
+                logger.debug("Không gửi được nhịp tim: %s", exc)
+            await asyncio.sleep(HEARTBEAT_INTERVAL_S)
 
     async def _dispatch_message(self, ws: websockets.WebSocketClientProtocol, data: Dict[str, Any]) -> None:
         """Route incoming server instructions."""
@@ -318,8 +408,10 @@ class ClientAgent:
             success = False
             err_msg = None
             try:
-                if not filename.endswith(".py"):
-                    filename += ".py"
+                safe_name = safe_skill_filename(filename)
+                if safe_name is None:
+                    raise ValueError(f"Tên file skill không hợp lệ: {filename!r} (chỉ chữ, số, _ và .py)")
+                filename = safe_name
                 target_file = self._skills_dir / filename
                 target_file.write_text(code, encoding="utf-8")
                 # Hot reload
@@ -614,6 +706,14 @@ def main() -> None:
     print(f"  SSL/TLS Cert  : {cert_status}")
     print("=" * 60)
 
+    _setup_file_log()
+    lock_port = int(os.getenv("VNMATE_AGENT_LOCK_PORT", "58431"))
+    _instance_lock = _acquire_single_instance(lock_port)
+    if _instance_lock is None:
+        logger.error("Agent đã chạy trên máy này (cổng khoá %d đang bận) — thoát.", lock_port)
+        sys.exit(2)
+
+    logger.info("VN-MateAI Agent phiên bản %s", AGENT_VERSION)
     agent = ClientAgent(server_url=args.server, client_id=args.id)
     try:
         asyncio.run(agent.run())

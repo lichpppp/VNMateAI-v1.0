@@ -276,6 +276,11 @@ def _get_server_local_ip() -> str:
         return "127.0.0.1"
 
 
+def bundled_agent_version():
+    from mateai.interfaces.websocket.client_orchestrator import bundled_agent_version as _v
+    return _v()
+
+
 @router.get(
     "/api/v1/download-agent",
     summary="Phase 20: Tải xuống Client Agent được đóng gói động kèm config",
@@ -341,8 +346,10 @@ async def download_agent(
 
         if template_dir.exists() and template_dir.is_dir():
             for file_path in sorted(template_dir.rglob("*")):
-                # Skip __pycache__ directories and compiled Python bytecode
-                if "__pycache__" in file_path.parts:
+                # Bỏ __pycache__, log và môi trường ảo của bản Agent chạy trên chính
+                # máy chủ (worker cục bộ) — không phát log / venv của máy chủ ra ngoài.
+                rel_parts = file_path.relative_to(template_dir).parts
+                if "__pycache__" in rel_parts or (rel_parts and rel_parts[0] in ("logs", ".venv", "venv")):
                     continue
                 if file_path.suffix in (".pyc", ".pyo", ".log"):
                     continue
@@ -396,6 +403,7 @@ async def download_agent(
             "Content-Disposition": 'attachment; filename="VN-Mate_Agent.zip"',
             "Content-Length": str(len(zip_content)),
             "X-Agent-Server-IP": server_ip,
+            "X-Agent-Version": bundled_agent_version() or "unknown",
             "X-Agent-Server-Port": str(port),
         },
     )

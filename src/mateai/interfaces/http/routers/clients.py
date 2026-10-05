@@ -159,6 +159,11 @@ async def get_client_monitoring_data(
     args: Dict[str, Any] = {}
     if monitor_type == "screen":
         args = {"quality": quality, "max_width": max_width}
+        # Chụp màn hình người dùng máy trạm là dữ liệu riêng tư — phải để lại dấu
+        # vết ai xem màn hình máy nào, lúc nào (audit_logs bất biến).
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(client_id, "capture_screen", "PRIVACY", "REQUESTED",
+                                  {"by": user.get("username"), "max_width": max_width})
     elif monitor_type == "processes":
         args = {"limit": limit, "sort_by": sort_by}
     elif monitor_type == "network":
@@ -183,26 +188,27 @@ async def kill_client_process_endpoint(
     payload: ClientKillProcessRequest,
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
-    """Terminate a process by PID on the target client node."""
+    """
+    Tắt tiến trình trên máy trạm qua CỔNG TOOL CHUNG (HITL + audit), giống hệt
+    `/execute` với skill `kill_process`. Trước đây endpoint này gửi thẳng xuống
+    máy trạm: `kill_process` nằm trong danh sách phải phê duyệt
+    (security.require_confirmation_actions) nhưng đi đường này thì không cần.
+    """
     from mateai.interfaces.websocket.client_orchestrator import orchestrator
     if not orchestrator.is_client_online(client_id):
         raise HTTPException(
             status_code=404,
             detail=f"Máy trạm '{client_id}' hiện không trực tuyến.",
         )
-
-    res = await orchestrator.kill_client_process(
-        client_id=client_id,
-        pid=payload.pid,
-        timeout=payload.timeout,
+    gate = await run_tool_with_policy(
+        "kill_process",
+        {"pid": payload.pid, "target_client": client_id},
+        caller=str(user.get("username") or "admin"),
+        source_device="http:clients",
+        query=f"Tắt tiến trình PID {payload.pid} trên máy trạm [{client_id}]",
+        client_timeout=payload.timeout,
     )
-    from mateai.application.security.safety_guard import security_engine
-    security_engine.log_audit(
-        client_id, "kill_process", "NEED_CONFIRM",
-        "SUCCESS" if res.get("status") == "success" else "FAILED",
-        {"pid": payload.pid, "by": user.get("username")},
-    )
-    return res
+    return gate["result"]
 
 
 @router.post(

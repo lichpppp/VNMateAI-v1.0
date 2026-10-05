@@ -265,6 +265,9 @@ def kill_process(name: str = "", pid: int = 0, force: bool = False) -> Dict[str,
     """Terminate or kill a process by name or PID."""
     if not name and not pid:
         return {"success": False, "data": None, "error": "Phải cung cấp 'name' hoặc 'pid'."}
+    if pid and int(pid) <= 4:
+        # Gộp từ bản kill_process cũ của monitoring_skills: không đụng tiến trình lõi hệ thống.
+        return {"success": False, "data": None, "error": f"Không thể tắt tiến trình hệ thống lõi (PID: {pid})."}
 
     killed: List[Dict[str, Any]] = []
     errors: List[str] = []

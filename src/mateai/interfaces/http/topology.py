@@ -181,12 +181,30 @@ def _tool_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> Non
                        }, group="tools"))
     edges += [_edge("tools", "hitl"), _edge("tools", "core"), _edge("core", "db"), _edge("voice", "db")]
 
-    from mateai.interfaces.websocket.client_orchestrator import orchestrator
+    from mateai.interfaces.websocket.client_orchestrator import (
+        bundled_agent_version, orchestrator, version_tuple)
     workers = orchestrator.get_connected_clients()
+    latest = bundled_agent_version()
     for w in workers:
         nid = f"worker:{w.get('client_id')}"
-        nodes.append(_node(nid, "worker", f"Máy trạm {w.get('hostname') or w.get('client_id')}", "ok", "",
-                           {"ip": w.get("ip"), "platform": w.get("platform"), "uptime": w.get("uptime")},
+        m = w.get("metrics") or {}
+        age = w.get("heartbeat_age_s")
+        ver = w.get("agent_version")
+        if age is None:
+            status, detail = "degraded", "Agent bản cũ — không gửi nhịp tim / số đo (tải lại Agent)"
+        elif age > 90:
+            status, detail = "down", f"mất nhịp tim {age} s — máy trạm treo hoặc mạng chập chờn"
+        elif max(m.get("cpu_percent") or 0, m.get("ram_percent") or 0, m.get("disk_percent") or 0) >= 95:
+            status, detail = "degraded", "tài nguyên máy trạm cạn (≥ 95%)"
+        elif latest and ver and version_tuple(ver) < version_tuple(latest):
+            status, detail = "degraded", f"Agent {ver} cũ hơn bản phát hành {latest} — tải lại Agent"
+        else:
+            status, detail = "ok", ""
+        nodes.append(_node(nid, "worker", f"Máy trạm {w.get('hostname') or w.get('client_id')}", status, detail,
+                           {"ip": w.get("ip"), "platform": w.get("platform"), "uptime": w.get("uptime"),
+                            "cpu_percent": m.get("cpu_percent"), "ram_percent": m.get("ram_percent"),
+                            "disk_percent": m.get("disk_percent"), "agent_version": ver,
+                            "heartbeat_age_s": age},
                            group="tools"))
         edges.append(_edge("tools", nid))
     if not workers:

@@ -14,6 +14,8 @@ Responsibilities:
 from __future__ import annotations
 
 import asyncio
+import re
+from pathlib import Path
 import json
 import logging
 import time
@@ -22,6 +24,25 @@ from typing import Any, Dict, List, Optional
 from fastapi import WebSocket
 
 logger = logging.getLogger(__name__)
+
+
+def _agent_file() -> Path:
+    from mateai.config.loader import settings
+    return Path(settings.PROJECT_ROOT) / "client_agent" / "agent.py"
+_AGENT_VERSION_RE = re.compile(r'^AGENT_VERSION\s*=\s*"([^"]+)"', re.MULTILINE)
+
+
+def bundled_agent_version() -> Optional[str]:
+    """Phiên bản Agent trong gói "Tải Agent" hiện tại (None nếu không đọc được)."""
+    try:
+        m = _AGENT_VERSION_RE.search(_agent_file().read_text(encoding="utf-8"))
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
+def version_tuple(v: Optional[str]) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", str(v or ""))[:3])
 
 
 class Orchestrator:
@@ -34,6 +55,9 @@ class Orchestrator:
         self._clients: Dict[str, Dict[str, Any]] = {}
         # Map task_id -> asyncio.Future
         self._pending_tasks: Dict[str, asyncio.Future] = {}
+        #: task_id -> client_id: máy nào được trả kết quả task nào, và máy ngắt kết
+        #: nối chỉ huỷ task CỦA NÓ (trước đây huỷ task của mọi máy trạm).
+        self._task_owner: Dict[str, str] = {}
         self._lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -60,6 +84,9 @@ class Orchestrator:
                 "connected_at_iso": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
                 "last_seen": time.time(),
                 "status": "online",
+                "agent_version": str(metadata.get("agent_version") or ""),
+                "metrics": {},
+                "last_heartbeat": None,
             }
         logger.info(
             "Orchestrator: Máy trạm [%s] (IP: %s, Kỹ năng: %d) đã kết nối trực tuyến.",
@@ -75,8 +102,10 @@ class Orchestrator:
                 del self._clients[client_id]
                 logger.info("Orchestrator: Máy trạm [%s] đã ngắt kết nối.", client_id)
 
-        # Cancel any pending tasks assigned to this client
+        # Huỷ task đang chờ CỦA MÁY NÀY (task của máy trạm khác vẫn chạy tiếp)
         for task_id, future in list(self._pending_tasks.items()):
+            if self._task_owner.get(task_id) != client_id:
+                continue
             if not future.done():
                 future.set_exception(
                     ConnectionResetError(f"Máy trạm '{client_id}' đã ngắt kết nối trong khi thực thi tác vụ.")
@@ -98,6 +127,7 @@ class Orchestrator:
         for cid, info in self._clients.items():
             uptime_seconds = int(now - info["connected_at"])
             uptime_str = f"{uptime_seconds // 60}m {uptime_seconds % 60}s" if uptime_seconds >= 60 else f"{uptime_seconds}s"
+            hb = info.get("last_heartbeat")
             clients_list.append({
                 "client_id": info["client_id"],
                 "hostname": info["hostname"],
@@ -108,6 +138,9 @@ class Orchestrator:
                 "status": info["status"],
                 "connected_at": info["connected_at_iso"],
                 "uptime": uptime_str,
+                "agent_version": info.get("agent_version") or None,
+                "metrics": dict(info.get("metrics") or {}),
+                "heartbeat_age_s": int(now - hb) if hb else None,
             })
         return clients_list
 
@@ -122,6 +155,22 @@ class Orchestrator:
 
         if client_id in self._clients:
             self._clients[client_id]["last_seen"] = time.time()
+
+        if action == "heartbeat":
+            session = self._clients.get(client_id)
+            if session is not None:
+                session["metrics"] = {k: data.get(k) for k in (
+                    "cpu_percent", "ram_percent", "disk_percent", "uptime_s", "skills_count")}
+                session["last_heartbeat"] = time.time()
+                if data.get("agent_version"):
+                    session["agent_version"] = str(data["agent_version"])
+            return
+
+        owner = self._task_owner.get(task_id) if task_id else None
+        if owner is not None and owner != client_id:
+            # Một máy trạm không được trả kết quả thay cho máy khác.
+            logger.warning("Bỏ qua kết quả task [%s] từ [%s] — task thuộc máy [%s].", task_id, client_id, owner)
+            return
 
         if action in ("result", "install_result", "monitor_result", "kill_result", "visual_result") and task_id:
             future = self._pending_tasks.get(task_id)
@@ -172,6 +221,7 @@ class Orchestrator:
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_tasks[task_id] = future
+        self._task_owner[task_id] = client_id
 
         try:
             logger.info("Orchestrator: Gửi lệnh '%s' tới máy trạm [%s] (Task ID: %s)", skill_name, client_id, task_id)
@@ -209,6 +259,7 @@ class Orchestrator:
             }
         finally:
             self._pending_tasks.pop(task_id, None)
+            self._task_owner.pop(task_id, None)
 
     async def _broadcast_skill_acoustic_ack(self, skill_name: str = "") -> None:
         """
@@ -255,6 +306,7 @@ class Orchestrator:
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_tasks[task_id] = future
+        self._task_owner[task_id] = client_id
 
         try:
             logger.info("Orchestrator: Đang đẩy kỹ năng mới '%s' tới máy trạm [%s]", filename, client_id)
@@ -275,6 +327,7 @@ class Orchestrator:
             }
         finally:
             self._pending_tasks.pop(task_id, None)
+            self._task_owner.pop(task_id, None)
 
     async def monitor_client(
         self,
@@ -307,6 +360,7 @@ class Orchestrator:
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_tasks[task_id] = future
+        self._task_owner[task_id] = client_id
 
         try:
             await ws.send_text(json.dumps(payload, ensure_ascii=False))
@@ -331,6 +385,7 @@ class Orchestrator:
             }
         finally:
             self._pending_tasks.pop(task_id, None)
+            self._task_owner.pop(task_id, None)
 
     async def kill_client_process(
         self,
@@ -360,6 +415,7 @@ class Orchestrator:
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_tasks[task_id] = future
+        self._task_owner[task_id] = client_id
 
         try:
             await ws.send_text(json.dumps(payload, ensure_ascii=False))
@@ -377,6 +433,7 @@ class Orchestrator:
             }
         finally:
             self._pending_tasks.pop(task_id, None)
+            self._task_owner.pop(task_id, None)
 
     def execute_on_client_sync(
         self,
@@ -454,6 +511,7 @@ class Orchestrator:
         loop = asyncio.get_event_loop()
         future: asyncio.Future = loop.create_future()
         self._pending_tasks[task_id] = future
+        self._task_owner[task_id] = client_id
 
         try:
             logger.info("Orchestrator: Gửi visual overlay [%s] tới máy trạm [%s]", visual_type, client_id)
@@ -482,6 +540,7 @@ class Orchestrator:
             }
         finally:
             self._pending_tasks.pop(task_id, None)
+            self._task_owner.pop(task_id, None)
 
     async def broadcast_visual(
         self,

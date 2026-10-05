@@ -477,63 +477,21 @@ def security_audit() -> Dict[str, Any]:
 # 6. Kill Process by PID
 # ---------------------------------------------------------------------------
 
-@export_skill(
-    name="kill_process",
-    description="Dừng và tắt một tiến trình đang chạy theo PID một cách an toàn.",
-    parameters_schema={
-        "type": "object",
-        "properties": {
-            "pid": {
-                "type": "integer",
-                "description": "PID (Process ID) của tiến trình cần dừng",
-            },
-        },
-        "required": ["pid"],
-    },
-)
 def kill_process(pid: int) -> Dict[str, Any]:
-    """
-    Safely terminate a process by PID.
+    """Tắt tiến trình theo PID — dùng CHUNG skill `kill_process` của pc_control_skills.
+
+    Trước đây file này có một bản `kill_process` thứ hai cùng tên skill: bản nạp sau
+    đè bản trước trong danh mục, còn lệnh "kill_process" từ máy chủ lại gọi bản này
+    — hai cách tắt tiến trình, hai định dạng kết quả.
     """
     try:
-        pid = int(pid)
-        if pid <= 4:
-            return {
-                "status": "error",
-                "message": f"Không thể tắt tiến trình hệ thống lõi (PID: {pid}).",
-            }
-
-        proc = psutil.Process(pid)
-        proc_name = proc.name()
-
-        # Attempt graceful termination
-        proc.terminate()
-        try:
-            proc.wait(timeout=2.0)
-        except psutil.TimeoutExpired:
-            proc.kill()
-
-        logger.info("Đã tắt thành công tiến trình '%s' (PID: %d).", proc_name, pid)
-        return {
-            "status": "success",
-            "pid": pid,
-            "process_name": proc_name,
-            "message": f"Đã tắt thành công tiến trình '{proc_name}' (PID: {pid}).",
-        }
-
-    except psutil.NoSuchProcess:
-        return {
-            "status": "error",
-            "message": f"Tiến trình với PID {pid} không tồn tại hoặc đã kết thúc trước đó.",
-        }
-    except psutil.AccessDenied:
-        return {
-            "status": "error",
-            "message": f"Từ chối quyền hạn: Cần quyền Quản trị viên (Administrator) để tắt PID {pid}.",
-        }
-    except Exception as exc:
-        logger.error("Lỗi khi tắt tiến trình PID %s: %s", pid, exc)
-        return {
-            "status": "error",
-            "message": f"Không thể tắt tiến trình: {exc}",
-        }
+        from skills.pc_control_skills import kill_process as _kill
+    except ImportError:
+        from client_agent.skills.pc_control_skills import kill_process as _kill
+    try:
+        res = _kill(pid=int(pid))
+    except (RuntimeError, ValueError, TypeError) as exc:
+        return {"status": "error", "pid": pid, "error": str(exc)}
+    if res.get("success") is False:
+        return {"status": "error", "pid": pid, "error": res.get("error")}
+    return {"status": "success", "pid": pid, **res}
