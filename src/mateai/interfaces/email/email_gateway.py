@@ -26,6 +26,31 @@ from core.plugin_manager import export_skill
 logger = logging.getLogger(__name__)
 
 
+def _domain_of(address: str) -> str:
+    addr = str(address or "").strip().lower()
+    if "<" in addr and ">" in addr:
+        addr = addr[addr.rfind("<") + 1:addr.rfind(">")]
+    return addr.rsplit("@", 1)[-1].strip() if "@" in addr else ""
+
+
+def auto_reply_allowed(sender: str) -> "tuple[bool, str]":
+    """Chính sách giao tiếp ra ngoài của email gateway (prompt §148): mặc định KHÔNG gửi."""
+    try:
+        from mateai.config.loader import settings
+        auto = settings.autonomy
+        if auto.kill_switch:
+            return False, "kill_switch"
+        if not auto.email_auto_reply:
+            return False, "auto_reply_off"
+        domain = _domain_of(sender)
+        allowed = {str(d).strip().lower().lstrip("@") for d in (auto.email_auto_reply_domains or []) if str(d).strip()}
+        if not domain or domain not in allowed:
+            return False, "domain_not_allowed"
+        return True, "allowed"
+    except Exception:  # noqa: BLE001 — lỗi đọc chính sách: không gửi
+        return False, "policy_error"
+
+
 class EmailGateway:
     """Quản lý cổng tiếp nhận và phản hồi email tự động cho doanh nghiệp."""
 
@@ -209,8 +234,21 @@ class EmailGateway:
             f"Hotline / Portal: https://mateai.enterprise.local"
         )
 
-        # 5. Gửi email phản hồi nếu có cấu hình SMTP
-        smtp_sent = self._send_smtp_reply(to_email=sender, subject=f"Re: [Ticket #{ticket_id}] {clean_subj}", body=reply_body)
+        # 5. Tự trả lời RA NGOÀI chỉ khi chính sách cho phép (prompt §148): bật
+        # `autonomy.email_auto_reply` VÀ miền người gửi nằm trong danh sách cho phép.
+        # Trước đây trả lời mọi người gửi — xác nhận hộp thư đang hoạt động cho cả spam.
+        allowed, why = auto_reply_allowed(sender)
+        smtp_sent = False
+        if allowed:
+            smtp_sent = self._send_smtp_reply(to_email=sender, subject=f"Re: [Ticket #{ticket_id}] {clean_subj}", body=reply_body)
+        try:
+            from mateai.application.security.safety_guard import security_engine
+            security_engine.log_audit("VN-MATEAI-EMAIL", "email_auto_reply", "EXTERNAL",
+                                      "SUCCESS" if smtp_sent else "REJECTED",
+                                      {"agent_id": "VN-MATEAI-EMAIL", "ticket_id": ticket_id,
+                                       "recipient_domain": _domain_of(sender), "sent": smtp_sent, "policy": why})
+        except Exception:  # noqa: BLE001
+            pass
 
         ticket_data = {
             "ticket_id": ticket_id,

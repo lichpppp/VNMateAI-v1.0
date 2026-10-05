@@ -5653,6 +5653,59 @@
         </div>
       </div>
 
+      <!-- ─── KIỂM SOÁT TỰ TRỊ AI: kill switch, tắt tác nhân / tool, L5, ngân sách ─── -->
+      <div id="autonomy-card" class="glass-panel p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Kiểm Soát Tự Trị AI</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">Áp dụng ngay ở cổng chính sách, ngoài LLM. Chỉ admin thay đổi; mọi thay đổi ghi vào nhật ký kiểm toán. Phiên bản chính sách: <span id="autonomy-version" class="font-mono">—</span></p>
+          </div>
+          <button type="button" id="btn-kill-switch" onclick="toggleKillSwitch()"
+            class="px-4 py-2 rounded-xl text-xs font-black border transition">Đang tải…</button>
+        </div>
+        <div id="autonomy-kill-banner" class="hidden p-3 rounded-xl bg-rose-600/15 border border-rose-500/50 text-xs text-rose-700 dark:text-rose-300 font-semibold">
+          DỪNG KHẨN CẤP ĐANG BẬT — AI chỉ còn chạy tác vụ chỉ đọc. Người bấm trực tiếp trên Portal không bị ảnh hưởng.
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+          <div class="space-y-2">
+            <div class="font-semibold text-slate-600 dark:text-slate-300">Tác nhân AI (bỏ chọn = tắt tác nhân)</div>
+            <div id="autonomy-agents" class="flex flex-wrap gap-2"></div>
+            <label for="autonomy-disabled-tools" class="block font-semibold text-slate-600 dark:text-slate-300 pt-2">Tool đang tắt (mỗi dòng một tên)</label>
+            <textarea id="autonomy-disabled-tools" rows="3" class="input-dark w-full text-xs font-mono"></textarea>
+            <label for="autonomy-never" class="block font-semibold text-slate-600 dark:text-slate-300">L5 — AI không bao giờ chạy (mỗi dòng một tên)</label>
+            <textarea id="autonomy-never" rows="5" class="input-dark w-full text-xs font-mono"></textarea>
+          </div>
+          <div class="space-y-2">
+            <div class="grid grid-cols-3 gap-2">
+              <label class="block">
+                <span class="font-semibold text-slate-600 dark:text-slate-300">Uỷ quyền hết hạn (ngày)</span>
+                <input id="autonomy-ttl" type="number" min="1" max="365" class="input-dark w-full text-xs mt-1" />
+              </label>
+              <label class="block">
+                <span class="font-semibold text-slate-600 dark:text-slate-300">Thời gian tối đa / lượt (giây)</span>
+                <input id="autonomy-seconds" type="number" min="10" max="3600" class="input-dark w-full text-xs mt-1" />
+              </label>
+              <label class="block">
+                <span class="font-semibold text-slate-600 dark:text-slate-300">Số lần gọi tool / lượt</span>
+                <input id="autonomy-calls" type="number" min="1" max="100" class="input-dark w-full text-xs mt-1" />
+              </label>
+            </div>
+            <label class="flex items-center gap-2 pt-2">
+              <input id="autonomy-email-reply" type="checkbox" class="accent-cyan-500" />
+              <span class="font-semibold text-slate-600 dark:text-slate-300">Email gateway được tự trả lời ra ngoài</span>
+            </label>
+            <label for="autonomy-email-domains" class="block font-semibold text-slate-600 dark:text-slate-300">Miền email được phép trả lời (mỗi dòng một miền)</label>
+            <textarea id="autonomy-email-domains" rows="2" class="input-dark w-full text-xs font-mono"></textarea>
+            <label for="autonomy-reason" class="block font-semibold text-slate-600 dark:text-slate-300">Lý do thay đổi (ghi vào nhật ký)</label>
+            <input id="autonomy-reason" type="text" maxlength="300" class="input-dark w-full text-xs" />
+            <div class="flex items-center justify-between pt-1">
+              <span id="autonomy-hint" class="text-[11px] text-slate-500"></span>
+              <button type="button" id="btn-autonomy-save" onclick="saveAutonomyControls()" class="btn-neon-cyan text-xs px-4 py-2">Lưu giới hạn</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- ─── THIẾT BỊ & ROBOT: quyền + phê duyệt đã nhớ ─── -->
       <div id="device-access-card" class="glass-panel p-5 space-y-3">
         <div class="flex items-center justify-between gap-3">
@@ -5665,7 +5718,8 @@
         </div>
         <p class="text-[11px] text-slate-500 dark:text-slate-400">
           Quyền chỉ áp dụng khi thiết bị kết nối bằng <b>token riêng</b> của nó. Tác vụ rủi ro cao vẫn cần
-          duyệt; đã duyệt một lần thì thiết bị được nhớ và lần sau không hỏi lại (thu hồi ở đây).
+          duyệt; đã duyệt một lần thì thiết bị được uỷ quyền cho đúng tác vụ đó tới khi hết hạn (cấu hình ở
+          "Kiểm Soát Tự Trị AI") — thu hồi được ở đây.
         </p>
         <div id="device-access-list" class="space-y-2 text-xs text-slate-500">Đang tải…</div>
       </div>
@@ -7743,7 +7797,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
-  <script src="/static/app.js?v=54.1"></script>
+  <script src="/static/app.js?v=55.0"></script>
 </body>
 
 </html>

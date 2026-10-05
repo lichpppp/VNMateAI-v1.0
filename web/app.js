@@ -875,6 +875,7 @@ function switchTab(tabId) {
     loadErpStructure();
   }
   if (tabId === 'security') {
+    loadAutonomyControls();
     // Phase 78: nội dung tab "Tài Khoản" đã gộp vào đây (cùng miền kiểm soát
     // truy cập), nên bảng tài khoản nạp kèm.
     fetchUsers();
@@ -8102,6 +8103,129 @@ function renderKpiLogs(logs) {
   });
 }
 
+// ── Kiểm soát tự trị AI (Trung tâm Bảo mật) — /api/v1/security/autonomy ──
+let _autonomy = null;
+const _AGENT_LABELS = {
+  'VN-MATEAI-VOICE': 'Thoại (portal, HUD, robot)',
+  'VN-MATEAI-TELEGRAM': 'Telegram',
+  'VN-MATEAI-PORTAL-OPS': 'Thao tác Portal (tệp, máy trạm)',
+  'VN-MATEAI-ORCHESTRATOR': 'Điều phối đa tác nhân',
+  'VN-MATEAI-CONNECTOR': 'Connector / tích hợp',
+  'HUMAN-DIRECT': 'Người bấm trực tiếp',
+};
+
+function _isAdmin() {
+  return !!(currentUser && String(currentUser.role || '').toLowerCase() === 'admin');
+}
+
+async function loadAutonomyControls() {
+  const card = document.getElementById('autonomy-card');
+  if (!card) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/security/autonomy`);
+    if (res.status === 403) { card.classList.add('hidden'); return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    _autonomy = data;
+    renderAutonomyControls();
+  } catch (err) {
+    const hint = document.getElementById('autonomy-hint');
+    if (hint) hint.textContent = `Không tải được: ${err.message}`;
+  }
+}
+
+function renderAutonomyControls() {
+  if (!_autonomy) return;
+  const a = _autonomy.autonomy || {};
+  const admin = _isAdmin();
+  const on = !!a.kill_switch;
+  const btn = document.getElementById('btn-kill-switch');
+  if (btn) {
+    btn.textContent = on ? 'TẮT DỪNG KHẨN CẤP' : 'DỪNG KHẨN CẤP AI';
+    btn.className = `px-4 py-2 rounded-xl text-xs font-black border transition ${on
+      ? 'bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-500'
+      : 'bg-rose-600 text-white border-rose-500 hover:bg-rose-500'}`;
+    btn.disabled = !admin;
+    btn.title = admin ? '' : 'Chỉ admin';
+  }
+  document.getElementById('autonomy-kill-banner')?.classList.toggle('hidden', !on);
+  const ver = document.getElementById('autonomy-version');
+  if (ver) ver.textContent = _autonomy.policy_version || '—';
+  const disabled = new Set(a.disabled_agents || []);
+  const agents = document.getElementById('autonomy-agents');
+  if (agents) {
+    agents.innerHTML = (_autonomy.known_agents || []).map(id => `
+      <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/10">
+        <input type="checkbox" value="${_esc(id)}" ${disabled.has(id) ? '' : 'checked'} ${admin ? '' : 'disabled'} class="accent-cyan-500" />
+        <span>${_esc(_AGENT_LABELS[id] || id)}</span>
+      </label>`).join('');
+  }
+  const setVal = (id, v) => { const el = document.getElementById(id); if (el) { el.value = v; el.disabled = !admin; } };
+  setVal('autonomy-disabled-tools', (a.disabled_tools || []).join('\n'));
+  setVal('autonomy-never', (a.never_autonomous_tools || []).join('\n'));
+  setVal('autonomy-ttl', a.approval_grant_ttl_days ?? '');
+  setVal('autonomy-seconds', a.max_agent_seconds ?? '');
+  setVal('autonomy-calls', a.max_tool_calls_per_turn ?? '');
+  setVal('autonomy-email-domains', (a.email_auto_reply_domains || []).join('\n'));
+  const er = document.getElementById('autonomy-email-reply');
+  if (er) { er.checked = !!a.email_auto_reply; er.disabled = !admin; }
+  const save = document.getElementById('btn-autonomy-save');
+  if (save) save.disabled = !admin;
+  const hint = document.getElementById('autonomy-hint');
+  if (hint) hint.textContent = admin ? '' : 'Chỉ admin được thay đổi.';
+}
+
+async function _putAutonomy(body) {
+  const res = await apiFetch(`${API_BASE}/api/v1/security/autonomy`, { method: 'PUT', body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const d = data.detail;
+    throw new Error(typeof d === 'string' ? d : (Array.isArray(d) ? d.map(x => x.msg).join('; ') : `HTTP ${res.status}`));
+  }
+  _autonomy = data;
+  renderAutonomyControls();
+  return data;
+}
+
+async function toggleKillSwitch() {
+  if (!_autonomy) return;
+  const on = !(_autonomy.autonomy || {}).kill_switch;
+  const reason = prompt(on ? 'Lý do bật DỪNG KHẨN CẤP (ghi vào nhật ký):' : 'Lý do tắt dừng khẩn cấp:', '');
+  if (reason === null) return;
+  try {
+    await _putAutonomy({ kill_switch: on, reason });
+    showToast(on ? 'Đã bật dừng khẩn cấp — AI chỉ còn tác vụ chỉ đọc' : 'Đã tắt dừng khẩn cấp', on ? 'warning' : 'success');
+  } catch (err) {
+    showToast(err.message || 'Không đổi được', 'error');
+  }
+}
+
+async function saveAutonomyControls() {
+  const lines = id => (document.getElementById(id)?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const num = id => { const v = document.getElementById(id)?.value; return v === '' || v == null ? null : Number(v); };
+  const enabled = new Set([...document.querySelectorAll('#autonomy-agents input:checked')].map(i => i.value));
+  const body = {
+    disabled_agents: (_autonomy?.known_agents || []).filter(id => !enabled.has(id)),
+    disabled_tools: lines('autonomy-disabled-tools'),
+    never_autonomous_tools: lines('autonomy-never'),
+    approval_grant_ttl_days: num('autonomy-ttl'),
+    max_agent_seconds: num('autonomy-seconds'),
+    max_tool_calls_per_turn: num('autonomy-calls'),
+    email_auto_reply: !!document.getElementById('autonomy-email-reply')?.checked,
+    email_auto_reply_domains: lines('autonomy-email-domains'),
+    reason: (document.getElementById('autonomy-reason')?.value || '').trim(),
+  };
+  Object.keys(body).forEach(k => { if (body[k] === null) delete body[k]; });
+  try {
+    await _putAutonomy(body);
+    showToast('Đã lưu giới hạn tự trị', 'success');
+    const r = document.getElementById('autonomy-reason');
+    if (r) r.value = '';
+  } catch (err) {
+    showToast(err.message || 'Lưu thất bại', 'error');
+  }
+}
+
 // ── Giám sát giao việc (tab #tasks) — số liệu thật từ /api/v1/tasks/board ──
 let _taskBoard = null;
 let _taskStatusFilter = '';
@@ -9549,6 +9673,11 @@ function initPortalWebSocket() {
     const event = msg.event;
 
     // Máy trạm vừa phản hồi / việc mới giao -> làm mới bảng giám sát #tasks.
+    if (event === 'autonomy_changed') {
+      loadAutonomyControls();
+      showToast(msg.kill_switch ? 'Dừng khẩn cấp AI đã BẬT' : 'Dừng khẩn cấp AI đã tắt', msg.kill_switch ? 'warning' : 'info');
+      return;
+    }
     if (event === 'task_update') {
       scheduleTaskBoardReload();
       return;

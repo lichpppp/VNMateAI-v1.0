@@ -579,3 +579,83 @@ async def confirm_action_endpoint(
         "result": res,
         "reply": synth_reply,
     }
+
+
+# ── Kiểm soát tự trị: kill switch, tắt tác nhân / tool, L5, ngân sách ──────────
+# Prompt Supervisor §95–§96, §70: công tắc nằm NGOÀI LLM (policy_engine đọc mỗi lần
+# quyết định); chỉ admin đổi được; mọi lần đổi vào audit + lịch sử cấu hình.
+
+class AutonomyUpdate(BaseModel):
+    kill_switch: Optional[bool] = None
+    disabled_agents: Optional[List[str]] = None
+    disabled_tools: Optional[List[str]] = None
+    never_autonomous_tools: Optional[List[str]] = None
+    approval_grant_ttl_days: Optional[int] = Field(default=None, ge=1, le=365)
+    max_agent_seconds: Optional[float] = Field(default=None, ge=10.0, le=3600.0)
+    max_tool_calls_per_turn: Optional[int] = Field(default=None, ge=1, le=100)
+    email_auto_reply: Optional[bool] = None
+    email_auto_reply_domains: Optional[List[str]] = None
+    reason: str = Field(default="", max_length=300)
+
+
+def _autonomy_view() -> Dict[str, Any]:
+    from mateai.application.security import policy_engine as pe
+    from mateai.config.loader import settings
+    return {
+        "status": "success",
+        "autonomy": settings.autonomy.model_dump(),
+        "known_agents": list(pe.KNOWN_AGENTS),
+        "policy_version": pe.policy_version(),
+    }
+
+
+@router.get("/api/v1/security/autonomy", summary="Giới hạn tự trị của AI (kill switch, L5, ngân sách)")
+async def get_autonomy(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    return _autonomy_view()
+
+
+@router.put("/api/v1/security/autonomy", summary="Đổi giới hạn tự trị (chỉ admin, có audit)")
+async def put_autonomy(payload: AutonomyUpdate, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    from mateai.application.administration import config_governance as gov
+    from mateai.application.security import policy_engine as pe
+    from mateai.application.security.safety_guard import security_engine
+    from mateai.config.loader import AutonomyConfig, read_raw_config, reload_settings, settings, write_raw_config
+    from mateai.interfaces.http.secret_masking import _mask_secrets
+
+    updates = payload.model_dump(exclude_none=True)
+    reason = updates.pop("reason", "")
+    if not updates:
+        raise HTTPException(status_code=400, detail="Không có thay đổi nào.")
+    for key in ("disabled_tools", "never_autonomous_tools", "email_auto_reply_domains"):
+        if key in updates:
+            updates[key] = sorted({str(x).strip() for x in updates[key] if str(x).strip()})
+    if "disabled_agents" in updates:
+        unknown = [a for a in updates["disabled_agents"] if a not in pe.KNOWN_AGENTS]
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Tác nhân không tồn tại: {', '.join(unknown)}")
+
+    before_version = pe.policy_version()
+    before_cfg = read_raw_config(strict=True)
+    merged = dict(before_cfg)
+    section = {**settings.autonomy.model_dump(), **dict(before_cfg.get("autonomy") or {}), **updates}
+    AutonomyConfig(**section)  # kiểm tra kiểu trước khi ghi
+    merged["autonomy"] = section
+    write_raw_config(merged)
+    reload_settings()
+    actor = str(user.get("username") or "admin")
+    try:
+        gov.record(before_cfg, merged, actor, "Giới hạn tự trị" + (f": {reason}" if reason else ""), _mask_secrets)
+    except Exception as exc:  # noqa: BLE001 — lịch sử hỏng không chặn việc đổi công tắc
+        logger.warning("Không ghi được lịch sử cấu hình: %s", exc)
+    old = dict(before_cfg.get("autonomy") or {})
+    security_engine.log_audit(actor, "autonomy_policy_change", "POLICY", "SUCCESS", {
+        "changes": {k: {"before": old.get(k), "after": v} for k, v in updates.items()},
+        "reason": reason, "policy_version_before": before_version, "policy_version_after": pe.policy_version(),
+    })
+    if "kill_switch" in updates:
+        logger.warning("[Autonomy] KILL SWITCH %s bởi %s", "BẬT" if updates["kill_switch"] else "TẮT", actor)
+        try:
+            await broadcast_portal_ui("autonomy_changed", {"kill_switch": bool(updates["kill_switch"])})
+        except Exception:  # noqa: BLE001
+            pass
+    return _autonomy_view()
