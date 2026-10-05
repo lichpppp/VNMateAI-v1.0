@@ -41,6 +41,7 @@ ALLOWED = {
     "RULE-024": set(),
     "RULE-025": set(),
     "RULE-026": set(),
+    "RULE-027": set(),
 }
 
 DESCRIPTIONS = {
@@ -53,7 +54,10 @@ DESCRIPTIONS = {
     "RULE-024": "application truy vấn SQL trực tiếp (get_connection / .execute)",
     "RULE-025": "subprocess với shell=True",
     "RULE-026": "hàm async gọi API chặn (time.sleep, requests.*, psutil.cpu_percent(interval>0))",
+    "RULE-027": "router HTTP tự ghi tệp / cấu hình (phải qua use case ở tầng application — Phase 10)",
 }
+
+_ROUTER_WRITE_CALLS = ("write_raw_config", "update_config_section")
 
 _BLOCKING_IN_ASYNC = ("time.sleep", "requests.get", "requests.post", "requests.put", "requests.delete", "requests.request")
 
@@ -109,6 +113,9 @@ def scan() -> dict:
                 if rel.startswith("src/mateai/application/") and (
                         name.endswith(".get_connection") or name in ("cursor.execute", "conn.execute", "cursor.executemany")):
                     found["RULE-024"][rel] += 1
+                if rel.startswith("src/mateai/interfaces/http/routers/") and (
+                        name.split(".")[-1] in _ROUTER_WRITE_CALLS or name.endswith((".write_bytes", ".write_text"))):
+                    found["RULE-027"][rel] += 1
                 if name.startswith("subprocess.") and any(
                         k.arg == "shell" and isinstance(k.value, ast.Constant) and k.value.value is True
                         for k in node.keywords):
@@ -207,6 +214,10 @@ def test_rule_025_no_shell_true():
 
 def test_rule_026_async_code_does_not_block_the_loop():
     _check("RULE-026")
+
+
+def test_rule_027_routers_do_not_write_files_or_config():
+    _check("RULE-027")
 
 
 if __name__ == "__main__":

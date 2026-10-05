@@ -38,6 +38,49 @@ _DOCS_DIR = _PROJECT_ROOT / "storage" / "knowledge_docs"
 _SEED_DOC_PATH = _DOCS_DIR / "Quy_che_va_chinh_sach_nhan_su_2026.md"
 
 
+#: Tải tài liệu lên tri thức doanh nghiệp (chuyển từ routers/enterprise.py — Phase 10).
+ALLOWED_UPLOAD_EXT = {".pdf", ".docx", ".doc", ".md", ".txt", ".csv"}
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
+
+
+class UploadRejected(ValueError):
+    """Tệp tải lên không được nhận; `status_code` gợi ý cho tầng HTTP."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status_code = status_code
+        self.detail = detail
+
+
+def save_upload(original_filename: str, payload: bytes) -> Path:
+    """Kiểm tra rồi lưu tệp tải lên vào thư mục tri thức. Trả đường dẫn đã lưu.
+
+    An toàn: chỉ phần mở rộng trong danh sách (chống .py/.sh…), tên tệp chuẩn hoá —
+    không giữ đường dẫn do client gửi (chống ../), giới hạn 20 MB."""
+    original_name = os.path.basename((original_filename or "").replace("\\", "/")).strip()
+    if not original_name:
+        raise UploadRejected(400, "Thiếu tên tệp.")
+    ext = Path(original_name).suffix.lower()
+    if ext not in ALLOWED_UPLOAD_EXT:
+        raise UploadRejected(400, f"Định dạng '{ext or 'không xác định'}' không được phép. "
+                                  f"Chỉ nhận: {', '.join(sorted(ALLOWED_UPLOAD_EXT))}.")
+    if not payload:
+        raise UploadRejected(400, "Tệp rỗng, không có dữ liệu để nạp.")
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise UploadRejected(413, f"Tệp quá lớn ({len(payload) / 1024 / 1024:.1f} MB). Giới hạn 20 MB.")
+    # Chuẩn hoá tên: bỏ ký tự lạ, thêm tiền tố thời gian để không đè nhau.
+    stem = re.sub(r"[^A-Za-z0-9_\-\.]", "_", Path(original_name).stem)[:80] or "tai_lieu"
+    safe_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{stem}{ext}"
+    docs_dir = globals()["_DOCS_DIR"]  # đọc lúc gọi (test đổi thư mục được)
+    docs_dir.mkdir(parents=True, exist_ok=True)
+    dest = docs_dir / safe_name
+    try:
+        dest.write_bytes(payload)
+    except OSError as exc:
+        raise UploadRejected(500, f"Không lưu được tệp: {exc}") from exc
+    return dest
+
+
 class EnterpriseRAGEngine:
     """Quản lý vector database ChromaDB và xử lý tìm kiếm tri thức doanh nghiệp."""
 

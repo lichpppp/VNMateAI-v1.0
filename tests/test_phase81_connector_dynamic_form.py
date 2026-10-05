@@ -73,7 +73,7 @@ from mateai.infrastructure.connectors.base_connector import (  # noqa: E402
     CONNECTOR_DEFAULTS,
     CONNECTOR_REQUIRED_FIELDS,
 )
-from mateai.interfaces.http.routers.enterprise import (  # noqa: E402
+from mateai.application.enterprise.integrations import (  # noqa: E402
     _CONNECTOR_SECRET_FIELDS,
     _build_connector_config_schema,
 )

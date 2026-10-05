@@ -33,19 +33,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Khoá nào phải che (không bao giờ trả về giá trị, kể cả khi đã cấu hình).
-_CONNECTOR_SECRET_FIELDS = frozenset({
-    "webhook_url",
-    "hmac_secret",
-    "password",
-    "secret_access_key",
-    "api_token",
-    "client_secret",
-    "access_key_id",
-    "private_key",
-    "api_key",
-    "token",
-})
 
 
 @router.get(
@@ -105,55 +92,11 @@ async def api_enterprise_record_finance(
     Việc đội tên tác vụ vào đúng tên trong RISK_LEVEL_MAP là bắt buộc — nếu dùng
     tên chung chung thì ngưỡng 50 triệu sẽ không kích hoạt.
     """
-    from mateai.infrastructure.database.erp_database import erp_db
-    from mateai.application.security.zero_trust import execute_with_hitl
-
+    from mateai.application.enterprise.operations import UseCaseError, record_finance
     try:
-        body = await request.json()
-        ftype = str(body.get("type", "expense") or "expense").strip().lower()
-        if ftype not in ("income", "expense"):
-            raise HTTPException(status_code=400, detail="Tham số 'type' phải là 'income' hoặc 'expense'.")
-
-        amount = float(body.get("amount", 0))
-        category = body.get("category", "Chi phí hoạt động")
-        description = body.get("description", "")
-        created_by = body.get("created_by", current_user.get("username", "admin"))
-
-        action_name = "record_income" if ftype == "income" else "record_expense"
-
-        def _write():
-            return erp_db.add_finance_record(
-                finance_type=ftype,
-                amount=amount,
-                category=category,
-                description=description,
-                created_by=created_by,
-            )
-
-        # `execute_with_hitl` là coroutine — thiếu `await` sẽ ra
-        # `'coroutine' object has no attribute 'get'` ngay dòng kế, bị
-        # `except Exception` cuối hàm nuốt và trả về lỗi. Hệ quả là endpoint
-        # này hỏng 100%: giao dịch nhỏ không ghi được, giao dịch lớn cũng không
-        # tạo yêu cầu duyệt — cổng Zero-Trust chỉ còn là vỏ.
-        gate = await execute_with_hitl(
-            action_name=action_name,
-            params={"amount": amount, "category": category, "description": description, "type": ftype},
-            executor=_write,
-            requested_by=current_user.get("username", "unknown"),
-            description=(
-                f"{'Ghi thu' if ftype == 'income' else 'Ghi chi'} {amount:,.0f} VNĐ "
-                f"vào mục '{category}'"
-            ),
-        )
-
-        if gate.get("status") == "denied":
-            raise HTTPException(status_code=403, detail=gate["message"])
-        if gate.get("status") == "awaiting_approval":
-            raise HTTPException(status_code=202, detail=gate["message"])
-
-        return {"status": "success", "record": gate["result"], "risk_level": gate.get("risk_level")}
-    except HTTPException:
-        raise
+        return await record_finance(current_user, await request.json())
+    except UseCaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -228,7 +171,7 @@ async def api_enterprise_rag_query(
         if not question:
             raise HTTPException(status_code=400, detail="Thiếu tham số: question")
         from mateai.application.knowledge.rag_engine import rag_engine
-        result = rag_engine.answer_policy_question(question)
+        result = await run_blocking(rag_engine.answer_policy_question, question=question)  # ChromaDB: ngoài loop
         return {
             "status": "success",
             "result": result,
@@ -268,43 +211,15 @@ async def api_enterprise_rag_upload(
       - Tên tệp được chuẩn hoá, không giữ đường dẫn do client gửi.
       - `content_type` phải khớp phần mở rộng.
     """
-    ALLOWED_EXT = {".pdf", ".docx", ".doc", ".md", ".txt", ".csv"}
-    MAX_BYTES = 20 * 1024 * 1024  # 20 MB
-
-    original_name = os.path.basename(file.filename or "").strip()
-    if not original_name:
-        raise HTTPException(status_code=400, detail="Thiếu tên tệp.")
-
-    ext = Path(original_name).suffix.lower()
-    if ext not in ALLOWED_EXT:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Định dạng '{ext or 'không xác định'}' không được phép. "
-                f"Chỉ nhận: {', '.join(sorted(ALLOWED_EXT))}."
-            ),
-        )
+    from mateai.application.knowledge import rag_engine as rag
 
     payload = await file.read()
-    if not payload:
-        raise HTTPException(status_code=400, detail="Tệp rỗng, không có dữ liệu để nạp.")
-    if len(payload) > MAX_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Tệp quá lớn ({len(payload) / 1024 / 1024:.1f} MB). Giới hạn 20 MB.",
-        )
-
-    # Chuẩn hoá tên: bỏ ký tự lạ, thêm tiền tố thời gian để không đè nhau.
-    stem = re.sub(r"[^A-Za-z0-9_\-\.]", "_", Path(original_name).stem)[:80] or "tai_lieu"
-    safe_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{stem}{ext}"
-
-    from mateai.application.knowledge.rag_engine import _DOCS_DIR
-    _DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    dest = _DOCS_DIR / safe_name
     try:
-        dest.write_bytes(payload)
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Không lưu được tệp: {exc}")
+        dest = rag.save_upload(file.filename or "", payload)
+    except rag.UploadRejected as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+    safe_name = dest.name
+    original_name = os.path.basename(file.filename or "").strip()
 
     logger.info(
         "[RAG Upload] %s (%s) tải lên %s — %d bytes, mục '%s'",
@@ -312,25 +227,23 @@ async def api_enterprise_rag_upload(
     )
 
     try:
-        from mateai.application.knowledge.rag_engine import rag_engine
-        result = rag_engine.ingest_file(dest, category=category)
+        # Parse PDF/Word -> chunk -> embed là việc nặng, đồng bộ: chạy ngoài event loop
+        # (trước đây gọi thẳng trong hàm async — mọi kênh đứng trong lúc nạp).
+        result = await run_blocking(rag.rag_engine.ingest_file, file_path=dest, category=category)
     except Exception as exc:
         logger.error("[RAG Upload] Lỗi nạp %s: %s", safe_name, exc)
         return {"status": "error", "error": str(exc), "saved_as": safe_name}
 
+    # Audit. Trước đây gọi `erp_db.log_audit_action` mà router KHÔNG import `erp_db` —
+    # NameError bị `except: pass` nuốt, nên chưa lần tải tài liệu nào được ghi audit.
     try:
-        erp_db.log_audit_action(
-            employee_id=current_user.get("username", "admin"),
-            action_type="KNOWLEDGE_UPLOAD",
-            payload=json.dumps(
-                {"original_name": original_name, "saved_as": safe_name,
-                 "bytes": len(payload), "category": category},
-                ensure_ascii=False,
-            ),
-            status="success",
-        )
-    except Exception:
-        pass
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(str(current_user.get("username", "?")), "KNOWLEDGE_UPLOAD", "DATA",
+                                  "SUCCESS" if result.get("status") == "success" else "FAILED",
+                                  {"original_name": original_name, "saved_as": safe_name,
+                                   "bytes": len(payload), "category": category})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[RAG Upload] Không ghi được audit: %s", exc)
 
     if result.get("status") != "success":
         raise HTTPException(
@@ -451,36 +364,11 @@ async def api_multi_agent_route(
     Tác vụ thật sự nguy hiểm vẫn đi qua cổng HITL ở đúng tool của chúng
     (record / delete / run_powershell...).
     """
-    from mateai.application.security.zero_trust import execute_with_hitl
-
+    from mateai.application.enterprise.operations import UseCaseError, delegate_multi_agent
     try:
-        body = await request.json()
-        query = str(body.get("query", "") or "").strip()
-        if not query:
-            raise HTTPException(status_code=400, detail="Thiếu tham số: query")
-
-        def _route():
-            from mateai.application.agent.agent_orchestrator import multi_agent_system
-            return multi_agent_system.route_and_execute(query=query)
-
-        # `execute_with_hitl` là coroutine — xem giải thích ở
-        # `api_enterprise_record_finance` về lỗi thiếu `await`.
-        gate = await execute_with_hitl(
-            action_name="delegate_to_multi_agent",
-            params={"query": query},
-            executor=_route,
-            requested_by=current_user.get("username", "unknown"),
-            description=f"Ủy quyền Multi-Agent xử lý: {query[:200]}",
-        )
-
-        if gate.get("status") == "denied":
-            raise HTTPException(status_code=403, detail=gate["message"])
-        if gate.get("status") == "awaiting_approval":
-            raise HTTPException(status_code=202, detail=gate["message"])
-
-        return {"status": "success", "result": gate["result"], "risk_level": gate.get("risk_level")}
-    except HTTPException:
-        raise
+        return await delegate_multi_agent(current_user, (await request.json()).get("query", ""))
+    except UseCaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -551,7 +439,7 @@ async def api_enterprise_cashflow_health(
     """Chạy thuật toán dự báo Burn Rate & Runway. Phát CẢNH BÁO ĐỎ nếu quỹ sắp cạn."""
     from mateai.application.analytics.analytics_engine import analytics_engine
     try:
-        result = analytics_engine.evaluate_predictive_cashflow()
+        result = await run_blocking(analytics_engine.evaluate_predictive_cashflow)
 
         # Phase 58 BƯỚC 2: đẩy trạng thái dòng tiền lên mọi màn hình để
         # Command Center tự đổi sang chế độ đỏ mà không cần ai bấm F5.
@@ -591,7 +479,7 @@ async def api_enterprise_graph_rag(
         if not question:
             return {"status": "error", "error": "Thiếu tham số: question"}
         from mateai.application.knowledge.graph_rag import graph_rag
-        result = graph_rag.hybrid_search(question=question)
+        result = await run_blocking(graph_rag.hybrid_search, question=question)
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -619,62 +507,11 @@ async def api_enterprise_onboarding(
     là hành động cấp danh tính cho con người — theo briefing BƯỚC 5 thuộc nhóm
     3-5. Trước đây chỉ có RBAC nên manager tự tạo nhân viên không ai hỏi.
     """
-    from mateai.application.security.zero_trust import execute_with_hitl
-
+    from mateai.application.enterprise.operations import UseCaseError, onboard_employee
     try:
-        body = await request.json()
-        name = body.get("name", "")
-        position = body.get("position", "")
-        if not name or position is None or not str(position).strip():
-            raise HTTPException(status_code=400, detail="Thiếu tham số bắt buộc: name, position")
-
-        caller_role = current_user.get("role", "viewer")
-        requested_role = str(body.get("role", "operator") or "operator").strip().lower()
-        if caller_role == "admin":
-            effective_role = requested_role
-        else:
-            effective_role = "operator"
-            if requested_role != "operator":
-                logger.warning(
-                    "[Onboarding] %s (role=%s) yêu cầu tạo nhân viên với role=%r — "
-                    "bị hạ về 'operator'. Chỉ admin được cấp quyền đặc biệt.",
-                    current_user.get("username", "?"), caller_role, requested_role,
-                )
-
-        department_name = body.get("department_name", "Nhân sự")
-        email = body.get("email", "")
-        phone = body.get("phone", "")
-
-        def _onboard():
-            from mateai.application.skills.builtin.onboarding_workflow import onboarding_workflow
-            return onboarding_workflow.onboard_new_employee(
-                name=name,
-                position=position,
-                department_name=department_name,
-                email=email,
-                phone=phone,
-                role=effective_role,
-                allow_privileged_role=(caller_role == "admin"),
-            )
-
-        # `execute_with_hitl` là coroutine — xem giải thích ở
-        # `api_enterprise_record_finance` về lỗi thiếu `await`.
-        gate = await execute_with_hitl(
-            action_name="zero_touch_onboard_employee",
-            params={"name": name, "position": position, "department": department_name, "role": effective_role},
-            executor=_onboard,
-            requested_by=current_user.get("username", "unknown"),
-            description=f"Onboarding nhân viên mới: {name} - {position} (phòng ban {department_name})",
-        )
-
-        if gate.get("status") == "denied":
-            raise HTTPException(status_code=403, detail=gate["message"])
-        if gate.get("status") == "awaiting_approval":
-            raise HTTPException(status_code=202, detail=gate["message"])
-
-        return {"status": "success", "result": gate["result"], "risk_level": gate.get("risk_level")}
-    except HTTPException:
-        raise
+        return await onboard_employee(current_user, await request.json())
+    except UseCaseError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -692,7 +529,9 @@ async def api_enterprise_email_simulate(
     try:
         body = await request.json()
         from mateai.interfaces.email.email_gateway import email_gateway
-        result = email_gateway.process_incoming_email(
+        # SMTP (tới 10 s) + ghi DB: ngoài event loop.
+        result = await run_blocking(
+            email_gateway.process_incoming_email,
             sender=body.get("sender", "khachhang@doanhnghiep.vn"),
             subject=body.get("subject", "Yêu cầu hỗ trợ"),
             content=body.get("content", ""),
@@ -816,155 +655,8 @@ async def api_connectors_health(
     tức thì và không tạo tải lên AWS/OCI. Muốn kiểm tra thật thì dùng skill
     `check_connector_health` (đi qua cổng HITL).
     """
-    try:
-        from mateai.infrastructure.connectors import CONNECTOR_REGISTRY, CONNECTOR_RISK_LEVELS
-        from mateai.infrastructure.connectors.base_connector import missing_required_fields
-
-        items: Dict[str, Any] = {}
-        for name in ("aws", "oci", "paperless", "einvoice"):
-            connector = CONNECTOR_REGISTRY.get(name)
-            if connector is None:
-                items[name] = {"configured": False, "error": "Connector chưa được nạp"}
-                continue
-            try:
-                cfg = connector.config
-                # "Đã cấu hình" phải trả lời đúng câu hỏi "connector này có
-                # dùng được không", chứ không phải "có trường nào khác rỗng
-                # không". `CONNECTOR_DEFAULTS` cấp sẵn region/provider/profile
-                # nên cách sau LUÔN trả True — kể cả khi chưa có một thông tin
-                # đăng nhập nào, và mọi lời gọi thật đều hỏng với
-                # "Authentication failed". Đây là báo cáo thành công giả.
-                missing = missing_required_fields(name)
-                # CONNECTOR_RISK_LEVELS khoá theo "<connector>:<action>",
-                # không phải theo tên connector — phải lọc theo tiền tố.
-                risks = sorted({
-                    lvl for key, lvl in CONNECTOR_RISK_LEVELS.items()
-                    if key.split(":", 1)[0] == name
-                })
-                # KHÔNG tiết lộ giá trị bí mật — chỉ nêu TÊN khoá còn thiếu,
-                # đủ để người vận hành biết cần điền gì mà không lộ nội dung.
-                items[name] = {
-                    "configured": not missing,
-                    "enabled": bool(getattr(cfg, "enabled", True)),
-                    "actions": sorted(
-                        key.split(":", 1)[1]
-                        for key in CONNECTOR_RISK_LEVELS
-                        if key.split(":", 1)[0] == name
-                    ),
-                    "max_risk_level": max(risks) if risks else None,
-                    **(
-                        {"missing_fields": missing, "note": "Chưa đủ thông tin đăng nhập — mọi lời gọi sẽ thất bại."}
-                        if missing
-                        else {}
-                    ),
-                }
-            except Exception as exc:  # pragma: no cover - phòng thủ
-                items[name] = {"configured": False, "error": str(exc)}
-
-        return {"status": "success", "connectors": items}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
-
-
-_CONNECTOR_DISPLAY: Dict[str, Dict[str, str]] = {
-    "aws": {
-        "display_name": "Amazon Web Services",
-        "description": "Chi phí & trạng thái EC2/CloudWatch qua AWS API.",
-    },
-    "oci": {
-        "display_name": "Oracle Cloud Infrastructure",
-        "description": "Danh sách instance & chỉ số compute của OCI.",
-    },
-    "paperless": {
-        "display_name": "Paperless-ngx",
-        "description": "Tra cứu và tải tài liệu trong kho Paperless.",
-    },
-    "einvoice": {
-        "display_name": "Hóa đơn điện tử",
-        "description": "Phát hành & tra cứu hóa đơn qua nhà cung cấp hóa đơn.",
-    },
-}
-
-
-def _build_connector_config_schema(name: str) -> Dict[str, Any]:
-    """
-    Sinh JSON Schema cấu hình cho một connector từ bảng khai báo sẵn có.
-
-    Mục tiêu: giao diện Admin không phải viết tay form cho từng connector. Backend
-    đã biết (a) khoá nào BẮT BUỘC và (b) khoá nào có sẵn giá trị mặc định —
-    hai bảng đó đủ để dựng form. Thêm connector mới ở Python là có form mới,
-    không cần sửa frontend.
-
-    Chỉ trả TÊN khoá, tuyệt đối không trả giá trị: `missing_required_fields()`
-    cũng vậy. Nếu form đã lưu khoá rồi, người dùng thấy dấu "đã đặt" chứ không
-    thấy khoá bí mật của họ.
-    """
-    from mateai.infrastructure.connectors.base_connector import (
-        CONNECTOR_DEFAULTS,
-        CONNECTOR_REQUIRED_FIELDS,
-        missing_required_fields,
-    )
-
-    defaults = CONNECTOR_DEFAULTS.get(name, {})
-    required = set(CONNECTOR_REQUIRED_FIELDS.get(name, ()))
-    missing = set(missing_required_fields(name))
-
-    properties: Dict[str, Any] = {}
-
-    # Trường bắt buộc đưa lên trước — đó là phần người vận hành phải điền.
-    ordered_keys = sorted(required) + sorted(k for k in defaults if k not in required)
-
-    for key in ordered_keys:
-        is_required = key in required
-        is_missing = key in missing
-        default_val = defaults.get(key)
-
-        prop: Dict[str, Any] = {
-            "type": "boolean" if isinstance(default_val, bool) else "string",
-            "title": key.replace("_", " ").capitalize(),
-        }
-        if is_required:
-            prop["description"] = "Bắt buộc — connector sẽ không chạy nếu thiếu."
-        if key in _CONNECTOR_SECRET_FIELDS:
-            # `format: secret` khiến DynamicForm hiện dấu *** và có nút bật/tắt.
-            prop["format"] = "secret"
-            prop["ui"] = {"widget": "text"}
-        if default_val not in (None, ""):
-            prop["default"] = default_val
-        elif is_required and key not in _CONNECTOR_SECRET_FIELDS:
-            prop["ui"] = {"widget": "text"}
-
-        properties[key] = prop
-
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": sorted(required),
-    }
-
-
-def _alert_channel_catalog() -> Dict[str, Any]:
-    """Kênh cảnh báo (Teams, Email, Outlook, Slack, Webhook) + quy tắc chung, cùng
-    định dạng connector để Portal dựng form "chờ kết nối" và lưu vào config.json."""
-    from mateai.infrastructure.notifications import CHANNELS, RULES_ID, config_schema, load_settings, missing_fields
-    out: Dict[str, Any] = {
-        RULES_ID: {
-            "id": RULES_ID, "kind": "alert_rules", "display_name": "Quy tắc cảnh báo",
-            "description": "Mức gửi tối thiểu, chống lặp, tự báo khi thành phần trên sơ đồ hệ thống bị lỗi.",
-            "configured": True, "missing_fields": [], "actions": [], "max_risk_level": None,
-            "config_schema": config_schema(RULES_ID),
-        },
-    }
-    for cid, spec in CHANNELS.items():
-        s = load_settings(cid)
-        missing = missing_fields(cid, s)
-        out[cid] = {
-            "id": cid, "kind": "alert_channel", "display_name": f"Cảnh báo · {spec['display_name']}",
-            "description": spec["description"], "configured": not missing, "enabled": bool(s.get("enabled")),
-            "missing_fields": missing, "actions": [], "max_risk_level": None,
-            "config_schema": config_schema(cid),
-        }
-    return out
+    from mateai.application.enterprise.integrations import connector_health
+    return connector_health()
 
 
 @router.get(
@@ -987,49 +679,8 @@ async def api_connectors_catalog(
     registry thì không hiện, để trang quản trị không hứa ra thứ hệ thống
     không có.
     """
-    try:
-        from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
-        from mateai.infrastructure.connectors.base_connector import missing_required_fields
-
-        items: Dict[str, Any] = {}
-        for name, connector in CONNECTOR_REGISTRY.items():
-            meta = _CONNECTOR_DISPLAY.get(name, {})
-            missing = missing_required_fields(name)
-            actions: List[str] = []
-            max_risk: Optional[int] = None
-            try:
-                from mateai.infrastructure.connectors import CONNECTOR_RISK_LEVELS
-
-                actions = sorted(
-                    k.split(":", 1)[1]
-                    for k in CONNECTOR_RISK_LEVELS
-                    if k.split(":", 1)[0] == name
-                )
-                risks = [
-                    lvl for k, lvl in CONNECTOR_RISK_LEVELS.items()
-                    if k.split(":", 1)[0] == name
-                ]
-                max_risk = max(risks) if risks else None
-            except Exception:  # pragma: no cover - phòng thủ
-                pass
-
-            items[name] = {
-                "id": name,
-                "display_name": meta.get("display_name", name),
-                "description": meta.get("description", ""),
-                # `configured` = đủ khoá bắt buộc. Chưa có thì giao diện hiện
-                # "chờ kết nối" thay vì "Đã kết nối" (giống quy ước Phase 73-76).
-                "configured": not missing,
-                "missing_fields": missing,
-                "actions": actions,
-                "max_risk_level": max_risk,
-                "config_schema": _build_connector_config_schema(name),
-            }
-
-        items.update(_alert_channel_catalog())
-        return {"status": "success", "connectors": items}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    from mateai.application.enterprise.integrations import connector_catalog
+    return connector_catalog()
 
 
 @router.get(
@@ -1047,33 +698,8 @@ async def api_data_sources_list(
     thay `auth_value` bằng cờ `has_auth`. Endpoint này cũng gom sẵn 4 connector
     Phase 59 để UI chỉ cần một lệnh gọi cho toàn bộ danh sách nguồn dữ liệu.
     """
-    try:
-        from mateai.infrastructure.connectors import custom_registry
-        from mateai.infrastructure.connectors.base_connector import missing_required_fields
-
-        custom = custom_registry.list_sources(include_secrets=False)
-
-        builtin: Dict[str, Any] = {}
-        for name in ("aws", "oci", "paperless", "einvoice"):
-            missing = missing_required_fields(name)
-            builtin[name] = {
-                "id": name,
-                "title": name.upper(),
-                "kind": "builtin",
-                "enabled": True,
-                "has_auth": not missing,
-                "missing_fields": missing,
-            }
-
-        return {
-            "status": "success",
-            "custom": custom,
-            "builtin": builtin,
-            "total": len(custom) + len(builtin),
-        }
-    except Exception as e:  # pylint: disable=broad-except
-        logger.exception("[Phase62] list data sources lỗi")
-        return {"status": "error", "error": str(e)}
+    from mateai.application.enterprise.integrations import data_sources_overview
+    return data_sources_overview()
 
 
 @router.post(

@@ -598,64 +598,26 @@ class AutonomyUpdate(BaseModel):
     reason: str = Field(default="", max_length=300)
 
 
-def _autonomy_view() -> Dict[str, Any]:
-    from mateai.application.security import policy_engine as pe
-    from mateai.config.loader import settings
-    return {
-        "status": "success",
-        "autonomy": settings.autonomy.model_dump(),
-        "known_agents": list(pe.KNOWN_AGENTS),
-        "policy_version": pe.policy_version(),
-    }
-
-
 @router.get("/api/v1/security/autonomy", summary="Giới hạn tự trị của AI (kill switch, L5, ngân sách)")
 async def get_autonomy(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
-    return _autonomy_view()
+    from mateai.application.administration import autonomy_settings
+    return autonomy_settings.view()
 
 
 @router.put("/api/v1/security/autonomy", summary="Đổi giới hạn tự trị (chỉ admin, có audit)")
 async def put_autonomy(payload: AutonomyUpdate, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
-    from mateai.application.administration import config_governance as gov
-    from mateai.application.security import policy_engine as pe
-    from mateai.application.security.safety_guard import security_engine
-    from mateai.config.loader import AutonomyConfig, read_raw_config, reload_settings, settings, write_raw_config
+    from mateai.application.administration import autonomy_settings
     from mateai.interfaces.http.secret_masking import _mask_secrets
 
     updates = payload.model_dump(exclude_none=True)
     reason = updates.pop("reason", "")
-    if not updates:
-        raise HTTPException(status_code=400, detail="Không có thay đổi nào.")
-    for key in ("disabled_tools", "never_autonomous_tools", "email_auto_reply_domains"):
-        if key in updates:
-            updates[key] = sorted({str(x).strip() for x in updates[key] if str(x).strip()})
-    if "disabled_agents" in updates:
-        unknown = [a for a in updates["disabled_agents"] if a not in pe.KNOWN_AGENTS]
-        if unknown:
-            raise HTTPException(status_code=400, detail=f"Tác nhân không tồn tại: {', '.join(unknown)}")
-
-    before_version = pe.policy_version()
-    before_cfg = read_raw_config(strict=True)
-    merged = dict(before_cfg)
-    section = {**settings.autonomy.model_dump(), **dict(before_cfg.get("autonomy") or {}), **updates}
-    AutonomyConfig(**section)  # kiểm tra kiểu trước khi ghi
-    merged["autonomy"] = section
-    write_raw_config(merged)
-    reload_settings()
-    actor = str(user.get("username") or "admin")
     try:
-        gov.record(before_cfg, merged, actor, "Giới hạn tự trị" + (f": {reason}" if reason else ""), _mask_secrets)
-    except Exception as exc:  # noqa: BLE001 — lịch sử hỏng không chặn việc đổi công tắc
-        logger.warning("Không ghi được lịch sử cấu hình: %s", exc)
-    old = dict(before_cfg.get("autonomy") or {})
-    security_engine.log_audit(actor, "autonomy_policy_change", "POLICY", "SUCCESS", {
-        "changes": {k: {"before": old.get(k), "after": v} for k, v in updates.items()},
-        "reason": reason, "policy_version_before": before_version, "policy_version_after": pe.policy_version(),
-    })
+        result = autonomy_settings.update(str(user.get("username") or "admin"), updates, reason, _mask_secrets)
+    except autonomy_settings.AutonomyUpdateError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if "kill_switch" in updates:
-        logger.warning("[Autonomy] KILL SWITCH %s bởi %s", "BẬT" if updates["kill_switch"] else "TẮT", actor)
         try:
             await broadcast_portal_ui("autonomy_changed", {"kill_switch": bool(updates["kill_switch"])})
         except Exception:  # noqa: BLE001
             pass
-    return _autonomy_view()
+    return result

@@ -210,7 +210,7 @@ def test_webhook_urls_are_masked_when_config_is_read():
 
 
 def test_portal_catalog_offers_every_channel_as_waiting(cfg):
-    from mateai.interfaces.http.routers.enterprise import _alert_channel_catalog
+    from mateai.application.enterprise.integrations import _alert_channel_catalog
     cat = _alert_channel_catalog()
     assert set(cat) == {"alert_rules", "alert_teams", "alert_email", "alert_outlook", "alert_slack", "alert_webhook"}
     teams = cat["alert_teams"]

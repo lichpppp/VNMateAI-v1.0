@@ -40,7 +40,7 @@
 | P7 quan sát | xong phần một tiến trình (trace bền, token, bảng Supervisor); chưa OpenTelemetry | `e20b4ae` |
 | P8 dữ liệu | SQL ra khỏi application; chưa PostgreSQL / Redis (D5) | `e20b4ae` |
 | P9 worker / sự kiện | tắt máy an toàn, idempotency giao việc | `e20b4ae` |
-| P10 API / domain | **chưa** — router lớn (`enterprise.py` 1 436 dòng) còn nghiệp vụ; không viết lại hàng loạt khi chưa có test khoá hành vi từng endpoint | — |
+| P10 API / domain | **phần chính xong (2026-10-06)** — test hợp đồng HTTP viết TRƯỚC (`test_enterprise_router_contract.py`), rồi chuyển: connector / data source → `application/enterprise/integrations.py`; sổ quỹ, đa tác nhân, onboarding → `application/enterprise/operations.py`; tải tài liệu → `rag_engine.save_upload`; giới hạn tự trị → `application/administration/autonomy_settings.py`. `enterprise.py` 1 442 → 1 068 dòng. Sửa kèm: mạo danh `created_by` ở sổ quỹ, audit tải tài liệu chưa từng được ghi (NameError bị nuốt), 5 lời gọi đồng bộ chậm trong endpoint async. Còn: 8 chỗ ghi cấu hình trong 6 router (RULE-027 baseline) | (commit P10) |
 | P11 siết bảo mật | xong các lỗ đã phát hiện; còn S7 (mật khẩu mặc định — việc của chủ hệ thống), S10 (ABAC) | `e20b4ae` |
 | P12 đánh giá | kịch bản vàng + đối kháng; chưa đánh giá model trên LLM thật | `e20b4ae` |
 | P13 gỡ mã cũ | lớp domain chết đã xoá; alias WS giữ có đo | `10adf6f` |
