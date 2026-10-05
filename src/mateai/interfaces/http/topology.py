@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import sys
+import threading
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -205,6 +207,206 @@ def _tool_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> Non
         edges.append(_edge("tools", nid))
 
 
+def _loaded(module: str, attr: str) -> Any:
+    """Đối tượng của module ĐÃ được máy chủ nạp — không import mới (RAG / ChromaDB
+    nạp nặng; sơ đồ chỉ đọc trạng thái, không được tự khởi động dịch vụ)."""
+    mod = sys.modules.get(module)
+    return getattr(mod, attr, None) if mod else None
+
+
+def _ago(ts: Optional[float]) -> Optional[str]:
+    if not ts:
+        return None
+    sec = max(0, int(time.time() - ts))
+    return f"{sec}s trước" if sec < 60 else f"{sec // 60} phút trước" if sec < 3600 else f"{sec // 3600} giờ trước"
+
+
+def _thread_alive(name: str) -> bool:
+    return any(t.name == name and t.is_alive() for t in threading.enumerate())
+
+
+def _automation_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    """Dịch vụ chạy nền: Sentinel, lịch đôn đốc, tác vụ nền, Email, Webhook, UDP beacon."""
+    sentinel = _loaded("mateai.application.operations.autonomous_sentinel", "autonomous_sentinel")
+    if sentinel is None:
+        nodes.append(_node("sentinel", "sentinel", "Autonomous Sentinel", "unknown", "chưa nạp", group="automation"))
+    else:
+        task = getattr(sentinel, "_monitor_task", None)
+        active = getattr(sentinel, "_active_incidents", {}) or {}
+        last = max((getattr(sentinel, "_last_alert_times", {}) or {}).values(), default=None)
+        if not getattr(sentinel, "_running", False):
+            status, detail = "off", "không chạy"
+        elif task is not None and task.done():
+            status, detail = "down", "vòng giám sát đã dừng bất thường"
+        elif active:
+            status, detail = "degraded", "sự cố đang mở: " + ", ".join(
+                str(i.get("title") or c) for c, i in list(active.items())[:3])
+        else:
+            status, detail = "ok", ""
+        nodes.append(_node("sentinel", "sentinel", "Autonomous Sentinel", status, detail, {
+            "interval_s": getattr(sentinel, "_check_interval", None),
+            "active_incidents": len(active),
+            "last_alert": _ago(last),
+        }, group="automation"))
+    edges += [_edge("sentinel", "core"), _edge("sentinel", "db"), _edge("sentinel", "ad"),
+              _edge("sentinel", "telegram"), _edge("sentinel", "robot:*")]
+
+    pm = _loaded("mateai.application.skills.builtin.proactive_manager", "proactive_manager")
+    if pm is None:
+        nodes.append(_node("scheduler", "scheduler", "Lịch đôn đốc tự động", "unknown", "chưa nạp", group="automation"))
+    else:
+        history = getattr(pm, "_audit_history", []) or []
+        running = getattr(pm, "_running", False)
+        alive = _thread_alive("proactive-manager-loop")
+        status, detail = ("ok", "") if running and alive else (
+            ("down", "luồng lịch đã dừng bất thường") if running else ("off", "không chạy"))
+        last = history[-1] if history else None
+        nodes.append(_node("scheduler", "scheduler", "Lịch đôn đốc tự động", status, detail, {
+            "schedule": "08:00 · 16:00",
+            "runs": len(history),
+            "last_run": last.get("timestamp") if last else None,
+            "last_result": (f"{last.get('total_overdue')} quá hạn · {last.get('total_upcoming')} sắp hạn"
+                            if last else None),
+        }, group="automation"))
+    edges += [_edge("scheduler", "db"), _edge("scheduler", "telegram")]
+
+    bw = _loaded("mateai.application.operations.background_workers", "background_worker_manager")
+    if bw is None:
+        nodes.append(_node("jobs", "jobs", "Tác vụ nền", "unknown", "chưa nạp", group="automation"))
+    else:
+        tasks = list((getattr(bw, "_tasks", {}) or {}).values())
+        by = {}
+        for t in tasks:
+            key = getattr(getattr(t, "status", None), "value", "?")
+            by[key] = by.get(key, 0) + 1
+        recent_failed = [t for t in tasks[-10:] if getattr(getattr(t, "status", None), "value", "") == "failed"]
+        if getattr(bw, "_semaphore", None) is None:
+            status, detail = "off", "chưa khởi động"
+        elif getattr(bw, "_shutdown", False):
+            status, detail = "down", "đang tắt"
+        elif recent_failed:
+            status, detail = "degraded", f"{len(recent_failed)}/10 tác vụ gần nhất lỗi: {recent_failed[-1].name}"
+        else:
+            status, detail = "ok", ""
+        nodes.append(_node("jobs", "jobs", "Tác vụ nền", status, detail, {
+            "running": by.get("running", 0), "pending": by.get("pending", 0),
+            "completed": by.get("completed", 0), "failed": by.get("failed", 0),
+            "max_concurrent": getattr(bw, "max_concurrent", None),
+        }, group="automation"))
+    edges += [_edge("tools", "jobs")]
+
+    eg = _loaded("mateai.interfaces.email.email_gateway", "email_gateway")
+    if eg is None or not getattr(eg, "enabled", False):
+        nodes.append(_node("email", "email", "Email Gateway", "off",
+                           "chưa bật / chưa cấu hình (config: email_gateway)", group="channel"))
+    else:
+        alive = _thread_alive("email-gateway-loop")
+        hist = getattr(eg, "_history", []) or []
+        nodes.append(_node("email", "email", "Email Gateway", "ok" if alive else "down",
+                           "" if alive else "luồng đọc hộp thư đã dừng", {
+                               "inbox": getattr(eg, "username", ""),
+                               "tickets": len(hist),
+                               "last_ticket": hist[0].get("received_at") if hist else None,
+                           }, group="channel"))
+    edges += [_edge("email", "db"), _edge("email", "telegram")]
+
+    stats = _loaded("mateai.interfaces.http.webhook_gateway", "WEBHOOK_STATS")
+    if stats is None:
+        nodes.append(_node("webhook", "webhook", "Webhook Gateway", "off", "chưa đăng ký route", group="channel"))
+    else:
+        nodes.append(_node("webhook", "webhook", "Webhook Gateway", "ok", "", {
+            "received": stats.get("received"), "duplicates": stats.get("duplicates"),
+            "last": _ago(stats.get("last_at")), "last_source": stats.get("last_source"),
+        }, group="channel"))
+    edges += [_edge("webhook", "telegram"), _edge("webhook", "robot:*")]
+
+    alive = _thread_alive("vnmate-udp-beacon")
+    nodes.append(_node("beacon", "beacon", "UDP Beacon (tìm máy chủ)", "ok" if alive else "down",
+                       "" if alive else "luồng beacon không chạy — robot mới không tự tìm được máy chủ",
+                       {"port": 8888}, group="automation"))
+    edges += [_edge("beacon", "robot:*")]
+
+
+def _knowledge_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> None:
+    """Dữ liệu & tri thức: Active Directory, RAG, bộ nhớ sự cố, đa tác tử, bộ đệm phiên."""
+    from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE as H
+    ad = (H.get("services") or {}).get("active_directory") or {}
+    ad_status = {"OK": "ok", "FAIL": "down"}.get(ad.get("status"), "unknown")
+    ad_detail = ad.get("detail") or "chưa có số đo"
+    if ad_status == "ok" and not ad.get("employees_count") and "Chưa" in str(ad.get("last_sync")):
+        # CSDL nhân sự đọc được nhưng chưa từng đồng bộ: không phải "đang hoạt động".
+        ad_status, ad_detail = "off", "chưa đồng bộ lần nào (0 nhân viên)"
+    nodes.append(_node("ad", "directory", "Active Directory / HR", ad_status, ad_detail, {
+                           "employees": ad.get("employees_count"), "computers": ad.get("computers_count"),
+                           "last_sync": ad.get("last_sync"),
+                       }, group="data"))
+    edges += [_edge("tools", "ad")]
+
+    rag = _loaded("mateai.application.knowledge.rag_engine", "rag_engine")
+    graph = _loaded("mateai.application.knowledge.graph_rag", "graph_rag")
+    if rag is None:
+        nodes.append(_node("rag", "knowledge", "Tri thức RAG (ChromaDB)", "unknown", "chưa nạp", group="data"))
+    else:
+        try:
+            chunks = rag.collection.count()
+            status, detail = ("ok", "") if chunks else ("degraded", "chưa có tài liệu nào được nạp")
+        except Exception as exc:  # noqa: BLE001
+            chunks, status, detail = None, "down", f"ChromaDB lỗi: {type(exc).__name__}"
+        nodes.append(_node("rag", "knowledge", "Tri thức RAG (ChromaDB)", status, detail, {
+            "chunks": chunks,
+            "graph_entities": len(getattr(graph, "nodes", []) or []) if graph else None,
+            "graph_relations": len(getattr(graph, "edges", []) or []) if graph else None,
+        }, group="data"))
+    edges += [_edge("tools", "rag")]
+
+    mem_mod = sys.modules.get("mateai.infrastructure.memory.cognitive_memory")
+    col = getattr(mem_mod, "_incident_collection", None) if mem_mod else None
+    if col is None:
+        nodes.append(_node("memory", "memory", "Bộ nhớ sự cố", "unknown",
+                           "chưa mở (mở khi có tra cứu / ghi sự cố đầu tiên)", group="data"))
+    else:
+        try:
+            nodes.append(_node("memory", "memory", "Bộ nhớ sự cố", "ok", "", {"records": col.count()}, group="data"))
+        except Exception as exc:  # noqa: BLE001
+            nodes.append(_node("memory", "memory", "Bộ nhớ sự cố", "down", f"lỗi: {type(exc).__name__}", group="data"))
+    edges += [_edge("tools", "memory"), _edge("sentinel", "memory")]
+
+    mas = _loaded("mateai.application.agent.agent_orchestrator", "multi_agent_system")
+    if mas is None:
+        nodes.append(_node("agents", "agents", "Đa tác tử (CEO/CFO/HR/CTO)", "unknown", "chưa nạp", group="tools"))
+    else:
+        bus = getattr(mas, "message_bus", None)
+        agents = sorted((getattr(bus, "agents", {}) or {}).keys())
+        log = getattr(bus, "interaction_log", []) or []
+        nodes.append(_node("agents", "agents", "Đa tác tử (CEO/CFO/HR/CTO)", "ok" if agents else "degraded",
+                           "" if agents else "chưa có tác tử nào đăng ký", {
+                               "agents": ", ".join(a.upper() for a in agents), "interactions": len(log),
+                           }, group="tools"))
+    edges += [_edge("tools", "agents"), _edge("agents", "llm"), _edge("agents", "rag")]
+
+    cache = _loaded("mateai.infrastructure.cache.ephemeral_cache", "ephemeral_cache")
+    if cache is None:
+        nodes.append(_node("cache", "cache", "Bộ đệm phiên (RAM)", "unknown", "chưa nạp", group="core"))
+    else:
+        st = cache.get_stats()
+        nodes.append(_node("cache", "cache", "Bộ đệm phiên (RAM)", "ok", "", {
+            "active_items": st.get("active_items"), "sessions": st.get("active_sessions"),
+        }, group="core"))
+    edges += [_edge("voice", "cache")]
+
+
+def _expand_wildcards(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """`robot:*` -> mọi ô robot hiện có (kể cả ô "robot:none" khi chưa có robot)."""
+    robots = [n["id"] for n in nodes if n["kind"] == "robot"]
+    out = []
+    for e in edges:
+        if e["target"] == "robot:*":
+            out += [_edge(e["source"], r) for r in robots]
+        else:
+            out.append(e)
+    return out
+
+
 def _edge(source: str, target: str) -> Dict[str, Any]:
     return {"id": f"{source}->{target}", "source": source, "target": target}
 
@@ -217,13 +419,15 @@ def snapshot() -> Dict[str, Any]:
             build(nodes)
         except Exception as exc:  # noqa: BLE001 — một nguồn hỏng không làm mất cả sơ đồ
             logger.warning("[Topology] %s lỗi: %s", build.__name__, exc)
-    for build in (_channel_nodes, _tool_nodes):
+    for build in (_channel_nodes, _tool_nodes, _automation_nodes, _knowledge_nodes):
         try:
             build(nodes, edges)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[Topology] %s lỗi: %s", build.__name__, exc)
     ids = {n["id"] for n in nodes}
-    edges = [e for e in edges if e["source"] in ids and e["target"] in ids]
+    seen = set()
+    edges = [e for e in _expand_wildcards(nodes, edges)
+             if e["source"] in ids and e["target"] in ids and not (e["id"] in seen or seen.add(e["id"]))]
     counts: Dict[str, int] = {}
     for n in nodes:
         counts[n["status"]] = counts.get(n["status"], 0) + 1

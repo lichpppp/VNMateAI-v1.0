@@ -25,6 +25,7 @@ export function GlowingEdge({
   style = {},
   data,
   markerEnd,
+  markerStart,
 }: EdgeProps<GlowingEdgeData>) {
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
@@ -106,6 +107,7 @@ export function GlowingEdge({
           transition: 'all 0.3s ease',
         }}
         markerEnd={markerEnd}
+        markerStart={markerStart}
       />
 
       {/* Visual Error Badge on Disconnected Edge */}

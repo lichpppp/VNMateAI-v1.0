@@ -82,6 +82,16 @@ def publish(
     return ev
 
 
+def emit(kind: str, **kw: Any) -> Optional[Dict[str, Any]]:
+    """`publish` không bao giờ ném lỗi — gọi từ luồng nghiệp vụ (Telegram, email,
+    webhook, sentinel…): giám sát hỏng không được làm hỏng tác vụ."""
+    try:
+        return publish(kind, **kw)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[Topology] emit lỗi: %s", exc)
+        return None
+
+
 def recent(limit: int = 100, since_seq: int = 0) -> List[Dict[str, Any]]:
     items = [e for e in _EVENTS if e["seq"] > since_seq]
     return items[-limit:]

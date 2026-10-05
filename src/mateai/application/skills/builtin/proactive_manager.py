@@ -167,6 +167,11 @@ class ProactiveManager:
             "details": reminders_sent,
         }
 
+        from mateai.application.operations.topology_events import emit
+        emit("schedule", stage="audit", source="scheduler", target="db", status="ok",
+             detail=f"{trigger_source}: {len(overdue_tasks)} quá hạn, {len(upcoming_tasks)} sắp hạn, "
+                    f"gửi {len(reminders_sent)} nhắc")
+
         self._audit_history.append(summary_result)
         if len(self._audit_history) > 50:
             self._audit_history.pop(0)

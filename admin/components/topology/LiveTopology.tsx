@@ -34,6 +34,7 @@ import {
   Activity, AlertTriangle, Bot, Cpu, Database, Gauge, Headphones, MessageSquare, Monitor,
   Plug, RotateCcw, Save, Server, ShieldCheck, Volume2, Wrench, Wifi, WifiOff, Play,
   Cloud, Layers, FileText, Receipt, Send, Network,
+  Radar, Mail, CalendarClock, ListChecks, BookOpen, Brain, Users, Webhook, RadioTower, MemoryStick,
 } from 'lucide-react';
 import { authFetch, sessionToken } from '@/lib/api';
 import { CyberNode, CyberNodeData } from './CyberNode';
@@ -96,10 +97,13 @@ const STAGE_TEXT: Record<string, string> = {
   first_answer_audio: 'tiếng trả lời đầu', end: 'kết thúc', request: 'chờ phê duyệt',
   approved: 'đã duyệt', wake: 'nghe thấy tên gọi', stt: 'nhận dạng giọng nói',
   listen: 'đang lắng nghe', farewell: 'tạm biệt',
+  alert_out: 'gửi cảnh báo', ticket: 'tạo ticket', received: 'nhận webhook', duplicate: 'trùng, bỏ qua',
+  alert: 'phát hiện sự cố', resolved: 'đã khôi phục', audit: 'rà soát đôn đốc',
 };
 const KIND_TEXT: Record<string, string> = {
   turn: 'Lượt hội thoại', tool: 'Tool', approval: 'Phê duyệt', robot: 'Robot',
-  status: 'Đổi trạng thái', simulation: 'Mô phỏng',
+  status: 'Đổi trạng thái', simulation: 'Mô phỏng', alert: 'Cảnh báo Telegram', email: 'Email',
+  webhook: 'Webhook', incident: 'Sự cố (Sentinel)', job: 'Tác vụ nền', schedule: 'Lịch tự động',
 };
 const METRIC_TEXT: Record<string, string> = {
   cpu_percent: 'CPU %', ram_percent: 'RAM %', disk_percent: 'Đĩa %', uptime: 'Thời gian chạy',
@@ -109,12 +113,23 @@ const METRIC_TEXT: Record<string, string> = {
   voice_sessions: 'Phiên thoại', ip: 'IP', state: 'Trạng thái', emotion: 'Biểu cảm', busy: 'Đang xử lý',
   follow_up: 'Nghe tiếp (mức)', firmware: 'Firmware', last_active: 'Hoạt động cuối', skills: 'Số kỹ năng',
   pending: 'Đang chờ', items: 'Danh sách', platform: 'Hệ điều hành',
+  interval_s: 'Chu kỳ quét (s)', active_incidents: 'Sự cố đang mở', last_alert: 'Cảnh báo gần nhất',
+  schedule: 'Lịch chạy', runs: 'Số lần chạy', last_run: 'Lần chạy gần nhất', last_result: 'Kết quả gần nhất',
+  running: 'Đang chạy', completed: 'Đã xong', failed: 'Lỗi', max_concurrent: 'Song song tối đa',
+  inbox: 'Hộp thư', tickets: 'Ticket đã tạo', last_ticket: 'Ticket gần nhất',
+  received: 'Đã nhận', duplicates: 'Trùng (bỏ qua)', last: 'Gần nhất', last_source: 'Nguồn gần nhất',
+  port: 'Cổng UDP', employees: 'Nhân viên', computers: 'Máy tính', last_sync: 'Đồng bộ gần nhất',
+  chunks: 'Đoạn tài liệu', graph_entities: 'Thực thể (Graph)', graph_relations: 'Quan hệ (Graph)',
+  records: 'Bản ghi', agents: 'Tác tử', interactions: 'Lượt trao đổi', active_items: 'Mục trong RAM',
+  sessions: 'Phiên',
 };
 
 const KIND_ICON: Record<string, React.ElementType> = {
   server: Server, llm: Cpu, database: Database, channel: MessageSquare, pipeline: Activity,
   stt: Headphones, tts: Volume2, robot: Bot, tools: Wrench, approval: ShieldCheck,
   worker: Monitor, connector: Plug,
+  sentinel: Radar, email: Mail, scheduler: CalendarClock, jobs: ListChecks, knowledge: BookOpen,
+  memory: Brain, directory: Users, webhook: Webhook, beacon: RadioTower, agents: Network, cache: MemoryStick,
 };
 
 /**
@@ -122,12 +137,13 @@ const KIND_ICON: Record<string, React.ElementType> = {
  * kênh vào -> nhận dạng giọng -> lõi hội thoại -> LLM / TTS / cổng tool -> nơi thực thi -> CSDL.
  */
 function defaultColumn(n: TopoNode): number {
-  if (n.group === 'channel') return 0;
-  if (n.id === 'stt') return 1;
-  if (n.id === 'voice') return 2;
+  if (n.group === 'channel') return 0;                                   // kênh vào + email + webhook
+  if (['stt', 'beacon', 'sentinel', 'scheduler'].includes(n.id)) return 1; // nghe + dịch vụ tự chạy
+  if (n.id === 'voice' || n.id === 'cache') return 2;
   if (n.id === 'llm' || n.id === 'tts' || n.id === 'tools') return 3;
-  if (n.id === 'db' || n.kind === 'connector') return 5;
-  return 4;   // core, hitl, máy trạm
+  if (n.kind === 'connector') return 5;
+  if (['db', 'ad', 'rag', 'memory'].includes(n.id)) return 6;              // dữ liệu & tri thức
+  return 4;   // core, hitl, máy trạm, đa tác tử, tác vụ nền
 }
 
 const COL_W = 420;
@@ -185,6 +201,17 @@ const KIND_STYLE: Record<string, [string, string]> = {
   worker: ['WORKER NODE // LAN', '#10b981'],
   database: ['DATABASE // SQLITE', '#3b82f6'],
   connector: ['EXTERNAL CONNECTOR', '#2dd4bf'],
+  sentinel: ['AUTONOMOUS SENTINEL', '#f43f5e'],
+  scheduler: ['VIRTUAL C.O.O // LỊCH', '#eab308'],
+  jobs: ['BACKGROUND WORKERS', '#a3e635'],
+  email: ['EMAIL GATEWAY // IMAP', '#60a5fa'],
+  webhook: ['WEBHOOK GATEWAY', '#c084fc'],
+  beacon: ['UDP DISCOVERY // 8888', '#34d399'],
+  directory: ['ACTIVE DIRECTORY / LDAP', '#6366f1'],
+  knowledge: ['ENTERPRISE RAG // GRAPH', '#22d3ee'],
+  memory: ['COGNITIVE MEMORY', '#d946ef'],
+  agents: ['MULTI-AGENT // C-SUITE', '#a855f7'],
+  cache: ['EPHEMERAL CACHE // RAM', '#94a3b8'],
 };
 const ID_STYLE: Record<string, [string, string, React.ElementType]> = {
   hud: ['KÊNH // HUD', '#38bdf8', Monitor],
@@ -204,6 +231,17 @@ const METRIC_PICK: Record<string, string[]> = {
   robot: ['state', 'ip', 'emotion', 'follow_up'],
   tools: ['skills'], approval: ['pending'],
   worker: ['ip', 'platform', 'uptime'],
+  sentinel: ['active_incidents', 'interval_s', 'last_alert'],
+  scheduler: ['schedule', 'runs', 'last_run', 'last_result'],
+  jobs: ['running', 'pending', 'completed', 'failed'],
+  email: ['inbox', 'tickets', 'last_ticket'],
+  webhook: ['received', 'duplicates', 'last', 'last_source'],
+  beacon: ['port'],
+  directory: ['employees', 'computers', 'last_sync'],
+  knowledge: ['chunks', 'graph_entities', 'graph_relations'],
+  memory: ['records'],
+  agents: ['agents', 'interactions'],
+  cache: ['active_items', 'sessions'],
 };
 
 function toCyber(n: TopoNode, glowColor: string | undefined, runs: number | undefined): CyberNodeData {
@@ -409,19 +447,22 @@ export default function LiveTopology() {
     const byId = Object.fromEntries(snap.nodes.map((n) => [n.id, n]));
     const forward = (a: string, b: string): [string, string] =>
       byId[a] && byId[b] && defaultColumn(byId[a]) > defaultColumn(byId[b]) ? [b, a] : [a, b];
-    const pairs: Record<string, { source: string; target: string; temp: boolean }> = {};
-    for (const e of snap.edges) {
-      const [a, b] = forward(e.source, e.target);
-      pairs[`${a}->${b}`] ??= { source: a, target: b, temp: false };
-    }
+    const pairs: Record<string, { source: string; target: string; temp: boolean; fwd: boolean; back: boolean }> = {};
+    const addPair = (s0: string, t0: string, temp: boolean) => {
+      const [a, b] = forward(s0, t0);
+      const key = `${a}->${b}`;
+      const p = (pairs[key] ??= { source: a, target: b, temp, fwd: false, back: false });
+      if (!temp) p.temp = false;
+      if (a === s0) p.fwd = true; else p.back = true;
+      return key;
+    };
+    for (const e of snap.edges) addPair(e.source, e.target, false);
     const lit: Record<string, { color: string; until: number; label?: string }> = {};
     for (const [k, g] of Object.entries(glow)) {
       if (k.startsWith('node:')) continue;
       const [s0, t0] = k.split('->');
       if (!byId[s0] || !byId[t0] || s0 === t0) continue;
-      const [a, b] = forward(s0, t0);
-      const key = `${a}->${b}`;
-      pairs[key] ??= { source: a, target: b, temp: true };     // cạnh chưa có: vẽ tạm khi đang sáng
+      const key = addPair(s0, t0, true);     // cạnh chưa có: vẽ tạm khi đang sáng
       if (!lit[key] || g.until > lit[key].until) lit[key] = g;
     }
     return Object.entries(pairs).map(([id, p]) => {
@@ -437,7 +478,8 @@ export default function LiveTopology() {
           isError: targetDown && !g,
           label: g?.label ?? (targetDown ? `${target.label}: ${target.detail || 'lỗi'}` : undefined),
         },
-        markerEnd: { type: MarkerType.ArrowClosed, color: g?.color ?? (targetDown ? '#f43f5e' : '#00f2fe'), width: 14, height: 14 },
+        markerEnd: p.fwd ? { type: MarkerType.ArrowClosed, color: g?.color ?? (targetDown ? '#f43f5e' : '#00f2fe'), width: 14, height: 14 } : undefined,
+        markerStart: p.back ? { type: MarkerType.ArrowClosed, color: g?.color ?? '#00f2fe', width: 14, height: 14, orient: 'auto-start-reverse' } : undefined,
       };
     });
   }, [snap, glow]);

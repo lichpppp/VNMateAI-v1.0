@@ -16,6 +16,7 @@ import asyncio
 import logging
 import re
 import threading
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -188,6 +189,11 @@ class TelegramBotService:
             history = list(self._chat_histories.get(chat_id, []))
 
             # Forward to LLM engine with conversation history
+            from mateai.application.operations.topology_events import emit
+            trace_id = f"tg-{int(time.time() * 1000) % 10**9}"
+            t0 = time.perf_counter()
+            emit("turn", stage="start", trace_id=trace_id, channel="telegram", source="telegram",
+                 target="voice", status="running", detail=f"@{sender_name}: {text}")
             try:
                 from mateai.application.agent.llm_engine import llm_engine
                 result: Dict[str, Any] = await llm_engine.ask_async(
@@ -196,6 +202,10 @@ class TelegramBotService:
                     history=history,
                 )
                 reply_text = result.get("reply") or "Em đã xử lý lệnh."
+                emit("turn", stage="end", trace_id=trace_id, channel="telegram", source="voice",
+                     target="telegram", node="voice", ms=(time.perf_counter() - t0) * 1000,
+                     detail=f"trả lời {len(reply_text)} ký tự" + (
+                         f" · {(result.get('route_info') or {}).get('model')}" if (result.get("route_info") or {}).get("model") else ""))
                 route_info = result.get("route_info", {})
                 model_used = route_info.get("model", "")
 
@@ -222,6 +232,9 @@ class TelegramBotService:
                     await update.message.reply_text(final_reply)
 
             except Exception as llm_exc:
+                emit("turn", stage="end", trace_id=trace_id, channel="telegram", source="voice",
+                     target="telegram", node="voice", status="error",
+                     ms=(time.perf_counter() - t0) * 1000, detail=type(llm_exc).__name__)
                 logger.error("[TelegramGateway] LLM processing error: %s", llm_exc)
                 await update.message.reply_text(
                     f"⚠️ Hệ thống gặp lỗi khi xử lý lệnh: {llm_exc}"
@@ -826,13 +839,23 @@ class TelegramBotService:
         Returns:
             True if message was dispatched, False on failure.
         """
+        from mateai.application.operations.topology_events import emit
+        first_line = message.splitlines()[0] if message else ""
+
+        def _event(status: str, why: str = "") -> None:
+            # Trang giám sát: kết quả THẬT của lần gửi (đã tới Telegram / bỏ qua vì sao / lỗi).
+            emit("alert", stage="alert_out", node="telegram", status=status,
+                 detail=f"{why}: {first_line}" if why else first_line)
+
         if not _TELEGRAM_AVAILABLE:
             logger.warning("[TelegramGateway] Alert skipped: library not installed.")
+            _event("cancelled", "bỏ qua — chưa cài thư viện Telegram")
             return False
 
         cfg = self._outbound_config()
         if cfg is None:
             logger.debug("[TelegramGateway] Alert skipped: Telegram disabled or bot_token invalid.")
+            _event("cancelled", "bỏ qua — gửi ra Telegram đang tắt / chưa cấu hình")
             return False
 
         if target == "incident_group":
@@ -842,6 +865,7 @@ class TelegramBotService:
 
         if not chat_id:
             logger.warning("[TelegramGateway] Alert skipped: no target chat_id configured.")
+            _event("cancelled", "bỏ qua — chưa có chat nhận cảnh báo")
             return False
 
         # Run in a fire-and-forget thread to avoid blocking callers
@@ -860,6 +884,7 @@ class TelegramBotService:
                     }
                     resp = client.post(url, json=payload)
                     if resp.status_code != 200:
+                        _event("error", f"Telegram từ chối (HTTP {resp.status_code})")
                         logger.warning(
                             "[TelegramGateway] sendMessage failed: HTTP %s — %s",
                             resp.status_code,
@@ -871,11 +896,13 @@ class TelegramBotService:
                         # này có thể hỏng mạng, token sai, hoặc bị Telegram từ
                         # chối vì HTML sai — vẫn in ra "dispatched" như thể đã
                         # tới nơi.
+                        _event("ok", "đã gửi")
                         logger.info(
                             "[TelegramGateway] Incident alert confirmed by Telegram (chat_id=%s)",
                             chat_id,
                         )
             except Exception as exc:
+                _event("error", f"lỗi mạng ({type(exc).__name__})")
                 logger.error("[TelegramGateway] send_incident_alert error (network fault): %s", exc)
 
         t = threading.Thread(target=_send_async, daemon=True, name="telegram-alert")

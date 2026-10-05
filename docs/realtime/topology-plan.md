@@ -73,3 +73,32 @@ T1–T6 xong.
 Sửa sau lần chạy thật đầu tiên:
 - Tool chạy trên máy chủ từng hiện `tools → tools`, nay hiện `tools → core`.
 - Bước "kết thúc" từng không gắn cạnh nào, nay gắn `voice → kênh`.
+
+## 5. Bổ sung module còn thiếu (2026-10-05)
+
+Rà toàn bộ dịch vụ được khởi động lúc máy chủ chạy (`server._on_startup`). Trước đợt này, 11 dịch vụ đang chạy thật nhưng không có ô nào trên sơ đồ. Nay mỗi dịch vụ có một ô, đọc trạng thái thật:
+
+| Ô | Nguồn trạng thái | Sự kiện mới |
+|---|---|---|
+| Autonomous Sentinel | `_running`, task vòng quét, sự cố đang mở | phát hiện / khôi phục sự cố → Telegram |
+| Lịch đôn đốc (08:00 · 16:00) | luồng `proactive-manager-loop`, lịch sử chạy | mỗi lần rà soát |
+| Tác vụ nền | số tác vụ theo trạng thái; ≥ 1 lỗi trong 10 gần nhất → suy giảm | bắt đầu / xong / lỗi, có ms |
+| Email Gateway | bật trong cấu hình + luồng đọc hộp thư | tạo ticket (P1 → đỏ) |
+| Webhook Gateway | `WEBHOOK_STATS` (đã nhận / trùng / gần nhất) | nhận / trùng |
+| UDP Beacon :8888 | luồng `vnmate-udp-beacon` | — |
+| Active Directory / HR | health cache; chưa đồng bộ lần nào → Tắt | — |
+| Tri thức RAG + Graph | số đoạn trong ChromaDB, số thực thể / quan hệ | — |
+| Bộ nhớ sự cố | số bản ghi (khi collection đã mở) | — |
+| Đa tác tử CFO/HR/CTO | tác tử đã đăng ký, số lượt trao đổi | — |
+| Bộ đệm phiên (RAM) | `ephemeral_cache.get_stats()` | — |
+
+Thêm sự kiện cho hai kênh có sẵn:
+- **Telegram:** từng lượt hỏi đáp (bắt đầu / kết thúc, ms, model).
+- **Cảnh báo gửi ra:** sự kiện theo kết quả thật — đã gửi (Telegram trả 200), bị bỏ qua (nêu lý do) hoặc lỗi.
+
+Nguyên tắc:
+- Sơ đồ **không import** module chưa được máy chủ nạp. Ví dụ RAG sẽ khởi động ChromaDB, nên ô hiện "chưa nạp" thay vì tự nạp module.
+- Đường nối vẽ từ trái sang phải; mũi tên theo đúng chiều thật (xuôi, ngược hoặc hai chiều).
+- Cạnh `robot:*` nối tới mọi robot đang kết nối.
+
+Test: `tests/test_phase88_workflow_topology.py`, 16 test. Toàn bộ pytest đều qua.

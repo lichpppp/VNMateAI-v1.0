@@ -229,6 +229,9 @@ class AutonomousSentinel:
             return False
 
         self._last_alert_times[category] = now
+        from mateai.application.operations.topology_events import emit
+        emit("incident", stage="alert", source="sentinel", target="telegram", status="error",
+             detail=f"[{category}] {title}")
         logger.warning("[AutonomousSentinel] PHÁT HIỆN SỰ CỐ [%s]: %s — %s", category, title, message)
 
         # 1. Broadcast Telegram Alert
@@ -271,6 +274,9 @@ class AutonomousSentinel:
           2. Log recovery event in SYSTEM_HEALTH_CACHE.
         """
         raw_title = incident.get("title", category)
+        from mateai.application.operations.topology_events import emit
+        emit("incident", stage="resolved", source="sentinel", target="telegram", status="ok",
+             detail=f"[{category}] đã khôi phục: {raw_title}")
         res_title = f"Khôi Phục Kết Nối: {raw_title}"
         res_msg = f"Sự cố [{category}] đã tự động được khôi phục thành công. Dịch vụ AI & Mạng đã trực tuyến và phản hồi bình thường."
         logger.info("[AutonomousSentinel] SỰ CỐ ĐÃ KHÔI PHỤC [%s]: %s", category, res_title)

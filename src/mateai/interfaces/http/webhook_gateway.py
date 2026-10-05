@@ -318,6 +318,9 @@ class AlertProcessor:
 _verifier = SignatureVerifier()
 _processor = AlertProcessor()
 
+#: Số đo thật cho ô "Webhook" trên trang giám sát /admin/topology.
+WEBHOOK_STATS: Dict[str, Any] = {"received": 0, "duplicates": 0, "last_at": None, "last_source": None}
+
 
 # ================================================================
 # FastAPI Routes
@@ -480,7 +483,14 @@ async def receive_webhook(
     alert_id = f"WH-{source.upper()}-{int(time.time() * 1000) % 1000000:06d}"
 
     # Deduplication check
+    from mateai.application.operations.topology_events import emit
+    WEBHOOK_STATS["received"] += 1
+    WEBHOOK_STATS["last_at"] = time.time()
+    WEBHOOK_STATS["last_source"] = source
     if _processor.is_duplicate(source, payload.resource_id or "unknown", payload.event_type):
+        WEBHOOK_STATS["duplicates"] += 1
+        emit("webhook", stage="duplicate", node="webhook", status="cancelled",
+             detail=f"{source}: {payload.event_type} (trùng, bỏ qua)")
         logger.info("[WebhookGateway] Duplicate alert suppressed: %s", alert_id)
         return WebhookResponse(
             success=True,
@@ -497,6 +507,9 @@ async def receive_webhook(
         status="RECEIVED" if verified else "UNVERIFIED",
         details={"alert_id": alert_id, "source": source, "event_type": payload.event_type},
     )
+
+    emit("webhook", stage="received", source="webhook", target="telegram", status="ok",
+         detail=f"{alert_id} · {source}: {payload.event_type}")
 
     # Dispatch in background
     background_tasks.add_task(_processor.dispatch, payload, alert_id)

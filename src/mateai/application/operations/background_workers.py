@@ -220,6 +220,9 @@ class BackgroundWorkerManager:
 
             task.status = TaskStatus.RUNNING
             task.started_at = datetime.utcnow()
+            from mateai.application.operations.topology_events import emit
+            emit("job", stage="start", node="jobs", status="running", trace_id=f"job-{task.id}",
+                 detail=task.name)
 
             async with self._lock:
                 self._running_tasks[task.name] = asyncio.current_task()
@@ -269,6 +272,10 @@ class BackgroundWorkerManager:
                 logger.error("[BackgroundWorkerManager] Task '%s' failed: %s", task.name, e, exc_info=True)
             finally:
                 task.completed_at = datetime.utcnow()
+                emit("job", stage="end", node="jobs", trace_id=f"job-{task.id}",
+                     status={TaskStatus.COMPLETED: "ok", TaskStatus.CANCELLED: "cancelled"}.get(task.status, "error"),
+                     ms=(task.completed_at - task.started_at).total_seconds() * 1000,
+                     detail=task.name + (f": {task.error}" if task.error else ""))
                 async with self._lock:
                     self._running_tasks.pop(task.name, None)
 

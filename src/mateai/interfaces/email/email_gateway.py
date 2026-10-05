@@ -224,6 +224,11 @@ class EmailGateway:
             "reply_content": reply_body,
         }
 
+        from mateai.application.operations.topology_events import emit
+        emit("email", stage="ticket", source="email", target="db",
+             status="error" if priority == "P1-Critical" else "ok",
+             detail=f"#{ticket_id} {priority} · {clean_subj}")
+
         with self._lock:
             self._history.insert(0, ticket_data)
             if len(self._history) > 100:

@@ -179,3 +179,78 @@ def test_ws_sends_real_snapshot_first(monkeypatch):
 
 def test_page_is_served():
     assert (ROOT / "admin" / "out" / "topology.html").exists() or (ROOT / "admin" / "out" / "admin" / "topology.html").exists()
+
+
+# ── Module bổ sung (2026-10-05): dịch vụ nền, dữ liệu & tri thức ────────────
+
+def test_all_modules_are_on_the_map(health):
+    nodes = _by_id(topology.snapshot())
+    for nid in ("sentinel", "scheduler", "jobs", "email", "webhook", "beacon",
+                "ad", "rag", "memory", "agents", "cache"):
+        assert nid in nodes, nid
+        assert nodes[nid]["status"] in ("ok", "degraded", "down", "off", "unknown")
+
+
+def test_unloaded_services_are_not_started_by_the_map(health, monkeypatch):
+    """Sơ đồ chỉ đọc: không được import RAG (nạp ChromaDB) chỉ để vẽ một ô."""
+    import sys
+    monkeypatch.delitem(sys.modules, "mateai.application.knowledge.rag_engine", raising=False)
+    nodes = _by_id(topology.snapshot())
+    assert "mateai.application.knowledge.rag_engine" not in sys.modules
+    assert nodes["rag"]["status"] == "unknown" and "chưa nạp" in nodes["rag"]["detail"]
+
+
+def test_missing_beacon_thread_is_reported(health):
+    # Trong test không có luồng beacon -> phải báo lỗi kèm hậu quả, không "ok".
+    beacon = _by_id(topology.snapshot())["beacon"]
+    assert beacon["status"] == "down" and "robot" in beacon["detail"]
+
+
+def test_wildcard_edges_reach_the_robot_tile(health):
+    edges = {(e["source"], e["target"]) for e in topology.snapshot()["edges"]}
+    assert ("beacon", "robot:none") in edges and ("sentinel", "robot:none") in edges
+    assert not any(t == "robot:*" for _, t in edges)
+
+
+async def test_background_job_publishes_start_and_end():
+    from mateai.application.operations.background_workers import BackgroundWorkerManager
+    bw = BackgroundWorkerManager()
+    await bw.start()
+
+    async def work():
+        return 1
+
+    await bw.submit("bao_cao_thang", work, notify_on_complete=False)
+    import asyncio
+    for _ in range(50):
+        if any(e["stage"] == "end" for e in topology_events.recent()):
+            break
+        await asyncio.sleep(0.01)
+    evs = [e for e in topology_events.recent() if e["kind"] == "job"]
+    assert [(e["stage"], e["status"]) for e in evs] == [("start", "running"), ("end", "ok")]
+    assert evs[0]["trace_id"] == evs[1]["trace_id"] and evs[1]["detail"] == "bao_cao_thang"
+    await bw.stop()
+
+
+def test_emit_never_raises(monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("x")
+    monkeypatch.setattr(topology_events, "publish", boom)
+    assert topology_events.emit("job", node="jobs") is None
+
+
+def test_telegram_alert_event_tells_why_it_was_not_sent(monkeypatch):
+    from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
+    monkeypatch.setattr(telegram_gateway, "_outbound_config", lambda: None)
+    assert telegram_gateway.send_incident_alert("🚨 CPU cao\nchi tiết") is False
+    ev = [e for e in topology_events.recent() if e["kind"] == "alert"][-1]
+    assert ev["status"] == "cancelled" and "tắt" in ev["detail"] and ev["detail"].endswith("🚨 CPU cao")
+
+
+def test_never_synced_directory_is_not_shown_as_working(health):
+    health["services"]["active_directory"] = {"status": "OK", "last_sync": "Chưa đồng bộ",
+                                              "employees_count": 0, "detail": "Đồng bộ: Chưa đồng bộ · 0 NV"}
+    assert _by_id(topology.snapshot())["ad"]["status"] == "off"
+    health["services"]["active_directory"] = {"status": "OK", "last_sync": "5 phút trước",
+                                              "employees_count": 42, "detail": "Đồng bộ: 5 phút trước · 42 NV"}
+    assert _by_id(topology.snapshot())["ad"]["status"] == "ok"
