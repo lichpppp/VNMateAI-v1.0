@@ -16,13 +16,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
+  BackgroundVariant,
   Controls,
   Edge,
   Handle,
+  MarkerType,
   MiniMap,
   Node,
   NodeProps,
   Position,
+  ReactFlowInstance,
   applyNodeChanges,
   NodeChange,
 } from 'reactflow';
@@ -30,6 +33,7 @@ import 'reactflow/dist/style.css';
 import {
   Activity, AlertTriangle, Bot, Cpu, Database, Gauge, Headphones, MessageSquare, Monitor,
   Plug, RotateCcw, Save, Server, ShieldCheck, Volume2, Wrench, Wifi, WifiOff, Play,
+  Check, Loader2, Pause, HelpCircle,
 } from 'lucide-react';
 import { authFetch, sessionToken } from '@/lib/api';
 
@@ -111,24 +115,30 @@ const KIND_ICON: Record<string, React.ElementType> = {
   worker: Monitor, connector: Plug,
 };
 
-/** Cột mặc định theo hướng luồng xử lý: kênh -> giọng nói -> lõi -> LLM/CSDL -> tool -> máy trạm/connector. */
+/**
+ * Cột mặc định theo hướng luồng xử lý (trái -> phải, kiểu n8n):
+ * kênh vào -> nhận dạng giọng -> lõi hội thoại -> LLM / TTS / cổng tool -> nơi thực thi -> CSDL.
+ */
 function defaultColumn(n: TopoNode): number {
   if (n.group === 'channel') return 0;
-  if (n.id === 'stt' || n.id === 'tts') return 1;
-  if (n.id === 'voice' || n.id === 'core') return 2;
-  if (n.id === 'llm' || n.id === 'db') return 3;
-  if (n.id === 'tools' || n.id === 'hitl') return 4;
-  return 5;
+  if (n.id === 'stt') return 1;
+  if (n.id === 'voice') return 2;
+  if (n.id === 'llm' || n.id === 'tts' || n.id === 'tools') return 3;
+  if (n.id === 'db') return 5;
+  return 4;   // core, hitl, máy trạm, connector
 }
 
+const COL_W = 230;
+const ROW_H = 150;
+
 function defaultPositions(nodes: TopoNode[]): Record<string, { x: number; y: number }> {
-  const rows: Record<number, number> = {};
+  const cols: Record<number, string[]> = {};
+  for (const n of nodes) (cols[defaultColumn(n)] ??= []).push(n.id);
   const out: Record<string, { x: number; y: number }> = {};
-  for (const n of nodes) {
-    const col = defaultColumn(n);
-    const row = rows[col] ?? 0;
-    rows[col] = row + 1;
-    out[n.id] = { x: col * 290, y: row * 150 + (col === 1 || col === 3 ? 60 : 0) };
+  for (const [col, ids] of Object.entries(cols)) {
+    ids.forEach((id, row) => {
+      out[id] = { x: Number(col) * COL_W, y: (row - (ids.length - 1) / 2) * ROW_H };
+    });
   }
   return out;
 }
@@ -157,58 +167,74 @@ function eventText(e: TopoEvent): string {
 }
 
 // ── Ô thành phần ────────────────────────────────────────────────────────────
-interface NodeData { node: TopoNode; pulse?: string }
+interface NodeData { node: TopoNode; pulse?: string; running?: boolean; runs?: number }
 
-/** Số đo đáng xem nhất của từng loại ô (tối đa 3). */
-function keyMetrics(n: TopoNode): [string, unknown][] {
+/** Dòng phụ dưới tên ô: số đo đáng xem nhất (kiểu "1 item" của n8n). */
+function subtitle(n: TopoNode): string {
   const m = n.metrics || {};
-  const pick: Record<string, string[]> = {
-    server: ['cpu_percent', 'ram_percent', 'disk_percent'],
-    llm: ['latency_ms', 'model'],
-    pipeline: ['turns', 'last_ttfa_ms', 'last_ttl_ms'],
-    stt: ['last_ms'], tts: ['last_ms'],
-    channel: ['connections', 'voice_sessions'],
-    robot: ['state', 'ip', 'follow_up'],
-    tools: ['skills'], approval: ['pending'],
-    worker: ['ip', 'platform'],
-  };
-  return (pick[n.kind] ?? []).filter((k) => k in m).map((k) => [METRIC_TEXT[k] ?? k, m[k]]);
+  const num = (k: string, unit = '') => (typeof m[k] === 'number' ? `${fmtValue(m[k])}${unit}` : null);
+  switch (n.kind) {
+    case 'server': return [num('cpu_percent', '% CPU'), num('ram_percent', '% RAM')].filter(Boolean).join(' · ');
+    case 'llm': return [num('latency_ms', ' ms'), m.model ? String(m.model) : null].filter(Boolean).join(' · ');
+    case 'pipeline': return [num('turns', ' lượt'), num('last_ttfa_ms', ' ms')].filter(Boolean).join(' · ');
+    case 'stt': case 'tts': return num('last_ms', ' ms') ?? '';
+    case 'channel': return typeof m.connections === 'number' ? `${m.connections} kết nối` : '';
+    case 'robot': return [m.state ? String(m.state) : null, m.ip ? String(m.ip) : null].filter(Boolean).join(' · ');
+    case 'tools': return num('skills', ' kỹ năng') ?? '';
+    case 'approval': return typeof m.pending === 'number' ? `${m.pending} chờ duyệt` : '';
+    case 'worker': return m.ip ? String(m.ip) : '';
+    default: return '';
+  }
 }
+
+const HANDLE_STYLE: React.CSSProperties = {
+  width: 10, height: 10, background: '#9ca3af', border: '2px solid #1f1f29',
+};
 
 function StatusNode({ data, selected }: NodeProps<NodeData>) {
   const n = data.node;
   const color = STATUS_COLOR[n.status] ?? STATUS_COLOR.unknown;
   const Icon = KIND_ICON[n.kind] ?? Gauge;
+  const trigger = n.group === 'channel';           // kênh vào = "trigger" (bo tròn bên trái như n8n)
+  const Badge = data.running ? Loader2
+    : n.status === 'ok' ? Check
+      : n.status === 'down' || n.status === 'degraded' ? AlertTriangle
+        : n.status === 'off' ? Pause : HelpCircle;
+  const badgeColor = data.running ? '#38bdf8' : color;
+  const sub = subtitle(n);
   return (
-    <div
-      className="rounded-lg bg-slate-900/95 text-slate-100 shadow-lg"
-      style={{
-        width: 230,
-        border: `2px solid ${selected ? '#e2e8f0' : color}`,
-        boxShadow: data.pulse ? `0 0 0 4px ${data.pulse}66, 0 0 18px ${data.pulse}` : undefined,
-        transition: 'box-shadow 0.25s',
-      }}
-    >
-      <Handle type="target" position={Position.Left} style={{ background: color }} />
-      <div className="flex items-center gap-2 px-3 pt-2">
-        <Icon className="h-4 w-4 shrink-0" style={{ color }} />
-        <span className="truncate text-[13px] font-semibold" title={n.label}>{n.label}</span>
+    <div className="flex flex-col items-center" style={{ width: 150 }} title={n.detail || STATUS_TEXT[n.status]}>
+      <div
+        className="relative flex items-center justify-center bg-[#2b2b36]"
+        style={{
+          width: 92, height: 92,
+          borderRadius: trigger ? '46px 12px 12px 46px' : 12,
+          border: `2px solid ${selected ? '#ff6d5a' : data.pulse ?? (n.status === 'ok' ? '#3f3f4f' : color)}`,
+          boxShadow: data.pulse ? `0 0 0 3px ${data.pulse}55, 0 0 22px ${data.pulse}` : '0 2px 6px #0006',
+          transition: 'box-shadow 0.25s, border-color 0.25s',
+          opacity: n.status === 'off' ? 0.55 : 1,
+        }}
+      >
+        {!trigger && <Handle type="target" position={Position.Left} style={HANDLE_STYLE} />}
+        <Icon style={{ width: 40, height: 40, color: n.status === 'off' ? '#9ca3af' : '#e5e7eb' }} strokeWidth={1.5} />
+        <span
+          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#1f1f29]"
+          style={{ background: badgeColor }}
+          title={data.running ? 'Đang chạy' : STATUS_TEXT[n.status]}
+        >
+          <Badge className={`h-3.5 w-3.5 text-[#111] ${data.running ? 'animate-spin' : ''}`} strokeWidth={3} />
+        </span>
+        {!!data.runs && (
+          <span className="absolute -bottom-2 rounded-full bg-[#3f3f4f] px-1.5 text-[10px] font-semibold text-slate-200" title="Số sự kiện 10 phút qua">
+            {data.runs}
+          </span>
+        )}
+        <Handle type="source" position={Position.Right} style={HANDLE_STYLE} />
       </div>
-      <div className="flex items-center gap-2 px-3 pt-1 text-[11px]">
-        <span className={`inline-block h-2 w-2 rounded-full ${n.status === 'down' ? 'animate-pulse' : ''}`} style={{ background: color }} />
-        <span style={{ color }} className="font-semibold">{STATUS_TEXT[n.status] ?? n.status}</span>
-        <span className="truncate text-slate-500">{fmtSince(n.since)}</span>
+      <div className="mt-2 max-w-[150px] text-center text-[12px] font-semibold leading-tight text-slate-100">{n.label}</div>
+      <div className="max-w-[150px] truncate text-center text-[10.5px]" style={{ color: n.status === 'ok' ? '#9ca3af' : color }}>
+        {n.status === 'ok' ? sub || STATUS_TEXT.ok : `${STATUS_TEXT[n.status]}${n.detail ? ` — ${n.detail}` : ''}`}
       </div>
-      {n.detail && <div className="px-3 pt-1 text-[11px] leading-snug text-slate-400 line-clamp-2" title={n.detail}>{n.detail}</div>}
-      <div className="grid grid-cols-1 gap-0.5 px-3 pb-2 pt-1 text-[11px]">
-        {keyMetrics(n).map(([k, v]) => (
-          <div key={k} className="flex justify-between gap-2">
-            <span className="text-slate-500">{k}</span>
-            <span className="truncate font-mono text-slate-200">{fmtValue(v)}</span>
-          </div>
-        ))}
-      </div>
-      <Handle type="source" position={Position.Right} style={{ background: color }} />
     </div>
   );
 }
@@ -224,12 +250,14 @@ type Tab = 'flow' | 'incidents' | 'detail';
 export default function LiveTopology() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [events, setEvents] = useState<TopoEvent[]>([]);
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   const [wsState, setWsState] = useState<'connecting' | 'live' | 'down'>('connecting');
   const [lastUpdate, setLastUpdate] = useState<number>(0);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('flow');
-  const [glow, setGlow] = useState<Record<string, { color: string; until: number }>>({});
+  const [glow, setGlow] = useState<Record<string, { color: string; until: number; label?: string }>>({});
+  const [nodes, setNodes] = useState<Node<NodeData>[]>([]);
+  const [rf, setRf] = useState<ReactFlowInstance | null>(null);
+  const fitted = useRef(false);
   const [error, setError] = useState<string>('');
   const [notice, setNotice] = useState<string>('');
   const [, setTick] = useState(0);
@@ -249,7 +277,8 @@ export default function LiveTopology() {
         if (now - e.t * 1000 > EDGE_GLOW_MS && !e.simulated) continue;   // lịch sử cũ: không nhấp nháy
         const color = EVENT_COLOR[e.status] ?? '#38bdf8';
         if (e.source && e.target) {
-          next[`${e.source}->${e.target}`] = { color, until: now + EDGE_GLOW_MS };
+          const label = e.ms !== undefined && e.stage !== 'start' ? `${Math.round(e.ms)} ms` : (e.stage ? STAGE_TEXT[e.stage] ?? e.stage : undefined);
+          next[`${e.source}->${e.target}`] = { color, until: now + EDGE_GLOW_MS, label };
           next[`node:${e.target}`] = { color, until: now + EDGE_GLOW_MS };
         }
         if (e.node) next[`node:${e.node}`] = { color, until: now + EDGE_GLOW_MS };
@@ -344,65 +373,118 @@ export default function LiveTopology() {
     return () => clearInterval(id);
   }, []);
 
-  // Vị trí: bố cục đã lưu > vị trí kéo trong phiên > mặc định theo cột.
-  const rfNodes: Node<NodeData>[] = useMemo(() => {
-    if (!snap) return [];
-    const defaults = defaultPositions(snap.nodes);
-    return snap.nodes.map((n) => ({
-      id: n.id,
-      type: 'status',
-      position: positions[n.id] ?? savedLayout.current[n.id] ?? defaults[n.id],
-      data: { node: n, pulse: glow[`node:${n.id}`]?.color },
-      selected: n.id === selected,
-    }));
-  }, [snap, positions, glow, selected]);
+  // Số sự kiện 10 phút qua của từng ô (huy hiệu dưới ô).
+  const runs = useMemo(() => {
+    const out: Record<string, number> = {};
+    const since = Date.now() / 1000 - 600;
+    for (const e of events) {
+      if (e.t < since || e.kind === 'status' || e.simulated) continue;
+      [e.node, e.source, e.target].filter((id, i, a) => id && a.indexOf(id) === i)
+        .forEach((id) => { out[id!] = (out[id!] ?? 0) + 1; });
+    }
+    return out;
+  }, [events]);
 
+  // Ô do state giữ: React Flow ghi kích thước đo được vào chính object ô, ô chỉ
+  // hiện khi đã có kích thước. Mỗi snapshot chỉ cập nhật data + thêm/bớt ô,
+  // giữ nguyên vị trí và kích thước.
+  useEffect(() => {
+    if (!snap) return;
+    const defaults = defaultPositions(snap.nodes);
+    setNodes((prev) => {
+      const old = Object.fromEntries(prev.map((n) => [n.id, n]));
+      return snap.nodes.map((n) => {
+        const g = glow[`node:${n.id}`];
+        return {
+          ...(old[n.id] ?? {}),
+          id: n.id,
+          type: 'status',
+          position: old[n.id]?.position ?? savedLayout.current[n.id] ?? defaults[n.id],
+          data: { node: n, pulse: g?.color, running: g?.color === EVENT_COLOR.running, runs: runs[n.id] },
+          selected: n.id === selected,
+        };
+      });
+    });
+  }, [snap, glow, selected, runs]);
+
+  // Lần đầu có ô (và mỗi khi số ô đổi): căn sơ đồ vừa khung nhìn.
+  useEffect(() => {
+    if (!rf || !nodes.length) return;
+    const key = nodes.length;
+    if (fitted.current && (rf as unknown as { _n?: number })._n === key) return;
+    (rf as unknown as { _n?: number })._n = key;
+    fitted.current = true;
+    const t = setTimeout(() => rf.fitView({ padding: 0.15, duration: 300 }), 80);
+    return () => clearTimeout(t);
+  }, [rf, nodes.length]);
+
+  /**
+   * Cạnh luôn chạy trái -> phải (kiểu n8n). Bước trả về (llm -> voice, tts -> hud,
+   * core -> tools…) làm sáng cạnh xuôi giữa hai ô đó thay vì vẽ vòng cong ngược.
+   */
   const rfEdges: Edge[] = useMemo(() => {
     if (!snap) return [];
-    const ids = new Set(snap.nodes.map((n) => n.id));
-    const list: Edge[] = snap.edges.map((e) => {
-      const g = glow[e.id];
-      const targetDown = snap.nodes.find((n) => n.id === e.target)?.status === 'down';
+    const byId = Object.fromEntries(snap.nodes.map((n) => [n.id, n]));
+    const forward = (a: string, b: string): [string, string] =>
+      byId[a] && byId[b] && defaultColumn(byId[a]) > defaultColumn(byId[b]) ? [b, a] : [a, b];
+    const pairs: Record<string, { source: string; target: string; temp: boolean }> = {};
+    for (const e of snap.edges) {
+      const [a, b] = forward(e.source, e.target);
+      pairs[`${a}->${b}`] ??= { source: a, target: b, temp: false };
+    }
+    const lit: Record<string, { color: string; until: number; label?: string }> = {};
+    for (const [k, g] of Object.entries(glow)) {
+      if (k.startsWith('node:')) continue;
+      const [s0, t0] = k.split('->');
+      if (!byId[s0] || !byId[t0] || s0 === t0) continue;
+      const [a, b] = forward(s0, t0);
+      const key = `${a}->${b}`;
+      pairs[key] ??= { source: a, target: b, temp: true };     // cạnh chưa có: vẽ tạm khi đang sáng
+      if (!lit[key] || g.until > lit[key].until) lit[key] = g;
+    }
+    return Object.entries(pairs).map(([id, p]) => {
+      const g = lit[id];
+      const targetDown = byId[p.target]?.status === 'down';
+      const stroke = g?.color ?? (targetDown ? '#ef444488' : '#6b7280');
       return {
-        id: e.id, source: e.source, target: e.target, animated: !!g,
-        style: { stroke: g?.color ?? (targetDown ? '#ef444488' : '#334155'), strokeWidth: g ? 3 : 1.5 },
+        id, source: p.source, target: p.target, animated: !!g,
+        hidden: p.temp && !g,
+        label: g?.label,
+        labelStyle: { fill: '#e5e7eb', fontSize: 11, fontWeight: 600 },
+        labelBgStyle: { fill: '#1f1f29' },
+        labelBgPadding: [6, 3] as [number, number],
+        labelBgBorderRadius: 4,
+        markerEnd: { type: MarkerType.ArrowClosed, color: g?.color ?? (targetDown ? '#ef4444' : '#6b7280'), width: 16, height: 16 },
+        style: { stroke, strokeWidth: g ? 3 : 2, strokeDasharray: p.temp ? '6 4' : undefined },
       };
     });
-    // Sự kiện trên cạnh không có sẵn (vd tts -> hud): vẽ tạm khi đang sáng.
-    for (const [k, g] of Object.entries(glow)) {
-      if (k.startsWith('node:') || list.some((e) => e.id === k)) continue;
-      const [s, t] = k.split('->');
-      if (ids.has(s) && ids.has(t)) {
-        list.push({ id: k, source: s, target: t, animated: true, style: { stroke: g.color, strokeWidth: 3, strokeDasharray: '6 4' } });
-      }
-    }
-    return list;
   }, [snap, glow]);
 
   const onNodesChange = useCallback((changes: NodeChange[]) => {
-    const moved = applyNodeChanges(changes, rfNodes);
-    setPositions((prev) => {
-      const next = { ...prev };
-      for (const c of changes) {
-        if (c.type === 'position' && c.position) next[c.id] = moved.find((n) => n.id === c.id)!.position;
-      }
-      return next;
-    });
-  }, [rfNodes]);
+    setNodes((nds) => applyNodeChanges(changes, nds) as Node<NodeData>[]);
+  }, []);
 
   const saveLayout = async () => {
     const res = await authFetch('/api/v1/system/topology/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodes: rfNodes.map((n) => ({ id: n.id, position: n.position })), edges: [] }),
+      body: JSON.stringify({ nodes: nodes.map((n) => ({ id: n.id, position: n.position })), edges: [] }),
     });
     setNotice(res.ok ? 'Đã lưu bố cục.' : res.status === 403 ? 'Chỉ admin được lưu bố cục.' : `Lưu lỗi (HTTP ${res.status}).`);
-    if (res.ok) savedLayout.current = Object.fromEntries(rfNodes.map((n) => [n.id, n.position]));
+    if (res.ok) savedLayout.current = Object.fromEntries(nodes.map((n) => [n.id, n.position]));
   };
 
   const resetLayout = async () => {
     const res = await authFetch('/api/v1/system/topology/reset', { method: 'POST' });
-    if (res.ok) { savedLayout.current = {}; setPositions({}); setNotice('Đã đặt lại bố cục mặc định.'); }
+    if (res.ok) {
+      savedLayout.current = {};
+      if (snap) {
+        const d = defaultPositions(snap.nodes);
+        setNodes((nds) => nds.map((n) => ({ ...n, position: d[n.id] ?? n.position })));
+        setTimeout(() => rf?.fitView({ padding: 0.15, duration: 300 }), 80);
+      }
+      setNotice('Đã đặt lại bố cục mặc định.');
+    }
     else setNotice(res.status === 403 ? 'Chỉ admin được đặt lại bố cục.' : `Đặt lại lỗi (HTTP ${res.status}).`);
   };
 
@@ -492,19 +574,23 @@ export default function LiveTopology() {
         <div className="relative min-w-0 flex-1">
           {!snap && !error && <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">Đang tải trạng thái thật…</div>}
           <ReactFlow
-            nodes={rfNodes}
+            nodes={nodes}
             edges={rfEdges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
+            onInit={setRf}
             onNodeClick={(_, n) => { setSelected(n.id); setTab('detail'); }}
             onPaneClick={() => setSelected(null)}
-            fitView
+            defaultEdgeOptions={{ type: 'default' }}
+            nodesConnectable={false}
             minZoom={0.2}
+            maxZoom={2}
             proOptions={{ hideAttribution: true }}
+            style={{ background: '#1f1f29' }}
           >
-            <Background color="#1e293b" gap={24} />
-            <Controls />
-            <MiniMap pannable zoomable nodeColor={(n) => STATUS_COLOR[(n.data as NodeData).node.status] ?? '#64748b'} maskColor="#02081799" style={{ background: '#0f172a' }} />
+            <Background variant={BackgroundVariant.Dots} color="#4b4b5c" gap={20} size={1.4} />
+            <Controls showInteractive={false} position="bottom-left" />
+            <MiniMap pannable zoomable nodeColor={(n) => STATUS_COLOR[(n.data as NodeData).node.status] ?? '#64748b'} maskColor="#1f1f2999" style={{ background: '#2b2b36' }} />
           </ReactFlow>
         </div>
 
