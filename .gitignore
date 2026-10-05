@@ -97,3 +97,6 @@ _archive/
 # Bản build Agent máy trạm (scripts/build_agent.py) — không commit file chạy
 dist/agent/
 build/agent/
+
+# Sao lưu config.json trước khi mã hoá khoá (chứa khoá dạng chữ thường)
+certs/*.bak

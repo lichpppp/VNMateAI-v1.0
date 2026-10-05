@@ -11,39 +11,9 @@
   <meta name="description"
     content="Cổng quản trị nội bộ cho Trợ lý AI VN-MateAI — Điều khiển Windows qua giọng nói & RPA Native" />
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            primary: {
-              50: '#eff6ff',
-              100: '#dbeafe',
-              500: '#3b82f6',
-              600: '#2563eb',
-              700: '#1d4ed8',
-              900: '#1e3a8a'
-            },
-            surface: {
-              light: '#ffffff',
-              dark: '#1e293b'
-            },
-            background: {
-              light: '#f8fafc',
-              dark: '#0f172a'
-            }
-          },
-          fontFamily: {
-            sans: ['"Be Vietnam Pro"', '"Plus Jakarta Sans"', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-            mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
-          }
-        }
-      }
-    }
-  </script>
+  <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/). Trước đây là
+       cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở trang, cần Internet. -->
+  <link rel="stylesheet" href="/static/tailwind.css?v=1" />
 
   <!-- Instant Theme Script to avoid FOUC -->
   <script>
@@ -3117,16 +3087,26 @@
         </div>
       </div>
 
+      <!-- ── Tab con (2026-10-05): tab dài ~1.100 dòng -> chia theo việc ── -->
+      <div id="ai-subtabs" class="glass-panel p-1.5 flex flex-wrap gap-1 text-xs font-semibold">
+        <button type="button" data-ai-subtab="brain" onclick="showAISubTab('brain')" class="ai-subtab px-3 py-2 rounded-lg">🧠 Bộ não (LLM)</button>
+        <button type="button" data-ai-subtab="persona" onclick="showAISubTab('persona')" class="ai-subtab px-3 py-2 rounded-lg">🎭 Tính cách & Thử nghiệm</button>
+        <button type="button" data-ai-subtab="audio" onclick="showAISubTab('audio')" class="ai-subtab px-3 py-2 rounded-lg">🎙️ Âm thanh</button>
+        <button type="button" data-ai-subtab="templates" onclick="showAISubTab('templates')" class="ai-subtab px-3 py-2 rounded-lg">📄 Mẫu báo cáo</button>
+        <button type="button" data-ai-subtab="ops" onclick="showAISubTab('ops')" class="ai-subtab px-3 py-2 rounded-lg">📈 Giám sát & Lịch sử</button>
+        <button type="button" data-ai-subtab="all" onclick="showAISubTab('all')" class="ai-subtab px-3 py-2 rounded-lg ml-auto text-slate-400">Xem tất cả</button>
+      </div>
+
       <!-- ── Main Grid: 2-Column Balanced Dashboard (7 cols Left / 5 cols Right) ── -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
         <!-- ════════════════════════════════════════════════════════════ -->
         <!-- LEFT COLUMN: BỘ NÃO LLM & CÁ TÍNH PERSONA (7 COLS)        -->
         <!-- ════════════════════════════════════════════════════════════ -->
-        <div class="lg:col-span-7 space-y-6 flex flex-col">
+        <div id="ai-col-left" class="lg:col-span-7 space-y-6 flex flex-col">
 
           <!-- CARD 1: BỘ NÃO & XỬ LÝ NGÔN NGỮ (LLM) -->
-          <div
+          <div data-ai-sub="brain"
             class="glass-panel p-6 space-y-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg hover:border-cyan-500/30 transition-all duration-300">
             <!-- Header -->
             <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-white/10">
@@ -3527,7 +3507,7 @@
           </div>
 
           <!-- CARD 2: CÁ TÍNH & ĐỊNH DANH (PERSONA) -->
-          <div
+          <div data-ai-sub="persona"
             class="glass-panel p-6 space-y-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg hover:border-violet-500/30 transition-all duration-300">
             <!-- Header -->
             <div class="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-white/10">
@@ -3669,15 +3649,39 @@
               </div>
             </div>
           </div>
+
+          <!-- CARD: THỬ TRƯỚC KHI LƯU — so sánh cấu hình đang chạy với bản đang chỉnh -->
+          <div data-ai-sub="persona" class="glass-panel p-6 space-y-4 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg">
+            <div class="flex items-center gap-2">
+              <h3 class="font-bold text-slate-800 dark:text-white text-sm">🧪 Thử trước khi lưu</h3>
+              <span class="text-[10px] text-slate-400">Một câu, hai bản trả lời: cấu hình ĐANG CHẠY và bản ĐANG CHỈNH (model + tên + chỉ thị cá tính). Không lưu gì.</span>
+            </div>
+            <div class="flex gap-2">
+              <input id="ai-preview-message" maxlength="2000" value="Giới thiệu ngắn về em và việc em có thể giúp anh hôm nay?"
+                class="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-white/10 bg-transparent text-xs">
+              <button type="button" id="btn-ai-preview" onclick="runAIPreview()"
+                class="px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 text-white text-xs font-bold">So sánh</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div class="p-3 rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/10">
+                <div class="font-bold text-slate-500 mb-1">Đang chạy <span id="ai-preview-current-meta" class="font-mono text-[10px] text-slate-400"></span></div>
+                <div id="ai-preview-current" class="whitespace-pre-wrap text-slate-700 dark:text-slate-200 min-h-[3rem]">—</div>
+              </div>
+              <div class="p-3 rounded-xl bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/30">
+                <div class="font-bold text-violet-600 dark:text-violet-300 mb-1">Đang chỉnh <span id="ai-preview-draft-meta" class="font-mono text-[10px] text-slate-400"></span></div>
+                <div id="ai-preview-draft" class="whitespace-pre-wrap text-slate-700 dark:text-slate-200 min-h-[3rem]">—</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ════════════════════════════════════════════════════════════ -->
         <!-- RIGHT COLUMN: THANH QUẢN & THÍNH GIÁC (AUDIO STUDIO 5 COLS) -->
         <!-- ════════════════════════════════════════════════════════════ -->
-        <div class="lg:col-span-5 space-y-6">
+        <div id="ai-col-right" class="lg:col-span-5 space-y-6">
 
           <!-- CARD 3: AUDIO STUDIO -->
-          <div
+          <div data-ai-sub="audio"
             class="glass-panel p-6 space-y-5 rounded-2xl border border-slate-200/80 dark:border-white/10 shadow-lg hover:border-emerald-500/30 transition-all duration-300">
             <!-- Header -->
             <div class="flex items-center gap-3 pb-4 border-b border-slate-200 dark:border-white/10">
@@ -3900,7 +3904,7 @@
       <!-- ════════════════════════════════════════════ -->
       <!-- CARD 4: THƯ VIỆN BIỂU MẪU BÁO CÁO -->
       <!-- ════════════════════════════════════════════ -->
-      <div class="glass-panel p-6 space-y-5">
+      <div data-ai-sub="templates" class="glass-panel p-6 space-y-5">
         <!-- Card Header -->
         <div
           class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-white/10">
@@ -4098,6 +4102,26 @@
             <button type="button" onclick="confirmAddTemplate()" class="btn-neon-cyan text-xs py-1.5 px-4">Tạo
               Mẫu</button>
           </div>
+        </div>
+      </div>
+
+      <!-- CARD: GIÁM SÁT HIỆU NĂNG & LỊCH SỬ CẤU HÌNH -->
+      <div data-ai-sub="ops" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="glass-panel p-6 space-y-3 rounded-2xl">
+          <div class="flex items-center gap-2">
+            <h3 class="font-bold text-slate-800 dark:text-white text-sm">📈 Hiệu năng theo não & model</h3>
+            <button type="button" onclick="loadAIModelStats()" class="ml-auto text-[10px] px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10">Làm mới</button>
+          </div>
+          <p class="text-[10px] text-slate-400">Số đo thật của các lượt thoại gần nhất (tối đa 500, mất khi khởi động lại). "Chuyển dự phòng" = model đã chọn không trả lời, hệ thống dùng model khác.</p>
+          <div id="ai-model-stats" class="text-xs text-slate-400 italic">Đang tải…</div>
+        </div>
+        <div class="glass-panel p-6 space-y-3 rounded-2xl">
+          <div class="flex items-center gap-2">
+            <h3 class="font-bold text-slate-800 dark:text-white text-sm">🕘 Lịch sử cấu hình</h3>
+            <button type="button" onclick="loadConfigHistory()" class="ml-auto text-[10px] px-2 py-1 rounded-lg border border-slate-200 dark:border-white/10">Làm mới</button>
+          </div>
+          <p class="text-[10px] text-slate-400">Mỗi lần lưu là một phiên bản. Khôi phục giữ nguyên các khoá bí mật hiện tại (lịch sử không lưu khoá).</p>
+          <div id="ai-config-history" class="text-xs text-slate-400 italic">Đang tải…</div>
         </div>
       </div>
 
@@ -7642,7 +7666,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
-  <script src="/static/app.js?v=47.0"></script>
+  <script src="/static/app.js?v=48.0"></script>
 </body>
 
 </html>

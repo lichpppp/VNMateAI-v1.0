@@ -438,6 +438,8 @@ async def save_config(
         from mateai.config.loader import read_raw_config, write_raw_config
         # strict: config.json hỏng thì báo lỗi, KHÔNG ghi đè bằng bản chỉ có payload.
         existing: Dict[str, Any] = read_raw_config(strict=True)
+        # Giao diện đã hỏi người dùng và họ vẫn muốn lưu model không có trên 9Router.
+        force_models = bool(payload.pop("_force_models", False)) if isinstance(payload, dict) else False
 
         # Thay ký hiệu chỗ trống bằng giá trị đang lưu TRƯỚC KHI chuẩn hoá.
         #
@@ -483,7 +485,11 @@ async def save_config(
             if new_model and new_model not in r_models:
                 r_models = [new_model] + [m for m in r_models if m != new_model]
             s_models = payload["llm"].get("specialist_models", existing_llm.get("specialist_models", DEFAULT_SPECIALIST_FALLBACKS))
+            # Giữ MỌI trường khác form gửi (tri_brain_enabled, controller/voice/ops_model…).
+            # Trước đây khối llm bị dựng lại chỉ với 9 trường cố định: cấu hình
+            # Tri-Brain trên giao diện bị bỏ âm thầm, chưa từng được lưu.
             payload["llm"] = {
+                **payload["llm"],
                 "base_url": payload["llm"].get("base_url", existing_llm.get("base_url", "http://localhost:20128/v1")),
                 "model_name": new_model,
                 "api_key": payload["llm"].get("api_key") or existing_llm.get("api_key") or "",
@@ -528,81 +534,186 @@ async def save_config(
         comment_keys = {k: v for k, v in existing.items() if k.startswith("_")}
         merged = _deep_merge({**existing, **comment_keys}, payload)
 
+        # Kiểm tra TRƯỚC khi ghi — chỉ các mục form này gửi lên (cấu hình cũ ở mục
+        # khác có lỗi thì không chặn việc lưu mục này).
+        from mateai.application.administration import config_governance as gov
+        touched_cfg = {k: merged[k] for k in payload if k in merged}
+        errors, unknown = gov.validate(touched_cfg, pool, check_models=("llm" in payload and not force_models))
+        if errors or unknown:
+            raise HTTPException(status_code=400, detail={
+                "message": "Cấu hình chưa hợp lệ — chưa lưu gì.",
+                "errors": errors,
+                "unknown_models": unknown,
+            })
+
         write_raw_config(merged)
         logger.info("config.json updated via Web Portal.")
-
-        # Hot-reload in-memory settings
+        by = user.get("username") if isinstance(user, dict) else "api"
         try:
-            from mateai.config.loader import reload_settings
-            reload_settings()
-            # Broadcast updated assistant name to all connected HUD displays in real-time
-            updated_ai_name = get_assistant_name()
-            await broadcast_hud({
-                "type": "assistant_name_updated",
-                "assistant_name": updated_ai_name,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-            # Broadcast updated audio config (TTS rate/voice/volume) so HUD applies immediately
-            audio_block = merged.get("audio", {})
-            tts_rate_top = merged.get("TTS_RATE", "+15%")
-            tts_voice_top = merged.get("TTS_VOICE", "vi-VN-HoaiMyNeural")
-            await broadcast_hud({
-                "type": "audio_config_updated",
-                "tts_voice": audio_block.get("tts_voice") or tts_voice_top,
-                "tts_rate": tts_rate_top,
-                "speech_rate_num": audio_block.get("speech_rate", 15),
-                "volume": audio_block.get("volume", 80),
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        except Exception as hot_err:  # pylint: disable=broad-except
-            logger.warning("Hot-reload settings failed (non-critical): %s", hot_err)
+            gov.record(existing, merged, str(by), "Lưu", _mask_secrets)
+        except Exception as hist_err:  # noqa: BLE001 — lịch sử hỏng không chặn việc lưu
+            logger.warning("Không ghi được lịch sử cấu hình: %s", hist_err)
 
-        # Phase 59: Nạp lại cấu hình cho connector nào vừa được sửa.
-        # Không có bước này, thông số lưu từ giao diện chỉ nằm trong file
-        # mà connector vẫn giữ giá trị cũ tới lần restart server.
-        touched = [k for k in ("aws", "oci", "paperless", "einvoice") if k in payload]
-        if touched:
-            try:
-                from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
-
-                # reload_config() đọc config.json MỚI qua config_loader (không còn cache).
-                for name in touched:
-                    connector = CONNECTOR_REGISTRY.get(name)
-                    if connector is not None:
-                        connector.reload_config()
-            except Exception as conn_err:  # pylint: disable=broad-except
-                logger.warning("Connector reload sau khi lưu config thất bại: %s", conn_err)
-
-        # If telegram config was included, ensure gateway reflects changes
-        if "telegram" in payload:
-            # Đọc token từ CẤU HÌNH ĐÃ GHÉP, không phải từ payload.
-            #
-            # Phase 80: client không còn gửi `bot_token` (ô để trống nghĩa là
-            # giữ), nên `payload["telegram"].get("bot_token", "")` luôn rỗng →
-            # nhánh `if tg_token` không bao giờ chạy → gateway bị stop() rồi
-            # không khởi động lại, trong khi cờ `enabled` vẫn là true. Cấu
-            # hình và trạng thái thực lệch nhau.
-            tg_block = merged.get("telegram", {})
-            tg_token = tg_block.get("bot_token", "") if isinstance(tg_block, dict) else ""
-            tg_enabled = bool(tg_block.get("enabled")) if isinstance(tg_block, dict) else False
-            try:
-                from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-                if not tg_enabled:
-                    telegram_gateway.stop()
-                elif tg_token and not getattr(telegram_gateway, "is_running", False):
-                    # Chỉ khởi động lại khi CẦN. Gateway đang chạy và cấu hình
-                    # không đổi thì không đụng tới — stop() rồi start() lúc
-                    # người dùng chỉ lưu một trường khác là mất kết nối thật.
-                    import time; time.sleep(0.5)
-                    telegram_gateway.start()
-            except Exception as gw_err:
-                logger.warning("Telegram gateway restart in save_config: %s", gw_err)
-
+        await _apply_written_config(merged, payload)
         return ConfigSaveResponse(success=True, message="Cấu hình hệ thống và điểm nối 9router đã được lưu thành công.")
 
     except OSError as exc:
         logger.error("Failed to write config.json: %s", exc)
         raise HTTPException(status_code=500, detail=f"Không thể ghi config.json: {exc}")
+
+
+async def _apply_written_config(merged: Dict[str, Any], payload: Dict[str, Any]) -> None:
+    """Sau khi ghi config.json: nạp lại runtime, báo HUD, nạp lại connector / Telegram.
+    Dùng chung cho Lưu và Khôi phục phiên bản."""
+    # Hot-reload in-memory settings
+    try:
+        from mateai.config.loader import reload_settings
+        reload_settings()
+        # Broadcast updated assistant name to all connected HUD displays in real-time
+        updated_ai_name = get_assistant_name()
+        await broadcast_hud({
+            "type": "assistant_name_updated",
+            "assistant_name": updated_ai_name,
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+        # Broadcast updated audio config (TTS rate/voice/volume) so HUD applies immediately
+        audio_block = merged.get("audio", {})
+        tts_rate_top = merged.get("TTS_RATE", "+15%")
+        tts_voice_top = merged.get("TTS_VOICE", "vi-VN-HoaiMyNeural")
+        await broadcast_hud({
+            "type": "audio_config_updated",
+            "tts_voice": audio_block.get("tts_voice") or tts_voice_top,
+            "tts_rate": tts_rate_top,
+            "speech_rate_num": audio_block.get("speech_rate", 15),
+            "volume": audio_block.get("volume", 80),
+            "timestamp": datetime.utcnow().isoformat(),
+        })
+    except Exception as hot_err:  # pylint: disable=broad-except
+        logger.warning("Hot-reload settings failed (non-critical): %s", hot_err)
+
+    # Phase 59: Nạp lại cấu hình cho connector nào vừa được sửa.
+    # Không có bước này, thông số lưu từ giao diện chỉ nằm trong file
+    # mà connector vẫn giữ giá trị cũ tới lần restart server.
+    touched = [k for k in ("aws", "oci", "paperless", "einvoice") if k in payload]
+    if touched:
+        try:
+            from mateai.infrastructure.connectors import CONNECTOR_REGISTRY
+
+            # reload_config() đọc config.json MỚI qua config_loader (không còn cache).
+            for name in touched:
+                connector = CONNECTOR_REGISTRY.get(name)
+                if connector is not None:
+                    connector.reload_config()
+        except Exception as conn_err:  # pylint: disable=broad-except
+            logger.warning("Connector reload sau khi lưu config thất bại: %s", conn_err)
+
+    # If telegram config was included, ensure gateway reflects changes
+    if "telegram" in payload:
+        # Đọc token từ CẤU HÌNH ĐÃ GHÉP, không phải từ payload.
+        #
+        # Phase 80: client không còn gửi `bot_token` (ô để trống nghĩa là
+        # giữ), nên `payload["telegram"].get("bot_token", "")` luôn rỗng →
+        # nhánh `if tg_token` không bao giờ chạy → gateway bị stop() rồi
+        # không khởi động lại, trong khi cờ `enabled` vẫn là true. Cấu
+        # hình và trạng thái thực lệch nhau.
+        tg_block = merged.get("telegram", {})
+        tg_token = tg_block.get("bot_token", "") if isinstance(tg_block, dict) else ""
+        tg_enabled = bool(tg_block.get("enabled")) if isinstance(tg_block, dict) else False
+        try:
+            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
+            if not tg_enabled:
+                telegram_gateway.stop()
+            elif tg_token and not getattr(telegram_gateway, "is_running", False):
+                # Chỉ khởi động lại khi CẦN. Gateway đang chạy và cấu hình
+                # không đổi thì không đụng tới — stop() rồi start() lúc
+                # người dùng chỉ lưu một trường khác là mất kết nối thật.
+                import time; time.sleep(0.5)
+                telegram_gateway.start()
+        except Exception as gw_err:
+            logger.warning("Telegram gateway restart in save_config: %s", gw_err)
+
+
+# ── Lịch sử cấu hình + khôi phục ────────────────────────────────────────────
+
+@router.get("/api/v1/config/history", summary="Lịch sử các lần lưu cấu hình", tags=["Config"])
+async def config_history(limit: int = Query(30, ge=1, le=200),
+                         user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.administration import config_governance as gov
+    return {"status": "success", "history": await run_blocking(lambda: gov.history(limit))}
+
+
+@router.get("/api/v1/config/history/{entry_id}/diff", summary="So sánh một phiên bản với cấu hình hiện tại",
+            tags=["Config"])
+async def config_history_diff(entry_id: int, user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.administration import config_governance as gov
+    from mateai.config.loader import read_raw_config
+    snap = await run_blocking(lambda: gov.snapshot(entry_id))
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"Không có phiên bản #{entry_id}")
+    current = _mask_secrets(read_raw_config(strict=True))
+    # "Khôi phục bản này" sẽ đổi: hiện tại -> phiên bản
+    return {"status": "success", "id": entry_id, "changes": gov.diff(current, snap, _SECRET_MASK)}
+
+
+@router.post("/api/v1/config/history/{entry_id}/restore", summary="Khôi phục cấu hình về một phiên bản",
+             tags=["Config"])
+async def config_history_restore(entry_id: int, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    """Khoá bí mật lấy từ cấu hình HIỆN TẠI (lịch sử không lưu khoá thật)."""
+    from mateai.application.administration import config_governance as gov
+    from mateai.config.loader import read_raw_config, write_raw_config
+    snap = await run_blocking(lambda: gov.snapshot(entry_id))
+    if snap is None:
+        raise HTTPException(status_code=404, detail=f"Không có phiên bản #{entry_id}")
+    current = read_raw_config(strict=True)
+    restored = _restore_masked_secrets(snap, current)
+    restored.update({k: v for k, v in current.items() if str(k).startswith("_")})
+    errors, _unknown = gov.validate(restored, None, check_models=False)
+    if errors:
+        raise HTTPException(status_code=400, detail={"message": "Phiên bản này không hợp lệ với hệ thống hiện tại.",
+                                                     "errors": errors})
+    write_raw_config(restored)
+    gov.record(current, restored, str(user.get("username")), f"Khôi phục phiên bản #{entry_id}", _mask_secrets)
+    await _apply_written_config(restored, {k: restored[k] for k in restored})
+    logger.info("Cấu hình đã khôi phục về phiên bản #%s bởi %s", entry_id, user.get("username"))
+    return {"status": "success", "message": f"Đã khôi phục cấu hình về phiên bản #{entry_id}."}
+
+
+# ── Thử trước khi lưu ───────────────────────────────────────────────────────
+
+class LLMPreviewRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+    model: Optional[str] = Field(default=None, description="Model muốn thử (bỏ trống: model chính đang chạy)")
+    system_prompt: Optional[str] = Field(default=None, max_length=8000,
+                                         description="Chỉ thị cá tính muốn thử (None: đang lưu, '': không có)")
+    ai_name: Optional[str] = Field(default=None, max_length=40)
+
+
+@router.post("/api/v1/llm/preview", summary="Thử một câu với model / chỉ thị cá tính CHƯA lưu", tags=["LLM Router"])
+async def llm_preview(payload: LLMPreviewRequest, user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    """Một lượt trò chuyện (không tool, không lưu lịch sử) để so sánh trước khi bấm Lưu."""
+    import time
+    from mateai.application.agent.llm_engine import build_system_prompt
+    from mateai.infrastructure.llm.llm_provider import complete_once, make_llm_client
+    from mateai.config.loader import settings
+    cfg = settings.llm
+    direct = getattr(cfg, "routing_mode", "router") == "direct"
+    base = (cfg.direct_url if direct else cfg.base_url) or cfg.base_url
+    key = (cfg.direct_api_key if direct else cfg.api_key) or "sk-dummy"
+    model = (payload.model or (cfg.direct_model if direct else "") or cfg.model_name or "").strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="Chưa có model để thử.")
+    system = build_system_prompt(source_device="portal", conversation=True,
+                                 persona_override=payload.system_prompt, name_override=payload.ai_name)
+    t0 = time.perf_counter()
+    try:
+        reply = await complete_once(make_llm_client(base, key, timeout=45.0), model,
+                                    [{"role": "system", "content": system},
+                                     {"role": "user", "content": payload.message}])
+    except Exception as exc:  # noqa: BLE001
+        return {"success": False, "model": model, "error": str(exc)[:300],
+                "latency_ms": int((time.perf_counter() - t0) * 1000)}
+    return {"success": True, "model": model, "reply": reply,
+            "latency_ms": int((time.perf_counter() - t0) * 1000), "system_chars": len(system)}
 
 
 @router.get(

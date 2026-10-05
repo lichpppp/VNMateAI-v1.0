@@ -454,6 +454,13 @@ async def _on_startup() -> None:
     except Exception as hud_exc:
         logger.warning("Phase 33: Could not start HUD telemetry loop: %s", hud_exc)
 
+    # Khoá bí mật còn dạng chữ thường trong config.json -> mã hoá (một lần).
+    try:
+        from mateai.config.loader import encrypt_existing_secrets
+        encrypt_existing_secrets()
+    except Exception as enc_exc:  # noqa: BLE001
+        logger.error("Không mã hoá được khoá trong config.json: %s", enc_exc)
+
     # Khâu cảnh báo chung: notify() gọi từ thread (email, phân tích…) đẩy về loop này.
     from mateai.application.operations import alert_dispatcher
     alert_dispatcher.bind_loop(asyncio.get_running_loop())

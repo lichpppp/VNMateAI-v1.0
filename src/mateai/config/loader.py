@@ -98,7 +98,8 @@ def _load_raw_config() -> dict:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("config.json must contain a JSON object at the top level.")
-        return raw
+        from mateai.config.secret_box import decrypt_tree
+        return decrypt_tree(raw)
     except json.JSONDecodeError as exc:
         logger.critical("config.json is malformed JSON: %s", exc)
         raise SystemExit(1) from exc
@@ -119,7 +120,9 @@ def read_raw_config(strict: bool = False) -> dict:
         raw = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("config.json must contain a JSON object at the top level.")
-        return raw
+        # Khoá bí mật lưu mã hoá trên đĩa (secret_box) — mọi nơi đọc qua đây thấy bản thật.
+        from mateai.config.secret_box import decrypt_tree
+        return decrypt_tree(raw)
     except FileNotFoundError:
         if strict:
             raise
@@ -159,11 +162,13 @@ def write_raw_config(raw: dict) -> None:
     Ghi config.json NGUYÊN TỬ: ghi file tạm cùng thư mục rồi os.replace. Mất điện
     hay lỗi giữa chừng không để lại file cụt; hai thread không xen kẽ nhau.
     """
+    from mateai.config.secret_box import encrypt_tree
+    on_disk = encrypt_tree(raw)          # khoá bí mật không bao giờ ghi dạng chữ thường
     with _CONFIG_LOCK:
         fd, tmp = tempfile.mkstemp(dir=str(CONFIG_PATH.parent), prefix=".config.", suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
-                json.dump(raw, fh, ensure_ascii=False, indent=2)
+                json.dump(on_disk, fh, ensure_ascii=False, indent=2)
             os.replace(tmp, CONFIG_PATH)
         except BaseException:
             try:
@@ -171,6 +176,30 @@ def write_raw_config(raw: dict) -> None:
             except OSError:
                 pass
             raise
+
+
+def encrypt_existing_secrets() -> bool:
+    """Chuyển khoá còn dạng chữ thường trong config.json sang mã hoá (gọi lúc khởi
+    động). Trả True nếu đã ghi lại. Kiểm đọc-lại trước khi coi là xong."""
+    from mateai.config import secret_box
+    if not secret_box.enabled():
+        return False
+    with _CONFIG_LOCK:
+        try:
+            on_disk = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not secret_box.has_plaintext_secrets(on_disk):
+            return False
+        plain = secret_box.decrypt_tree(on_disk)
+        enc = secret_box.encrypt_tree(plain)
+        if secret_box.decrypt_tree(enc) != plain:      # khoá hỏng -> KHÔNG ghi
+            logger.error("Kiểm tra mã hoá thất bại — giữ nguyên config.json.")
+            return False
+        write_raw_config(plain)
+    logger.info("Đã mã hoá các khoá bí mật trong config.json (khoá giải mã: certs/config_secret.key "
+                "hoặc VNMATEAI_CONFIG_KEY).")
+    return True
 
 
 def update_config_section(name: str, updates: dict) -> dict:

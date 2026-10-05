@@ -305,6 +305,19 @@ async def api_voice_session_close(
 
 
 @router.get(
+    "/api/v1/voice/model-stats",
+    summary="Hiệu năng theo não + model (p50/p95, lỗi, chuyển dự phòng) — lượt gần nhất",
+    tags=["Voice"],
+)
+async def api_voice_model_stats(
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """Chỉ số tổng hợp (không có nội dung câu nói / id phiên) — quản lý xem được."""
+    from mateai.application.voice.voice_turn import model_stats
+    return {"status": "success", **model_stats()}
+
+
+@router.get(
     "/api/v1/voice/metrics",
     summary="Độ trễ các lượt thoại gần nhất (p50/p95/p99 theo kiểu lượt) — mọi kênh",
     tags=["Voice"],

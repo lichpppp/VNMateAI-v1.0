@@ -518,6 +518,16 @@ async def probe_model(client: Any, model: str, *, max_tokens: int = 20) -> str:
     return str(res.choices[0].message.content or "").strip()
 
 
+async def complete_once(client: Any, model: str, messages: List[Dict[str, Any]], *,
+                        max_tokens: int = 400, temperature: float = 0.6) -> str:
+    """Một lượt trả lời (không tool, không stream, không thử model dự phòng) — cho
+    màn hình "Thử trước khi lưu": phải thấy đúng model đang thử trả lời gì."""
+    res = await client.chat.completions.create(
+        model=model, messages=messages, max_tokens=max_tokens, temperature=temperature, stream=False,
+    )
+    return str(res.choices[0].message.content or "").strip()
+
+
 def complete_text_blocking(
     base_url: str,
     api_key: str,

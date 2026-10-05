@@ -190,7 +190,8 @@ def _read_persona() -> Dict[str, Any]:
 
 
 def build_system_prompt(source_device: Optional[str] = None, conversation: bool = False,
-                        spoken: bool = False) -> str:
+                        spoken: bool = False, persona_override: Optional[str] = None,
+                        name_override: Optional[str] = None) -> str:
     """
     Build the full system prompt for the LLM agent, including core identity,
     device context, custom persona system prompt, and injected report templates (Phase 28).
@@ -202,7 +203,9 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
 
     try:
         from mateai.config.loader import get_assistant_name
-        ai_name = get_assistant_name()
+        # name_override / persona_override: màn hình "Thử trước khi lưu" — dựng prompt
+        # với giá trị ĐANG CHỈNH mà không ghi config.
+        ai_name = (name_override or "").strip() or get_assistant_name()
         system_content = f"[TÊN TRỢ LÝ AI: {ai_name}]\nTên của bạn là Trợ lý AI {ai_name}. Khi tự giới thiệu hoặc xưng hô, hãy xưng là {ai_name}.\n\n" + system_content
 
     except Exception:
@@ -211,7 +214,7 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
     # Inject custom persona system prompt if provided
     try:
         from mateai.config.loader import settings
-        persona_prompt = (
+        persona_prompt = persona_override if persona_override is not None else (
             getattr(settings, "SYSTEM_PROMPT", "")
             or _read_persona().get("system_prompt", "")
         )
@@ -1394,6 +1397,7 @@ class LLMEngine:
         turn["history_chars"] = turn["prompt_chars"] - len(system_content) - len(sanitized_query)
         turn["tools_chars"] = len(json.dumps(tools, ensure_ascii=False)) if tools else 0
         turn["brain"] = role
+        turn["model_requested"] = self.get_brain_model(role)
         turn["tools_offered"] = len(tools or [])
         t_start = time.monotonic()
         first_token_logged = False
@@ -1447,6 +1451,8 @@ class LLMEngine:
                 # Phase 87: nuốt phần suy nghĩ vào bộ đệm riêng. Cố tình KHÔNG
                 # gộp vào chữ trả lời: đó là câu sẽ đọc to và hiện trên HUD.
                 reasoning_buffer += chunk.reasoning or ""
+                if chunk.model and "model" not in turn:
+                    turn["model"] = chunk.model          # model THỰC TẾ (sau khi chuyển dự phòng)
                 if (chunk.content or chunk.tool_calls) and "llm_first_token_at" not in turn:
                     turn["llm_first_token_at"] = time.perf_counter()
 

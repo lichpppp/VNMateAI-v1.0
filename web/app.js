@@ -438,7 +438,14 @@ async function apiSaveConfig(configData) {
       body: JSON.stringify(configData),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const d = data.detail;
+      if (d && typeof d === 'object') {
+        const lines = [...(d.errors || []), ...((d.unknown_models || []).map((m) => `Model không có trên 9Router — ${m}`))];
+        throw new Error(`${d.message || 'Cấu hình chưa hợp lệ'}\n• ${lines.join('\n• ')}`);
+      }
+      throw new Error(d || `HTTP ${res.status}`);
+    }
     // Phase 70: Bust cache ngay sau khi lưu — lần đọc tiếp theo sẽ lấy
     // data mới từ server thay vì trả về config cũ trong 30s TTL.
     _cachedConfig = null;
@@ -853,7 +860,7 @@ function switchTab(tabId) {
   // (`switchCcSubTab('devices')`). Gọi ở đây nghĩa là mở tab Tích Hợp phải trả
   // thêm một request cho danh sách mà người dùng chưa nhìn tới.
   if (tabId === 'system-integration') loadSystemIntegration();
-  if (tabId === 'ai-manager') loadAIManagerConfig();
+  if (tabId === 'ai-manager') { loadAIManagerConfig(); initAISubTabs(); }
   if (tabId === 'skills') loadSkills();
   // Phase 79: `loadConfig()` trước đây KHÔNG được gọi ở đâu cả — không trong
   // switchTab, không trong index.html. Nghĩa là tab Cấu Hình luôn mở ra với
@@ -4660,6 +4667,7 @@ async function saveAIConfig() {
 
   const getVal = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
 
+  let forceModels = false;
   // Model không có trong danh sách 9Router đang phục vụ -> mọi lời gọi sẽ lỗi rồi
   // chuyển dự phòng (chậm thêm vài giây mỗi lượt). Hỏi lại trước khi lưu.
   if ((getVal('ai-routing-mode') || 'router') === 'router' && Array.isArray(routerModelList) && routerModelList.length) {
@@ -4670,6 +4678,7 @@ async function saveAIConfig() {
       ['Não Giao tiếp', getVal('ai-tribrain-voice-model')],
       ['Não Vận hành', getVal('ai-tribrain-ops-model')],
     ].filter(([, m]) => m && !known.has(m));
+    if (missing.length) forceModels = true;
     if (missing.length && !confirm(
       'Các model sau KHÔNG có trong 9Router đang phục vụ:\n'
       + missing.map(([k, m]) => `• ${k}: ${m}`).join('\n')
@@ -4718,6 +4727,7 @@ async function saveAIConfig() {
 
   const updated = {
     ...currentConfig,
+    ...(forceModels ? { _force_models: true } : {}),
     llm: {
       ...(currentConfig?.llm || {}),
       base_url: baseUrl,
@@ -4851,6 +4861,171 @@ async function saveAIConfig() {
     showToast(`❌ Lỗi lưu cấu hình: ${res?.message || 'Không xác định'}`, 'error');
   }
 }
+
+// ── AI Manager: tab con ────────────────────────────────────────────────────
+// Tab dài ~1.100 dòng: chia theo việc. Cột chứa thẻ đang xem giãn hết chiều rộng
+// (không để nửa màn hình trống). "Xem tất cả" = bố cục 2 cột như cũ.
+function showAISubTab(name) {
+  const root = document.getElementById('tab-ai-manager');
+  if (!root) return;
+  const all = name === 'all';
+  root.querySelectorAll('[data-ai-sub]').forEach((el) => {
+    el.classList.toggle('hidden', !all && el.dataset.aiSub !== name);
+  });
+  for (const [id, span] of [['ai-col-left', 'lg:col-span-7'], ['ai-col-right', 'lg:col-span-5']]) {
+    const col = document.getElementById(id);
+    if (!col) continue;
+    const visible = [...col.querySelectorAll('[data-ai-sub]')].some((el) => !el.classList.contains('hidden'));
+    col.classList.toggle('hidden', !visible);
+    col.classList.toggle(span, all);
+    col.classList.toggle('lg:col-span-12', !all);
+  }
+  root.querySelectorAll('.ai-subtab').forEach((b) => {
+    const on = b.dataset.aiSubtab === name;
+    b.classList.toggle('bg-primary-600', on);
+    b.classList.toggle('text-white', on);
+    b.classList.toggle('text-slate-600', !on);
+    b.classList.toggle('dark:text-slate-300', !on);
+  });
+  try { localStorage.setItem('vnmate_ai_subtab', name); } catch (_) { /* chế độ riêng tư */ }
+  if (name === 'ops' || all) { loadAIModelStats(); loadConfigHistory(); }
+}
+
+function initAISubTabs() {
+  let saved = 'brain';
+  try { saved = localStorage.getItem('vnmate_ai_subtab') || 'brain'; } catch (_) { /* bỏ qua */ }
+  showAISubTab(saved);
+}
+
+// ── Thử trước khi lưu ──────────────────────────────────────────────────────
+async function runAIPreview() {
+  const btn = document.getElementById('btn-ai-preview');
+  const message = (document.getElementById('ai-preview-message')?.value || '').trim();
+  if (!message) return;
+  const routerMode = (document.getElementById('ai-routing-mode')?.value || 'router') === 'router';
+  const draftModel = routerMode
+    ? (document.getElementById('ai-tribrain-voice-model')?.value || document.getElementById('ai-llm-model')?.value || '').trim()
+    : (document.getElementById('ai-direct-model')?.value || '').trim();
+  const draft = {
+    message,
+    model: draftModel || null,
+    system_prompt: document.getElementById('ai-persona-prompt')?.value ?? '',
+    ai_name: (document.getElementById('ai-persona-name')?.value || '').trim() || null,
+  };
+  const call = (body) => apiFetch('/api/v1/llm/preview', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }).then((r) => r.json()).catch((e) => ({ success: false, error: e.message }));
+  const show = (id, metaId, d) => {
+    const box = document.getElementById(id);
+    const meta = document.getElementById(metaId);
+    if (meta) meta.textContent = d.model ? `${d.model} · ${d.latency_ms ?? '?'}ms` : '';
+    if (box) {
+      box.textContent = d.success ? d.reply : `Lỗi: ${d.error || d.detail || 'không rõ'}`;
+      box.classList.toggle('text-rose-500', !d.success);
+    }
+  };
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang hỏi…'; }
+  for (const id of ['ai-preview-current', 'ai-preview-draft']) {
+    const el = document.getElementById(id); if (el) el.textContent = '…';
+  }
+  const [cur, drf] = await Promise.all([call({ message }), call(draft)]);
+  show('ai-preview-current', 'ai-preview-current-meta', cur);
+  show('ai-preview-draft', 'ai-preview-draft-meta', drf);
+  if (btn) { btn.disabled = false; btn.textContent = 'So sánh'; }
+}
+
+// ── Hiệu năng theo não & model ─────────────────────────────────────────────
+async function loadAIModelStats() {
+  const box = document.getElementById('ai-model-stats');
+  if (!box) return;
+  try {
+    const d = await (await apiFetch('/api/v1/voice/model-stats')).json();
+    const rows = d.rows || [];
+    if (!rows.length) {
+      box.innerHTML = `<span class="italic">Chưa có lượt nào gọi LLM từ lúc máy chủ khởi động (${d.turns_total || 0} lượt tổng).</span>`;
+      return;
+    }
+    const brainName = { voice: 'Giao tiếp', ops: 'Vận hành', controller: 'Điều phối' };
+    const ms = (o) => (o && o.p50 != null ? `${Math.round(o.p50)} / ${Math.round(o.p95)}` : '—');
+    box.className = 'text-xs overflow-x-auto';
+    box.innerHTML =
+      `<table class="w-full text-left"><thead class="text-[10px] text-slate-400"><tr>` +
+      `<th>Não</th><th>Model thực tế</th><th>Lượt</th><th>Lỗi</th><th>Dự phòng</th><th>Chữ đầu p50/p95 (ms)</th><th>Tiếng đầu p50/p95</th><th>Cả lượt p50/p95</th></tr></thead><tbody>` +
+      rows.map((r) => `<tr class="border-t border-slate-100 dark:border-white/5">` +
+        `<td class="py-1">${_esc(brainName[r.brain] || r.brain)}</td><td class="font-mono text-[10px]">${_esc(r.model)}</td>` +
+        `<td>${r.turns}</td><td class="${r.errors ? 'text-rose-500 font-bold' : ''}">${r.errors}</td>` +
+        `<td class="${r.fallbacks ? 'text-amber-500 font-bold' : ''}">${r.fallbacks}</td>` +
+        `<td class="font-mono">${ms(r.llm_first_token_ms)}</td><td class="font-mono">${ms(r.ttfa_answer_ms)}</td><td class="font-mono">${ms(r.ttl_ms)}</td></tr>`).join('') +
+      `</tbody></table>`;
+  } catch (err) {
+    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(err.message)}</span>`;
+  }
+}
+
+// ── Lịch sử cấu hình ───────────────────────────────────────────────────────
+function _fmtCfgVal(v) {
+  if (v === null || v === undefined) return '∅';
+  const s = typeof v === 'string' ? v : JSON.stringify(v);
+  return s.length > 60 ? s.slice(0, 57) + '…' : s;
+}
+
+function _renderCfgChanges(changes) {
+  if (!changes || !changes.length) return '<div class="italic text-slate-400">Không có khác biệt.</div>';
+  return changes.map((c) => `<div class="font-mono text-[10px] leading-relaxed"><span class="text-slate-500">${_esc(c.path)}</span>: ` +
+    (c.secret ? '<span class="text-amber-500">(khoá bí mật — đã đổi)</span>'
+      : `<span class="text-rose-500 line-through">${_esc(_fmtCfgVal(c.old))}</span> → <span class="text-emerald-600 dark:text-emerald-400">${_esc(_fmtCfgVal(c.new))}</span>`) +
+    `</div>`).join('');
+}
+
+async function loadConfigHistory() {
+  const box = document.getElementById('ai-config-history');
+  if (!box) return;
+  try {
+    const d = await (await apiFetch('/api/v1/config/history?limit=30')).json();
+    const items = d.history || [];
+    if (!items.length) { box.innerHTML = '<span class="italic">Chưa có lần lưu nào được ghi lại.</span>'; return; }
+    box.className = 'text-xs space-y-2 max-h-[28rem] overflow-y-auto pr-1';
+    box.innerHTML = items.map((h) =>
+      `<div class="p-2.5 rounded-xl border border-slate-200 dark:border-white/10">` +
+      `<div class="flex items-center gap-2"><b>#${h.id}</b><span class="text-slate-400 text-[10px]">${_esc(String(h.saved_at).replace('T', ' ').slice(0, 19))} UTC · ${_esc(h.saved_by || '?')}</span>` +
+      `<span class="ml-auto flex gap-1">` +
+      `<button class="text-[10px] px-2 py-0.5 rounded border border-slate-200 dark:border-white/10" onclick="showConfigDiff(${h.id})">So với hiện tại</button>` +
+      `<button class="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-300 font-bold" onclick="restoreConfigVersion(${h.id})">Khôi phục</button></span></div>` +
+      `<div class="text-[11px] text-slate-600 dark:text-slate-300 mt-0.5">${_esc(h.note || '')} · ${h.change_count} thay đổi</div>` +
+      `<div class="mt-1">${_renderCfgChanges(h.changes)}</div>` +
+      `<div id="cfg-diff-${h.id}" class="mt-1"></div></div>`).join('');
+  } catch (err) {
+    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(err.message)}</span>`;
+  }
+}
+
+async function showConfigDiff(id) {
+  const el = document.getElementById(`cfg-diff-${id}`);
+  if (!el) return;
+  try {
+    const d = await (await apiFetch(`/api/v1/config/history/${id}/diff`)).json();
+    el.innerHTML = `<div class="mt-1 p-2 rounded-lg bg-slate-50 dark:bg-white/[0.03]"><div class="text-[10px] font-bold text-slate-500 mb-1">Khôi phục #${id} sẽ đổi (hiện tại → phiên bản):</div>${_renderCfgChanges(d.changes)}</div>`;
+  } catch (err) {
+    el.innerHTML = `<span class="text-rose-500">${_esc(err.message)}</span>`;
+  }
+}
+
+async function restoreConfigVersion(id) {
+  if (!confirm(`Khôi phục cấu hình về phiên bản #${id}? Các khoá bí mật hiện tại được giữ nguyên.`)) return;
+  try {
+    const res = await apiFetch(`/api/v1/config/history/${id}/restore`, { method: 'POST' });
+    const d = await res.json();
+    if (!res.ok) throw new Error(typeof d.detail === 'object' ? (d.detail.errors || []).join('; ') : (d.detail || `HTTP ${res.status}`));
+    showToast(`✔ ${d.message}`, 'success');
+    _cachedConfig = null; _cachedConfigAt = 0;
+    loadAIManagerConfig();
+    loadConfigHistory();
+  } catch (err) {
+    showToast(`✖ Khôi phục thất bại: ${err.message}`, 'error');
+  }
+}
+
+Object.assign(window, { showAISubTab, runAIPreview, loadAIModelStats, loadConfigHistory, showConfigDiff, restoreConfigVersion });
 
 // ── AI Manager Helpers ──────────────────────────────────────────────────────
 

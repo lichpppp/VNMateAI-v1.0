@@ -130,6 +130,21 @@ class DatabaseManager:
                         """
                     )
 
+                    # 6. Lịch sử cấu hình: mỗi lần lưu một phiên bản (bản chụp ĐÃ CHE khoá bí
+                    #    mật) + danh sách thay đổi; khôi phục được về bất kỳ phiên bản nào.
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS config_history (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            saved_at TEXT NOT NULL,
+                            saved_by TEXT,
+                            note TEXT,
+                            changes_json TEXT NOT NULL,
+                            snapshot_json TEXT NOT NULL
+                        );
+                        """
+                    )
+
                     # 4. Phê duyệt đã nhớ: thiết bị đã được duyệt tác vụ X một lần thì
                     #    lần sau không hỏi lại (chủ hệ thống chọn, thu hồi ở Web Portal).
                     cursor.execute(
@@ -512,6 +527,36 @@ class DatabaseManager:
                     cur = conn.execute("DELETE FROM approval_grants WHERE principal = ?;", (principal,))
                 conn.commit()
                 return cur.rowcount
+
+    # ── Lịch sử cấu hình ─────────────────────────────────────────────────────
+
+    def add_config_history(self, saved_by: str, note: str, changes_json: str, snapshot_json: str) -> int:
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "INSERT INTO config_history (saved_at, saved_by, note, changes_json, snapshot_json) "
+                    "VALUES (?, ?, ?, ?, ?);",
+                    (datetime.utcnow().isoformat(), saved_by, note, changes_json, snapshot_json),
+                )
+                conn.commit()
+                return int(cur.lastrowid)
+
+    def list_config_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, saved_at, saved_by, note, changes_json FROM config_history ORDER BY id DESC LIMIT ?;",
+                (int(limit),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_config_history(self, entry_id: int) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM config_history WHERE id = ?;", (int(entry_id),)).fetchone()
+            return dict(row) if row else None
+
+    def count_config_history(self) -> int:
+        with self._get_connection() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM config_history;").fetchone()[0])
 
     # ── Máy trạm: mã đăng ký dùng một lần + khoá riêng từng máy ─────────────
 

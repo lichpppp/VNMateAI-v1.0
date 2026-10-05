@@ -200,6 +200,8 @@ class VoiceTurnTrace:
             "history_chars": turn.get("history_chars"),
             "tools_chars": turn.get("tools_chars"),
             "brain": turn.get("brain"),
+            "model": turn.get("model"),
+            "model_requested": turn.get("model_requested"),
             "agent_prefetched": turn.get("agent_prefetched"),
             "status_steps": list(self.statuses),
         }
@@ -248,6 +250,39 @@ def trace_stats(channel: Optional[str] = None) -> Dict[str, Any]:
                 metrics[m] = {"n": len(vals), "p50": pct(vals, .5), "p95": pct(vals, .95), "p99": pct(vals, .99)}
         out["by_outcome"][outcome] = {"turns": len(group), "metrics": metrics}
     return out
+
+
+def model_stats() -> Dict[str, Any]:
+    """Hiệu năng theo NÃO + MODEL thực tế trên các lượt gần nhất (bộ đệm 500 lượt):
+    số lượt, lỗi, số lần model yêu cầu không trả lời phải chuyển dự phòng, p50/p95
+    chữ đầu của LLM / tiếng trả lời đầu / cả lượt. Lượt lệnh nhanh (không gọi LLM) bỏ qua."""
+    def pct(values: List[float], p: float) -> Optional[float]:
+        if not values:
+            return None
+        s = sorted(values)
+        k = (len(s) - 1) * p
+        lo, hi = int(k), min(int(k) + 1, len(s) - 1)
+        return round(s[lo] + (s[hi] - s[lo]) * (k - lo), 1)
+
+    groups: Dict[tuple, List[Dict[str, Any]]] = {}
+    for t in _RECENT_TRACES:
+        if not t.get("brain"):
+            continue
+        groups.setdefault((t["brain"], t.get("model") or t.get("model_requested") or "?"), []).append(t)
+    rows = []
+    for (brain, model), ts in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        def vals(k: str) -> List[float]:
+            return [float(t[k]) for t in ts if isinstance(t.get(k), (int, float))]
+        rows.append({
+            "brain": brain, "model": model, "turns": len(ts),
+            "errors": sum(1 for t in ts if t.get("outcome") == "error"),
+            "fallbacks": sum(1 for t in ts if t.get("model") and t.get("model_requested")
+                             and t["model"] != t["model_requested"]),
+            "llm_first_token_ms": {"p50": pct(vals("llm_first_token_ms"), .5), "p95": pct(vals("llm_first_token_ms"), .95)},
+            "ttfa_answer_ms": {"p50": pct(vals("ttfa_answer_ms"), .5), "p95": pct(vals("ttfa_answer_ms"), .95)},
+            "ttl_ms": {"p50": pct(vals("ttl_ms"), .5), "p95": pct(vals("ttl_ms"), .95)},
+        })
+    return {"turns_total": len(_RECENT_TRACES), "rows": rows}
 
 
 class _TracingSink(VoiceSink):

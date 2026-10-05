@@ -23,29 +23,12 @@ _SECRET_MASK = "••••••••"
 # mất cấu hình bảo mật mà không ai hiểu vì sao.
 #
 # `api_keys` (số nhiều) là danh sách khoá của lớp định tuyến cũ.
-_SECRET_FIELD_NAMES = frozenset({
-    "api_key",
-    "api_keys",
-    "apikey",
-    "api_token",
-    "access_key_id",
-    "secret",
-    "secret_access_key",
-    "client_secret",
-    "private_key",
-    "token",
-    "bot_token",
-    "password",
-    # Khoá dịch vụ nằm ở khối phẳng, tên viết HOA kiểu cũ. Có tiền tố nên
-    # không khớp "api_key" — quên nó thì khoá vừa KHÔNG bị che, vừa không
-    # được khôi phục khi người dùng gửi lại form.
-    "groq_api_key",
-    "direct_api_key",
-    # Kênh cảnh báo: URL webhook Teams / Slack chứa chữ ký truy cập — lộ URL là
-    # ai cũng đăng được vào kênh.
-    "webhook_url",
-    "hmac_secret",
-})
+# Danh sách thật: mateai.config.secret_box.SECRET_FIELD_NAMES (nhập bên dưới).
+
+
+# Một nguồn với lớp mã hoá config.json (trước đây hai danh sách riêng — danh sách
+# này thiếu `elevenlabs_api_key`, nên GET /api/v1/config trả khoá ElevenLabs nguyên văn).
+from mateai.config.secret_box import SECRET_FIELD_NAMES as _SECRET_FIELD_NAMES  # noqa: E402
 
 
 def _is_secret_field(name: str) -> bool:
