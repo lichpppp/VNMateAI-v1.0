@@ -70,6 +70,41 @@ def _is_secret_file(p: Path) -> bool:
         return False
 
 
+#: Thư mục con của dự án mà tool được GHI / XOÁ (kết quả, báo cáo, dữ liệu tạm).
+#: Mọi chỗ khác trong dự án — mã nguồn, cấu hình, `identity_core.md` (được nạp vào
+#: chỉ thị hệ thống của AI), chứng chỉ, CSDL — chỉ đọc với tool (prompt §39, §94).
+_WRITABLE_PROJECT_DIRS = ("reports", "storage", "exports")
+
+
+def _write_denied_reason(p: Path) -> Optional[str]:
+    """Lý do cấm ghi / xoá `p` bằng tool, hoặc None nếu được phép."""
+    try:
+        target = p.resolve()
+    except OSError:
+        return "Không xác định được đường dẫn."
+    if _is_secret_file(target):
+        return "Tệp chứa bí mật — tool không được ghi / xoá."
+    root = _PROJECT_ROOT.resolve()
+    if target == root or target.is_relative_to(root):
+        rel = target.relative_to(root).parts
+        if not rel or rel[0] not in _WRITABLE_PROJECT_DIRS:
+            return (f"Trong thư mục dự án, tool chỉ được ghi / xoá trong {', '.join(_WRITABLE_PROJECT_DIRS)}/ "
+                    "(mã nguồn, cấu hình và chỉ thị hệ thống được bảo vệ).")
+        return None
+    try:
+        from mateai.config.loader import settings
+        protected = [Path(d) for d in (settings.security.protected_directories or [])]
+    except Exception:  # noqa: BLE001
+        protected = []
+    for d in protected:
+        try:
+            if target.is_relative_to(d.resolve()):
+                return f"Thư mục hệ thống được bảo vệ: '{d}'."
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def _format_size(size_bytes: int) -> str:
     """Convert bytes to human-readable format."""
     if size_bytes < 1024:
@@ -361,6 +396,9 @@ def write_file(file_path: str, content: str, mode: str = "w", **kwargs: Any) -> 
             }
 
         target_path = _resolve_path(file_path)
+        denied = _write_denied_reason(target_path)
+        if denied:
+            return {"status": "error", "error": f"Từ chối ghi '{target_path}': {denied}", "file_path": str(target_path)}
 
         # Tự động tạo thư mục cha nếu chưa có
         parent_dir = target_path.parent
@@ -460,6 +498,10 @@ def delete_item(path: str, is_folder: bool = False, **kwargs: Any) -> Dict[str, 
                 "error": f"Đối tượng cần xóa không tồn tại: '{path}' (đường dẫn tuyệt đối: {target_path})",
                 "path": str(target_path),
             }
+
+        denied = _write_denied_reason(target_path)
+        if denied:
+            return {"status": "error", "error": f"Từ chối xoá '{target_path}': {denied}", "path": str(target_path)}
 
         # Bảo vệ các thư mục cốt lõi quan trọng (Safety Guard fallback)
         protected_roots = [Path("/").resolve(), Path("C:\\").resolve(), _PROJECT_ROOT.resolve()]

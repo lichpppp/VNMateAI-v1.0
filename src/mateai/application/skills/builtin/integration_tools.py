@@ -90,10 +90,14 @@ async def _execute_connector_action(
         params=params,
         executor=_async_executor,
         requested_by=requested_by,
+        agent_id="VN-MATEAI-CONNECTOR",
+        check_rbac=False,
         description=f"Gọi {connector_name.upper()} {action} với tham số: {json.dumps(params, ensure_ascii=False)[:200]}",
     )
 
     # If awaiting approval, return standardized awaiting response
+    if result.get("status") == "denied":
+        return {"success": False, "error": result.get("message"), "policy_denied": True}
     if result.get("status") == "awaiting_approval":
         return {
             "success": False,

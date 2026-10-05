@@ -214,20 +214,8 @@ async def execute_skill_endpoint(
     from mateai.application.security.security_guard import security_guard
     from mateai.application.security.zero_trust import execute_with_hitl
 
-    source_ip = request.client.host if request.client else None
-    allowed, reason = security_guard.check_permission(
-        tool_name=payload.name,
-        employee_id=user.get("username"),
-        payload=payload.arguments or {},
-        source_ip=source_ip,
-    )
-    if not allowed:
-        logger.warning(
-            "[RBAC] Chặn gọi skill '%s' từ '%s' (IP %s): %s",
-            payload.name, user.get("username"), source_ip, reason,
-        )
-        raise HTTPException(status_code=403, detail=reason)
-
+    # RBAC + rủi ro + L5 + từ khoá cấm: một hàm `policy_engine.authorize()` bên
+    # trong `execute_with_hitl` (trước đây router tự gọi RBAC rồi mới qua cổng duyệt).
     t0 = time.perf_counter()
     args = payload.arguments or {}
 
@@ -246,6 +234,9 @@ async def execute_skill_endpoint(
         description=f"Skill '{payload.name}' được gọi qua API bởi {user.get('username', '?')}",
     )
 
+    if gate.get("status") == "denied":
+        logger.warning("[Policy] Chặn gọi skill '%s' từ '%s': %s", payload.name, user.get("username"), gate.get("message"))
+        raise HTTPException(status_code=403, detail=gate.get("message"))
     if gate.get("status") == "awaiting_approval":
         security_guard.audit_tool_execution(
             tool_name=payload.name,

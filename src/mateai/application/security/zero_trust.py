@@ -54,74 +54,8 @@ HITL_APPROVAL_THRESHOLD = 3
 #: Sửa thành `True` để bật lại (đường dẫn escape HTML còn nguyên).
 HITL_NOTIFY_RESULT = False
 
-# Risk level mappings
-RISK_LEVEL_MAP: Dict[str, int] = {
-    # Level 1: Read-only & informational
-    "list_directory": 1,
-    "read_file": 1,
-    "get_system_metrics": 1,
-    "search_past_incidents": 1,
-    "get_memory_stats": 1,
-    "ping": 1,
-    "read_excel_file": 1,
-    "query_local_db": 1,
-    "read_audit_logs": 1,
-    "query_company_policy": 1,
-    "query_enterprise_graph_rag": 1,
-    "get_financial_summary": 1,
-    "get_attendance_report": 1,
-    "get_executive_leaderboard": 1,
-    "get_executive_standup_briefing": 1,
-
-    # Quản lý kỹ năng: liệt kê chỉ đọc; nạp lại chỉ chạy mã đã có trên đĩa;
-    # TẠO kỹ năng là cài mã Python mới vào tiến trình máy chủ (đã qua kiểm toán
-    # AST) — cần duyệt khi lệnh không đến từ kênh tin cậy.
-    "list_available_skills": 1,
-    "reload_all_skills": 2,
-    "create_new_skill": 4,
-    # Tải mã kỹ năng từ URL rồi cài: mã từ bên ngoài, không qua MetaArchitect.
-    "install_skill_from_url": 5,
-
-    # Level 2: Routine operational creation
-    "record_attendance_skill": 2,
-    "assign_task_intelligently": 2,
-    "run_proactive_task_audit": 2,
-    "simulate_incoming_customer_email": 2,
-    "check_cashflow_predictive_health": 2,
-
-    # Level 3: Moderate modifications
-    "record_income": 3,
-    "write_excel_file": 3,
-    "write_file": 3,
-    # Cấp danh tính cho nhân viên mới (hồ sơ ERP + workspace + tài khoản AD
-    # dự kiến). Briefing BƯỚC 5 xếp "Xóa user AD" vào nhóm 3-5, nên việc CẤP
-    # tài khoản cũng phải ở Level 4 — trước đây để Level 3 nên chạy tự động.
-    "zero_touch_onboard_employee": 4,
-    # Điều phối đa tác nhân: hạ từ Level 3 xuống Level 2 ("thao tác
-    # thường", cùng mức với assign_task_intelligently mà nó kích hoạt). Trước
-    # đây MỌI câu hỏi Multi-Agent — kể cả chỉ đọc ("doanh thu tháng trước?"),
-    # tra chính sách, chấm công — đều phải CEO duyệt, nên CEO nhận tin nhắn
-    # mời duyệt liên tục cho việc không quan trọng. Các thao tác thật sự nguy
-    # hiểm (record / delete / run_powershell...) vẫn giữ cổng HITL riêng ở
-    # đúng điểm chạy của chúng.
-    "delegate_to_multi_agent": 2,
-
-    # Level 4: High risk system actions
-    "record_expense": 4,
-    "manage_windows_service": 4,
-    "run_powershell_command": 4,
-    "kill_process": 4,
-    "deploy_skill": 4,
-    "backup_vector_db": 4,
-    "restore_vector_db": 4,
-
-    # Level 5: Critical & destructive
-    "delete_item": 5,
-    "delete_records": 5,
-    "drop_database": 5,
-    "wipe_system": 5,
-    "execute_financial_transfer": 5,
-}
+# Bảng rủi ro theo tên tool: một bản chuẩn ở `risk_engine` (re-export cho caller cũ).
+from mateai.application.security.risk_engine import RISK_LEVEL_MAP  # noqa: E402,F401
 
 
 class HumanInTheLoopManager:
@@ -167,68 +101,9 @@ class HumanInTheLoopManager:
         params: Optional[Dict[str, Any]] = None,
         declared_risk_level: Optional[int] = None,
     ) -> int:
-        """
-        Đánh giá Risk Level từ 1 đến 5 cho bất kỳ tác vụ nào.
-
-        `declared_risk_level` là mức rủi ro do chính nơi ĐĂNG KÝ tác vụ công
-        bố (vd `ToolDefinition.risk_level` của Plugin Registry). Giá trị đó
-        được lấy theo phép `max()` — có thể nâng lên, KHÔNG bao giờ hạ xuống.
-
-        Vì sao cần tham số này
-        ---------------------
-        Trước đây hàm chỉ tra bảng `RISK_LEVEL_MAP` + heuristic theo TÊN tác
-        vụ, mặc định 2. `PluginRegistry` thì mang rủi ro riêng trên mỗi tool
-        và dùng nó để quyết định "có vào nhánh HITL không", nhưng bên trong
-        nhánh đó lại hỏi `requires_approval(tên_tool)` — một phán đoán hoàn toàn
-        khác và không biết gì về khai báo của registry. Hệ quả: một tool khai
-        `risk_level=5` nhưng tên không chứa từ khoá nguy hiểm ("check_*",
-        "export_*") vẫn chạy thẳng, không ai duyệt. Rủi ro khai trong registry
-        và rủi ro thực sự áp dụng phải là MỘT.
-        """
-        clean = str(action_name or "").strip().lower()
-
-        # Đánh giá theo tên trước (bảng + heuristic), rồi áp khai báo của registry.
-        computed = 2
-        if clean in RISK_LEVEL_MAP:
-            computed = RISK_LEVEL_MAP[clean]
-        else:
-            # So theo TỪ trong tên (tách bởi _ - . khoảng trắng), từ bắt đầu bằng
-            # từ khoá. Trước đây so CHUỖI CON: "s-KILL-s" khớp "kill" nên mọi
-            # tool có chữ "skill" (list_available_skills, create_new_skill, kỹ
-            # năng AI tạo) thành Level 5 như kill_process; "de-SCRIPT-ion" khớp "script".
-            words = [w for w in re.split(r"[^a-z0-9]+", clean) if w]
-
-            def _has(*keys: str) -> bool:
-                return any(w.startswith(k) for w in words for k in keys)
-
-            if _has("delete", "remove", "drop", "wipe", "format", "kill", "transfer", "destroy"):
-                computed = 5
-            elif _has("modify", "update", "write", "exec", "script", "service", "admin"):
-                computed = 4
-
-        # Kiểm tra chi tiêu lớn: nếu record_expense có số tiền > 50,000,000 VND thì nâng lên Level 5
-        if clean == "record_expense" and params:
-            try:
-                amt = float(params.get("amount", 0))
-                if amt >= 50_000_000:
-                    computed = 5
-            except Exception:
-                pass
-
-        if declared_risk_level is not None:
-            try:
-                declared = int(declared_risk_level)
-            except (TypeError, ValueError):
-                return computed
-            if not 1 <= declared <= 5:
-                logger.warning(
-                    "[ZeroTrust] risk_level khai sai (%r) cho '%s' — bỏ qua, dùng %d",
-                    declared_risk_level, action_name, computed,
-                )
-                return computed
-            return max(computed, declared)
-
-        return computed
+        """Rủi ro 1–5 — uỷ cho bản chuẩn `risk_engine.assess_risk`."""
+        from mateai.application.security.risk_engine import assess_risk
+        return assess_risk(action_name, params, declared_risk_level)
 
     def requires_approval(
         self,
@@ -846,9 +721,17 @@ async def execute_with_hitl(
     requested_by: str = "AI_Agent",
     description: str = "",
     risk_level: Optional[int] = None,
+    agent_id: Optional[str] = None,
+    check_rbac: bool = True,
 ) -> Dict[str, Any]:
     """
-    Cổng thực thi Zero-Trust duy nhất cho mọi tác vụ có rủi ro.
+    Lối vào cổng chính sách cho tác vụ KHÔNG đi qua `tool_gate` (Portal bấm trực
+    tiếp, cổng lồng trong một skill). Quyết định: `policy_engine.authorize()` —
+    cùng một hàm với `tool_gate` (prompt Supervisor §17: một đường phân quyền).
+
+    `agent_id`: mặc định `HUMAN_DIRECT` (người bấm trên Portal). Cổng lồng trong
+    skill truyền tác nhân AI tương ứng + `check_rbac=False` (RBAC đã xét ở lớp ngoài).
+    Kết quả thêm trạng thái `denied` (không chạy gì).
 
     Trước Phase 57/58 nối cổng, `hitl_manager.request_approval()` KHÔNG có
     call site nào: hàng đợi HITL luôn rỗng, cảnh báo Telegram không bao giờ
@@ -885,15 +768,24 @@ async def execute_with_hitl(
     def _risk() -> int:
         return hitl_manager.get_risk_level(action_name, params, risk_level)
 
-    # Cấp full quyền Admin tự động thực thi không cần hỏi lại cho ESP32, Telegram, HUD
-    req_by = str(requested_by or "").lower()
-    if any(k in req_by for k in ["admin", "esp32", "xiaozhi", "telegram", "hud", "console"]):
+    # Trước đây: requested_by CHỨA chuỗi "admin" / "esp32" / "telegram" / "hud"…
+    # là chạy thẳng mọi mức rủi ro (kể cả tên "sysadmin_guest"). Đã bỏ (2026-10-05).
+    from mateai.application.security import policy_engine
+    decision = policy_engine.authorize(
+        action_name, params, caller=requested_by,
+        agent_id=agent_id or policy_engine.HUMAN_DIRECT,
+        declared_risk=risk_level, check_rbac=check_rbac,
+    )
+    if decision.effect == policy_engine.DENY:
+        log_security_audit(str(requested_by), action_name, str(decision.risk), "REJECTED",
+                           {"agent_id": decision.agent_id, "rule": decision.rule,
+                            "policy_version": decision.policy_version, "reason": decision.reasons[0]})
+        return {"status": "denied", "executed": False, "risk_level": decision.risk,
+                "rule": decision.rule, "message": decision.reasons[0]}
+    if decision.effect == policy_engine.ALLOW and decision.rule != "approved":
         result = await _run_executor()
-        return {"status": "executed", "risk_level": _risk(), "result": result, "admin_auto_approved": True}
-
-    if not hitl_manager.requires_approval(action_name, params, risk_level):
-        result = await _run_executor()
-        return {"status": "executed", "risk_level": _risk(), "result": result}
+        return {"status": "executed", "risk_level": decision.risk, "result": result,
+                "policy": decision.rule, "level": decision.level}
 
     # Đã được duyệt trước đó (CEO duyệt rồi bấm lại) -> chạy, tiêu thụ token.
     if consume_approval(action_name, params):
@@ -902,9 +794,7 @@ async def execute_with_hitl(
         result = await _run_executor()
         return {"status": "executed", "risk_level": _risk(), "result": result}
 
-    # Biến cục bộ khác tên để không shadow tham số `risk_level` — `_risk()` đọc
-    # chính tham số đó.
-    effective_risk = _risk()
+    effective_risk = decision.risk
     if executor is None:
         logger.error(
             "[ZeroTrust] Tác vụ rủi ro cao '%s' (Level %d) được gọi KHÔNG có executor — "

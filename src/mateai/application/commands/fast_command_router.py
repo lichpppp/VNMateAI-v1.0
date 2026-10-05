@@ -264,7 +264,9 @@ class FastCommandRouter:
         )
 
     async def _handle_cpu_status(self, query: str, match: re.Match) -> FastCommandResult:
-        cpu_percent = psutil.cpu_percent(interval=0.05)
+        # Đo 50 ms trong luồng phụ: trước đây gọi thẳng trong hàm async -> mọi phiên
+        # realtime đứng 50 ms mỗi lần ai hỏi CPU (bench: p50 50,8 ms; RULE-026).
+        cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 0.05)
         reply = f"Dạ, mức tải CPU hiện tại là {cpu_percent:.1f}% ạ."
         return FastCommandResult(
             is_matched=True,
@@ -288,7 +290,7 @@ class FastCommandRouter:
         )
 
     async def _handle_system_overview(self, query: str, match: re.Match) -> FastCommandResult:
-        cpu = psutil.cpu_percent(interval=0.05)
+        cpu = await asyncio.to_thread(psutil.cpu_percent, 0.05)
         ram = psutil.virtual_memory()
         reply = f"Dạ, hệ thống đang hoạt động tốt. CPU ở mức {cpu:.1f}%, RAM đã dùng {ram.percent:.1f}% ạ."
         return FastCommandResult(

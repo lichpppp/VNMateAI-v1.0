@@ -362,6 +362,7 @@ class PluginRegistry:
         arguments: Dict[str, Any],
         caller_id: str = "AI_Agent",
         source_device: str = "web",
+        authorized: bool = False,
     ) -> Dict[str, Any]:
         """
         Thực thi tool với Circuit Breaker + Timeout + HITL.
@@ -436,8 +437,9 @@ class PluginRegistry:
                 "circuit_details": breaker_status,
             }
 
-        # Check HITL requirement (risk_level >= 3)
-        if tool.risk_level >= 3:
+        # Đã được `tool_gate` quyết định (policy_engine) -> chạy luôn, không duyệt lần hai.
+        # Gọi trực tiếp (không qua cổng) -> cổng chính sách qua execute_with_hitl.
+        if not authorized:
             from mateai.application.security.zero_trust import hitl_manager, execute_with_hitl
 
             def _sync_executor() -> Dict[str, Any]:
@@ -506,7 +508,11 @@ class PluginRegistry:
                 requested_by=caller_id,
                 description=f"Tool '{tool_name}' (risk level {tool.risk_level}/5) được gọi bởi {caller_id}",
                 risk_level=tool.risk_level,
+                agent_id="VN-MATEAI-CONNECTOR",
             )
+            if hitl_result.get("status") == "denied":
+                return {"success": False, "error": hitl_result.get("message"), "policy_denied": True,
+                        "circuit_state": breaker.get_status()["state"]}
 
             if hitl_result.get("status") == "awaiting_approval":
                 return {

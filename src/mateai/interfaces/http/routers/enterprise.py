@@ -146,6 +146,8 @@ async def api_enterprise_record_finance(
             ),
         )
 
+        if gate.get("status") == "denied":
+            raise HTTPException(status_code=403, detail=gate["message"])
         if gate.get("status") == "awaiting_approval":
             raise HTTPException(status_code=202, detail=gate["message"])
 
@@ -471,6 +473,8 @@ async def api_multi_agent_route(
             description=f"Ủy quyền Multi-Agent xử lý: {query[:200]}",
         )
 
+        if gate.get("status") == "denied":
+            raise HTTPException(status_code=403, detail=gate["message"])
         if gate.get("status") == "awaiting_approval":
             raise HTTPException(status_code=202, detail=gate["message"])
 
@@ -663,6 +667,8 @@ async def api_enterprise_onboarding(
             description=f"Onboarding nhân viên mới: {name} - {position} (phòng ban {department_name})",
         )
 
+        if gate.get("status") == "denied":
+            raise HTTPException(status_code=403, detail=gate["message"])
         if gate.get("status") == "awaiting_approval":
             raise HTTPException(status_code=202, detail=gate["message"])
 

@@ -495,17 +495,28 @@ class DatabaseManager:
         with self._lock:
             with self._get_connection() as conn:
                 conn.execute(
-                    "INSERT OR IGNORE INTO approval_grants (principal, tool_name, granted_by, granted_at) "
+                    # Duyệt lại sau khi hết hạn phải làm mới ngày cấp (trước: OR IGNORE giữ ngày cũ).
+                    "INSERT OR REPLACE INTO approval_grants (principal, tool_name, granted_by, granted_at) "
                     "VALUES (?, ?, ?, ?);",
                     (principal, tool_name, granted_by, datetime.utcnow().isoformat()),
                 )
                 conn.commit()
 
-    def has_approval_grant(self, principal: str, tool_name: str) -> bool:
+    def has_approval_grant(self, principal: str, tool_name: str, max_age_days: Optional[float] = None) -> bool:
+        """Uỷ quyền còn hiệu lực. `max_age_days`: quá hạn (tính từ granted_at, UTC) thì coi như không có."""
         with self._get_connection() as conn:
-            return conn.execute(
-                "SELECT 1 FROM approval_grants WHERE principal = ? AND tool_name = ?;", (principal, tool_name)
-            ).fetchone() is not None
+            row = conn.execute(
+                "SELECT granted_at FROM approval_grants WHERE principal = ? AND tool_name = ?;", (principal, tool_name)
+            ).fetchone()
+        if row is None:
+            return False
+        if max_age_days is None:
+            return True
+        try:
+            age = datetime.utcnow() - datetime.fromisoformat(str(row["granted_at"]))
+        except (TypeError, ValueError):
+            return False  # ngày cấp hỏng: fail-closed
+        return age.total_seconds() <= max_age_days * 86400
 
     def list_approval_grants(self, principal: Optional[str] = None) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:

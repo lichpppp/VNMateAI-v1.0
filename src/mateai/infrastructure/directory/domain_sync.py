@@ -88,17 +88,17 @@ class WindowsDomainManager:
         Synchronize Active Directory users using native PowerShell Get-ADUser.
         UPSERTs records into the 'employees' table.
         """
-        ps_cmd = (
-            'powershell -NoProfile -NonInteractive -Command "'
-            'Get-ADUser -Filter * -Properties DisplayName, Department, Title, EmailAddress, OfficePhone '
-            '| ConvertTo-Json -Depth 2"'
-        )
+        # Danh sách đối số, không qua shell (RULE-025).
+        ps_cmd = [
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            "Get-ADUser -Filter * -Properties DisplayName, Department, Title, EmailAddress, OfficePhone "
+            "| ConvertTo-Json -Depth 2",
+        ]
         logger.info("Executing Active Directory user synchronization via PowerShell...")
 
         try:
             res = subprocess.run(
                 ps_cmd,
-                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -180,17 +180,17 @@ class WindowsDomainManager:
         Synchronize Active Directory computers using native PowerShell Get-ADComputer.
         UPSERTs records into the 'computers' table.
         """
-        ps_cmd = (
-            'powershell -NoProfile -NonInteractive -Command "'
-            'Get-ADComputer -Filter * -Properties OperatingSystem, IPv4Address, Description '
-            '| ConvertTo-Json -Depth 2"'
-        )
+        # Danh sách đối số, không qua shell (RULE-025).
+        ps_cmd = [
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            "Get-ADComputer -Filter * -Properties OperatingSystem, IPv4Address, Description "
+            "| ConvertTo-Json -Depth 2",
+        ]
         logger.info("Executing Active Directory computer synchronization via PowerShell...")
 
         try:
             res = subprocess.run(
                 ps_cmd,
-                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=60,

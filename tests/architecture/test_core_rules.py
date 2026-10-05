@@ -2,7 +2,8 @@
 tests/architecture/test_core_rules.py
 =====================================
 Quy tắc chống trùng lặp RULE-011…015 (docs/architecture/dependency-rules.md §IV)
-áp lên CODE ĐANG CHẠY: core/, skills/, workers/, main.py.
+và quy tắc kiểm soát tự trị RULE-017, 024, 025, 026 (§VI) áp lên CODE ĐANG CHẠY:
+core/, src/mateai/, skills/, workers/, main.py.
 
 Cơ chế "bánh cóc":
   * Vi phạm đang có được ghi ở `core_rules_baseline.json` (file -> số lần).
@@ -34,6 +35,12 @@ ALLOWED = {
     "RULE-013": {"src/mateai/config/loader.py"},
     "RULE-014": {"src/mateai/infrastructure/database/erp_database.py"},
     "RULE-015": set(),
+    # Chỉ cổng chính sách được gọi thực thi tool. routers/skills: executor nằm trong
+    # execute_with_hitl (policy_engine.authorize) — gọi qua cổng.
+    "RULE-017": {"src/mateai/application/agent/tool_gate.py", "src/mateai/interfaces/http/routers/skills.py"},
+    "RULE-024": set(),
+    "RULE-025": set(),
+    "RULE-026": set(),
 }
 
 DESCRIPTIONS = {
@@ -42,7 +49,25 @@ DESCRIPTIONS = {
     "RULE-013": "tự mở config.json ngoài config_loader",
     "RULE-014": "sqlite3.connect ngoài tầng persistence",
     "RULE-015": "module lõi import ngược mateai.interfaces.http.server",
+    "RULE-017": "gọi execute_skill / execute_tool ngoài cổng chính sách (tool_gate)",
+    "RULE-024": "application truy vấn SQL trực tiếp (get_connection / .execute)",
+    "RULE-025": "subprocess với shell=True",
+    "RULE-026": "hàm async gọi API chặn (time.sleep, requests.*, psutil.cpu_percent(interval>0))",
 }
+
+_BLOCKING_IN_ASYNC = ("time.sleep", "requests.get", "requests.post", "requests.put", "requests.delete", "requests.request")
+
+
+def _own_calls(fn):
+    """Lời gọi nằm trực tiếp trong thân hàm (không tính hàm lồng)."""
+    stack = list(fn.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Call):
+            yield node
+        stack.extend(ast.iter_child_nodes(node))
 
 
 def _files():
@@ -79,6 +104,15 @@ def scan() -> dict:
                     name == "open" and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "CONFIG_PATH"
                 ):
                     found["RULE-013"][rel] += 1
+                if name.split(".")[-1] in ("execute_skill", "execute_tool") and "." in name:
+                    found["RULE-017"][rel] += 1
+                if rel.startswith("src/mateai/application/") and (
+                        name.endswith(".get_connection") or name in ("cursor.execute", "conn.execute", "cursor.executemany")):
+                    found["RULE-024"][rel] += 1
+                if name.startswith("subprocess.") and any(
+                        k.arg == "shell" and isinstance(k.value, ast.Constant) and k.value.value is True
+                        for k in node.keywords):
+                    found["RULE-025"][rel] += 1
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 if "/audio/speech" in node.value and not node.value.strip().startswith(("\n", "Tạo", "9Router")):
                     found["RULE-012"][rel] += 1
@@ -90,6 +124,18 @@ def scan() -> dict:
                 if any(m == "mateai.interfaces.http.server" or m.startswith("mateai.interfaces.http.server.") for m in mods):
                     if rel != "src/mateai/interfaces/http/server.py" and rel != "main.py":
                         found["RULE-015"][rel] += 1
+        for fn in ast.walk(tree):
+            if not isinstance(fn, ast.AsyncFunctionDef):
+                continue
+            for call in _own_calls(fn):
+                name = _call_name(call)
+                if name in _BLOCKING_IN_ASYNC:
+                    found["RULE-026"][rel] += 1
+                elif name.endswith("psutil.cpu_percent") or name == "cpu_percent":
+                    interval = next((k.value for k in call.keywords if k.arg == "interval"),
+                                    call.args[0] if call.args else None)
+                    if isinstance(interval, ast.Constant) and isinstance(interval.value, (int, float)) and interval.value > 0:
+                        found["RULE-026"][rel] += 1
     for rule, allowed in ALLOWED.items():
         for rel in allowed:
             found[rule].pop(rel, None)
@@ -145,6 +191,22 @@ def test_rule_014_sqlite_only_in_persistence():
 
 def test_rule_015_core_does_not_import_server():
     _check("RULE-015")
+
+
+def test_rule_017_tools_only_through_the_policy_gate():
+    _check("RULE-017")
+
+
+def test_rule_024_application_has_no_raw_sql():
+    _check("RULE-024")
+
+
+def test_rule_025_no_shell_true():
+    _check("RULE-025")
+
+
+def test_rule_026_async_code_does_not_block_the_loop():
+    _check("RULE-026")
 
 
 if __name__ == "__main__":

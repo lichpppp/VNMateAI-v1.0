@@ -106,13 +106,13 @@ Chưa có test tự động cho các quy tắc này; trạng thái là kết qu�
 
 | Mã | Quy tắc | Trạng thái hôm nay | Cách kiểm tự động (Phase 2–3) |
 |---|---|---|---|
-| RULE-017 | Không đường thực thi tool nào bỏ qua cổng kiểm soát chuẩn (`tool_gate` → control plane) | Chưa đạt (3 đường + orchestrator gọi thẳng) | AST: `execute_skill(`, `execute_tool(` và import hàm skill builtin chỉ được xuất hiện trong module cổng |
-| RULE-018 | Chính sách DENY luôn thắng — kể cả với admin, kể cả khi đã duyệt | Chưa đạt (DENY chỉ 2 tên tool; admin bỏ qua mọi mức rủi ro) | test thuộc tính: mọi tool trong danh sách DENY → không thực thi với mọi role / mọi cờ `approved` |
-| RULE-019 | Luật bảo mật trong cấu hình (`security.*`) phải được chính cổng thực thi đọc | Chưa đạt | test: thêm từ khoá cấm vào cấu hình → tool chứa từ khoá đó bị chặn ở `run_tool_with_policy` |
-| RULE-020 | Kiểm tra quyền (RBAC) chạy **trước** khi tạo yêu cầu duyệt | Chưa đạt (`tool_gate.py:127–186`: rủi ro → HITL → RBAC) | test: role không có quyền → không sinh yêu cầu HITL |
+| RULE-017 | Không đường thực thi tool nào bỏ qua cổng kiểm soát chuẩn (`tool_gate` → control plane) | **Đạt** (2026-10-05): một hàm `policy_engine.authorize()`; quét AST = 0 (`test_rule_017_…`) | AST: `execute_skill(`, `execute_tool(` và import hàm skill builtin chỉ được xuất hiện trong module cổng |
+| RULE-018 | Chính sách DENY luôn thắng — kể cả với admin, kể cả khi đã duyệt | **Đạt** (`test_policy_engine`) | test thuộc tính: mọi tool trong danh sách DENY → không thực thi với mọi role / mọi cờ `approved` |
+| RULE-019 | Luật bảo mật trong cấu hình (`security.*`) phải được chính cổng thực thi đọc | **Đạt** (`test_portal_forbidden_keywords_are_enforced_at_the_gate`, `…require_confirmation…`) | test: thêm từ khoá cấm vào cấu hình → tool chứa từ khoá đó bị chặn ở `run_tool_with_policy` |
+| RULE-020 | Kiểm tra quyền (RBAC) chạy **trước** khi tạo yêu cầu duyệt | **Đạt** (`test_rbac_runs_before_any_approval_request`) | test: role không có quyền → không sinh yêu cầu HITL |
 | RULE-021 | Mọi hành động tự trị có danh tính tác nhân (`agent_id`) + người uỷ quyền + `trace_id` trong audit | Chưa đạt (không có `agent_id`) | test: payload audit của tool chạy từ vòng agent có đủ 3 trường |
 | RULE-022 | Mọi vòng agent / tác vụ tự trị có giới hạn bước, thời gian, chi phí và tôn trọng kill switch | Một phần (6 vòng/lượt; không giới hạn thời gian/chi phí; không kill switch) | test: bật kill switch → không tool nào chạy; vượt ngân sách → dừng |
-| RULE-023 | Nội dung ngoài (kết quả tool, RAG, email, web, tệp) không được đưa vào phần chỉ thị hệ thống | Chưa đạt (`identity_core.md` đọc vào system prompt và ghi được bằng `write_file`) | AST/grep: chỉ hằng số + cấu hình được vào system prompt; tệp trong danh sách bảo vệ không ghi được qua tool |
-| RULE-024 | Application không truy vấn SQL trực tiếp (RULE-003 mở rộng cho `application/`) | Chưa đạt: `agent_orchestrator`, `onboarding_workflow`, `proactive_manager` | mở rộng `test_architecture_boundaries` sang `get_connection()` / `.execute(` |
-| RULE-025 | Không `subprocess(..., shell=True)` | 2 chỗ (`domain_sync.py:101,193`, lệnh hằng số) | AST, baseline = 2, chỉ được giảm |
-| RULE-026 | Hàm `async` không gọi API chặn (`psutil.cpu_percent(interval>0)`, `time.sleep`, `requests`) | Chưa đạt (`fast_command_router.py:267,291`) | AST trong thân `async def` |
+| RULE-023 | Nội dung ngoài (kết quả tool, RAG, email, web, tệp) không được đưa vào phần chỉ thị hệ thống | Một phần: tool không ghi / xoá được mã nguồn, cấu hình, `identity_core.md` (`test_file_write_protection`); nhãn "dữ liệu không tin cậy" cho kết quả tool: chưa | AST/grep: chỉ hằng số + cấu hình được vào system prompt; tệp trong danh sách bảo vệ không ghi được qua tool |
+| RULE-024 | Application không truy vấn SQL trực tiếp (RULE-003 mở rộng cho `application/`) | Baseline 17 (`agent_orchestrator` 6, `onboarding_workflow` 4, `proactive_manager` 7) — chỉ được giảm; xử lý ở Phase 8 | mở rộng `test_architecture_boundaries` sang `get_connection()` / `.execute(` |
+| RULE-025 | Không `subprocess(..., shell=True)` | **Đạt**: 0 (`test_rule_025_…`) | AST, baseline = 2, chỉ được giảm |
+| RULE-026 | Hàm `async` không gọi API chặn (`psutil.cpu_percent(interval>0)`, `time.sleep`, `requests`) | **Đạt**: 0 (`test_rule_026_…`) | AST trong thân `async def` |

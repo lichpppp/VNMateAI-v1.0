@@ -82,22 +82,19 @@ async def _run_tool_with_policy(
     registry_names: Optional[Set[str]] = None,
     approved: bool = False,
     client_timeout: Optional[float] = None,
+    agent_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Cổng DUY NHẤT thực thi một tool do LLM yêu cầu (mọi kênh voice + agent).
 
-    Zero-Trust (BLOCKED / NEED_CONFIRM -> HITL) -> RBAC -> thực thi (Plugin
-    Registry có HITL riêng / skill cục bộ / máy trạm) -> audit.
+    Quyết định: `policy_engine.authorize()` (kill switch -> L5/từ khoá cấm -> RBAC
+    -> rủi ro -> duyệt / uỷ quyền). DENY luôn thắng, kể cả admin, kể cả `approved`.
+    Rủi ro >= 3 cần duyệt cho MỌI vai trò, trừ khi có uỷ quyền còn hạn cho đúng
+    danh tính + tool (L4). Thay quy tắc cũ "admin bỏ qua duyệt" và f389bbe
+    (prompt Supervisor thay thế hoàn toàn, 2026-10-05).
 
-    `caller`: danh tính cho RBAC + audit + quyết định có cần duyệt không.
-    `source_device`: kênh gọi — CHỈ dùng để gửi yêu cầu phê duyệt về đúng nơi.
-
-    Bỏ qua bước duyệt (2026-10-05, chủ hệ thống chọn): chỉ khi `caller` là tài
-    khoản ADMIN đã đăng nhập (bảng users). Trước đây (f389bbe) mọi lệnh có
-    source_device chứa portal/hud/telegram/esp32/xiaozhi/console/admin đều chạy
-    thẳng, bất kể người gọi là ai — và source_device của REST voice do client tự
-    khai. Robot (device:<id>) và Telegram (telegram:<chat>) theo phương án A:
-    duyệt lần đầu, sau đó nhớ theo từng tác vụ (`_remembered_approval`).
+    `caller`: danh tính người/thiết bị cho RBAC + audit. `source_device`: kênh gọi
+    — dùng để gửi yêu cầu duyệt về đúng nơi và suy ra tác nhân (`agent_id`).
 
     Trước Phase 3 logic này nằm trong `LLMEngine.ask_async`; đường voice
     realtime dùng một bản riêng import `zero_trust.evaluate_risk` (không tồn
@@ -113,7 +110,7 @@ async def _run_tool_with_policy(
 
     Trả về {"target_client", "args", "result"}.
     """
-    from mateai.application.security.zero_trust import evaluate_action_risk
+    from mateai.application.security import policy_engine
     from core.plugin_manager import plugin_manager
 
     fn_args = dict(fn_args or {})
@@ -123,25 +120,35 @@ async def _run_tool_with_policy(
         or fn_args.pop("target_client", "master")
         or "master"
     ).strip()
-
-    risk_level = evaluate_action_risk(fn_name, fn_args)
-    _is_admin = approved or _is_admin_user(caller)
+    agent = agent_id or policy_engine.agent_id_for(source_device)
 
     def _done(result: Dict[str, Any]) -> Dict[str, Any]:
         return {"target_client": target_client, "args": fn_args, "result": result}
 
-    if risk_level == "BLOCKED":
-        logger.warning("Zero-Trust Security: Tác vụ '%s' bị CHẶN HOÀN TOÀN.", fn_name)
-        security_engine.log_audit(target_client, fn_name, "BLOCKED", "REJECTED", fn_args)
+    declared = None
+    try:  # rủi ro do nơi đăng ký tool khai (chỉ nâng, không hạ)
+        from mateai.application.skills.plugin_registry import plugin_registry as _reg
+        _def = _reg.get_tool(fn_name)
+        declared = _def.risk_level if _def is not None else None
+    except Exception:  # noqa: BLE001
+        declared = None
+    decision = policy_engine.authorize(fn_name, fn_args, caller=caller, agent_id=agent,
+                                       approved=approved, declared_risk=declared, session_id=session_id)
+    audit_ctx = {"agent_id": agent, "target": target_client, "session_id": session_id,
+                 "decision": decision.effect, "level": decision.level, "rule": decision.rule,
+                 "policy_version": decision.policy_version, "args": fn_args}
+
+    if decision.effect == policy_engine.DENY:
+        logger.warning("[Policy] DENY tool=%s caller=%s agent=%s rule=%s", fn_name, caller, agent, decision.rule)
+        security_engine.log_audit(str(caller), fn_name, str(decision.risk), "REJECTED",
+                                  {**audit_ctx, "reason": decision.reasons[0]})
         return _done({
-            "status": "error",
-            "message": f"Tác vụ '{fn_name}' bị từ chối do vi phạm chính sách bảo mật.",
+            "status": "error", "success": False,
+            "code": "RBAC_DENIED" if decision.rule == "rbac" else "POLICY_DENIED",
+            "rule": decision.rule, "error": decision.reasons[0], "message": decision.reasons[0],
         })
 
-    if risk_level == "NEED_CONFIRM" and not _is_admin and _remembered_approval(caller, fn_name):
-        # Thiết bị đã được duyệt tác vụ này trước đây — không hỏi lại (vẫn qua RBAC bên dưới).
-        security_engine.log_audit(str(caller), fn_name, risk_level, "APPROVAL_REMEMBERED", fn_args)
-    elif risk_level == "NEED_CONFIRM" and not _is_admin:
+    if decision.effect == policy_engine.REQUIRE_APPROVAL:
         logger.warning("Zero-Trust Security: Tác vụ '%s' yêu cầu phê duyệt.", fn_name)
         _chat_id = None
         if source_device and "telegram:" in str(source_device):
@@ -162,7 +169,9 @@ async def _run_tool_with_policy(
                 "chat_id": _chat_id,
                 "source_device": source_device,
                 "session_id": session_id,
+                "agent_id": agent,
             },
+            risk_level=decision.risk,
         )
         return _done({
             "status": "need_confirm",
@@ -172,18 +181,8 @@ async def _run_tool_with_policy(
             "args": fn_args, "requires_confirmation": True,
         })
 
-    try:
-        from mateai.application.security.security_guard import security_guard as _rbac_guard
-    except Exception:  # pragma: no cover
-        _rbac_guard = None
-    if _rbac_guard is not None:
-        _rbac_ok, _rbac_reason = _rbac_guard.check_permission(
-            tool_name=fn_name, employee_id=caller,
-            session_id=session_id, payload=fn_args,
-        )
-        if not _rbac_ok:
-            logger.warning("[RBAC] BLOCKED | tool=%s | caller=%s", fn_name, caller)
-            return _done({"status": "error", "error": _rbac_reason, "code": "RBAC_DENIED"})
+    if decision.rule == "delegated":
+        security_engine.log_audit(str(caller), fn_name, str(decision.risk), "APPROVAL_REMEMBERED", audit_ctx)
 
     if target_client.lower() in ("master", "local", "server", "chính", "cục bộ"):
         _plugin_registry = None
@@ -197,7 +196,7 @@ async def _run_tool_with_policy(
             if _plugin_registry is None:
                 from mateai.application.skills.plugin_registry import plugin_registry as _plugin_registry
             logger.info("[Phase60] Thực thi tool Plugin Registry: '%s'", fn_name)
-            _result = await _plugin_registry.execute_tool(fn_name, fn_args, caller_id=caller)
+            _result = await _plugin_registry.execute_tool(fn_name, fn_args, caller_id=caller, authorized=True)
             if _result.get("awaiting_approval"):
                 _result = {
                     "status": "awaiting_approval", "success": False,
@@ -219,7 +218,7 @@ async def _run_tool_with_policy(
             orchestrator.execute_on_client_sync, target_client, fn_name, fn_args, **_sync_kw)
 
     _ok = _result.get("status") == "success" or _result.get("success") is True
-    security_engine.log_audit(target_client, fn_name, risk_level, "SUCCESS" if _ok else "FAILED", fn_args)
+    security_engine.log_audit(str(caller), fn_name, str(decision.risk), "SUCCESS" if _ok else "FAILED", audit_ctx)
     return _done(_result)
 
 
@@ -241,6 +240,7 @@ async def execute_approved_tool(item: Dict[str, Any]) -> Dict[str, Any]:
         query=str(ctx.get("query") or ""),
         session_id=ctx.get("session_id"),
         approved=True,
+        agent_id=ctx.get("agent_id"),
     )
     return gate["result"]
 
@@ -264,59 +264,12 @@ def pending_view(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _is_admin_user(caller: Optional[str]) -> bool:
-    """`caller` là tài khoản người dùng có role admin trong bảng users (đăng nhập
-    portal / HUD). Thiết bị, kênh Telegram, danh tính lạ: False. Lỗi tra cứu: False."""
-    c = str(caller or "").strip()
-    if not c or ":" in c:
-        return False
-    try:
-        from mateai.infrastructure.database.db_manager import db_manager
-        user = db_manager.get_user_by_username_or_id(c)
-    except Exception as exc:  # noqa: BLE001 — fail-closed: hỏi duyệt
-        logger.warning("Không tra được tài khoản '%s': %s", c, exc)
-        return False
-    return bool(user) and str(user.get("role") or "").strip().lower() == "admin"
-
-
-def _grant_principal(caller: Optional[str]) -> Optional[str]:
-    """Danh tính dùng để nhớ phê duyệt: robot "device:<id>" (token riêng) hoặc
-    kênh Telegram "telegram:<chat_id>" (bỏ phần tên người gửi — tên đổi được)."""
-    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
-    c = str(caller or "")
-    if c.lower().startswith(DEVICE_PRINCIPAL_PREFIX):
-        return c
-    parts = c.split(":")
-    if len(parts) >= 2 and parts[0].lower() == "telegram" and parts[1].strip():
-        return f"telegram:{parts[1].strip()}"
-    return None
-
-
-def _remembered_approval(caller: Optional[str], tool_name: str) -> bool:
-    """Robot / kênh Telegram đã được duyệt tác vụ này trước đây — chủ hệ thống
-    chọn "duyệt rồi thì không hỏi lại" (phương án A)."""
-    c = _grant_principal(caller)
-    if not c:
-        return False
-    try:
-        from mateai.infrastructure.database.db_manager import db_manager
-        return db_manager.has_approval_grant(c, tool_name)
-    except Exception as exc:  # noqa: BLE001 — lỗi tra cứu: hỏi duyệt như thường
-        logger.warning("Không đọc được phê duyệt đã nhớ cho '%s': %s", c, exc)
-        return False
-
-
 def _remember_approval(item: Dict[str, Any]) -> None:
-    """Người duyệt vừa đồng ý tác vụ do robot / kênh Telegram yêu cầu -> nhớ để lần sau không hỏi lại."""
-    principal = _grant_principal(item.get("requested_by"))
-    tool_name = str(item.get("action_name") or "")
-    if not (principal and tool_name):
-        return
-    try:
-        from mateai.infrastructure.database.db_manager import db_manager
-        db_manager.add_approval_grant(principal, tool_name, str(item.get("reviewed_by") or ""))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Không lưu được phê duyệt đã nhớ '%s' / '%s': %s", principal, tool_name, exc)
+    """Người duyệt vừa đồng ý tác vụ do robot / kênh Telegram yêu cầu -> uỷ quyền
+    có hạn (L4) cho đúng danh tính + tool (`policy_engine.remember_delegation`)."""
+    from mateai.application.security.policy_engine import remember_delegation
+    remember_delegation(item.get("requested_by"), str(item.get("action_name") or ""),
+                        str(item.get("reviewed_by") or ""))
 
 
 hitl_manager.register_executor(TOOL_KIND, execute_approved_tool)

@@ -79,6 +79,8 @@ async def _run_with_hitl(
         params=params,
         executor=executor,
         requested_by="AI_Agent",
+        agent_id="VN-MATEAI-CONNECTOR",
+        check_rbac=False,
         description=description,
     )
 
@@ -86,6 +88,8 @@ async def _run_with_hitl(
         return result
 
     # Cần người dùng duyệt — AI phải nói rõ, không được báo "lỗi".
+    if result.get("status") == "denied":
+        return {"success": False, "error": result.get("message"), "policy_denied": True}
     if result.get("status") == "awaiting_approval":
         return {
             "success": False,

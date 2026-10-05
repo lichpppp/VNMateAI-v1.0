@@ -19,10 +19,11 @@ Tài khoản: duy nhất bảng `users` trong `vnmateai.db` (bcrypt). Xoá tài 
 
 ## 2. Phân quyền tool (RBAC)
 
-- Cổng cho tool do AI gọi: `mateai.application.agent.tool_gate.run_tool_with_policy` → `security_guard.check_permission` (chat, voice, REST, Telegram). **Lưu ý (audit 2026-10-05):** chưa phải cổng duy nhất — `POST /api/v1/skills/execute` và Plugin Registry có đường duyệt riêng, điều phối đa tác nhân gọi hàm trực tiếp; danh sách `security.forbidden_keywords` / `require_confirmation_actions` chưa được cổng áp dụng. Chi tiết: `docs/security/security-architecture.md` §3.
-- Bỏ qua bước duyệt (từ 2026-10-05): chỉ tài khoản **admin** đăng nhập (bảng `users`) — áp dụng cho mọi mức rủi ro. Robot (token riêng) và Telegram (theo chat_id): duyệt lần đầu, sau đó nhớ theo từng tool, thu hồi được.
+- Một hàm quyết định: `mateai.application.security.policy_engine.authorize()` — dùng bởi `tool_gate.run_tool_with_policy` (tool do AI gọi) và `zero_trust.execute_with_hitl` (Portal bấm trực tiếp, cổng lồng trong skill, Plugin Registry). Thứ tự: kill switch → tool cấm / từ khoá cấm (`security.forbidden_keywords`) / L5 (`autonomy.never_autonomous_tools`) → RBAC → rủi ro (`risk_engine`, gồm `security.require_confirmation_actions`) → duyệt / uỷ quyền. DENY luôn thắng (`test_policy_engine`).
+- **Không vai trò nào bỏ qua duyệt** (từ 2026-10-05, prompt Supervisor thay quy tắc cũ): rủi ro ≥ 3 cần duyệt từng lần, trừ khi danh tính + tool có uỷ quyền còn hạn (`autonomy.approval_grant_ttl_days`, mặc định 30 ngày; chỉ robot token riêng `device:<id>` và Telegram `telegram:<chat_id>`; thu hồi được). L5 không bao giờ chạy qua AI; người bấm trực tiếp trên Portal thì L5 = phải duyệt.
+- Tác nhân trong audit (`agent_id`): `VN-MATEAI-VOICE`, `-TELEGRAM`, `-PORTAL-OPS`, `-ORCHESTRATOR`, `-CONNECTOR`, hoặc `HUMAN-DIRECT`; kèm `policy_version` (băm luật đang hiệu lực).
 - Danh tính dùng để xét quyền = **người đã đăng nhập** (không phải `source_device` do client gửi).
-- Thứ tự xác định role: (1) tài khoản/nhân viên trong CSDL → role trong CSDL; (2) service principal khai báo tường minh; (3) id do server gán có tiền tố `esp32`, `xiaozhi`, `telegram`, `hud`, `robot` → **admin** (quyết định của chủ dự án, f389bbe); (4) còn lại / lỗi tra cứu → `viewer` (fail-closed).
+- Thứ tự xác định role: (1) thiết bị token riêng `device:<id>` → quyền thiết bị đặt trên Portal; (2) tài khoản/nhân viên trong CSDL → role trong CSDL; (3) `telegram:<chat_id>:…` → admin **chỉ khi** chat_id nằm trong `telegram.admin_chat_ids`; (4) còn lại / lỗi tra cứu → `viewer` (fail-closed). Tiền tố tên (`esp32`, `robot`, `hud`…) không còn nâng quyền (f389bbe bị thay, 2026-10-05).
 - Role portal → role RBAC: `admin`→`admin`, `manager`→`it_support`, `viewer`→`operator`.
 - Tool cấm vĩnh viễn kể cả admin: `format_drive`, `wipe_all_data`.
 

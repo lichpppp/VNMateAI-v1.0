@@ -143,28 +143,11 @@ DEVICE_PRINCIPAL_PREFIX = "device:"
 #: Quyền đặt được cho một thiết bị ở Web Portal.
 DEVICE_ROLES = ("admin", "it_support", "operator", "viewer")
 
-SERVICE_PRINCIPAL_ROLES: Dict[str, str] = {
-    # Thiết bị ESP32 / robot gia đình — Cấp full Admin theo yêu cầu quản trị viên
-    "esp32": "admin",
-    "esp32-default": "admin",
-    "esp32_livingroom": "admin",
-    "esp32_bedroom": "admin",
-    "esp32_kitchen": "admin",
-    "xiaozhi": "admin",
-    "robot": "admin",
-    # Telegram — Cấp full Admin
-    "telegram": "admin",
-    # Hub / HUD / cổng kết nối nội bộ — Cấp full Admin
-    "vnmateai_hub": "admin",
-    "vnmateai_hud": "admin",
-    "vnmateai_console": "admin",
-    "hub": "admin",
-    "hud": "admin",
-    "console": "admin",
-    # Worker node nội bộ
-    "master_local_worker": "admin",
-    "companion": "admin",
-}
+#: Danh tính dịch vụ khai báo tường minh (so khớp CHÍNH XÁC). Trống: bản cũ
+#: (f389bbe) cấp "admin" cho "esp32", "robot", "hud", "console", "telegram"… theo
+#: tên — prompt Supervisor (2026-10-05) thay thế: thiết bị lấy quyền từ bảng quyền
+#: thiết bị (token riêng), Telegram từ `telegram.admin_chat_ids`, còn lại fail-closed.
+SERVICE_PRINCIPAL_ROLES: Dict[str, str] = {}
 
 
 class SecurityGuard:
@@ -338,11 +321,18 @@ class SecurityGuard:
         if service_role:
             return service_role
 
-        # Thiết bị ESP32 Robot, Telegram Gateway, Standby HUD được cấp Full Admin
-        # (f389bbe). Chỉ an toàn khi id do server gán — không kênh nào được
-        # truyền id do client tự đặt vào đây (xem plan §11).
-        if clean_id.startswith(("esp32", "xiaozhi", "telegram", "hud", "robot")):
-            return "admin"
+        # Telegram: "telegram:<chat_id>:<tên>" do gateway gán SAU khi lọc chat. Chỉ
+        # admin khi chat_id nằm trong danh sách cấu hình (kiểm lại ở đây, không tin
+        # tiền tố). Tiền tố tên thiết bị (esp32/robot/hud…) không còn nâng quyền.
+        if clean_id.startswith("telegram:"):
+            parts = clean_id.split(":")
+            try:
+                from mateai.config.loader import settings
+                allowed = {str(c).strip() for c in (settings.telegram.admin_chat_ids or [])}
+            except Exception:  # noqa: BLE001
+                allowed = set()
+            if len(parts) >= 2 and parts[1].strip() and parts[1].strip() in allowed:
+                return "admin"
 
         logger.info(
             "[RBAC] Không tra cứu được danh tính '%s' → cấp quyền tối thiểu '%s'. "

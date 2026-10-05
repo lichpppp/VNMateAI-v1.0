@@ -261,6 +261,20 @@ class HRAgent(BaseAgent):
 
         # Giao việc thông minh
         if any(w in text for w in ("giao việc", "phân việc", "lên kế hoạch", "tổ chức")):
+            # Hành động có tác dụng phụ của tác nhân con -> qua Policy Engine (kill switch,
+            # tắt tác nhân, L5, rủi ro). Trước đây gọi hàm skill thẳng, ngoài mọi cổng.
+            # RBAC đã xét ở lớp ngoài (`delegate_to_multi_agent`).
+            from mateai.application.security import policy_engine as pe
+            from mateai.application.security.safety_guard import security_engine
+            decision = pe.authorize("assign_task_intelligently", {"description": query}, caller=None,
+                                    agent_id=pe.AGENT_ORCHESTRATOR, check_rbac=False)
+            security_engine.log_audit("orchestrator", "assign_task_intelligently", str(decision.risk),
+                                      "SUCCESS" if decision.allowed else "REJECTED",
+                                      {"agent_id": decision.agent_id, "decision": decision.effect,
+                                       "rule": decision.rule, "policy_version": decision.policy_version})
+            if not decision.allowed:
+                return {"status": "error", "agent": self.name, "role": self.role,
+                        "reply": f"👥 [HR] Không giao việc: {decision.reasons[0]}", "policy": decision.as_dict()}
             from mateai.application.skills.builtin.proactive_manager import assign_task_intelligently
             task_res = assign_task_intelligently(description=query)
             return {

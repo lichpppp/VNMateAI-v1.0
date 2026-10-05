@@ -128,4 +128,5 @@ def test_approvals_of_people_are_not_remembered():
     import mateai.application.agent.tool_gate as tg
     tg._remember_approval({"action_name": "kill_process", "requested_by": "bob", "reviewed_by": "admin"})
     assert db_manager.list_approval_grants("bob") == []
-    assert tg._remembered_approval("bob", "kill_process") is False
+    from mateai.application.security.policy_engine import has_delegation
+    assert has_delegation("bob", "kill_process") is False

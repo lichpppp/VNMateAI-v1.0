@@ -413,6 +413,35 @@ class SecurityConfig(BaseModel):
     )
 
 
+#: Tác vụ L5 mặc định — không bao giờ chạy qua AI, kể cả admin, kể cả đã duyệt
+#: (hành động phá huỷ / tài chính / cài mã từ ngoài). Doanh nghiệp thêm được, xem
+#: `docs/autonomy/autonomy-model.md` §2.
+DEFAULT_NEVER_AUTONOMOUS = [
+    "delete_item", "delete_records", "drop_database", "wipe_system", "format_drive",
+    "wipe_all_data", "execute_financial_transfer", "install_skill_from_url",
+]
+
+
+class AutonomyConfig(BaseModel):
+    """Giới hạn tự trị của AI — đọc ở cổng kiểm soát (`policy_engine`), ngoài LLM."""
+    #: Công tắc toàn cục: chỉ còn tác vụ chỉ đọc (rủi ro 1). §95–§96.
+    kill_switch: bool = False
+    #: Tác nhân bị tắt (agent_id, vd "VN-MATEAI-TELEGRAM") — mọi tool đều bị từ chối.
+    disabled_agents: List[str] = Field(default_factory=list)
+    #: Tool bị tắt tạm thời.
+    disabled_tools: List[str] = Field(default_factory=list)
+    #: L5: không bao giờ chạy qua AI.
+    never_autonomous_tools: List[str] = Field(default_factory=lambda: list(DEFAULT_NEVER_AUTONOMOUS))
+    #: Uỷ quyền "duyệt rồi nhớ" (L4) hết hạn sau số ngày này.
+    approval_grant_ttl_days: int = Field(default=30, ge=1, le=365)
+    #: Ngân sách mỗi lượt agent (§35).
+    max_agent_seconds: float = Field(default=180.0, ge=10.0, le=3600.0)
+    max_tool_calls_per_turn: int = Field(default=12, ge=1, le=100)
+    #: Email gateway: tự trả lời ra ngoài chỉ khi bật và người gửi thuộc miền được phép (§148).
+    email_auto_reply: bool = False
+    email_auto_reply_domains: List[str] = Field(default_factory=list)
+
+
 class TelegramConfig(BaseModel):
     """Telegram Gateway and Alerting Configuration (Phase 18)."""
     bot_token: str = Field(default="", description="Telegram Bot API Token from @BotFather.")
@@ -455,6 +484,9 @@ class AppSettings(BaseSettings):
 
     # Phase 9: Enterprise Zero-Trust Security
     security: SecurityConfig = Field(default_factory=SecurityConfig)
+
+    # Supervisor control plane: kill switch, L5, budgets (docs/autonomy/*)
+    autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
 
     # Phase 18: Telegram Gateway
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)

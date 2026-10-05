@@ -5,5 +5,13 @@
   },
   "RULE-013": {},
   "RULE-014": {},
-  "RULE-015": {}
+  "RULE-015": {},
+  "RULE-017": {},
+  "RULE-024": {
+    "src/mateai/application/agent/agent_orchestrator.py": 6,
+    "src/mateai/application/skills/builtin/onboarding_workflow.py": 4,
+    "src/mateai/application/skills/builtin/proactive_manager.py": 7
+  },
+  "RULE-025": {},
+  "RULE-026": {}
 }

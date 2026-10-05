@@ -110,7 +110,7 @@ async def toggle_telegram_gateway(
         if enabled:
             if raw["telegram"].get("bot_token"):
                 telegram_gateway.stop()
-                import time; time.sleep(0.5)
+                import asyncio; await asyncio.sleep(0.5)
                 telegram_gateway.start()
         else:
             telegram_gateway.stop()
@@ -196,7 +196,7 @@ async def update_telegram_config(
         if is_tg_on and effective_bot_token:
             try:
                 telegram_gateway.stop()
-                import time; time.sleep(0.5)
+                import asyncio; await asyncio.sleep(0.5)
                 telegram_gateway.start()
                 gateway_status = "restarted"
             except Exception as gw_exc:

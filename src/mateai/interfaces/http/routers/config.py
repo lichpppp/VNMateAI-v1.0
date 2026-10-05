@@ -627,7 +627,7 @@ async def _apply_written_config(merged: Dict[str, Any], payload: Dict[str, Any])
                 # Chỉ khởi động lại khi CẦN. Gateway đang chạy và cấu hình
                 # không đổi thì không đụng tới — stop() rồi start() lúc
                 # người dùng chỉ lưu một trường khác là mất kết nối thật.
-                import time; time.sleep(0.5)
+                import asyncio; await asyncio.sleep(0.5)
                 telegram_gateway.start()
         except Exception as gw_err:
             logger.warning("Telegram gateway restart in save_config: %s", gw_err)

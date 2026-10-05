@@ -30,7 +30,10 @@ def gate(monkeypatch):
     import core.plugin_manager as pm
     import mateai.application.skills.plugin_registry as pr
 
-    monkeypatch.setattr(zt, "evaluate_action_risk", lambda name, args=None: state["risk"])
+    import mateai.application.security.risk_engine as re_mod
+    # Rủi ro giả lập (cổng dùng risk_engine.assess_risk từ 2026-10-05): SAFE = 2, NEED_CONFIRM = 4.
+    monkeypatch.setattr(re_mod, "assess_risk",
+                        lambda name, args=None, declared=None: {"SAFE": 2, "NEED_CONFIRM": 4}[state["risk"]])
 
     def fake_check(tool_name, employee_id, session_id=None, payload=None):
         calls["rbac"].append((tool_name, employee_id))
@@ -56,13 +59,15 @@ def gate(monkeypatch):
     return calls, state
 
 
-async def test_blocked_tool_never_executes(gate):
+async def test_l5_tool_never_executes_even_for_approved_admin(gate):
+    """L5 (never_autonomous) = DENY cho mọi vai trò, kể cả khi `approved=True` (§13, §207)."""
     calls, state = gate
-    state["risk"] = "BLOCKED"
-    out = await avl.run_tool_with_policy("format_disk", {}, caller="admin", source_device="portal")
-    assert calls["executed"] == []
-    assert "chính sách bảo mật" in out["result"]["message"]
-    assert ("format_disk", "BLOCKED") in calls["audit"]
+    for approved in (False, True):
+        out = await avl.run_tool_with_policy("drop_database", {}, caller="admin",
+                                             source_device="portal", approved=approved)
+        assert out["result"]["code"] == "POLICY_DENIED" and out["result"]["rule"] == "never_autonomous"
+    assert calls["executed"] == [] and calls["requests"] == []
+    assert ("drop_database", "2") in calls["audit"]
 
 
 async def test_rbac_uses_logged_in_user_and_denies(gate):
@@ -89,7 +94,7 @@ async def test_safe_tool_runs_and_is_audited(gate):
     out = await avl.run_tool_with_policy("get_cpu", {}, caller="admin", source_device="portal")
     assert calls["executed"] == [("get_cpu", {})]
     assert out["result"]["success"] is True
-    assert ("get_cpu", "SAFE") in calls["audit"]
+    assert ("get_cpu", "2") in calls["audit"]
 
 
 async def test_caller_identity_reaches_rbac_from_agent_loop(gate, monkeypatch):
@@ -175,7 +180,7 @@ def users(monkeypatch):
     table = {"boss": {"username": "boss", "role": "admin"}, "op": {"username": "op", "role": "manager"}}
     monkeypatch.setattr(db_manager, "get_user_by_username_or_id", lambda c: table.get(c.strip().lower()))
     grants = set()
-    monkeypatch.setattr(db_manager, "has_approval_grant", lambda p, t: (p, t) in grants)
+    monkeypatch.setattr(db_manager, "has_approval_grant", lambda p, t, max_age_days=None: (p, t) in grants)
     monkeypatch.setattr(db_manager, "add_approval_grant", lambda p, t, by="": grants.add((p, t)))
     return grants
 
@@ -189,13 +194,14 @@ async def test_channel_name_no_longer_skips_approval(gate, users, device):
     assert out["result"]["status"] == "need_confirm" and calls["executed"] == []
 
 
-async def test_logged_in_admin_account_runs_without_approval(gate, users):
+async def test_admin_account_also_needs_approval_from_l3(gate, users):
+    """Prompt Supervisor (2026-10-05) thay quy tắc cũ "admin bỏ qua duyệt": rủi ro >= 3
+    cần duyệt cho MỌI vai trò, trừ khi có uỷ quyền còn hạn (L4)."""
     calls, state = gate
     state["risk"] = "NEED_CONFIRM"
-    await avl.run_tool_with_policy("kill_process", {"pid": 1}, caller="boss", source_device="web-widget")
-    assert calls["executed"] == [("kill_process", {"pid": 1})]
-    # Danh tính có dấu ":" (thiết bị / kênh) không bao giờ là tài khoản người dùng.
-    assert avl._is_admin_user("device:boss") is False and avl._is_admin_user("") is False
+    out = await avl.run_tool_with_policy("kill_process", {"pid": 1}, caller="boss", source_device="web-widget")
+    assert out["result"]["status"] == "need_confirm" and calls["executed"] == []
+    assert not hasattr(avl, "_is_admin_user")
 
 
 async def test_telegram_chat_follows_option_a(gate, users):

@@ -33,10 +33,16 @@ def test_db_user_named_like_a_device_keeps_db_role(monkeypatch):
     assert security_guard._resolve_role("console") == "it_support"  # manager → it_support
 
 
-def test_server_assigned_channel_ids_still_admin(monkeypatch):
+def test_no_prefix_identity_shortcuts(monkeypatch):
+    """Prompt Supervisor (2026-10-05) thay f389bbe: tên bắt đầu bằng esp32/robot/hud
+    không còn là admin; Telegram chỉ admin khi chat_id nằm trong admin_chat_ids."""
+    from mateai.config.loader import settings
     _fake_db(monkeypatch, {})
+    monkeypatch.setattr(settings.telegram, "admin_chat_ids", ["6112"])
     assert security_guard._resolve_role("telegram:6112:alice") == "admin"
-    assert security_guard._resolve_role("esp32_livingroom") == "admin"
+    assert security_guard._resolve_role("telegram:999:mallory") == "viewer"
+    for name in ("esp32_livingroom", "robot", "hud", "console", "xiaozhi"):
+        assert security_guard._resolve_role(name) == "viewer", name
     assert security_guard._resolve_role("someone-unknown") == "viewer"
 
 
