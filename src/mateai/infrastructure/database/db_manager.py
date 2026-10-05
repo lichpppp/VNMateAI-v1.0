@@ -682,15 +682,17 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    INSERT INTO tasks (id, timestamp, client_id, task_message, sender, status, title, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tasks (id, timestamp, client_id, task_message, sender, status, title,
+                                       created_at, updated_at, dispatched_by, due_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(id) DO UPDATE SET
                         status = excluded.status,
                         updated_at = excluded.updated_at;
                     """,
                     # title: cột NOT NULL khi bảng do phía ERP tạo trước.
                     (task_id, timestamp, client_id, task_message, sender, status,
-                     task_message[:200], now_str, now_str),
+                     task_message[:200], now_str, now_str,
+                     task_data.get("dispatched_by"), task_data.get("due_at")),
                 )
                 conn.commit()
 
@@ -733,6 +735,47 @@ class DatabaseManager:
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
                 return [dict(row) for row in rows]
+
+    # ── Giao việc cho máy trạm: chỉ các dòng micro-task (không phải công việc ERP) ──
+    _MICRO = "dept_id IS NULL AND client_id IS NOT NULL AND LOWER(client_id) NOT IN ('', 'master', 'erp')"
+
+    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute("SELECT * FROM tasks WHERE id = ?;", (task_id,)).fetchone()
+                return dict(row) if row else None
+
+    def close_pending_task(self, task_id: str, status: str, *, client_id: Optional[str] = None,
+                           responded_at: Optional[str] = None, note: Optional[str] = None) -> bool:
+        """Chuyển một micro-task đang 'pending' sang trạng thái cuối — NGUYÊN TỬ.
+        `client_id` (nếu có) phải là máy được giao. Trả False nếu task không tồn tại,
+        đã đóng, hoặc thuộc máy khác: không tạo dòng mới, không ghi đè kết quả cũ."""
+        sql = ("UPDATE tasks SET status = ?, responded_at = COALESCE(?, responded_at), "
+               "resolution_notes = COALESCE(?, resolution_notes), updated_at = ? "
+               "WHERE id = ? AND LOWER(status) = 'pending' AND " + self._MICRO)
+        params: List[Any] = [status, responded_at, note, datetime.utcnow().isoformat(), task_id]
+        if client_id is not None:
+            sql += " AND client_id = ?"
+            params.append(client_id)
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(sql + ";", params)
+                conn.commit()
+                return cur.rowcount == 1
+
+    def list_micro_tasks(self, since: Optional[str] = None, limit: int = 5000) -> List[Dict[str, Any]]:
+        """Micro-task (mới nhất trước), tuỳ chọn từ thời điểm `since` ("%Y-%m-%d %H:%M:%S")."""
+        sql = ("SELECT id AS task_id, timestamp, client_id, task_message, sender, status, dispatched_by, "
+               "due_at, responded_at, resolution_notes FROM tasks WHERE " + self._MICRO)
+        params: List[Any] = []
+        if since:
+            sql += " AND timestamp >= ?"
+            params.append(since)
+        sql += " ORDER BY timestamp DESC, rowid DESC LIMIT ?;"
+        params.append(limit)
+        with self._lock:
+            with self._get_connection() as conn:
+                return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
     def count_tasks(self) -> Dict[str, int]:
         """Thống kê tổng số task theo trạng thái."""

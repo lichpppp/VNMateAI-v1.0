@@ -25,7 +25,7 @@ from openpyxl.utils import get_column_letter
 from pydantic import BaseModel
 from fastapi import Depends
 
-from mateai.interfaces.http.auth_dependencies import get_current_user
+from mateai.interfaces.http.auth_dependencies import get_current_user, require_roles
 from mateai.infrastructure.database.erp_database import erp_db
 
 logger = logging.getLogger("mateai.interfaces.http.api_erp")
@@ -126,7 +126,7 @@ async def download_erp_template(
 @router.post("/import", summary="Import dữ liệu tổ chức ERP từ file Excel")
 async def import_erp_data(
     file: UploadFile = File(...),
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
     """
     Tiếp nhận file Excel, đọc các Sheet `PhongBan`, `NhanVien`, `MayTinh`, `CongViec`, `SoSach`.
@@ -180,6 +180,7 @@ async def import_erp_data(
             current_user.get("username", "admin"),
             result.get("stats"),
         )
+        _audit(current_user, "erp_import", {"file": file.filename, "stats": result.get("stats")})
 
         return {
             "status": "success",
@@ -199,6 +200,14 @@ async def import_erp_data(
             "status": "error",
             "message": f"Lỗi xử lý file: {str(exc)}",
         }
+
+
+def _audit(user: Dict[str, Any], action: str, details: Dict[str, Any]) -> None:
+    try:
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(str(user.get("username")), action, "ERP", "SUCCESS", details)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 # ── 3. API LẤY CÂY CẤU TRÚC TỔ CHỨC ERP ──────────────────────────────────────
@@ -230,11 +239,12 @@ class CreateDepartmentRequest(BaseModel):
 @router.post("/department", summary="Tạo mới phòng ban trong hệ thống ERP")
 async def create_department(
     payload: CreateDepartmentRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
     """Tạo mới phòng ban trực tiếp từ Web Portal."""
     try:
         dept = erp_db.add_department(name=payload.name, description=payload.description or "")
+        _audit(current_user, "erp_department_create", {"id": dept.get("id"), "name": dept.get("name")})
         return {
             "status": "success",
             "message": f"Đã tạo phòng ban '{dept['name']}' thành công!",
@@ -250,13 +260,14 @@ async def create_department(
 @router.delete("/department/{dept_id}", summary="Xóa phòng ban trong hệ thống ERP")
 async def delete_department(
     dept_id: int,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Xóa phòng ban theo ID."""
     try:
         deleted = erp_db.delete_department(dept_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Không tìm thấy phòng ban để xóa.")
+        _audit(current_user, "erp_department_delete", {"id": dept_id})
         return {
             "status": "success",
             "message": f"Đã xóa phòng ban #{dept_id} thành công!",

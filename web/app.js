@@ -870,7 +870,8 @@ function switchTab(tabId) {
   // nhưng thực sự không có" mà dự án cấm.
   if (tabId === 'config') loadConfig();
   if (tabId === 'tasks') {
-    loadKpiLogs();
+    initTaskBoardFilters();
+    loadTaskBoard();
     loadErpStructure();
   }
   if (tabId === 'security') {
@@ -8101,46 +8102,341 @@ function renderKpiLogs(logs) {
   });
 }
 
+// ── Giám sát giao việc (tab #tasks) — số liệu thật từ /api/v1/tasks/board ──
+let _taskBoard = null;
+let _taskStatusFilter = '';
+let _taskBoardTimer = null;
+let _taskBoardReload = null;
+let _taskBoardFetchedAt = 0;
+
+function _tasksTabActive() {
+  const pane = document.getElementById('tab-tasks');
+  return !!(pane && pane.classList.contains('active'));
+}
+
+function _canWriteTasks() {
+  return !!(currentUser && ['manager', 'admin'].includes(String(currentUser.role || '').toLowerCase()));
+}
+
+function _fmtDur(sec) {
+  if (sec === null || sec === undefined) return '—';
+  const s = Math.abs(Math.round(sec));
+  if (s < 60) return `${s} giây`;
+  if (s < 3600) return `${Math.round(s / 60)} phút`;
+  if (s < 86400) return `${Math.floor(s / 3600)} giờ ${Math.round((s % 3600) / 60)} phút`;
+  return `${Math.floor(s / 86400)} ngày ${Math.round((s % 86400) / 3600)} giờ`;
+}
+
+function _setTasksLive(ok, text) {
+  const dot = document.getElementById('tasks-live-dot');
+  const txt = document.getElementById('tasks-live-text');
+  if (dot) dot.className = `w-2 h-2 rounded-full ${ok ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'}`;
+  if (txt) txt.textContent = text;
+}
+
+async function loadTaskBoard() {
+  const days = document.getElementById('tasks-range')?.value || '30';
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/tasks/board?days=${encodeURIComponent(days)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    _taskBoard = await res.json();
+    _taskBoardFetchedAt = Date.now();
+    _setTasksLive(true, `Cập nhật lúc ${new Date().toLocaleTimeString('vi-VN')} · ${_taskBoard.online_clients.length} máy trạm online · tự cập nhật khi máy phản hồi`);
+    renderTaskTotals();
+    renderTaskTargets();
+    renderTaskBoard();
+    renderTaskMachines();
+  } catch (err) {
+    _setTasksLive(false, `Không tải được số liệu: ${err.message || 'lỗi kết nối'}`);
+  }
+  _startTaskBoardTicker();
+}
+
+function _startTaskBoardTicker() {
+  if (_taskBoardTimer) return;
+  // Đếm ngược hạn mỗi 15 giây; tải lại số liệu mỗi 60 giây phòng khi mất sự kiện WebSocket.
+  _taskBoardTimer = setInterval(() => {
+    if (!_tasksTabActive()) return;
+    if (Date.now() - _taskBoardFetchedAt > 60000) loadTaskBoard();
+    else renderTaskBoard();
+  }, 15000);
+}
+
+function scheduleTaskBoardReload() {
+  if (!_tasksTabActive()) return;
+  clearTimeout(_taskBoardReload);
+  _taskBoardReload = setTimeout(loadTaskBoard, 400);
+}
+
+function renderTaskTotals() {
+  const t = (_taskBoard && _taskBoard.totals) || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set('tb-sent', t.sent ?? 0);
+  set('tb-sent-sub', `${t.failed || 0} lỗi gửi · ${t.cancelled || 0} đã huỷ`);
+  set('tb-completed', t.completed ?? 0);
+  set('tb-issue', t.issue ?? 0);
+  set('tb-pending', t.pending ?? 0);
+  const od = document.getElementById('tb-overdue');
+  if (od) {
+    od.textContent = t.overdue ? `${t.overdue} việc quá hạn` : 'không có việc quá hạn';
+    od.className = `text-[10px] mt-0.5 ${t.overdue ? 'text-rose-400 font-bold' : 'text-slate-500'}`;
+  }
+  set('tb-rate', t.completion_rate === null || t.completion_rate === undefined ? '—' : `${t.completion_rate}%`);
+  const bar = document.getElementById('tb-rate-bar');
+  if (bar) bar.style.width = `${Math.min(100, Math.max(0, t.completion_rate || 0))}%`;
+  set('tb-resp', _fmtDur(t.avg_response_s));
+  set('tb-resp-sub', t.median_response_s === null || t.median_response_s === undefined
+    ? 'chưa có phản hồi nào' : `trung vị ${_fmtDur(t.median_response_s)}`);
+  const badge = document.getElementById('badge-kpi-count');
+  if (badge) badge.textContent = `${t.pending || 0}`;
+  const hint = document.getElementById('task-write-hint');
+  if (hint) hint.classList.toggle('hidden', _canWriteTasks());
+  const btn = document.getElementById('btn-send-task');
+  if (btn) btn.disabled = !_canWriteTasks();
+}
+
+function renderTaskTargets() {
+  const box = document.getElementById('task-targets');
+  if (!box || !_taskBoard) return;
+  const chosen = new Set([...box.querySelectorAll('input:checked')].map(i => i.value));
+  const online = _taskBoard.online_clients || [];
+  if (!online.length) {
+    box.innerHTML = '<span class="text-xs text-slate-500 italic">Không có máy trạm nào online.</span>';
+  } else {
+    box.innerHTML = online.map(cid => `
+      <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-white/10 text-xs cursor-pointer hover:border-cyan-500/50">
+        <input type="checkbox" value="${_esc(cid)}" ${chosen.has(cid) ? 'checked' : ''} onchange="updateTaskTargetCount()" class="accent-cyan-500" />
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+        <span class="font-mono">${_esc(cid)}</span>
+      </label>`).join('');
+  }
+  updateTaskTargetCount();
+  const sel = document.getElementById('task-filter-client');
+  if (sel) {
+    const cur = sel.value;
+    const ids = [...new Set([...(_taskBoard.machines || []).map(m => m.client_id), ...online])].sort();
+    sel.innerHTML = '<option value="">Mọi máy</option>' + ids.map(c =>
+      `<option value="${_esc(c)}" ${c === cur ? 'selected' : ''}>${_esc(c)}</option>`).join('');
+  }
+  const senderEl = document.getElementById('task-sender');
+  if (senderEl && currentUser) senderEl.placeholder = currentUser.full_name || currentUser.username || 'Tên tài khoản';
+}
+
+function selectAllTaskTargets(on) {
+  document.querySelectorAll('#task-targets input[type=checkbox]').forEach(i => { i.checked = on; });
+  updateTaskTargetCount();
+}
+
+function updateTaskTargetCount() {
+  const n = document.querySelectorAll('#task-targets input:checked').length;
+  const el = document.getElementById('task-target-count');
+  if (el) el.textContent = n ? `(${n} máy)` : '';
+}
+
+function _taskStatusBadge(t) {
+  const map = {
+    completed: ['Hoàn thành', 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40'],
+    issue: ['Vướng mắc', 'bg-rose-500/20 text-rose-300 border-rose-400/40'],
+    failed: ['Lỗi gửi', 'bg-slate-500/20 text-slate-300 border-slate-400/40'],
+    cancelled: ['Đã huỷ', 'bg-slate-500/20 text-slate-400 border-slate-400/30'],
+  };
+  if (t.status === 'pending') {
+    return t.overdue
+      ? '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-rose-600/30 text-rose-200 border-rose-500/60">Quá hạn</span>'
+      : '<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border bg-amber-500/20 text-amber-300 border-amber-400/40">Đang chờ</span>';
+  }
+  const [label, cls] = map[t.status] || [t.status, 'bg-slate-500/20 text-slate-300 border-slate-400/40'];
+  return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${cls}">${_esc(label)}</span>`;
+}
+
+function _taskTiming(t) {
+  if (t.status === 'pending') {
+    if (!t.due_at) return '<span class="text-slate-500">không đặt hạn</span>';
+    // Đếm ngược tính lại theo thời gian trôi kể từ lần tải số liệu.
+    const left = (t.due_in_s ?? 0) - (Date.now() - _taskBoardFetchedAt) / 1000;
+    return left >= 0
+      ? `<span class="text-amber-300">còn ${_fmtDur(left)}</span>`
+      : `<span class="text-rose-400 font-bold">trễ ${_fmtDur(-left)}</span>`;
+  }
+  if (t.response_s !== null && t.response_s !== undefined) {
+    return `<span class="text-slate-300">trả lời sau ${_fmtDur(t.response_s)}</span>`;
+  }
+  return '<span class="text-slate-500">—</span>';
+}
+
+function renderTaskBoard() {
+  const body = document.getElementById('task-board-body');
+  if (!body || !_taskBoard) return;
+  const client = document.getElementById('task-filter-client')?.value || '';
+  const q = (document.getElementById('task-filter-text')?.value || '').trim().toLowerCase();
+  document.querySelectorAll('.task-st-btn').forEach(b => {
+    const on = b.dataset.st === _taskStatusFilter;
+    b.classList.toggle('bg-cyan-500/20', on);
+    b.classList.toggle('text-cyan-700', on);
+    b.classList.toggle('dark:text-cyan-300', on);
+    b.classList.toggle('font-bold', on);
+  });
+  const now = Date.now();
+  let rows = (_taskBoard.tasks || []).map(t => {
+    if (t.status === 'pending' && t.due_at && !t.overdue) {
+      const left = (t.due_in_s ?? 0) - (now - _taskBoardFetchedAt) / 1000;
+      if (left < 0) return { ...t, overdue: true };
+    }
+    return t;
+  });
+  rows = rows.filter(t => {
+    if (client && t.client_id !== client) return false;
+    if (q && !String(t.task_message || '').toLowerCase().includes(q)) return false;
+    switch (_taskStatusFilter) {
+      case 'pending': return t.status === 'pending';
+      case 'overdue': return t.overdue;
+      case 'completed': return t.status === 'completed';
+      case 'issue': return t.status === 'issue';
+      case 'closed': return t.status === 'failed' || t.status === 'cancelled';
+      default: return true;
+    }
+  });
+  const total = rows.length;
+  rows = rows.slice(0, 300);
+  if (!rows.length) {
+    body.innerHTML = `<tr><td colspan="7" class="py-6 text-center text-slate-500 italic">${
+      (_taskBoard.tasks || []).length ? 'Không có việc nào khớp bộ lọc.' : 'Chưa giao việc nào trong khoảng thời gian này.'}</td></tr>`;
+  } else {
+    const canWrite = _canWriteTasks();
+    body.innerHTML = rows.map(t => {
+      const acts = (t.status === 'pending' && canWrite) ? `
+        <button type="button" onclick="taskAction('${_esc(t.task_id)}','remind')" ${t.online ? '' : 'disabled title="Máy đang ngoại tuyến"'}
+          class="px-2 py-0.5 rounded border border-cyan-500/40 text-cyan-300 text-[10px] hover:bg-cyan-500/10 disabled:opacity-40">Nhắc lại</button>
+        <button type="button" onclick="taskAction('${_esc(t.task_id)}','cancel')"
+          class="px-2 py-0.5 rounded border border-slate-500/40 text-slate-300 text-[10px] hover:bg-white/5">Huỷ</button>` : '';
+      return `
+        <tr class="${t.overdue ? 'bg-rose-500/5' : ''}">
+          <td class="py-2 px-2 font-mono text-slate-400 whitespace-nowrap">${_esc(t.timestamp || '—')}</td>
+          <td class="py-2 px-2 whitespace-nowrap"><span class="inline-block w-1.5 h-1.5 rounded-full mr-1 ${t.online ? 'bg-emerald-400' : 'bg-slate-500'}" title="${t.online ? 'online' : 'ngoại tuyến'}"></span><span class="font-mono font-bold text-cyan-400">${_esc(t.client_id)}</span></td>
+          <td class="py-2 px-2 text-slate-800 dark:text-white break-words max-w-[28rem]">${_esc(t.task_message || '—')}${
+            t.resolution_notes ? `<div class="text-[10px] text-slate-500 mt-0.5">${_esc(t.resolution_notes)}</div>` : ''}</td>
+          <td class="py-2 px-2 whitespace-nowrap text-slate-400">${_esc(t.dispatched_by || '—')}${
+            t.sender && t.sender !== t.dispatched_by ? `<div class="text-[10px] text-slate-500">nhãn: ${_esc(t.sender)}</div>` : ''}</td>
+          <td class="py-2 px-2 whitespace-nowrap">${_taskTiming(t)}</td>
+          <td class="py-2 px-2 whitespace-nowrap">${_taskStatusBadge(t)}</td>
+          <td class="py-2 px-2 whitespace-nowrap text-right space-x-1">${acts}</td>
+        </tr>`;
+    }).join('');
+  }
+  const more = document.getElementById('task-board-more');
+  if (more) more.textContent = total > rows.length ? `Hiển thị ${rows.length}/${total} việc — dùng bộ lọc hoặc Xuất CSV để xem đủ.` : '';
+}
+
+function renderTaskMachines() {
+  const body = document.getElementById('task-machines-body');
+  if (!body || !_taskBoard) return;
+  const ms = _taskBoard.machines || [];
+  if (!ms.length) {
+    body.innerHTML = '<tr><td colspan="8" class="py-6 text-center text-slate-500 italic">Chưa có số liệu.</td></tr>';
+    return;
+  }
+  body.innerHTML = ms.map(m => {
+    const r = m.completion_rate;
+    const color = r === null ? 'bg-slate-500' : r >= 80 ? 'bg-emerald-400' : r >= 50 ? 'bg-amber-400' : 'bg-rose-500';
+    return `
+      <tr>
+        <td class="py-2 px-2 whitespace-nowrap"><span class="inline-block w-1.5 h-1.5 rounded-full mr-1 ${m.online ? 'bg-emerald-400' : 'bg-slate-500'}"></span><button type="button" class="font-mono font-bold text-cyan-400 hover:underline" onclick="filterTasksByClient('${_esc(m.client_id)}')">${_esc(m.client_id)}</button></td>
+        <td class="py-2 px-2 text-right">${m.sent}</td>
+        <td class="py-2 px-2 text-right text-emerald-400">${m.completed}</td>
+        <td class="py-2 px-2 text-right ${m.issue ? 'text-rose-400 font-bold' : ''}">${m.issue}</td>
+        <td class="py-2 px-2 text-right">${m.pending}</td>
+        <td class="py-2 px-2 text-right ${m.overdue ? 'text-rose-400 font-bold' : ''}">${m.overdue}</td>
+        <td class="py-2 px-2"><div class="flex items-center gap-2"><div class="w-24 bg-white/10 h-1.5 rounded-full overflow-hidden"><div class="h-full ${color}" style="width:${Math.min(100, r || 0)}%"></div></div><span>${r === null ? '—' : r + '%'}</span></div></td>
+        <td class="py-2 px-2 text-right whitespace-nowrap">${_fmtDur(m.avg_response_s)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function filterTasksByClient(cid) {
+  const sel = document.getElementById('task-filter-client');
+  if (sel) sel.value = cid;
+  renderTaskBoard();
+  document.getElementById('task-board-body')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function initTaskBoardFilters() {
+  document.querySelectorAll('.task-st-btn').forEach(b => {
+    if (b.dataset.bound) return;
+    b.dataset.bound = '1';
+    b.addEventListener('click', () => { _taskStatusFilter = b.dataset.st; renderTaskBoard(); });
+  });
+}
+
+async function taskAction(taskId, action) {
+  if (action === 'cancel' && !confirm('Huỷ việc này? Phản hồi muộn của máy trạm sẽ bị bỏ qua.')) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/tasks/${encodeURIComponent(taskId)}/${action}`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    showToast(data.message || 'Đã thực hiện', 'success');
+    loadTaskBoard();
+  } catch (err) {
+    showToast(err.message || 'Thao tác thất bại', 'error');
+  }
+}
+
+async function exportTasksCsv() {
+  const days = document.getElementById('tasks-range')?.value || '30';
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/tasks/export.csv?days=${encodeURIComponent(days)}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `giao_viec_${days}ngay.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (err) {
+    showToast(err.message || 'Xuất CSV thất bại', 'error');
+  }
+}
+
 async function handleSendTask(e) {
   if (e) e.preventDefault();
-  const clientSelect = document.getElementById('task-target-client');
+  const targets = [...document.querySelectorAll('#task-targets input:checked')].map(i => i.value);
   const msgInput = document.getElementById('task-message');
-  const senderInput = document.getElementById('task-sender');
-  const btn = document.getElementById('btn-send-task');
-
-  const clientId = clientSelect ? clientSelect.value.trim() : '';
   const message = msgInput ? msgInput.value.trim() : '';
-  const sender = senderInput ? senderInput.value.trim() : 'Ban Giám Đốc';
+  const sender = (document.getElementById('task-sender')?.value || '').trim();
+  const due = document.getElementById('task-due')?.value || '';
+  const btn = document.getElementById('btn-send-task');
+  if (!targets.length) { showToast('Chọn ít nhất một máy trạm nhận việc', 'warning'); return; }
+  if (!message) { showToast('Nhập nội dung công việc cần giao', 'warning'); return; }
 
-  if (!clientId) {
-    showToast('Vui lòng chọn máy trạm nhận việc', 'warning');
-    return;
-  }
-  if (!message) {
-    showToast('Vui lòng nhập nội dung công việc cần giao', 'warning');
-    return;
-  }
-
-  if (btn) {
-    btn.disabled = true;
-    btn.innerHTML = `<span>Đang gửi...</span>`;
-  }
-
+  if (btn) { btn.disabled = true; btn.textContent = 'Đang gửi…'; }
   try {
-    const res = await apiSendTask(clientId, message, sender);
-    showToast(`Đã đẩy nhắc việc tới máy [${clientId}] thành công!`, 'success');
-    if (msgInput) msgInput.value = '';
-    setTimeout(() => loadKpiLogs(), 1200);
-  } catch (err) {
-    showToast(err.message || 'Lỗi gửi tác vụ', 'error');
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.innerHTML = `
-        <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-        Gửi Nhắc Việc
-      `;
+    const res = await apiFetch(`${API_BASE}/api/v1/tasks/send`, {
+      method: 'POST',
+      body: JSON.stringify({ client_ids: targets, message, sender: sender || null,
+                             due_minutes: due ? Number(due) : null }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (data.results) {
+      const bad = data.results.filter(r => r.status !== 'success');
+      showToast(`Đã gửi ${data.sent}/${targets.length} máy${bad.length ? ' — lỗi: ' + bad.map(r => r.client_id).join(', ') : ''}`,
+        bad.length ? 'warning' : 'success');
+    } else {
+      showToast(`Đã gửi nhắc việc tới máy ${targets[0]}`, 'success');
     }
+    if (msgInput) msgInput.value = '';
+    loadTaskBoard();
+  } catch (err) {
+    showToast(err.message || 'Lỗi gửi việc', 'error');
+  } finally {
+    if (btn) { btn.disabled = !_canWriteTasks(); btn.textContent = 'Gửi nhắc việc'; }
   }
 }
 
@@ -8153,7 +8449,7 @@ let g_erp_expanded_depts = new Set();
 let g_erp_active_subtabs = {}; // deptId -> 'employees' | 'devices' | 'tasks' | 'records'
 
 async function refreshTasksAndErp() {
-  await Promise.all([loadKpiLogs(), loadErpStructure()]);
+  await Promise.all([loadTaskBoard(), loadErpStructure()]);
   showToast('Đã làm mới dữ liệu công việc và cấu trúc tổ chức ERP!', 'info');
 }
 
@@ -9251,6 +9547,12 @@ function initPortalWebSocket() {
     let msg;
     try { msg = JSON.parse(evt.data); } catch { return; }
     const event = msg.event;
+
+    // Máy trạm vừa phản hồi / việc mới giao -> làm mới bảng giám sát #tasks.
+    if (event === 'task_update') {
+      scheduleTaskBoardReload();
+      return;
+    }
 
     // --- Phase 21: Route real-time log entries to LogViewer ---
     if (event === 'log_entry') {

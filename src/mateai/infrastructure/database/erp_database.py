@@ -120,6 +120,9 @@ def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
                 due_date TEXT,
                 created_by_ai INTEGER NOT NULL DEFAULT 0,
                 resolution_notes TEXT,
+                dispatched_by TEXT,   -- tài khoản Portal đã giao (sender chỉ là nhãn hiển thị)
+                due_at TEXT,          -- hạn phản hồi (giờ máy chủ, "%Y-%m-%d %H:%M:%S")
+                responded_at TEXT,    -- lúc máy trạm báo hoàn thành / vướng mắc
                 FOREIGN KEY (dept_id) REFERENCES departments(id) ON DELETE CASCADE,
                 FOREIGN KEY (assignee_id) REFERENCES employees(id) ON DELETE SET NULL
             );
@@ -145,6 +148,10 @@ def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
             ("sender",            "TEXT"),
             ("created_at",        "TEXT"),
             ("updated_at",        "TEXT"),
+            # Giám sát giao việc (2026-10-05): ai giao, hạn, lúc phản hồi.
+            ("dispatched_by",     "TEXT"),
+            ("due_at",            "TEXT"),
+            ("responded_at",      "TEXT"),
         ]
         for _col, _col_def in _task_migrations:
             if _col not in existing_cols:

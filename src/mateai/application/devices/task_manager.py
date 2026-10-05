@@ -35,6 +35,91 @@ _PROJECT_ROOT = Path(_settings.PROJECT_ROOT)
 _LOGS_DIR = _PROJECT_ROOT / "logs"
 _KPI_CSV_PATH = _LOGS_DIR / "kpi_logs.csv"
 _CSV_HEADERS = ["Timestamp", "Client_ID", "Task_Message", "Status"]
+_TS = "%Y-%m-%d %H:%M:%S"
+#: Trạng thái máy trạm được phép báo (nút trên popup). Giá trị khác -> "issue".
+_RESPONSE_STATUSES = ("completed", "issue")
+
+
+def _parse_ts(value: Any) -> Optional[float]:
+    try:
+        return datetime.strptime(str(value), _TS).timestamp()
+    except (TypeError, ValueError):
+        return None
+
+
+def _notify_portal(task_id: str, client_id: str, status: str) -> None:
+    """Báo Portal làm mới bảng giám sát (không gửi nội dung việc)."""
+    try:
+        import asyncio
+        from mateai.interfaces.websocket.realtime_hub import broadcast_portal_ui
+        asyncio.get_running_loop().create_task(broadcast_portal_ui(
+            "task_update", {"task_id": task_id, "client_id": client_id, "status": status}))
+    except Exception:  # noqa: BLE001 — không có loop (CLI/test) thì thôi
+        pass
+
+
+def build_board(rows: List[Dict[str, Any]], now: Optional[float] = None,
+                online: Optional[set] = None) -> Dict[str, Any]:
+    """Thống kê + danh sách cho bảng giám sát (thuần — test được).
+
+    Tỷ lệ hoàn thành = hoàn thành / (hoàn thành + vướng mắc + quá hạn): việc còn
+    trong hạn chưa tính là trượt. Thời gian phản hồi = responded_at - lúc giao.
+    """
+    now = now or time.time()
+    online = online or set()
+    totals = {"sent": 0, "completed": 0, "issue": 0, "pending": 0, "overdue": 0, "failed": 0, "cancelled": 0}
+    per: Dict[str, Dict[str, Any]] = {}
+    resp: List[float] = []
+    items: List[Dict[str, Any]] = []
+    for r in rows:
+        st = str(r.get("status") or "").lower()
+        sent = _parse_ts(r.get("timestamp"))
+        due = _parse_ts(r.get("due_at"))
+        answered = _parse_ts(r.get("responded_at"))
+        overdue = st == "pending" and due is not None and now > due
+        rsec = round(answered - sent, 1) if (answered is not None and sent is not None) else None
+        cid = str(r.get("client_id") or "")
+        m = per.setdefault(cid, {"client_id": cid, "online": cid in online, "sent": 0, "completed": 0,
+                                 "issue": 0, "pending": 0, "overdue": 0, "_resp": []})
+        totals["sent"] += 1
+        m["sent"] += 1
+        key = st if st in totals else "pending"
+        totals[key] += 1
+        if key in m:
+            m[key] += 1
+        if overdue:
+            totals["overdue"] += 1
+            m["overdue"] += 1
+        if rsec is not None and st in _RESPONSE_STATUSES:
+            resp.append(rsec)
+            m["_resp"].append(rsec)
+        items.append({**r, "status": st, "overdue": overdue, "response_s": rsec,
+                      "online": cid in online,
+                      "due_in_s": (round(due - now) if (st == "pending" and due is not None) else None)})
+
+    def rate(c: int, i: int, o: int) -> Optional[float]:
+        d = c + i + o
+        return round(c * 100.0 / d, 1) if d else None
+
+    def avg(v: List[float]) -> Optional[float]:
+        return round(sum(v) / len(v), 1) if v else None
+
+    machines = []
+    for m in per.values():
+        r_ = m.pop("_resp")
+        m["avg_response_s"] = avg(r_)
+        m["completion_rate"] = rate(m["completed"], m["issue"], m["overdue"])
+        machines.append(m)
+    machines.sort(key=lambda x: (-x["overdue"], -x["issue"], -x["sent"]))
+    resp.sort()
+    return {
+        "totals": {**totals, "completion_rate": rate(totals["completed"], totals["issue"], totals["overdue"]),
+                   "avg_response_s": avg(resp),
+                   "median_response_s": (resp[len(resp) // 2] if resp else None)},
+        "machines": machines,
+        "tasks": items,
+        "generated_at": now,
+    }
 
 
 class TaskManager:
@@ -78,10 +163,15 @@ class TaskManager:
         message: str,
         sender: str = "Ban Giám Đốc",
         timeout: float = 300.0,
+        *,
+        dispatched_by: Optional[str] = None,
+        due_minutes: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Dispatch a task to a worker node via WebSocket.
-        Saves task to in-memory dict and returns dispatch confirmation.
+        Gửi popup nhắc việc tới một máy trạm. `sender` là nhãn hiển thị trên popup;
+        `dispatched_by` là tài khoản thật đã giao (lưu + audit). `due_minutes`: hạn
+        phản hồi — quá hạn mà máy chưa trả lời thì bảng giám sát báo "quá hạn".
+        Gửi lỗi -> task ghi "failed" (trước đây treo "pending" mãi mãi).
         """
         from mateai.interfaces.websocket.client_orchestrator import orchestrator
 
@@ -94,67 +184,89 @@ class TaskManager:
 
         task_id = f"task_{uuid.uuid4().hex[:8]}"
         now_ts = time.time()
-        now_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        now_iso = datetime.now().strftime(_TS)
+        due_at = (datetime.fromtimestamp(now_ts + int(due_minutes) * 60).strftime(_TS)
+                  if due_minutes else None)
 
-        # Save to RAM
         self._pending_tasks[task_id] = {
-            "task_id": task_id,
-            "client_id": client_id,
-            "message": message,
-            "sender": sender,
-            "status": "pending",
-            "dispatched_at": now_ts,
-            "dispatched_at_iso": now_iso,
+            "task_id": task_id, "client_id": client_id, "message": message, "sender": sender,
+            "status": "pending", "dispatched_at": now_ts, "dispatched_at_iso": now_iso,
         }
-
-        # Save to SQLite
         try:
             db_manager.add_or_update_task({
-                "task_id": task_id,
-                "timestamp": now_iso,
-                "client_id": client_id,
-                "task_message": message,
-                "sender": sender,
-                "status": "pending",
+                "task_id": task_id, "timestamp": now_iso, "client_id": client_id,
+                "task_message": message, "sender": sender, "status": "pending",
+                "dispatched_by": dispatched_by or "ai", "due_at": due_at,
             })
         except Exception as dbe:
             logger.warning("TaskManager: Lỗi lưu task vào SQLite: %s", dbe)
 
-        # Send WebSocket payload to client
-        payload = {
-            "action": "task_popup",
-            "task_id": task_id,
-            "message": message,
-            "sender": sender,
-            "timestamp": now_ts,
-        }
-
         try:
-            session = orchestrator._clients.get(client_id)
-            if not session or not session.get("websocket"):
-                raise ConnectionError(f"Phiên kết nối của máy trạm '{client_id}' không tồn tại.")
-
-            import json
-            ws = session["websocket"]
-            await ws.send_text(json.dumps(payload, ensure_ascii=False))
-            logger.info("TaskManager: Đã đẩy nhắc việc tới [%s] (Task ID: %s): '%s'", client_id, task_id, message)
-
-            return {
-                "status": "success",
-                "task_id": task_id,
-                "client_id": client_id,
-                "message": f"Đã gửi nhiệm vụ tới máy trạm '{client_id}' thành công.",
-                "dispatched_at": now_iso,
-            }
-
+            await self._push_popup(client_id, task_id, message, sender, now_ts)
         except Exception as exc:
             logger.error("Lỗi khi gửi task tới máy trạm [%s]: %s", client_id, exc)
             self._pending_tasks.pop(task_id, None)
+            self._close(task_id, "failed", note=f"Gửi popup lỗi: {exc}")
             return {
                 "status": "error",
                 "client_id": client_id,
                 "message": f"Lỗi gửi tin nhắn qua WebSocket tới máy trạm '{client_id}': {exc}",
             }
+
+        logger.info("TaskManager: Đã đẩy nhắc việc tới [%s] (Task ID: %s)", client_id, task_id)
+        _notify_portal(task_id, client_id, "pending")
+        return {
+            "status": "success",
+            "task_id": task_id,
+            "client_id": client_id,
+            "message": f"Đã gửi nhiệm vụ tới máy trạm '{client_id}' thành công.",
+            "dispatched_at": now_iso,
+            "due_at": due_at,
+        }
+
+    async def _push_popup(self, client_id: str, task_id: str, message: str, sender: str, ts: float) -> None:
+        import json
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
+        session = orchestrator._clients.get(client_id)
+        if not session or not session.get("websocket"):
+            raise ConnectionError(f"Phiên kết nối của máy trạm '{client_id}' không tồn tại.")
+        await session["websocket"].send_text(json.dumps({
+            "action": "task_popup", "task_id": task_id, "message": message,
+            "sender": sender, "timestamp": ts,
+        }, ensure_ascii=False))
+
+    async def remind_task(self, task_id: str) -> Dict[str, Any]:
+        """Gửi lại popup của một việc còn chờ (cùng task_id — máy trả lời lúc nào cũng được tính)."""
+        task = db_manager.get_task(task_id)
+        if not task or str(task.get("status")).lower() != "pending":
+            return {"status": "error", "message": "Chỉ nhắc lại được việc đang chờ phản hồi."}
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
+        cid = str(task.get("client_id"))
+        if not orchestrator.is_client_online(cid):
+            return {"status": "error", "message": f"Máy trạm '{cid}' đang ngoại tuyến."}
+        try:
+            await self._push_popup(cid, task_id, str(task.get("task_message") or ""),
+                                   str(task.get("sender") or ""), time.time())
+        except Exception as exc:  # noqa: BLE001
+            return {"status": "error", "message": f"Gửi lại lỗi: {exc}"}
+        return {"status": "success", "message": f"Đã nhắc lại việc trên máy '{cid}'."}
+
+    def cancel_task(self, task_id: str, by: str) -> Dict[str, Any]:
+        """Huỷ việc còn chờ. Phản hồi muộn của máy trạm sau đó bị bỏ qua."""
+        if not self._close(task_id, "cancelled", note=f"Huỷ bởi {by}"):
+            return {"status": "error", "message": "Chỉ huỷ được việc đang chờ phản hồi."}
+        self._pending_tasks.pop(task_id, None)
+        task = db_manager.get_task(task_id) or {}
+        _notify_portal(task_id, str(task.get("client_id") or ""), "cancelled")
+        return {"status": "success", "message": "Đã huỷ việc."}
+
+    @staticmethod
+    def _close(task_id: str, status: str, **kw: Any) -> bool:
+        try:
+            return db_manager.close_pending_task(task_id, status, **kw)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Không cập nhật được task %s -> %s: %s", task_id, status, exc)
+            return False
 
     # ------------------------------------------------------------------
     # Handling Responses & Recording KPI
@@ -166,74 +278,75 @@ class TaskManager:
         task_id: str,
         status: str,
         message: Optional[str] = None,
+        error: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Process worker response ('completed' or 'issue').
-        1. Updates RAM
-        2. Appends to kpi_logs.csv
-        3. Fires TTS voice notification
+        Phản hồi của máy trạm ('completed' / 'issue').
+
+        Chỉ nhận khi task_id là việc ĐANG CHỜ đã giao cho CHÍNH máy này. Trước đây
+        mọi task_id đều được ghi: một máy trạm có thể tự bịa đầu việc "hoàn thành"
+        vào KPI, hoặc đóng việc của máy khác; trạng thái là chuỗi tuỳ ý từ máy trạm.
         """
+        st = str(status or "").strip().lower()
+        timestamp_iso = datetime.now().strftime(_TS)
+        if st == "dismissed":
+            # Nhân viên đóng popup không chọn: việc VẪN CHỜ (Portal thấy ghi chú, nhắc lại được).
+            if self._close(task_id, "pending", client_id=client_id,
+                           note=f"Nhân viên đóng cửa sổ lúc {timestamp_iso} — chưa trả lời"):
+                _notify_portal(task_id, client_id, "dismissed")
+                return {"status": "dismissed", "task_id": task_id, "client_id": client_id}
+            return {"status": "ignored", "task_id": task_id, "client_id": client_id}
+        st = st if st in _RESPONSE_STATUSES else "issue"
+        if not self._close(task_id, st, client_id=client_id, responded_at=timestamp_iso,
+                           note=(str(error)[:300] if error else None)):
+            logger.warning("Bỏ qua phản hồi task [%s] từ [%s]: không phải việc đang chờ của máy này.",
+                           task_id, client_id)
+            return {"status": "ignored", "task_id": task_id, "client_id": client_id}
+
         task_info = self._pending_tasks.pop(task_id, {})
-        task_msg = message or task_info.get("message") or "Công việc được giao"
-        timestamp_iso = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        task = db_manager.get_task(task_id) or {}
+        task_msg = str(task.get("task_message") or task_info.get("message") or message or "Công việc được giao")
 
-        # 1. Update in-memory recent history (keep last 200 items in RAM)
-        record = {
-            "timestamp": timestamp_iso,
-            "client_id": client_id,
-            "task_id": task_id,
-            "task_message": task_msg,
-            "status": status,
-        }
+        record = {"timestamp": timestamp_iso, "client_id": client_id, "task_id": task_id,
+                  "task_message": task_msg, "status": st}
         self._recent_history.insert(0, record)
-        if len(self._recent_history) > 200:
-            self._recent_history = self._recent_history[:200]
+        del self._recent_history[200:]
 
-        # 2. Append to logs/kpi_logs.csv
         try:
             with open(self.csv_path, mode="a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                writer.writerow([timestamp_iso, client_id, task_msg, status])
-            logger.info("Đã ghi nhận KPI vào CSV: [%s] | Máy: %s | Trạng thái: %s", timestamp_iso, client_id, status)
+                csv.writer(f).writerow([timestamp_iso, client_id, task_msg, st])
         except Exception as exc:
             logger.error("Lỗi ghi kpi_logs.csv: %s", exc)
 
-        # 3. Update in SQLite Database
-        try:
-            db_manager.add_or_update_task({
-                "task_id": task_id,
-                "timestamp": timestamp_iso,
-                "client_id": client_id,
-                "task_message": task_msg,
-                "status": status,
-            })
-            logger.info("Đã ghi nhận KPI vào SQLite: [%s] | Task: %s", timestamp_iso, task_id)
-        except Exception as dbe:
-            logger.warning("Lỗi cập nhật task trong SQLite: %s", dbe)
-
-        # 4. Trigger Voice TTS notification
-        announcement = ""
-        if status == "completed":
+        if st == "completed":
             announcement = f"Báo cáo Sếp, máy {client_id} vừa báo cáo đã hoàn thành công việc: {task_msg}."
-        elif status in ("issue", "error"):
-            announcement = f"Cảnh báo, máy {client_id} báo cáo đang gặp vướng mắc với công việc: {task_msg}."
         else:
-            announcement = f"Máy {client_id} vừa phản hồi công việc với trạng thái: {status}."
-
-        if self._tts_notifier and announcement:
+            announcement = f"Cảnh báo, máy {client_id} báo cáo đang gặp vướng mắc với công việc: {task_msg}."
+        if self._tts_notifier:
             try:
                 self._tts_notifier(announcement)
             except Exception as exc:
                 logger.warning("Không thể phát TTS thông báo KPI: %s", exc)
+        _notify_portal(task_id, client_id, st)
 
         return {
             "status": "success",
             "task_id": task_id,
             "client_id": client_id,
-            "kpi_status": status,
+            "kpi_status": st,
             "timestamp": timestamp_iso,
             "announcement": announcement,
         }
+
+    # ------------------------------------------------------------------
+    # Bảng giám sát (Portal #tasks)
+    # ------------------------------------------------------------------
+
+    def board(self, days: int = 30, now: Optional[float] = None, online: Optional[set] = None) -> Dict[str, Any]:
+        """Số liệu THẬT của các việc giao cho máy trạm trong `days` ngày gần nhất."""
+        return build_board(db_manager.list_micro_tasks(
+            since=datetime.fromtimestamp((now or time.time()) - days * 86400).strftime(_TS)),
+            now=now, online=online)
 
     # ------------------------------------------------------------------
     # KPI Analytics & Summaries

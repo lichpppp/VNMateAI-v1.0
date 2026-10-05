@@ -11,6 +11,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -30,9 +31,27 @@ router = APIRouter()
 
 class TaskDispatchRequest(BaseModel):
     """Payload for POST /api/v1/tasks/send."""
-    client_id: str = Field(..., description="ID máy trạm đích")
-    message: str = Field(..., min_length=1, description="Nội dung công việc cần nhắc")
-    sender: Optional[str] = Field(default="Ban Giám Đốc", description="Tên người hoặc phòng ban gửi")
+    client_id: Optional[str] = Field(default=None, description="ID máy trạm đích")
+    client_ids: Optional[List[str]] = Field(default=None, max_length=200, description="Giao cùng lúc nhiều máy")
+    message: str = Field(..., min_length=1, max_length=500, description="Nội dung công việc cần nhắc")
+    sender: Optional[str] = Field(default=None, max_length=80, description="Nhãn người/phòng ban gửi hiện trên popup")
+    due_minutes: Optional[int] = Field(default=None, ge=1, le=10080, description="Hạn phản hồi (phút)")
+
+
+_WRITE = Depends(require_roles(["manager", "admin"]))
+
+
+def _online_clients() -> set:
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
+    return {cid for cid in list(orchestrator._clients) if orchestrator.is_client_online(cid)}
+
+
+def _audit(user: Dict[str, Any], action: str, details: Dict[str, Any], ok: bool = True) -> None:
+    try:
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(str(user.get("username")), action, "TASKS", "SUCCESS" if ok else "FAILED", details)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 @router.get(
@@ -51,6 +70,19 @@ async def get_kpi_logs_endpoint(
     return task_manager.get_kpi_logs(limit=limit, client_id=client_id, status=status)
 
 
+@router.get("/api/v1/tasks/board", summary="Bảng giám sát giao việc (số liệu thật)", tags=["Micro-Tasking"])
+async def task_board(
+    days: int = Query(default=30, ge=1, le=365),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    from mateai.application.devices.task_manager import task_manager
+    online = _online_clients()
+    data = await run_blocking(partial(task_manager.board, days, None, online))
+    data["online_clients"] = sorted(online)
+    data["days"] = days
+    return {"status": "success", **data}
+
+
 @router.post(
     "/api/v1/tasks/send",
     summary="Dispatch a micro-task popup to a worker client node",
@@ -58,22 +90,81 @@ async def get_kpi_logs_endpoint(
 )
 async def send_task_endpoint(
     payload: TaskDispatchRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = _WRITE,
 ) -> Dict[str, Any]:
-    """Send interactive task popup to LAN worker node with role check."""
-    if current_user.get("role") == "viewer":
-        raise HTTPException(
-            status_code=403,
-            detail="Tài khoản Viewer chỉ có quyền xem, không được phát lệnh giao việc.",
-        )
+    """Gửi popup nhắc việc tới một hoặc nhiều máy trạm (manager / admin).
 
+    Người giao THẬT là tài khoản đăng nhập (lưu `dispatched_by` + audit); `sender`
+    chỉ là nhãn hiển thị trên popup."""
     from mateai.application.devices.task_manager import task_manager
-    sender = payload.sender or current_user.get("full_name", "Ban Giám Đốc")
-    result = await task_manager.dispatch_task(
-        client_id=payload.client_id,
-        message=payload.message,
-        sender=sender,
-    )
-    if result.get("status") != "success":
-        raise HTTPException(status_code=400, detail=result.get("message", "Gửi task thất bại"))
-    return result
+    targets = [c.strip() for c in (payload.client_ids or []) if c and c.strip()]
+    if payload.client_id and payload.client_id.strip():
+        targets.insert(0, payload.client_id.strip())
+    targets = list(dict.fromkeys(targets))
+    if not targets:
+        raise HTTPException(status_code=400, detail="Chưa chọn máy trạm nhận việc.")
+    username = str(current_user.get("username") or "unknown")
+    sender = (payload.sender or "").strip() or current_user.get("full_name") or username
+    results = []
+    for cid in targets:
+        r = await task_manager.dispatch_task(client_id=cid, message=payload.message.strip(), sender=sender,
+                                             dispatched_by=username, due_minutes=payload.due_minutes)
+        results.append(r)
+    ok = [r for r in results if r.get("status") == "success"]
+    _audit(current_user, "task_dispatch", {"targets": targets, "sent": len(ok),
+                                            "due_minutes": payload.due_minutes}, ok=bool(ok))
+    if len(targets) == 1:
+        if not ok:
+            raise HTTPException(status_code=400, detail=results[0].get("message", "Gửi task thất bại"))
+        return results[0]
+    return {"status": "success" if ok else "error", "sent": len(ok), "failed": len(results) - len(ok),
+            "results": results}
+
+
+@router.post("/api/v1/tasks/{task_id}/remind", summary="Nhắc lại việc còn chờ", tags=["Micro-Tasking"])
+async def remind_task_endpoint(task_id: str, current_user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
+    from mateai.application.devices.task_manager import task_manager
+    r = await task_manager.remind_task(task_id)
+    _audit(current_user, "task_remind", {"task_id": task_id}, ok=r.get("status") == "success")
+    if r.get("status") != "success":
+        raise HTTPException(status_code=409, detail=r.get("message"))
+    return r
+
+
+@router.post("/api/v1/tasks/{task_id}/cancel", summary="Huỷ việc còn chờ", tags=["Micro-Tasking"])
+async def cancel_task_endpoint(task_id: str, current_user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
+    from mateai.application.devices.task_manager import task_manager
+    r = task_manager.cancel_task(task_id, str(current_user.get("username") or "unknown"))
+    _audit(current_user, "task_cancel", {"task_id": task_id}, ok=r.get("status") == "success")
+    if r.get("status") != "success":
+        raise HTTPException(status_code=409, detail=r.get("message"))
+    return r
+
+
+@router.get("/api/v1/tasks/export.csv", summary="Xuất danh sách giao việc (CSV)", tags=["Micro-Tasking"])
+async def export_tasks_csv(
+    days: int = Query(default=30, ge=1, le=365),
+    current_user: Dict[str, Any] = _WRITE,
+) -> Response:
+    import csv
+    import io
+    from mateai.application.devices.task_manager import task_manager
+    data = await run_blocking(partial(task_manager.board, days, None, _online_clients()))
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Giao lúc", "Máy trạm", "Nội dung", "Người giao", "Nhãn gửi", "Hạn", "Trạng thái",
+                "Quá hạn", "Phản hồi lúc", "Thời gian phản hồi (giây)", "Ghi chú"])
+    for t in data["tasks"]:
+        w.writerow([t.get("timestamp"), t.get("client_id"), _csv_safe(t.get("task_message")),
+                    t.get("dispatched_by"), _csv_safe(t.get("sender")), t.get("due_at"), t.get("status"),
+                    "có" if t.get("overdue") else "", t.get("responded_at"), t.get("response_s"),
+                    _csv_safe(t.get("resolution_notes"))])
+    _audit(current_user, "task_export", {"days": days, "rows": len(data["tasks"])})
+    return Response(content="\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="giao_viec_{days}ngay.csv"'})
+
+
+def _csv_safe(v: Any) -> str:
+    """Chặn công thức Excel (=, +, -, @) trong ô do người dùng nhập."""
+    s = str(v or "")
+    return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s

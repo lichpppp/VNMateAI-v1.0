@@ -242,7 +242,7 @@ class Orchestrator:
             from mateai.application.devices.task_manager import task_manager
             status = data.get("status", "completed")
             msg = data.get("message")
-            task_manager.handle_task_response(client_id, task_id, status, msg)
+            task_manager.handle_task_response(client_id, task_id, status, msg, error=data.get("error"))
             future = self._pending_tasks.get(task_id)
             if future and not future.done():
                 future.set_result(data)

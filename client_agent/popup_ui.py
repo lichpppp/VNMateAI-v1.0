@@ -3,7 +3,8 @@ client_agent/popup_ui.py
 ========================
 Standalone interactive topmost popup for VN-MateAI Client Agent.
 Runs in its own process to guarantee main-thread GUI compatibility on macOS Cocoa & Windows.
-Outputs response status ('completed' or 'issue') to stdout and exits.
+Outputs response status ('completed', 'issue', or 'dismissed' when the window is
+closed without choosing) to stdout and exits.
 """
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ import tkinter as tk
 
 def show_popup(task_id: str, message: str, sender: str = "Ban Giám Đốc") -> str:
     """Display interactive Tkinter window on main thread and return chosen status."""
-    result = "issue"
+    # Đóng cửa sổ mà không bấm nút = "dismissed" (việc vẫn chờ, Portal nhắc lại được) —
+    # trước đây tính là "vướng mắc".
+    result = "dismissed"
     root = tk.Tk()
     root.title(f"VN-MateAI — Nhắc Việc [{sender}]")
     root.geometry("450x260")
