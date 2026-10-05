@@ -11,32 +11,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            orbitron: ['Orbitron', 'sans-serif'],
-            rajdhani: ['Rajdhani', 'sans-serif'],
-            mono: ['"Share Tech Mono"', 'Courier New', 'monospace'],
-          },
-          colors: {
-            vnmate: {
-              cyan: '#00f2fe',
-              neon: '#00ffff',
-              blue: '#0284c7',
-              cobalt: '#2563eb',
-              amber: '#f59e0b',
-              emerald: '#10b981',
-              dark: '#020813',
-            }
-          }
-        }
-      }
-    }
-  </script>
+  <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/hud.config.js).
+       Trước đây là cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở HUD, cần Internet. -->
+  <link rel="stylesheet" href="/static/tailwind-hud.css?v=1" />
 
   <style>
     /* ─── Ultra-Sharp Sci-Fi Cyberpunk Theme (Zero Blur on Edges) ─────── */

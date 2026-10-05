@@ -48,3 +48,12 @@ def test_tailwind_is_prebuilt_not_cdn():
     # Lớp màu riêng của theme + lớp dark: + lớp mới thêm ở đợt này đều phải có trong CSS build.
     for cls in (".bg-primary-600", r".dark\:bg-white\/\[0\.03\]", ".from-violet-600", ".lg\\:col-span-12"):
         assert cls in css, cls
+
+
+def test_hud_tailwind_is_prebuilt_not_cdn():
+    hud = (ROOT / "web" / "hud.html").read_text(encoding="utf-8")
+    assert '<script src="https://cdn.tailwindcss.com"></script>' not in hud and "tailwind.config = {" not in hud
+    assert '<link rel="stylesheet" href="/static/tailwind-hud.css' in hud
+    css = (ROOT / "web" / "tailwind-hud.css").read_text(encoding="utf-8")
+    # Theme riêng của HUD (font Orbitron, màu vnmate) phải có trong CSS build.
+    assert ".font-orbitron" in css and "Orbitron" in css and ".text-cyan-300" in css
