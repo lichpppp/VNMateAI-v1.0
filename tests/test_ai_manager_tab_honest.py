@@ -76,3 +76,11 @@ def test_llm_test_result_is_escaped_and_updates_latency():
 def test_save_warns_about_models_unknown_to_router():
     save = APP[APP.index("async function saveAIConfig("):APP.index("async function saveAIConfig(") + 4000]
     assert "routerModelList" in save and "KHÔNG có trong 9Router" in save
+
+
+def test_ops_brain_skill_count_is_live_not_hardcoded():
+    """Ô Não Vận hành từng ghi cứng "79 SKILLS" trong khi máy chủ có 85 kỹ năng."""
+    assert "79 SKILLS" not in HTML and "79 tools" not in HTML
+    assert 'id="ai-tribrain-ops-skills"' in HTML
+    tele = APP[APP.index("function updateAIManagerTelemetry("):APP.index("function selectQuickModel(")]
+    assert "skills_count" in tele and "ai-tribrain-ops-skills" in tele

@@ -5,7 +5,7 @@ Kiểm thử toàn diện Kiến Trúc 3 Bộ Não Chuyên Biệt (Phase 94 - Tr
 1. Phân loại ý định tức thì (Controller Intent Classifier)
 2. Tách biệt 3 vai trò: Controller, Voice, Operations
 3. Fast-Failover: Ngắt kết nối trong 5s-8s nếu model chết/hết hạn mức, không bao giờ treo 45s
-4. Cơ chế Voice Brain không tải 79 tool schemas để đạt TTFT < 300ms
+4. Cơ chế Voice Brain không tải danh mục tool schemas để đạt TTFT < 300ms
 """
 
 import asyncio
@@ -49,7 +49,7 @@ def test_intent_classification():
         res = llm_engine.classify_intent(q)
         assert res["type"] == "operation", f"Query '{q}' phải là operation, nhận được: {res['type']}"
         assert res["target_brain"] == "ops", f"Query '{q}' phải trỏ tới ops brain"
-        print(f"  ✅ [Vận hành] '{q}' → Ops Brain (79 Skills loaded)")
+        print(f"  ✅ [Vận hành] '{q}' → Ops Brain")
 
 
 def test_tri_brain_models_config():

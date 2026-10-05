@@ -4491,6 +4491,7 @@ function loadAIManagerConfig() {
   clearTimeout(_aiManagerLoadTimer);
   _aiManagerLoadTimer = setTimeout(_doLoadAIManagerConfig, 50);
   loadRouterModels();
+  updateAIManagerTelemetry();   // số đo (độ trễ, số kỹ năng) tải song song, không chờ cấu hình
 }
 
 async function _doLoadAIManagerConfig() {
@@ -5562,12 +5563,16 @@ function updateAIManagerTelemetry() {
   const curWake = document.getElementById('ai-persona-wake')?.value?.trim() || currentConfig?.persona?.wake_word || currentConfig?.WAKE_WORD || 'Hey Ly Ly';
   if (wakeEl) wakeEl.textContent = curWake;
 
-  if (latencyEl) {
+  const opsSkillsEl = document.getElementById('ai-tribrain-ops-skills');
+  if (latencyEl || opsSkillsEl) {
     apiFetch('/api/v1/health-dashboard')
       .then((r) => (r instanceof Response ? r.json() : r))
       .then((h) => {
+        // Số kỹ năng THẬT (trước đây viết cứng "79 SKILLS" trong HTML).
+        const n = h?.nodes?.skills_count;
+        if (opsSkillsEl) opsSkillsEl.textContent = typeof n === 'number' ? `${n} SKILLS` : '— SKILLS';
         const llmSvc = h?.services?.llm_9router;
-        if (!llmSvc) return;
+        if (!llmSvc || !latencyEl) return;
         latencyEl.textContent = llmSvc.status === 'OK' && llmSvc.latency_ms
           ? `${Math.round(llmSvc.latency_ms)}ms (đo định kỳ)`
           : (llmSvc.status === 'FAIL' ? 'không phản hồi' : '—');
