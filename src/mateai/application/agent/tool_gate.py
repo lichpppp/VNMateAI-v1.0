@@ -89,9 +89,15 @@ async def _run_tool_with_policy(
     Zero-Trust (BLOCKED / NEED_CONFIRM -> HITL) -> RBAC -> thực thi (Plugin
     Registry có HITL riêng / skill cục bộ / máy trạm) -> audit.
 
-    `caller`: danh tính cho RBAC + audit. `source_device`: kênh gọi, dùng cho
-    chính sách bỏ qua bước xác nhận của các kênh quản trị (commit f389bbe —
-    "full admin bypass", giữ nguyên) và nơi gửi yêu cầu phê duyệt.
+    `caller`: danh tính cho RBAC + audit + quyết định có cần duyệt không.
+    `source_device`: kênh gọi — CHỈ dùng để gửi yêu cầu phê duyệt về đúng nơi.
+
+    Bỏ qua bước duyệt (2026-10-05, chủ hệ thống chọn): chỉ khi `caller` là tài
+    khoản ADMIN đã đăng nhập (bảng users). Trước đây (f389bbe) mọi lệnh có
+    source_device chứa portal/hud/telegram/esp32/xiaozhi/console/admin đều chạy
+    thẳng, bất kể người gọi là ai — và source_device của REST voice do client tự
+    khai. Robot (device:<id>) và Telegram (telegram:<chat>) theo phương án A:
+    duyệt lần đầu, sau đó nhớ theo từng tác vụ (`_remembered_approval`).
 
     Trước Phase 3 logic này nằm trong `LLMEngine.ask_async`; đường voice
     realtime dùng một bản riêng import `zero_trust.evaluate_risk` (không tồn
@@ -119,11 +125,7 @@ async def _run_tool_with_policy(
     ).strip()
 
     risk_level = evaluate_action_risk(fn_name, fn_args)
-    _device = str(source_device or "anonymous")
-    _is_admin = (
-        any(k in _device.lower() for k in ["esp32", "xiaozhi", "telegram", "hud", "console", "portal", "admin"])
-        or approved
-    )
+    _is_admin = approved or _is_admin_user(caller)
 
     def _done(result: Dict[str, Any]) -> Dict[str, Any]:
         return {"target_client": target_client, "args": fn_args, "result": result}
@@ -262,12 +264,39 @@ def pending_view(item: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _remembered_approval(caller: Optional[str], tool_name: str) -> bool:
-    """Thiết bị (danh tính "device:<id>", chỉ có khi xác thực bằng token riêng) đã
-    được duyệt tác vụ này trước đây — chủ hệ thống chọn "duyệt rồi thì không hỏi lại"."""
+def _is_admin_user(caller: Optional[str]) -> bool:
+    """`caller` là tài khoản người dùng có role admin trong bảng users (đăng nhập
+    portal / HUD). Thiết bị, kênh Telegram, danh tính lạ: False. Lỗi tra cứu: False."""
+    c = str(caller or "").strip()
+    if not c or ":" in c:
+        return False
+    try:
+        from mateai.infrastructure.database.db_manager import db_manager
+        user = db_manager.get_user_by_username_or_id(c)
+    except Exception as exc:  # noqa: BLE001 — fail-closed: hỏi duyệt
+        logger.warning("Không tra được tài khoản '%s': %s", c, exc)
+        return False
+    return bool(user) and str(user.get("role") or "").strip().lower() == "admin"
+
+
+def _grant_principal(caller: Optional[str]) -> Optional[str]:
+    """Danh tính dùng để nhớ phê duyệt: robot "device:<id>" (token riêng) hoặc
+    kênh Telegram "telegram:<chat_id>" (bỏ phần tên người gửi — tên đổi được)."""
     from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
     c = str(caller or "")
-    if not c.lower().startswith(DEVICE_PRINCIPAL_PREFIX):
+    if c.lower().startswith(DEVICE_PRINCIPAL_PREFIX):
+        return c
+    parts = c.split(":")
+    if len(parts) >= 2 and parts[0].lower() == "telegram" and parts[1].strip():
+        return f"telegram:{parts[1].strip()}"
+    return None
+
+
+def _remembered_approval(caller: Optional[str], tool_name: str) -> bool:
+    """Robot / kênh Telegram đã được duyệt tác vụ này trước đây — chủ hệ thống
+    chọn "duyệt rồi thì không hỏi lại" (phương án A)."""
+    c = _grant_principal(caller)
+    if not c:
         return False
     try:
         from mateai.infrastructure.database.db_manager import db_manager
@@ -278,11 +307,10 @@ def _remembered_approval(caller: Optional[str], tool_name: str) -> bool:
 
 
 def _remember_approval(item: Dict[str, Any]) -> None:
-    """Người duyệt vừa đồng ý tác vụ do một thiết bị yêu cầu -> nhớ để lần sau không hỏi lại."""
-    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
-    principal = str(item.get("requested_by") or "")
+    """Người duyệt vừa đồng ý tác vụ do robot / kênh Telegram yêu cầu -> nhớ để lần sau không hỏi lại."""
+    principal = _grant_principal(item.get("requested_by"))
     tool_name = str(item.get("action_name") or "")
-    if not (principal.lower().startswith(DEVICE_PRINCIPAL_PREFIX) and tool_name):
+    if not (principal and tool_name):
         return
     try:
         from mateai.infrastructure.database.db_manager import db_manager

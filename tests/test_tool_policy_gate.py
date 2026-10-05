@@ -165,3 +165,48 @@ async def test_executor_reruns_the_queued_tool_as_the_requester(gate):
     await avl.execute_approved_tool(item)
     assert calls["executed"] == [("kill_process", {"pid": 7})]
     assert calls["rbac"] == [("kill_process", "bob")]
+
+
+# ── Bỏ qua bước duyệt chỉ cho TÀI KHOẢN admin (2026-10-05, thay "full admin bypass" f389bbe) ──
+
+@pytest.fixture
+def users(monkeypatch):
+    from mateai.infrastructure.database.db_manager import db_manager
+    table = {"boss": {"username": "boss", "role": "admin"}, "op": {"username": "op", "role": "manager"}}
+    monkeypatch.setattr(db_manager, "get_user_by_username_or_id", lambda c: table.get(c.strip().lower()))
+    grants = set()
+    monkeypatch.setattr(db_manager, "has_approval_grant", lambda p, t: (p, t) in grants)
+    monkeypatch.setattr(db_manager, "add_approval_grant", lambda p, t, by="": grants.add((p, t)))
+    return grants
+
+
+@pytest.mark.parametrize("device", ["portal", "hud", "telegram:1:x", "esp32-a", "xiaozhi", "console", "admin"])
+async def test_channel_name_no_longer_skips_approval(gate, users, device):
+    """Trước đây chỉ cần source_device chứa 'portal'/'hud'/… là chạy thẳng — kể cả người không phải admin."""
+    calls, state = gate
+    state["risk"] = "NEED_CONFIRM"
+    out = await avl.run_tool_with_policy("kill_process", {"pid": 999999}, caller="op", source_device=device)
+    assert out["result"]["status"] == "need_confirm" and calls["executed"] == []
+
+
+async def test_logged_in_admin_account_runs_without_approval(gate, users):
+    calls, state = gate
+    state["risk"] = "NEED_CONFIRM"
+    await avl.run_tool_with_policy("kill_process", {"pid": 1}, caller="boss", source_device="web-widget")
+    assert calls["executed"] == [("kill_process", {"pid": 1})]
+    # Danh tính có dấu ":" (thiết bị / kênh) không bao giờ là tài khoản người dùng.
+    assert avl._is_admin_user("device:boss") is False and avl._is_admin_user("") is False
+
+
+async def test_telegram_chat_follows_option_a(gate, users):
+    """Telegram: duyệt lần đầu, nhớ theo chat_id (tên người gửi đổi không ảnh hưởng)."""
+    calls, state = gate
+    state["risk"] = "NEED_CONFIRM"
+    first = await avl.run_tool_with_policy("kill_process", {"pid": 1}, caller="telegram:42:An", source_device="telegram:42:An")
+    assert first["result"]["status"] == "need_confirm" and calls["executed"] == []
+    avl._remember_approval({"action_name": "kill_process", "requested_by": "telegram:42:An", "reviewed_by": "boss"})
+    assert users == {("telegram:42", "kill_process")}
+    await avl.run_tool_with_policy("kill_process", {"pid": 2}, caller="telegram:42:Bình", source_device="telegram:42:Bình")
+    assert calls["executed"] == [("kill_process", {"pid": 2})]
+    other = await avl.run_tool_with_policy("kill_process", {"pid": 3}, caller="telegram:77:An", source_device="telegram:77:An")
+    assert other["result"]["status"] == "need_confirm"
