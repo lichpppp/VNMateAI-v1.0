@@ -48,3 +48,21 @@ jobs:
 
       - name: Chạy test
         run: python -m pytest -q
+
+      - name: Test Node (.mjs)
+        shell: bash
+        run: for f in tests/*.mjs; do echo "== $f"; node "$f"; done
+
+      - name: Kiểm tra cú pháp (Python + JS Portal)
+        shell: bash
+        run: |
+          python -m compileall -q src core skills workers client_agent main.py
+          node --check web/app.js
+
+      # Prompt Supervisor §98–§99: khoá riêng tư / tệp bí mật không được nằm trong git.
+      - name: Không có bí mật trong repo
+        shell: bash
+        run: |
+          bad=$(git ls-files | grep -E '\.(pem|key|p12|pfx|db)$|(^|/)config\.json$|(^|/)\.env$' || true)
+          if [ -n "$bad" ]; then echo "Tệp bí mật bị theo dõi:"; echo "$bad"; exit 1; fi
+          if git grep -lE -- '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----' -- . ':!*.md'; then echo "Có khoá riêng tư trong mã"; exit 1; fi

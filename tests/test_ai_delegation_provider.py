@@ -62,7 +62,10 @@ async def test_falls_back_and_uses_long_timeout(fake, monkeypatch):
     assert res["status"] == "success"
     assert res["specialist_model"] == "spec-b"
     assert [c["model"] for c in calls] == ["spec-a", "spec-b"]
-    assert all(t == 180.0 for t in seen_timeouts)
+    # Ngân sách thử model (realtime P5): lần đầu đủ timeout dài; các lần sau nhận phần
+    # ngân sách còn lại (<= 180 s) — tổng không vượt ngân sách.
+    assert seen_timeouts[0] == 180.0
+    assert all(170.0 < t <= 180.0 for t in seen_timeouts)
     assert "extra_body" not in calls[-1]
 
 

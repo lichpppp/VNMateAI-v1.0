@@ -103,3 +103,19 @@ Tương thích: token **chung** (`certs/device_secret.key`, `GET /api/v1/securit
 - `logs/security_audit.log` không còn được ghi; audit nằm trong bảng `audit_logs`.
 - HUD (`/hud`) phải đăng nhập mới ra lệnh thoại được; mở HUD bằng phiên đã đăng nhập.
 - Thiết bị ESP32 nạp firmware không có token sẽ bị từ chối — nạp lại theo mục 8.
+
+## 11. Sao lưu, khôi phục, rollback (2026-10-05)
+
+| Việc | Lệnh | Ghi chú |
+|---|---|---|
+| Sao lưu | `python scripts/backup.py create` | SQLite chụp trực tuyến (an toàn khi máy chủ đang chạy) + `config.json` + khoá trong `certs/` + `storage/vector_db`; tự kiểm chứng (sha256, `integrity_check`, số dòng). Đo 2026-10-05: 0,09 s, 1,3 MB |
+| Kiểm chứng bản cũ | `python scripts/backup.py verify backups\<thư mục>` | ĐẠT / KHÔNG ĐẠT + lý do |
+| Khôi phục | dừng máy chủ → `python scripts/backup.py restore backups\<thư mục> --yes` | từ chối bản không đạt kiểm chứng; tự lưu trạng thái hiện tại vào `backups\pre-restore-*` |
+| Rollback mã | `git checkout <commit trước>` → chạy lại máy chủ | schema chỉ THÊM bảng / cột (không xoá) nên bản cũ vẫn đọc được DB mới; nếu cần trạng thái dữ liệu cũ: khôi phục bản sao lưu tương ứng |
+
+- Thư mục `backups/` chứa **bí mật** và bị `.gitignore` loại — chép ra nơi lưu trữ được bảo vệ (ổ ngoài mã hoá / NAS có phân quyền).
+- RPO / RTO: chưa có lịch sao lưu tự động — RPO bằng khoảng cách giữa hai lần chạy `create`. Đề xuất: Task Scheduler chạy `create` mỗi ngày + trước mỗi lần nâng cấp.
+
+## 12. CI (`.github/workflows/tests.yml`)
+
+pytest (gồm test kiến trúc RULE-011…026, test đối kháng, kịch bản vàng) → test Node `.mjs` → kiểm tra cú pháp Python + `web/app.js` → chặn tệp bí mật / khoá riêng tư trong git. Chưa có: linter, kiểm kiểu, quét lỗ hổng phụ thuộc, triển khai staging.
