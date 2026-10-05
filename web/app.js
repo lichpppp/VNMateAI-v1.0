@@ -847,6 +847,7 @@ function switchTab(tabId) {
 
   if (tabId === 'dashboard') {
     loadDashboard();
+    loadSupervisorOverview();
     // Phase 79: nội dung C.E.O gộp vào Bảng Điều Khiển nên `onEnter` bám theo
     // tab này. Thiếu dòng này thì phần điều hành AI, biểu đồ và cảnh báo an
     // ninh không bao giờ có dữ liệu.
@@ -8103,6 +8104,118 @@ function renderKpiLogs(logs) {
   });
 }
 
+// ── AI Supervisor (Bảng điều khiển) — /api/v1/ops/overview, /api/v1/ops/tasks/{id} ──
+const _OP_STATUS_VI = {
+  NEW: 'Mới', ANALYZING: 'Đang phân tích', PLANNED: 'Đã lập kế hoạch', WAITING_AUTHORIZATION: 'Chờ duyệt',
+  AUTHORIZED: 'Đã duyệt', EXECUTING: 'Đang thực thi', VERIFYING: 'Đang kiểm chứng', COMPLETED: 'Hoàn thành',
+  FAILED: 'Thất bại', BLOCKED: 'Bị chặn', CANCELLED: 'Đã huỷ', ESCALATED: 'Cần người xác nhận',
+};
+
+async function loadSupervisorOverview() {
+  const card = document.getElementById('supervisor-card');
+  if (!card) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/ops/overview?hours=24`);
+    if (res.status === 403) { card.classList.add('hidden'); return; }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const ks = d.ai_status.kill_switch;
+    const st = document.getElementById('sup-ai-status');
+    if (st) {
+      st.textContent = ks ? 'DỪNG KHẨN CẤP — chỉ đọc' : (d.ai_status.disabled_agents.length ? `Đang chạy · tắt ${d.ai_status.disabled_agents.length} tác nhân` : 'Đang chạy');
+      st.className = `px-2.5 py-1 rounded-full text-[11px] font-bold border ${ks ? 'bg-rose-500/15 text-rose-500 border-rose-500/40' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40'}`;
+    }
+    set('sup-active', d.tasks.active);
+    set('sup-success', d.tasks.success_rate == null ? '—' : `${d.tasks.success_rate}%`);
+    const denied = d.actions.by_decision.deny || 0;
+    set('sup-actions', `${d.actions.total} / ${denied}`);
+    set('sup-pending', d.approvals_pending ?? '—');
+    set('sup-incidents', d.incidents_open);
+    set('sup-tokens', (d.cost.total_tokens || 0).toLocaleString('vi-VN'));
+    // Ưu tiên lượt cần LLM (con số người dùng cảm nhận); không có thì nhóm nhiều lượt nhất.
+    const groups = (d.voice && d.voice.by_outcome) || {};
+    let pick = null;
+    for (const name of ['llm', 'agent', ...Object.keys(groups)]) {
+      const m = ((groups[name] || {}).metrics || {}).ttfa_answer_ms;
+      if (m) { pick = { name, m }; break; }
+    }
+    const fmt = v => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} ms`);
+    set('sup-voice', pick ? fmt(pick.m.p50) : '—');
+    const vEl = document.getElementById('sup-voice');
+    if (vEl) vEl.title = pick ? `nhóm "${pick.name}", ${pick.m.n} lượt, p95 ${fmt(pick.m.p95)}` : 'chưa có lượt thoại';
+    set('sup-updated', `Cập nhật ${new Date().toLocaleTimeString('vi-VN')} · chính sách ${d.ai_status.policy_version}`);
+    renderSupervisorAttention(d.tasks.attention || []);
+  } catch (err) {
+    const box = document.getElementById('sup-attention');
+    if (box) box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(err.message)}</div>`;
+  }
+}
+
+function renderSupervisorAttention(items) {
+  const box = document.getElementById('sup-attention');
+  if (!box) return;
+  if (!items.length) {
+    box.innerHTML = '<div class="text-slate-500 italic">Không có tác vụ nào cần người xử lý.</div>';
+    return;
+  }
+  box.innerHTML = items.map(t => `
+    <div class="rounded-xl border border-slate-200 dark:border-white/10">
+      <button type="button" onclick="toggleOpTask('${_esc(t.task_id)}')" class="w-full flex flex-wrap items-center gap-2 px-3 py-2 text-left">
+        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${t.status === 'FAILED' ? 'text-rose-400 border-rose-400/40' : 'text-amber-400 border-amber-400/40'}">${_esc(_OP_STATUS_VI[t.status] || t.status)}</span>
+        <span class="text-[10px] text-slate-400">${_esc(t.priority)} · ${_esc(t.kind === 'incident' ? 'sự cố' : 'lượt AI')} · ${_esc(t.agent_id || '')}</span>
+        <span class="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-200">${_esc(t.title)}</span>
+        <span class="text-[10px] text-slate-400 font-mono">${_esc(t.created_at)}</span>
+      </button>
+      <div id="op-detail-${_esc(t.task_id)}" class="hidden px-3 pb-3"></div>
+    </div>`).join('');
+}
+
+async function toggleOpTask(taskId) {
+  const box = document.getElementById(`op-detail-${taskId}`);
+  if (!box) return;
+  if (!box.classList.contains('hidden')) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = '<div class="text-slate-500">Đang tải…</div>';
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/ops/tasks/${encodeURIComponent(taskId)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const t = (await res.json()).task;
+    const steps = (t.steps || []).map(s => `
+      <tr class="border-t border-slate-100 dark:border-white/5">
+        <td class="py-1 pr-2">${s.seq}</td>
+        <td class="py-1 pr-2 font-mono">${_esc(s.tool)}</td>
+        <td class="py-1 pr-2">${_esc(s.decision || '')} <span class="text-slate-400">(${_esc(s.policy_rule || '')}, rủi ro ${_esc(s.risk ?? '')}, ${_esc(s.level || '')})</span></td>
+        <td class="py-1 pr-2">${_esc(s.outcome || '')}${s.message ? ` — ${_esc(s.message)}` : ''}</td>
+        <td class="py-1">${_esc(s.verification_level || '')} · ${_esc(s.verification_status || '')}</td>
+      </tr>`).join('');
+    const ev = (t.evidence || []).map(e => `<li><span class="text-slate-400">${_esc(e.kind)} · ${_esc(e.source)}:</span> ${_esc(e.summary)}</li>`).join('');
+    const canConfirm = t.status === 'ESCALATED' && _isAdmin();
+    box.innerHTML = `
+      <div class="text-slate-500 mb-1">${_esc(t.result_summary || '')}</div>
+      ${steps ? `<table class="w-full text-[11px] mb-2"><thead><tr class="text-slate-400 text-left"><th>#</th><th>Tool</th><th>Quyết định chính sách</th><th>Kết quả</th><th>Kiểm chứng</th></tr></thead><tbody>${steps}</tbody></table>` : ''}
+      ${ev ? `<div class="text-slate-400">Bằng chứng:</div><ul class="list-disc pl-5 space-y-0.5">${ev}</ul>` : ''}
+      ${canConfirm ? `<div class="pt-2 flex gap-2"><button type="button" onclick="decideOpTask('${_esc(t.task_id)}','confirm')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold">Tôi đã kiểm tra — xác nhận hoàn thành</button>
+        <button type="button" onclick="decideOpTask('${_esc(t.task_id)}','cancel')" class="px-2.5 py-1 rounded-lg border border-slate-400/40 text-[11px]">Huỷ tác vụ</button></div>` : ''}`;
+  } catch (err) {
+    box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(err.message)}</div>`;
+  }
+}
+
+async function decideOpTask(taskId, action) {
+  const note = prompt(action === 'confirm' ? 'Ghi chú xác nhận (bạn đã kiểm tra gì):' : 'Lý do huỷ:', '');
+  if (note === null) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/ops/tasks/${encodeURIComponent(taskId)}/${action}`, { method: 'POST', body: JSON.stringify({ note }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    showToast(action === 'confirm' ? 'Đã xác nhận kết quả' : 'Đã huỷ tác vụ', 'success');
+    loadSupervisorOverview();
+  } catch (err) {
+    showToast(err.message || 'Thao tác thất bại', 'error');
+  }
+}
+
 // ── Kiểm soát tự trị AI (Trung tâm Bảo mật) — /api/v1/security/autonomy ──
 let _autonomy = null;
 const _AGENT_LABELS = {
@@ -8543,6 +8656,7 @@ async function handleSendTask(e) {
   try {
     const res = await apiFetch(`${API_BASE}/api/v1/tasks/send`, {
       method: 'POST',
+      headers: { 'Idempotency-Key': (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`) },
       body: JSON.stringify({ client_ids: targets, message, sender: sender || null,
                              due_minutes: due ? Number(due) : null }),
     });

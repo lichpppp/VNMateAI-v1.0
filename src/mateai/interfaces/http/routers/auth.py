@@ -31,6 +31,44 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+LOGIN_MAX_FAILURES = 8
+LOGIN_WINDOW_S = 300.0
+LOGIN_LOCK_S = 300.0
+#: khoá -> các mốc sai gần đây (một tiến trình; nhiều tiến trình cần kho dùng chung).
+_LOGIN_FAILS: Dict[str, List[float]] = {}
+
+
+def _login_locked(keys) -> float:
+    """Số giây còn phải chờ (0 = được thử). Khoá khi `LOGIN_MAX_FAILURES` lần sai gần
+    nhất nằm trong `LOGIN_WINDOW_S`; khoá kéo dài `LOGIN_LOCK_S` kể từ lần sai cuối."""
+    now = time.time()
+    wait = 0.0
+    for k in keys:
+        fails = [t for t in _LOGIN_FAILS.get(k, []) if now - t < LOGIN_WINDOW_S + LOGIN_LOCK_S]
+        if fails:
+            _LOGIN_FAILS[k] = fails
+        else:
+            _LOGIN_FAILS.pop(k, None)
+        if len(fails) >= LOGIN_MAX_FAILURES and fails[-1] - fails[-LOGIN_MAX_FAILURES] <= LOGIN_WINDOW_S:
+            wait = max(wait, LOGIN_LOCK_S - (now - fails[-1]))
+    return max(0.0, wait)
+
+
+def _login_failed(keys) -> None:
+    now = time.time()
+    for k in keys:
+        _LOGIN_FAILS.setdefault(k, []).append(now)
+
+
+def _login_audit(username: str, ip: str, event: str) -> None:
+    try:
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(str(username)[:80], "login", "AUTH", "SUCCESS" if event == "LOGIN_OK" else "REJECTED",
+                                  {"event": event, "source_ip": ip})
+    except Exception:  # noqa: BLE001
+        pass
+
+
 class LoginRequest(BaseModel):
     """Payload for POST /api/v1/login."""
     username: str = Field(..., min_length=1, description="Tên đăng nhập")
@@ -42,14 +80,29 @@ class LoginRequest(BaseModel):
     summary="Đăng nhập Web Portal và nhận JWT Access Token",
     tags=["Authentication"],
 )
-async def login_endpoint(payload: LoginRequest) -> Dict[str, Any]:
-    """Xác thực người dùng và cấp JWT Bearer Token."""
-    user = auth_manager.authenticate_user(payload.username, payload.password)
+async def login_endpoint(payload: LoginRequest, request: Request) -> Dict[str, Any]:
+    """Xác thực người dùng và cấp JWT Bearer Token.
+
+    Giới hạn dò mật khẩu (prompt §78): sai quá `LOGIN_MAX_FAILURES` lần trong
+    `LOGIN_WINDOW_S` theo IP HOẶC theo tài khoản -> 429 trong `LOGIN_LOCK_S`. Mọi lần
+    đăng nhập (đúng / sai / bị khoá) vào audit (§68). bcrypt chạy ngoài event loop."""
+    ip = request.client.host if request.client else "?"
+    keys = (f"ip:{ip}", f"user:{payload.username.strip().lower()}")
+    wait = _login_locked(keys)
+    if wait:
+        _login_audit(payload.username, ip, "LOGIN_LOCKED")
+        raise HTTPException(status_code=429, headers={"Retry-After": str(int(wait) + 1)},
+                            detail=f"Đăng nhập sai quá nhiều lần. Thử lại sau {int(wait) + 1} giây.")
+    user = await run_blocking(auth_manager.authenticate_user, username=payload.username, password=payload.password)
     if not user:
+        _login_failed(keys)
+        _login_audit(payload.username, ip, "LOGIN_FAILED")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không chính xác.",
         )
+    _LOGIN_FAILS.pop(keys[1], None)
+    _login_audit(user["username"], ip, "LOGIN_OK")
 
     access_token = auth_manager.create_access_token(
         data={"sub": user["username"], "role": user.get("role", "viewer")},

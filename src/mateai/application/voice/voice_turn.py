@@ -92,6 +92,39 @@ class VoiceTurnResult:
 # stt_ms do kênh có STT phía máy chủ (robot, mic) truyền vào.
 
 _RECENT_TRACES: "deque[Dict[str, Any]]" = deque(maxlen=500)
+_TRACES_LOADED = False
+
+
+def _ensure_traces_loaded() -> None:
+    """Nạp lại 500 lượt gần nhất từ DB lần đầu cần số đo (trước: chỉ RAM — số đo trống
+    sau mỗi lần khởi động lại, đã gặp ngày 2026-10-05)."""
+    global _TRACES_LOADED
+    if _TRACES_LOADED:
+        return
+    _TRACES_LOADED = True
+    try:
+        from mateai.infrastructure.database.db_manager import db_manager
+        saved = db_manager.recent_voice_traces(_RECENT_TRACES.maxlen or 500)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[VoiceTrace] Không nạp được trace đã lưu: %s", exc)
+        return
+    current = list(_RECENT_TRACES)
+    _RECENT_TRACES.clear()
+    seen = {t.get("trace_id") for t in current}
+    _RECENT_TRACES.extend([t for t in saved if t.get("trace_id") not in seen] + current)
+
+
+def _persist_trace(data: Dict[str, Any]) -> None:
+    def _write() -> None:
+        try:
+            from mateai.infrastructure.database.db_manager import db_manager
+            db_manager.add_voice_trace(data)
+        except Exception as exc:  # noqa: BLE001 — lưu trace hỏng không làm hỏng lượt thoại
+            logger.warning("[VoiceTrace] Không lưu được trace: %s", exc)
+    try:
+        asyncio.get_running_loop().run_in_executor(None, _write)
+    except RuntimeError:
+        _write()
 
 
 #: Mốc của lượt thoại hiện trên trang giám sát: tên mốc -> (nguồn, đích, nhãn).
@@ -205,7 +238,9 @@ class VoiceTurnTrace:
             "agent_prefetched": turn.get("agent_prefetched"),
             "status_steps": list(self.statuses),
         }
+        _ensure_traces_loaded()
         _RECENT_TRACES.append(data)
+        _persist_trace(data)
         summary = " · ".join(p for p in (
             outcome,
             f"LLM {data['llm_first_token_ms']} ms" if data.get("llm_first_token_ms") is not None else "",
@@ -222,7 +257,8 @@ class VoiceTurnTrace:
 
 
 def recent_traces(limit: int = 100, channel: Optional[str] = None) -> List[Dict[str, Any]]:
-    """Các lượt gần nhất (mới nhất trước) — bộ đệm vòng 500 lượt trong RAM."""
+    """Các lượt gần nhất (mới nhất trước) — bộ đệm 500 lượt, nạp lại từ DB sau khởi động."""
+    _ensure_traces_loaded()
     items = [t for t in reversed(_RECENT_TRACES) if channel is None or t.get("channel") == channel]
     return items[: max(1, limit)]
 
@@ -264,6 +300,7 @@ def model_stats() -> Dict[str, Any]:
         lo, hi = int(k), min(int(k) + 1, len(s) - 1)
         return round(s[lo] + (s[hi] - s[lo]) * (k - lo), 1)
 
+    _ensure_traces_loaded()
     groups: Dict[tuple, List[Dict[str, Any]]] = {}
     for t in _RECENT_TRACES:
         if not t.get("brain"):

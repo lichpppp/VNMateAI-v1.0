@@ -15,7 +15,7 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -91,11 +91,36 @@ async def task_board(
 async def send_task_endpoint(
     payload: TaskDispatchRequest,
     current_user: Dict[str, Any] = _WRITE,
+    idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key", max_length=100),
 ) -> Dict[str, Any]:
     """Gửi popup nhắc việc tới một hoặc nhiều máy trạm (manager / admin).
 
     Người giao THẬT là tài khoản đăng nhập (lưu `dispatched_by` + audit); `sender`
-    chỉ là nhãn hiển thị trên popup."""
+    chỉ là nhãn hiển thị trên popup.
+
+    `Idempotency-Key` (§103, §140): gửi lại cùng khoá trong 10 phút (bấm hai lần, mạng
+    chập chờn rồi thử lại) trả kết quả lần đầu — popup KHÔNG bật lần hai."""
+    cache_key = f"{current_user.get('username')}|{idempotency_key}" if idempotency_key else None
+    if cache_key:
+        hit = _IDEMPOTENT.get(cache_key)
+        if hit and time.time() - hit[0] < _IDEMPOTENT_TTL_S:
+            return {**hit[1], "idempotent_replay": True}
+    result = await _dispatch(payload, current_user)
+    if cache_key:
+        now = time.time()
+        for k in [k for k, (t, _) in _IDEMPOTENT.items() if now - t >= _IDEMPOTENT_TTL_S]:
+            _IDEMPOTENT.pop(k, None)
+        _IDEMPOTENT[cache_key] = (now, result)
+    return result
+
+
+#: Kết quả theo Idempotency-Key (một tiến trình; nhiều tiến trình cần kho dùng chung — xem
+#: docs/production/readiness-score.md "Khả năng mở rộng").
+_IDEMPOTENT: Dict[str, Any] = {}
+_IDEMPOTENT_TTL_S = 600.0
+
+
+async def _dispatch(payload: TaskDispatchRequest, current_user: Dict[str, Any]) -> Dict[str, Any]:
     from mateai.application.devices.task_manager import task_manager
     targets = [c.strip() for c in (payload.client_ids or []) if c and c.strip()]
     if payload.client_id and payload.client_id.strip():
@@ -241,3 +266,59 @@ async def cancel_op_task(task_id: str, payload: OpTaskDecision,
     ledger.transition(task_id, ledger.CANCELLED, result_summary=f"Huỷ bởi {who}. {payload.note}".strip()[:300])
     _audit(current_user, "op_task_cancel", {"task_id": task_id, "note": payload.note})
     return {"status": "success", "task": ledger.get_task(task_id)}
+
+
+@router.get("/api/v1/ops/overview", summary="Bảng giám sát AI Supervisor (số liệu thật)", tags=["AI Operations"])
+async def ops_overview(
+    hours: int = Query(default=24, ge=1, le=720),
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """AI đang làm gì, ai cho phép, cái gì bị chặn / chờ duyệt / cần người xác nhận,
+    tốn bao nhiêu token, thoại nhanh tới đâu (prompt §82). Không có số nào ước đoán."""
+    from datetime import timedelta
+    from mateai.application.security import policy_engine as pe
+    from mateai.application.security.zero_trust import hitl_manager
+    from mateai.application.tasks import ledger
+    from mateai.application.voice.voice_turn import trace_stats
+    from mateai.config.loader import settings
+    from mateai.infrastructure.database.db_manager import db_manager
+
+    since = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+    stats = await run_blocking(partial(db_manager.op_stats, since))
+    active = await run_blocking(partial(ledger.list_tasks, since=since, limit=500))
+    open_states = ("NEW", "ANALYZING", "PLANNED", "WAITING_AUTHORIZATION", "AUTHORIZED", "EXECUTING", "VERIFYING", "ESCALATED", "BLOCKED")
+    attention = [t for t in active if t["status"] in ("ESCALATED", "WAITING_AUTHORIZATION", "FAILED")][:20]
+    by = stats["tasks_by_status"]
+    finished = by.get("COMPLETED", 0) + by.get("FAILED", 0) + by.get("BLOCKED", 0)
+    steps_total = sum(stats["steps_by_decision"].values())
+    try:
+        pending = len(hitl_manager.get_pending_list())
+    except Exception:  # noqa: BLE001
+        pending = None
+    voice = await run_blocking(trace_stats)
+    try:
+        from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE
+        hw = dict(SYSTEM_HEALTH_CACHE.get("hardware") or {})
+        health = {"cpu_percent": hw.get("cpu_percent"), "ram_percent": hw.get("ram_percent"),
+                  "disk_percent": hw.get("disk_percent")}
+    except Exception:  # noqa: BLE001
+        health = {}
+    return {
+        "status": "success", "hours": hours,
+        "ai_status": {"kill_switch": settings.autonomy.kill_switch,
+                      "disabled_agents": list(settings.autonomy.disabled_agents or []),
+                      "disabled_tools": list(settings.autonomy.disabled_tools or []),
+                      "policy_version": pe.policy_version()},
+        "tasks": {"by_status": by, "by_kind": stats["tasks_by_kind"],
+                  "active": sum(1 for t in active if t["status"] in open_states),
+                  "success_rate": round(by.get("COMPLETED", 0) * 100.0 / finished, 1) if finished else None,
+                  "attention": attention},
+        "actions": {"total": steps_total, "by_decision": stats["steps_by_decision"], "by_rule": stats["steps_by_rule"],
+                    "by_verification": stats["steps_by_verification"],
+                    "denial_rate": round(stats["steps_by_decision"].get("deny", 0) * 100.0 / steps_total, 1) if steps_total else None},
+        "approvals_pending": pending,
+        "incidents_open": sum(1 for t in active if t["kind"] == "incident" and t["status"] not in ledger.TERMINAL),
+        "cost": {"llm_calls": stats["llm_calls"], "total_tokens": stats["tokens"], "currency_cost": None},
+        "voice": voice,
+        "system_health": health,
+    }

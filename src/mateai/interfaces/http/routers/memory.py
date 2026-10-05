@@ -93,17 +93,33 @@ async def get_memory_stats_endpoint(
 )
 async def memorize_solution_endpoint(
     payload: MemorizeRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
 ) -> Dict[str, Any]:
+    """Ghi cách khắc phục sự cố vào trí nhớ dài hạn — AI đọc lại qua `search_past_incidents`.
+
+    Chống đầu độc trí nhớ (prompt §38–§39): trước đây mọi tài khoản (kể cả viewer) ghi
+    được, không nguồn gốc. Nay chỉ manager/admin; mỗi bản ghi mang người tạo, nguồn,
+    thời điểm và `verified` (chỉ admin ghi mới là đã xác minh); có audit."""
     from mateai.infrastructure.memory.cognitive_memory import memorize_solution
+    who = str(current_user.get("username") or "?")
+    trusted = str(current_user.get("role") or "").lower() == "admin"
+    meta = {k: v for k, v in dict(payload.metadata or {}).items()
+            if k not in ("created_by", "verified", "source")}   # không cho người gửi tự khai
+    meta.update({"created_by": who, "verified": trusted, "source": "portal"})
     doc_id = memorize_solution(
         error_signature=payload.error_signature,
         root_cause=payload.root_cause,
         script=payload.script,
         target_client=payload.target_client,
-        metadata=payload.metadata,
+        metadata=meta,
     )
-    return {"status": "success", "id": doc_id}
+    try:
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(who, "memory_write", "MEMORY", "SUCCESS",
+                                  {"id": doc_id, "verified": trusted, "signature": payload.error_signature[:120]})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"status": "success", "id": doc_id, "verified": trusted}
 
 
 @router.post(

@@ -290,12 +290,7 @@ class HRAgent(BaseAgent):
         # {len(emps)} nhân viên" — tức là len() của tập bị cắt còn 10 dòng.
         # Công ty hơn 10 người thì HR Agent báo sai số nhân viên. Nay đếm
         # riêng bằng COUNT(*) và chỉ lấy tối đa 10 dòng để xem trước.
-        with erp_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM employees;")
-            total_employees = int(cursor.fetchone()[0] or 0)
-            cursor.execute("SELECT id, name, position, email, role FROM employees ORDER BY id LIMIT 10;")
-            emps = [dict(r) for r in cursor.fetchall()]
+        total_employees, emps = erp_db.employee_count_and_preview(10)
 
         if total_employees == 0:
             reply = (
@@ -340,13 +335,7 @@ class CTOAgent(BaseAgent):
         text = query.lower()
 
         # Kiểm tra trạng thái máy tính / thiết bị
-        with erp_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM devices;")
-            dev_count = cursor.fetchone()[0]
-
-            cursor.execute("SELECT COUNT(*) FROM audit_logs;")
-            audit_count = cursor.fetchone()[0]
+        dev_count, audit_count = erp_db.device_and_audit_counts()
 
         infra_summary = f"Quản lý {dev_count} máy trạm/server. Nhật ký an ninh Audit Logs: {audit_count} bản ghi."
 

@@ -1068,6 +1068,7 @@ class LLMEngine:
 
         def _settle_task() -> Optional[str]:
             if _op_task[0] and _owns_task:
+                _ledger.add_usage(_op_task[0], _usage)
                 return _ledger.settle(_op_task[0])
             return None
 

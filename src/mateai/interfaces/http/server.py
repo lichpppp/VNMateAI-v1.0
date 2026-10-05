@@ -1049,5 +1049,25 @@ async def _on_shutdown() -> None:
     except Exception:
         pass
 
+    # Supervisor P9 (§101): các dịch vụ còn lại trước đây không được dừng khi tắt máy —
+    # luồng đôn đốc, luồng đọc email, pool HTTP (LLM / TTS / STT) để mở kết nối.
+    for _name, _stop in (
+        ("Proactive Manager", lambda: __import__("mateai.application.skills.builtin.proactive_manager",
+                                                 fromlist=["proactive_manager"]).proactive_manager.stop()),
+        ("Email Gateway", lambda: __import__("mateai.interfaces.email.email_gateway",
+                                             fromlist=["email_gateway"]).email_gateway.stop()),
+    ):
+        try:
+            _stop()
+            logger.info("%s stopped.", _name)
+        except Exception as _exc:  # noqa: BLE001
+            logger.warning("%s stop error: %s", _name, _exc)
+    try:
+        from mateai.infrastructure.http.connection_pool import connection_pool_manager
+        await connection_pool_manager.close_all()
+        logger.info("HTTP connection pools closed.")
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("HTTP pool close error: %s", _exc)
+
     logger.info("VN-MateAI shutdown complete.")
 

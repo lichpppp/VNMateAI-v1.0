@@ -215,6 +215,17 @@ def settle(task_id: Optional[str]) -> Optional[str]:
         return None
 
 
+def add_usage(task_id: Optional[str], usage: Optional[Dict[str, int]]) -> None:
+    """Số lần gọi LLM + token THẬT do nhà cung cấp báo (không quy ra tiền khi không có bảng giá)."""
+    if not task_id or not usage:
+        return
+    try:
+        _db().op_update("op_tasks", "task_id", task_id, {"llm_calls": int(usage.get("llm_calls") or 0),
+                                                         "total_tokens": int(usage.get("total_tokens") or 0)})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[Ledger] Không ghi được số token: %s", exc)
+
+
 def open_incident(category: str, title: str, message: str, severity: str = "critical") -> Optional[str]:
     """Sự cố do giám sát phát hiện: một tác vụ incident đang mở cho mỗi nguồn (không nhân bản)."""
     source = f"sentinel:{category}"

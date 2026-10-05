@@ -877,6 +877,123 @@ class ERPDatabase:
             conn.commit()
             return cursor.rowcount > 0
 
+    # ── Truy vấn cho tác nhân / skill (RULE-024: application không viết SQL) ──
+
+    def employee_count_and_preview(self, limit: int = 10) -> "tuple[int, List[Dict[str, Any]]]":
+        """Tổng số nhân viên (COUNT riêng — không đếm tập đã cắt) + tối đa `limit` dòng xem trước."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM employees;")
+            total = int(cursor.fetchone()[0] or 0)
+            cursor.execute("SELECT id, name, position, email, role FROM employees ORDER BY id LIMIT ?;", (limit,))
+            return total, [dict(r) for r in cursor.fetchall()]
+
+    def device_and_audit_counts(self) -> "tuple[int, int]":
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM devices;")
+            dev_count = cursor.fetchone()[0]
+            cursor.execute("SELECT COUNT(*) FROM audit_logs;")
+            return dev_count, cursor.fetchone()[0]
+
+    def find_or_create_department(self, department_name: str) -> "tuple[int, bool]":
+        """(dept_id, đã_tạo_mới). Tìm gần đúng theo tên (LIKE), không có thì tạo."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM departments WHERE LOWER(name) LIKE ? LIMIT 1;", (f"%{department_name.lower()}%",))
+            dept_row = cursor.fetchone()
+            if dept_row:
+                return dept_row[0], False
+            cursor.execute("INSERT INTO departments (name, description) VALUES (?, ?);", (department_name, f"Phòng ban {department_name}"))
+            dept_id = cursor.lastrowid
+            conn.commit()
+            return dept_id, True
+
+    def add_employee(self, dept_id: int, name: str, position: str, email: str, phone: str, role: str) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO employees (dept_id, name, position, email, phone, role)
+                VALUES (?, ?, ?, ?, ?, ?);
+                """,
+                (dept_id, name, position, email, phone, role),
+            )
+            emp_id = cursor.lastrowid
+            conn.commit()
+            return emp_id
+
+    def open_tasks_with_due_date(self) -> List[Dict[str, Any]]:
+        """Việc ERP đang mở (pending / in_progress) có hạn, kèm người phụ trách + phòng ban."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT t.id, t.dept_id, t.assignee_id,
+                       COALESCE(t.title, 'Không có tiêu đề') AS title,
+                       t.status, t.due_date,
+                       e.name AS assignee_name, e.email AS assignee_email, e.phone AS assignee_phone,
+                       d.name AS dept_name
+                FROM tasks t
+                LEFT JOIN employees e ON t.assignee_id = e.id
+                LEFT JOIN departments d ON t.dept_id = d.id
+                WHERE t.status IN ('pending', 'in_progress')
+                  AND t.due_date IS NOT NULL AND t.due_date != '';
+                """
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
+    _ASSIGNEE_QUERIES = {
+        "hr": """
+                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name
+                    FROM employees e
+                    LEFT JOIN departments d ON e.dept_id = d.id
+                    WHERE LOWER(d.name) LIKE '%nhân sự%' OR LOWER(e.position) LIKE '%hr%' OR LOWER(e.position) LIKE '%nhân sự%' OR e.role = 'admin'
+                    LIMIT 1;
+                    """,
+        "it": """
+                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name
+                    FROM employees e
+                    LEFT JOIN departments d ON e.dept_id = d.id
+                    WHERE e.role = 'it_support' OR LOWER(d.name) LIKE '%kỹ thuật%' OR LOWER(d.name) LIKE '%it%'
+                    LIMIT 1;
+                    """,
+        "finance": """
+                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name
+                    FROM employees e
+                    LEFT JOIN departments d ON e.dept_id = d.id
+                    WHERE LOWER(e.position) LIKE '%kế toán%'
+                       OR LOWER(e.position) LIKE '%ke toan%'
+                       OR LOWER(e.position) LIKE '%tài chính%'
+                       OR LOWER(e.position) LIKE '%tai chinh%'
+                       OR LOWER(d.name) LIKE '%tài chính%'
+                       OR LOWER(d.name) LIKE '%ke toan%'
+                       OR LOWER(d.name) LIKE '%kế toán%'
+                    LIMIT 1;
+                    """,
+        "least_loaded": """
+                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name,
+                           COUNT(t.id) as active_count
+                    FROM employees e
+                    LEFT JOIN departments d ON e.dept_id = d.id
+                    LEFT JOIN tasks t ON t.assignee_id = e.id AND t.status IN ('pending', 'in_progress')
+                    GROUP BY e.id
+                    ORDER BY active_count ASC
+                    LIMIT 1;
+                    """,
+    }
+
+    def find_assignee(self, group: Optional[str]) -> Optional[Dict[str, Any]]:
+        """Nhân viên phù hợp nhóm việc ("hr" / "it" / "finance"); không có -> người ít việc nhất."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            for key in ([group] if group in self._ASSIGNEE_QUERIES else []) + ["least_loaded"]:
+                cursor.execute(self._ASSIGNEE_QUERIES[key])
+                row = cursor.fetchone()
+                if row:
+                    return dict(row)
+        return None
+
     # ── Phase 48: Audit Log ORM (INSERT / SELECT only — no UPDATE / DELETE) ──────
 
     def write_audit_log(

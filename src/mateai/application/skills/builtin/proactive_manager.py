@@ -85,23 +85,7 @@ class ProactiveManager:
         overdue_tasks: List[Dict[str, Any]] = []
         upcoming_tasks: List[Dict[str, Any]] = []
 
-        with erp_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT t.id, t.dept_id, t.assignee_id,
-                       COALESCE(t.title, 'Không có tiêu đề') AS title,
-                       t.status, t.due_date,
-                       e.name AS assignee_name, e.email AS assignee_email, e.phone AS assignee_phone,
-                       d.name AS dept_name
-                FROM tasks t
-                LEFT JOIN employees e ON t.assignee_id = e.id
-                LEFT JOIN departments d ON t.dept_id = d.id
-                WHERE t.status IN ('pending', 'in_progress')
-                  AND t.due_date IS NOT NULL AND t.due_date != '';
-                """
-            )
-            rows = [dict(r) for r in cursor.fetchall()]
+        rows = erp_db.open_tasks_with_due_date()
 
         for task in rows:
             due_str = task["due_date"].strip()
@@ -250,80 +234,12 @@ def assign_task_intelligently(
             else:
                 role_hint = "admin"
 
-        target_emp = None
-        with erp_db.get_connection() as conn:
-            cursor = conn.cursor()
-            # 1. Tìm nhân viên theo role hoặc phòng ban
-            if role_hint in ("hr", "nhân sự"):
-                cursor.execute(
-                    """
-                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name
-                    FROM employees e
-                    LEFT JOIN departments d ON e.dept_id = d.id
-                    WHERE LOWER(d.name) LIKE '%nhân sự%' OR LOWER(e.position) LIKE '%hr%' OR LOWER(e.position) LIKE '%nhân sự%' OR e.role = 'admin'
-                    LIMIT 1;
-                    """
-                )
-                row = cursor.fetchone()
-                if row:
-                    target_emp = dict(row)
-
-            elif role_hint in ("it_support", "it", "kỹ thuật"):
-                cursor.execute(
-                    """
-                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name
-                    FROM employees e
-                    LEFT JOIN departments d ON e.dept_id = d.id
-                    WHERE e.role = 'it_support' OR LOWER(d.name) LIKE '%kỹ thuật%' OR LOWER(d.name) LIKE '%it%'
-                    LIMIT 1;
-                    """
-                )
-                row = cursor.fetchone()
-                if row:
-                    target_emp = dict(row)
-
-            elif role_hint in ("cfo", "tài chính", "kế toán", "ke toan", "finance"):
-                # TRƯỚC ĐÂY THIẾU NHÁNH NÀY. Bộ phân loại ở trên sinh ra
-                # role_hint="cfo" cho mọi câu chứa "chi phí / sổ quỹ / kế toán",
-                # nhưng if/elif chỉ xử lý "hr" và "it_support" — nên mọi việc tài
-                # chính rơi xuống fallback "ít task nhất" và có thể được giao cho
-                # bất kỳ ai, kể cả nhân viên kỹ thuật. Nay có nhánh riêng.
-                cursor.execute(
-                    """
-                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name
-                    FROM employees e
-                    LEFT JOIN departments d ON e.dept_id = d.id
-                    WHERE LOWER(e.position) LIKE '%kế toán%'
-                       OR LOWER(e.position) LIKE '%ke toan%'
-                       OR LOWER(e.position) LIKE '%tài chính%'
-                       OR LOWER(e.position) LIKE '%tai chinh%'
-                       OR LOWER(d.name) LIKE '%tài chính%'
-                       OR LOWER(d.name) LIKE '%ke toan%'
-                       OR LOWER(d.name) LIKE '%kế toán%'
-                    LIMIT 1;
-                    """
-                )
-                row = cursor.fetchone()
-                if row:
-                    target_emp = dict(row)
-
-            # Fallback nếu chưa tìm thấy: lấy nhân viên có ít task nhất
-            if not target_emp:
-                cursor.execute(
-                    """
-                    SELECT e.id, e.dept_id, e.name, e.position, e.role, d.name as dept_name,
-                           COUNT(t.id) as active_count
-                    FROM employees e
-                    LEFT JOIN departments d ON e.dept_id = d.id
-                    LEFT JOIN tasks t ON t.assignee_id = e.id AND t.status IN ('pending', 'in_progress')
-                    GROUP BY e.id
-                    ORDER BY active_count ASC
-                    LIMIT 1;
-                    """
-                )
-                row = cursor.fetchone()
-                if row:
-                    target_emp = dict(row)
+        # Nhóm việc -> truy vấn nằm ở tầng dữ liệu (erp_database.find_assignee). Nhánh tài
+        # chính từng bị thiếu: việc "chi phí / sổ quỹ / kế toán" rơi xuống "người ít việc nhất".
+        group = ("hr" if role_hint in ("hr", "nhân sự") else
+                 "it" if role_hint in ("it_support", "it", "kỹ thuật") else
+                 "finance" if role_hint in ("cfo", "tài chính", "kế toán", "ke toan", "finance") else None)
+        target_emp = erp_db.find_assignee(group)
 
         if not target_emp:
             return {"status": "error", "message": "Không tìm thấy nhân viên nào trong hệ thống để phân bổ."}

@@ -861,7 +861,15 @@ class TelegramBotService:
         if target == "incident_group":
             chat_id = cfg.incident_group_id or (str(cfg.admin_chat_ids[0]) if cfg.admin_chat_ids else "")
         else:
-            chat_id = target
+            chat_id = str(target or "").strip()
+            # Chỉ gửi tới chat NỘI BỘ đã cấu hình (§91, §148). Trước đây `target` là chat_id
+            # tuỳ ý — tool `send_telegram_message` (rủi ro 2, tự chạy) có thể bị dữ liệu độc
+            # dẫn dắt gửi thông tin nội bộ tới chat của người ngoài.
+            internal = {str(c).strip() for c in (cfg.admin_chat_ids or [])} | {str(cfg.incident_group_id or "").strip()}
+            if chat_id not in internal - {""}:
+                logger.warning("[TelegramGateway] Từ chối gửi tới chat ngoài danh sách nội bộ: %s", chat_id)
+                _event("cancelled", "từ chối — chat không thuộc danh sách nội bộ")
+                return False
 
         if not chat_id:
             logger.warning("[TelegramGateway] Alert skipped: no target chat_id configured.")

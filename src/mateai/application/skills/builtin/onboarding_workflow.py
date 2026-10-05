@@ -91,34 +91,15 @@ class OnboardingWorkflow:
         steps: List[Dict[str, Any]] = []
 
         # 1. Tìm hoặc tạo phòng ban
-        dept_id = 1
-        with erp_db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM departments WHERE LOWER(name) LIKE ? LIMIT 1;", (f"%{department_name.lower()}%",))
-            dept_row = cursor.fetchone()
-            if dept_row:
-                dept_id = dept_row[0]
-                steps.append({"step": "resolve_department", "status": "executed",
-                              "detail": f"Dùng phòng ban sẵn có (id={dept_id})."})
-            else:
-                cursor.execute("INSERT INTO departments (name, description) VALUES (?, ?);", (department_name, f"Phòng ban {department_name}"))
-                dept_id = cursor.lastrowid
-                conn.commit()
-                steps.append({"step": "resolve_department", "status": "executed",
-                              "detail": f"Đã tạo phòng ban mới (id={dept_id})."})
+        dept_id, created = erp_db.find_or_create_department(department_name)
+        steps.append({"step": "resolve_department", "status": "executed",
+                      "detail": (f"Đã tạo phòng ban mới (id={dept_id})." if created
+                                 else f"Dùng phòng ban sẵn có (id={dept_id}).")})
 
-            # 2. Thêm nhân viên vào bảng employees
-            cursor.execute(
-                """
-                INSERT INTO employees (dept_id, name, position, email, phone, role)
-                VALUES (?, ?, ?, ?, ?, ?);
-                """,
-                (dept_id, name.strip(), position.strip(), email.strip(), phone.strip(), norm_role),
-            )
-            emp_id = cursor.lastrowid
-            conn.commit()
-            steps.append({"step": "create_employee_record", "status": "executed",
-                          "detail": f"Đã tạo hồ sơ nhân viên EMP-{emp_id:04d} với role='{norm_role}'."})
+        # 2. Thêm nhân viên vào bảng employees
+        emp_id = erp_db.add_employee(dept_id, name.strip(), position.strip(), email.strip(), phone.strip(), norm_role)
+        steps.append({"step": "create_employee_record", "status": "executed",
+                      "detail": f"Đã tạo hồ sơ nhân viên EMP-{emp_id:04d} với role='{norm_role}'."})
 
         # 3. Tạo thư mục lưu trữ cá nhân cho nhân viên
         emp_workspace = _PROJECT_ROOT / "storage" / "workspaces" / username

@@ -12,12 +12,13 @@ Tính năng:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -217,8 +218,21 @@ class DatabaseManager:
                             verified INTEGER NOT NULL DEFAULT 0
                         );
                         CREATE INDEX IF NOT EXISTS idx_op_evidence_task ON op_evidence(task_id);
+                        CREATE TABLE IF NOT EXISTS voice_traces (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            created_at TEXT NOT NULL,
+                            channel TEXT,
+                            outcome TEXT,
+                            data_json TEXT NOT NULL
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_voice_traces_created ON voice_traces(created_at);
                         """
                     )
+                    # Di trú: cột token / số lần gọi LLM cho sổ tác vụ (chi phí thật, §73, §79).
+                    _op_cols = {r[1] for r in cursor.execute("PRAGMA table_info(op_tasks);").fetchall()}
+                    for _col in ("llm_calls", "total_tokens"):
+                        if _col not in _op_cols:
+                            cursor.execute(f"ALTER TABLE op_tasks ADD COLUMN {_col} INTEGER NOT NULL DEFAULT 0;")
 
                     conn.commit()
 
@@ -907,6 +921,54 @@ class DatabaseManager:
         with self._get_connection() as conn:
             return [dict(r) for r in conn.execute(
                 "SELECT * FROM op_task_steps WHERE task_id = ? ORDER BY seq;", (task_id,)).fetchall()]
+
+    # ── Trace thoại bền (trước: chỉ RAM, mất sau mỗi lần khởi động lại) ──
+
+    def add_voice_trace(self, data: Dict[str, Any], retention_days: int = 30) -> None:
+        now = datetime.now()
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(
+                    "INSERT INTO voice_traces (created_at, channel, outcome, data_json) VALUES (?, ?, ?, ?);",
+                    (now.strftime("%Y-%m-%d %H:%M:%S"), data.get("channel"), data.get("outcome"),
+                     json.dumps(data, ensure_ascii=False, default=str)))
+                if cur.lastrowid and cur.lastrowid % 200 == 0:  # dọn theo hạn lưu giữ, thỉnh thoảng
+                    cutoff = (now - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+                    conn.execute("DELETE FROM voice_traces WHERE created_at < ?;", (cutoff,))
+                conn.commit()
+
+    def recent_voice_traces(self, limit: int = 500) -> List[Dict[str, Any]]:
+        """Mới nhất SAU CÙNG (thứ tự thời gian) để nạp lại bộ đệm vòng."""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT data_json FROM voice_traces ORDER BY id DESC LIMIT ?;", (limit,)).fetchall()
+        out = []
+        for r in reversed(rows):
+            try:
+                out.append(json.loads(r["data_json"]))
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    def op_stats(self, since: str) -> Dict[str, Any]:
+        """Số liệu sổ tác vụ từ thời điểm `since`: tác vụ theo trạng thái / loại, bước theo
+        quyết định chính sách / kết quả kiểm chứng, token."""
+        with self._get_connection() as conn:
+            def pairs(sql: str) -> Dict[str, int]:
+                return {str(k): int(v) for k, v in conn.execute(sql, (since,)).fetchall()}
+            return {
+                "tasks_by_status": pairs("SELECT status, COUNT(*) FROM op_tasks WHERE created_at >= ? GROUP BY status;"),
+                "tasks_by_kind": pairs("SELECT kind, COUNT(*) FROM op_tasks WHERE created_at >= ? GROUP BY kind;"),
+                "steps_by_decision": pairs("SELECT COALESCE(decision, '?'), COUNT(*) FROM op_task_steps "
+                                           "WHERE started_at >= ? GROUP BY decision;"),
+                "steps_by_rule": pairs("SELECT COALESCE(policy_rule, '?'), COUNT(*) FROM op_task_steps "
+                                       "WHERE started_at >= ? GROUP BY policy_rule;"),
+                "steps_by_verification": pairs("SELECT COALESCE(verification_status, '?'), COUNT(*) FROM op_task_steps "
+                                               "WHERE started_at >= ? GROUP BY verification_status;"),
+                "tokens": int(conn.execute("SELECT COALESCE(SUM(total_tokens), 0) FROM op_tasks WHERE created_at >= ?;",
+                                           (since,)).fetchone()[0]),
+                "llm_calls": int(conn.execute("SELECT COALESCE(SUM(llm_calls), 0) FROM op_tasks WHERE created_at >= ?;",
+                                              (since,)).fetchone()[0]),
+            }
 
     def op_find_open_incident(self, source: str) -> Optional[Dict[str, Any]]:
         with self._get_connection() as conn:
