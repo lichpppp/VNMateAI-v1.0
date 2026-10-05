@@ -168,3 +168,76 @@ def _csv_safe(v: Any) -> str:
     """Chặn công thức Excel (=, +, -, @) trong ô do người dùng nhập."""
     s = str(v or "")
     return "'" + s if s[:1] in ("=", "+", "-", "@", "\t", "\r") else s
+
+
+# ── Sổ tác vụ vận hành của AI (prompt Supervisor §21–§30, §82–§83) ──────────
+
+class OpTaskDecision(BaseModel):
+    note: str = Field(default="", max_length=300)
+
+
+@router.get("/api/v1/ops/tasks", summary="Sổ tác vụ của AI: trạng thái, bước, kiểm chứng", tags=["AI Operations"])
+async def list_op_tasks(
+    status: Optional[str] = Query(default=None),
+    kind: Optional[str] = Query(default=None),
+    days: int = Query(default=7, ge=1, le=365),
+    limit: int = Query(default=200, ge=1, le=1000),
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    from datetime import timedelta
+    from mateai.application.tasks import ledger
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = await run_blocking(partial(ledger.list_tasks, status=status, kind=kind, since=since, limit=limit))
+    by_status: Dict[str, int] = {}
+    for r in rows:
+        by_status[r["status"]] = by_status.get(r["status"], 0) + 1
+    done = by_status.get("COMPLETED", 0)
+    finished = done + by_status.get("FAILED", 0) + by_status.get("BLOCKED", 0)
+    return {"status": "success", "tasks": rows, "by_status": by_status, "days": days,
+            "success_rate": round(done * 100.0 / finished, 1) if finished else None}
+
+
+@router.get("/api/v1/ops/tasks/{task_id}", summary="Chi tiết tác vụ: bước, quyết định chính sách, bằng chứng",
+            tags=["AI Operations"])
+async def get_op_task(task_id: str, current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.tasks import ledger
+    task = await run_blocking(partial(ledger.get_task, task_id))
+    if task is None:
+        raise HTTPException(status_code=404, detail="Không có tác vụ này.")
+    return {"status": "success", "task": task}
+
+
+@router.post("/api/v1/ops/tasks/{task_id}/confirm", summary="Người xác nhận kết quả tác vụ đã leo thang",
+             tags=["AI Operations"])
+async def confirm_op_task(task_id: str, payload: OpTaskDecision,
+                          current_user: Dict[str, Any] = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    """Tác vụ ESCALATED (AI không tự kiểm chứng được) chỉ thành COMPLETED khi NGƯỜI xác nhận —
+    xác nhận được ghi thành bằng chứng + audit."""
+    from mateai.application.tasks import ledger
+    task = ledger.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Không có tác vụ này.")
+    if task["status"] != ledger.ESCALATED:
+        raise HTTPException(status_code=409, detail=f"Chỉ xác nhận được tác vụ đang ESCALATED (hiện: {task['status']}).")
+    who = str(current_user.get("username") or "admin")
+    ledger.add_evidence(task_id, source=f"human:{who}", kind="FACT", verified=True,
+                        summary=f"Người xác nhận kết quả: {who}. {payload.note}".strip())
+    ledger.transition(task_id, ledger.COMPLETED, verification_status="passed",
+                      result_summary=f"Người xác nhận ({who}). {payload.note}".strip()[:300])
+    _audit(current_user, "op_task_confirm", {"task_id": task_id, "note": payload.note})
+    return {"status": "success", "task": ledger.get_task(task_id)}
+
+
+@router.post("/api/v1/ops/tasks/{task_id}/cancel", summary="Huỷ tác vụ của AI", tags=["AI Operations"])
+async def cancel_op_task(task_id: str, payload: OpTaskDecision,
+                         current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.tasks import ledger
+    task = ledger.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Không có tác vụ này.")
+    if task["status"] in ledger.TERMINAL:
+        raise HTTPException(status_code=409, detail=f"Tác vụ đã kết thúc ({task['status']}).")
+    who = str(current_user.get("username") or "?")
+    ledger.transition(task_id, ledger.CANCELLED, result_summary=f"Huỷ bởi {who}. {payload.note}".strip()[:300])
+    _audit(current_user, "op_task_cancel", {"task_id": task_id, "note": payload.note})
+    return {"status": "success", "task": ledger.get_task(task_id)}

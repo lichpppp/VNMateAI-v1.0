@@ -35,23 +35,20 @@ logger = logging.getLogger(__name__)
 def tool_summary(calls: Any) -> List[Dict[str, Any]]:
     """Công cụ đã chạy trong lượt cho Portal: tên, máy, trạng thái, mã phê duyệt (nếu
     phải chờ duyệt) — KHÔNG gửi tham số / dữ liệu kết quả (có thể nhạy cảm)."""
+    from mateai.application.tasks.verification import tool_outcome  # một cách đọc trạng thái tool
     out: List[Dict[str, Any]] = []
     for c in calls or []:
         res = c.get("result") if isinstance(c, dict) else None
-        res = res if isinstance(res, dict) else {}
-        # Trình chạy plugin bọc kết quả skill: {"success": true, "data": {"success": false,
-        # "error": "..."}} — lớp ngoài chỉ nói "đã chạy được skill". Đọc lớp TRONG.
-        inner = res.get("data")
-        if isinstance(inner, dict) and ("success" in inner or "error" in inner or "status" in inner):
-            res = {**res, **inner}
-        status = str(res.get("status") or ("success" if res.get("success") is True else
-                                            "error" if (res.get("error") or res.get("success") is False) else "done"))
+        o = tool_outcome(res)
         item = {"skill": str(c.get("skill") or "?"), "target": str(c.get("target_client") or "master"),
-                "status": status}
-        if res.get("approval_id"):
-            item["approval_id"] = str(res["approval_id"])
-        if status not in ("success", "done") and (res.get("message") or res.get("error")):
-            item["message"] = str(res.get("message") or res.get("error"))[:200]
+                "status": o["status"]}
+        if o["approval_id"]:
+            item["approval_id"] = str(o["approval_id"])
+        if o["status"] not in ("success", "done") and o["message"]:
+            item["message"] = o["message"][:200]
+        ver = (res or {}).get("verification") if isinstance(res, dict) else None
+        if isinstance(ver, dict) and ver.get("status"):
+            item["verification"] = str(ver["status"])
         out.append(item)
     return out
 

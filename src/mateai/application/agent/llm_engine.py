@@ -1061,6 +1061,15 @@ class LLMEngine:
         _tool_calls_used = [0]
         _usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "llm_calls": 0}
         _stop_reason = "MAX_TOOL_ROUNDS reached"
+        # Sổ tác vụ (§21): lượt có gọi tool = một tác vụ; mở lúc gọi tool đầu tiên.
+        from mateai.application.tasks import ledger as _ledger
+        _op_task: List[Optional[str]] = [_ledger.CURRENT_TASK.get()]
+        _owns_task = _op_task[0] is None
+
+        def _settle_task() -> Optional[str]:
+            if _op_task[0] and _owns_task:
+                return _ledger.settle(_op_task[0])
+            return None
 
         for round_idx in range(MAX_TOOL_ROUNDS):
             logger.debug("LLM round %d — messages=%d, tools=%d, brain_role=%s", round_idx, len(messages), len(tools), brain_role)
@@ -1174,6 +1183,8 @@ class LLMEngine:
                     # Cổng thực thi tool dùng chung (Zero-Trust, HITL, RBAC, audit) —
                     # cùng một implementation với đường voice realtime.
                     from mateai.application.agent.tool_gate import run_tool_with_policy
+                    # Mỗi lời gọi chạy trong ngữ cảnh con của gather -> đặt ở đây không lan sang lượt sau.
+                    _ledger.CURRENT_TASK.set(_op_task[0])
                     _gate = await run_tool_with_policy(
                         fn_name, fn_args,
                         caller=caller_id,
@@ -1190,6 +1201,10 @@ class LLMEngine:
                     len(assistant_msg.tool_calls),
                     [tc.function.name for tc in assistant_msg.tool_calls],
                 )
+                if _op_task[0] is None:
+                    from mateai.application.security.policy_engine import agent_id_for
+                    _op_task[0] = _ledger.open_task(query, created_by=str(caller_id), channel=str(source_device or ""),
+                                                    agent_id=agent_id_for(source_device), status=_ledger.EXECUTING)
                 parallel_results = await asyncio.gather(
                     *[_run_single_tool(tc) for tc in assistant_msg.tool_calls],
                     return_exceptions=True,
@@ -1274,6 +1289,7 @@ class LLMEngine:
                 from mateai.application.conversation.memory_manager import memory_manager
                 memory_manager.add_turn(active_session, query, display_text)
 
+                _task_status = _settle_task()
                 return {
                     "reply": display_text,
                     "speech_reply": speech_text,
@@ -1282,6 +1298,7 @@ class LLMEngine:
                     "error": None,
                     "route_info": {"model": used_model},
                     "usage": _usage,
+                    "op_task": {"task_id": _op_task[0], "status": _task_status} if _op_task[0] else None,
                     "requires_confirmation": has_need_confirm,
                     # Phase 87: kèm luôn suy nghĩ, để phía gọi đọc được của
                     # đúng lượt này thay vì đọc thuộc tính chung (lượt song
@@ -1327,6 +1344,7 @@ class LLMEngine:
             "error": _stop_reason,
             "route_info": {"model": used_model},
             "usage": _usage,
+            "op_task": {"task_id": _op_task[0], "status": _settle_task()} if _op_task[0] else None,
             "requires_confirmation": any(
                 (tc.get("result") or {}).get("status") == "need_confirm" for tc in tool_calls_made
             ),

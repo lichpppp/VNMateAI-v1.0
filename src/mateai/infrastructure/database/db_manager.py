@@ -159,6 +159,67 @@ class DatabaseManager:
                         """
                     )
 
+                    # 5. Sổ tác vụ vận hành của AI (prompt Supervisor §21–§27): tác vụ,
+                    #    từng bước (quyết định chính sách + kết quả + kiểm chứng), bằng chứng.
+                    cursor.executescript(
+                        """
+                        CREATE TABLE IF NOT EXISTS op_tasks (
+                            task_id TEXT PRIMARY KEY,
+                            kind TEXT NOT NULL,
+                            title TEXT NOT NULL,
+                            goal TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            created_by TEXT,
+                            agent_id TEXT,
+                            channel TEXT,
+                            priority TEXT NOT NULL,
+                            risk INTEGER NOT NULL DEFAULT 1,
+                            status TEXT NOT NULL,
+                            current_step INTEGER NOT NULL DEFAULT 0,
+                            approval_id TEXT,
+                            result_summary TEXT,
+                            verification_status TEXT,
+                            source TEXT,
+                            trace_id TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_op_tasks_status ON op_tasks(status);
+                        CREATE INDEX IF NOT EXISTS idx_op_tasks_created ON op_tasks(created_at);
+                        CREATE TABLE IF NOT EXISTS op_task_steps (
+                            step_id TEXT PRIMARY KEY,
+                            task_id TEXT NOT NULL,
+                            seq INTEGER NOT NULL,
+                            tool TEXT NOT NULL,
+                            target TEXT,
+                            args_hash TEXT,
+                            decision TEXT,
+                            policy_rule TEXT,
+                            policy_version TEXT,
+                            risk INTEGER,
+                            level TEXT,
+                            started_at TEXT NOT NULL,
+                            ended_at TEXT,
+                            outcome TEXT,
+                            message TEXT,
+                            verification_level TEXT,
+                            verification_status TEXT,
+                            evidence_id TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_op_steps_task ON op_task_steps(task_id);
+                        CREATE TABLE IF NOT EXISTS op_evidence (
+                            evidence_id TEXT PRIMARY KEY,
+                            task_id TEXT NOT NULL,
+                            collected_at TEXT NOT NULL,
+                            source TEXT NOT NULL,
+                            kind TEXT NOT NULL,
+                            summary TEXT NOT NULL,
+                            ref TEXT,
+                            verified INTEGER NOT NULL DEFAULT 0
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_op_evidence_task ON op_evidence(task_id);
+                        """
+                    )
+
                     conn.commit()
 
                 # Bảng users là kho tài khoản DUY NHẤT. Chỉ khi bảng rỗng (lần
@@ -787,6 +848,73 @@ class DatabaseManager:
         with self._lock:
             with self._get_connection() as conn:
                 return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    # ── Sổ tác vụ vận hành của AI (op_tasks / op_task_steps / op_evidence) ──
+
+    _OP_TASK_COLS = ("task_id", "kind", "title", "goal", "created_at", "updated_at", "created_by", "agent_id",
+                     "channel", "priority", "risk", "status", "current_step", "approval_id", "result_summary",
+                     "verification_status", "source", "trace_id")
+
+    def op_insert(self, table: str, row: Dict[str, Any]) -> None:
+        if table not in ("op_tasks", "op_task_steps", "op_evidence"):
+            raise ValueError(table)
+        cols = list(row)
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))});",
+                             [row[c] for c in cols])
+                conn.commit()
+
+    def op_update(self, table: str, key: str, key_value: str, fields: Dict[str, Any]) -> None:
+        if table not in ("op_tasks", "op_task_steps") or key not in ("task_id", "step_id") or not fields:
+            raise ValueError(table)
+        sets = ", ".join(f"{c} = ?" for c in fields)
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(f"UPDATE {table} SET {sets} WHERE {key} = ?;", [*fields.values(), key_value])
+                conn.commit()
+
+    def op_get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM op_tasks WHERE task_id = ?;", (task_id,)).fetchone()
+            if not row:
+                return None
+            task = dict(row)
+            task["steps"] = [dict(r) for r in conn.execute(
+                "SELECT * FROM op_task_steps WHERE task_id = ? ORDER BY seq;", (task_id,)).fetchall()]
+            task["evidence"] = [dict(r) for r in conn.execute(
+                "SELECT * FROM op_evidence WHERE task_id = ? ORDER BY collected_at;", (task_id,)).fetchall()]
+            return task
+
+    def op_list_tasks(self, status: Optional[str] = None, kind: Optional[str] = None,
+                      since: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+        sql, params = "SELECT * FROM op_tasks WHERE 1 = 1", []
+        if status:
+            sql += " AND status = ?"
+            params.append(status)
+        if kind:
+            sql += " AND kind = ?"
+            params.append(kind)
+        if since:
+            sql += " AND created_at >= ?"
+            params.append(since)
+        sql += " ORDER BY created_at DESC LIMIT ?;"
+        params.append(limit)
+        with self._get_connection() as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def op_steps(self, task_id: str) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            return [dict(r) for r in conn.execute(
+                "SELECT * FROM op_task_steps WHERE task_id = ? ORDER BY seq;", (task_id,)).fetchall()]
+
+    def op_find_open_incident(self, source: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM op_tasks WHERE kind = 'incident' AND source = ? "
+                "AND status NOT IN ('COMPLETED', 'FAILED', 'CANCELLED') ORDER BY created_at DESC LIMIT 1;",
+                (source,)).fetchone()
+            return dict(row) if row else None
 
     def count_tasks(self) -> Dict[str, int]:
         """Thống kê tổng số task theo trạng thái."""

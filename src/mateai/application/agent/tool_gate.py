@@ -138,10 +138,19 @@ async def _run_tool_with_policy(
                  "decision": decision.effect, "level": decision.level, "rule": decision.rule,
                  "policy_version": decision.policy_version, "args": fn_args}
 
+    from mateai.application.tasks import ledger
+    from mateai.application.tasks.verification import verify
+    op_task = ledger.CURRENT_TASK.get()
+    audit_ctx["op_task_id"] = op_task
+
     if decision.effect == policy_engine.DENY:
         logger.warning("[Policy] DENY tool=%s caller=%s agent=%s rule=%s", fn_name, caller, agent, decision.rule)
         security_engine.log_audit(str(caller), fn_name, str(decision.risk), "REJECTED",
                                   {**audit_ctx, "reason": decision.reasons[0]})
+        ledger.record_step(op_task, tool=fn_name, target=target_client, args=fn_args, decision=decision,
+                           result={"status": "denied", "error": decision.reasons[0]},
+                           verification={"level": "NONE", "status": "failed",
+                                         "checks": [f"chính sách từ chối ({decision.rule}): {decision.reasons[0]}"]})
         return _done({
             "status": "error", "success": False,
             "code": "RBAC_DENIED" if decision.rule == "rbac" else "POLICY_DENIED",
@@ -170,9 +179,13 @@ async def _run_tool_with_policy(
                 "source_device": source_device,
                 "session_id": session_id,
                 "agent_id": agent,
+                "op_task_id": op_task,
             },
             risk_level=decision.risk,
         )
+        _pending = {"status": "need_confirm", "approval_id": _req.get("id")}
+        ledger.record_step(op_task, tool=fn_name, target=target_client, args=fn_args, decision=decision,
+                           result=_pending, verification=verify(fn_name, fn_args, _pending, decision.risk, target_client))
         return _done({
             "status": "need_confirm",
             "approval_id": _req.get("id"),
@@ -218,7 +231,14 @@ async def _run_tool_with_policy(
             orchestrator.execute_on_client_sync, target_client, fn_name, fn_args, **_sync_kw)
 
     _ok = _result.get("status") == "success" or _result.get("success") is True
-    security_engine.log_audit(str(caller), fn_name, str(decision.risk), "SUCCESS" if _ok else "FAILED", audit_ctx)
+    # Kiểm chứng sau hành động (§29): "tool báo đã chạy" chưa phải "đã xong".
+    _verification = verify(fn_name, fn_args, _result, decision.risk, target_client)
+    if isinstance(_result, dict):
+        _result = {**_result, "verification": {k: _verification[k] for k in ("level", "status", "summary")}}
+    ledger.record_step(op_task, tool=fn_name, target=target_client, args=fn_args, decision=decision,
+                       result=_result, verification=_verification)
+    security_engine.log_audit(str(caller), fn_name, str(decision.risk), "SUCCESS" if _ok else "FAILED",
+                              {**audit_ctx, "verification": _verification["status"]})
     return _done(_result)
 
 
@@ -230,6 +250,8 @@ async def execute_approved_tool(item: Dict[str, Any]) -> Dict[str, Any]:
     """
     ctx = item.get("context") or {}
     _remember_approval(item)
+    from mateai.application.tasks import ledger
+    _token = ledger.CURRENT_TASK.set(ctx.get("op_task_id"))
     _topo("approval", stage="approved", source="hitl", target="tools", status="ok",
           detail=f"{item.get('action_name')} được duyệt bởi {item.get('reviewed_by') or '?'}")
     gate = await run_tool_with_policy(
@@ -242,6 +264,8 @@ async def execute_approved_tool(item: Dict[str, Any]) -> Dict[str, Any]:
         approved=True,
         agent_id=ctx.get("agent_id"),
     )
+    ledger.settle(ctx.get("op_task_id"))
+    ledger.CURRENT_TASK.reset(_token)
     return gate["result"]
 
 

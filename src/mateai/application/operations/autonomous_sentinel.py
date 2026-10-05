@@ -229,6 +229,13 @@ class AutonomousSentinel:
             return False
 
         self._last_alert_times[category] = now
+        # Sổ tác vụ: sự cố thành tác vụ `incident` (ưu tiên tất định, có bằng chứng,
+        # trạng thái ESCALATED — người xử lý). Sentinel KHÔNG tự khắc phục (§156–§159).
+        try:
+            from mateai.application.tasks import ledger
+            await asyncio.to_thread(ledger.open_incident, category, title, message, "critical")
+        except Exception as exc:  # noqa: BLE001 — sổ hỏng không chặn cảnh báo
+            logger.warning("[AutonomousSentinel] Không ghi được sự cố vào sổ tác vụ: %s", exc)
         from mateai.application.operations.topology_events import emit
         emit("incident", stage="alert", source="sentinel", target="alerts", status="error",
              detail=f"[{category}] {title}")
