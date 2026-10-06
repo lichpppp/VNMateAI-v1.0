@@ -106,7 +106,7 @@ volatile float  wakeNoiseFloor = 200.0f; // ước lượng ồn nền (RMS)
 volatile float  wakePeakRms = 0.0f;      // RMS lớn nhất từ lần báo trước (hiệu chỉnh)
 // v54: âm lượng loa 0..100 (lưu NVS "vol"), đổi từ Portal — trước đây cố định.
 uint8_t speakerVolume = 100;
-#define FIRMWARE_VERSION "54.0"
+#define FIRMWARE_VERSION "55.0"
 static void sendStatusReport(const char* reason);
 volatile uint32_t lastVoiceMs = 0;       // lần cuối có tiếng nói (khi đang nghe)
 uint32_t listenEnteredMs = 0;
@@ -139,12 +139,198 @@ static void sendWakeClip();
 static float chunkRms(const int16_t* s, size_t n);
 static void sendWakeStats();
 
+// ─── v55: Cử động tự nhiên (đèn RGB, cử chỉ, lắc bánh nhẹ lúc rảnh) ──────────
+// Máy chủ gửi {"type":"behavior", ...} (application/devices/robot_behavior.py) khi bắt tay
+// và khi cấu hình / giờ yên lặng đổi. Mặc định dưới đây dùng khi chưa nhận được khung đó.
+// Mọi cử động chạy trong TASK RIÊNG: vòng loop() không bị chặn -> WebSocket / âm thanh không giật.
+struct Behavior {
+    volatile bool idle = true;          // cử động lúc rảnh (servo + đèn)
+    volatile bool idleWheels = true;    // lắc bánh nhẹ lúc rảnh
+    volatile bool speechGestures = true;
+    volatile bool led = true;
+    volatile uint16_t idleMinS = 30, idleMaxS = 120;
+    volatile uint16_t wheelMs = 120;    // một nhịp bánh — ngắn = nhẹ
+};
+Behavior behavior;
+
+enum GestureCode : uint8_t { G_NONE = 0, G_WAVE, G_NOD, G_LOOK, G_EXCITED, G_SAD, G_SMALL_NOD };
+QueueHandle_t gestureQueue = nullptr;
+
+// Màu đèn theo cảm xúc câu đang nói (máy chủ chọn — application/voice/emotion.py).
+enum LedMood : uint8_t { MOOD_NEUTRAL, MOOD_HAPPY, MOOD_SAD, MOOD_EXCITED, MOOD_WOW, MOOD_LOVE };
+volatile uint8_t ledMood = MOOD_NEUTRAL;
+
+// Trong lúc bánh / servo đang chạy (và một chút sau): KHÔNG bắt câu gọi tên — tiếng động cơ
+// không được gửi lên máy chủ như một câu nói.
+volatile uint32_t motionQuietUntil = 0;
+
+static uint8_t moodFromEmotion(const String& e) {
+    if (e == "happy") return MOOD_HAPPY;
+    if (e == "sad" || e == "cry") return MOOD_SAD;
+    if (e == "excited") return MOOD_EXCITED;
+    if (e == "wow") return MOOD_WOW;
+    if (e == "love") return MOOD_LOVE;
+    return MOOD_NEUTRAL;
+}
+
+static void queueGesture(GestureCode g) {
+    if (gestureQueue && g != G_NONE) xQueueSend(gestureQueue, &g, 0);
+}
+
+static void setRgb(uint8_t r, uint8_t g, uint8_t b) { neopixelWrite(RGB_PIN, r, g, b); }
+
+// Đèn RGB: rảnh = thở chậm xanh ngọc · nghe = xanh dương · nghĩ = tím nhấp nháy · nói = màu cảm xúc.
+static void updateRgb(uint32_t now) {
+    if (!behavior.led) { setRgb(0, 0, 0); return; }
+    float wave = (sinf(now / 1000.0f * 2.0f * PI / 4.0f) + 1.0f) * 0.5f;       // chu kỳ 4 s
+    switch (convState) {
+        case CONV_LISTENING: setRgb(0, 0, 40); break;
+        case CONV_THINKING: {
+            float fast = (sinf(now / 1000.0f * 2.0f * PI / 0.8f) + 1.0f) * 0.5f;
+            setRgb((uint8_t)(10 + 25 * fast), 0, (uint8_t)(15 + 30 * fast));
+            break;
+        }
+        case CONV_SPEAKING:
+            switch (ledMood) {
+                case MOOD_HAPPY:   setRgb(30, 30, 0);  break;
+                case MOOD_SAD:     setRgb(0, 4, 20);   break;
+                case MOOD_EXCITED: setRgb(45, 15, 0);  break;
+                case MOOD_WOW:     setRgb(30, 30, 30); break;
+                case MOOD_LOVE:    setRgb(40, 0, 15);  break;
+                default:           setRgb(0, 25, 25);  break;
+            }
+            break;
+        case CONV_IDLE:
+        default:
+            setRgb(0, (uint8_t)(2 + 14 * wave), (uint8_t)(2 + 12 * wave));
+            break;
+    }
+}
+
+static void runGesture(GestureCode g) {
+    MotionCore& m = MotionCore::getInstance();
+    motionQuietUntil = millis() + 2500;
+    switch (g) {
+        case G_WAVE:      m.waveArm(); break;
+        case G_NOD:       m.nodNeck(); break;
+        case G_LOOK:      m.lookAround(); break;
+        case G_EXCITED:   m.excited(); break;
+        case G_SAD:       m.sad(); break;
+        case G_SMALL_NOD: m.smallNod(); break;
+        default: break;
+    }
+    motionQuietUntil = millis() + 400;
+}
+
+// Một nhịp bánh rồi dừng; chờ tới khi motor đã dừng hẳn.
+static void wheelPulse(RobotDirection dir, uint16_t ms) {
+    if (!MotionCore::getInstance().moveRobot(dir, ms)) return;
+    vTaskDelay(pdMS_TO_TICKS(ms + 60));
+}
+
+// Cử động lúc rảnh: ngẫu nhiên một việc nhỏ. Bánh: xoay trái rồi phải, hoặc nhích tiến rồi lùi
+// cùng thời lượng — robot luôn về chỗ cũ; gặp mép bàn (ToF) thì không nhích tiến và không lùi.
+static void idleAction() {
+    MotionCore& m = MotionCore::getInstance();
+    bool wheelsOk = behavior.idleWheels && isConnectedToServer && !m.isCliffDetected();
+    int pick = random(0, wheelsOk ? 6 : 3);
+    uint16_t ms = behavior.wheelMs;
+    motionQuietUntil = millis() + 4000;
+    switch (pick) {
+        case 0: m.lookAround(); break;
+        case 1: m.tiltHead(random(0, 2) ? 105 : 75, 600); break;
+        case 2: m.smallNod(); break;
+        case 3:                                                  // lắc trái - phải
+            wheelPulse(DIR_LEFT, ms);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            wheelPulse(DIR_RIGHT, ms);
+            break;
+        case 4:                                                  // nhích tiến rồi lùi
+            if (!m.isCliffDetected()) {
+                bool moved = m.moveRobot(DIR_FORWARD, ms);
+                if (moved) {
+                    vTaskDelay(pdMS_TO_TICKS(ms + 260));
+                    wheelPulse(DIR_BACKWARD, ms);
+                }
+            }
+            break;
+        default:                                                 // lắc phải - trái + nghiêng đầu
+            wheelPulse(DIR_RIGHT, ms);
+            vTaskDelay(pdMS_TO_TICKS(150));
+            wheelPulse(DIR_LEFT, ms);
+            m.tiltHead(random(0, 2) ? 105 : 75, 400);
+            break;
+    }
+    motionQuietUntil = millis() + 500;
+}
+
+void behaviorTaskLoop(void* arg) {
+    uint32_t nextIdleAt = millis() + 15000;
+    uint32_t nextNodAt = 0;
+    uint32_t lastLed = 0;
+    for (;;) {
+        uint32_t now = millis();
+        GestureCode g;
+        if (xQueueReceive(gestureQueue, &g, pdMS_TO_TICKS(30)) == pdTRUE) {
+            runGesture(g);
+            nextNodAt = millis() + random(3500, 6000);
+            continue;
+        }
+        if (now - lastLed >= 30) { updateRgb(now); lastLed = now; }
+
+        if (convState == CONV_SPEAKING) {
+            // Gật nhẹ theo nhịp câu nói (không chạy bánh: đang phát loa).
+            if (behavior.speechGestures) {
+                if (nextNodAt == 0) nextNodAt = now + random(2500, 4500);
+                if (now >= nextNodAt) { runGesture(G_SMALL_NOD); nextNodAt = millis() + random(3500, 6000); }
+            }
+        } else {
+            nextNodAt = 0;
+        }
+
+        if (convState == CONV_IDLE && behavior.idle) {
+            if (now >= nextIdleAt) {
+                idleAction();
+                uint32_t lo = behavior.idleMinS, hi = max((uint32_t)behavior.idleMinS, (uint32_t)behavior.idleMaxS);
+                nextIdleAt = millis() + 1000UL * random(lo, hi + 1);
+            }
+        } else if (convState != CONV_IDLE) {
+            // vừa có hội thoại: chờ ít nhất idleMinS rồi mới cử động lúc rảnh
+            nextIdleAt = now + 1000UL * behavior.idleMinS;
+        }
+    }
+}
+
+void startBehaviorTask() {
+    gestureQueue = xQueueCreate(4, sizeof(GestureCode));
+    randomSeed(esp_random());
+    xTaskCreate(behaviorTaskLoop, "behavior", 4096, nullptr, 1, nullptr);
+}
+
+static void applyBehaviorFrame(JsonDocument& doc) {
+    behavior.idle = doc["idle"] | (bool)behavior.idle;
+    behavior.idleWheels = doc["idle_wheels"] | (bool)behavior.idleWheels;
+    behavior.speechGestures = doc["speech_gestures"] | (bool)behavior.speechGestures;
+    behavior.led = doc["led"] | (bool)behavior.led;
+    uint16_t mn = doc["idle_min_s"] | (uint16_t)behavior.idleMinS;
+    uint16_t mx = doc["idle_max_s"] | (uint16_t)behavior.idleMaxS;
+    uint16_t wm = doc["wheel_ms"] | (uint16_t)behavior.wheelMs;
+    behavior.idleMinS = constrain(mn, 5, 3600);
+    behavior.idleMaxS = constrain(max(mn, mx), 5, 3600);
+    behavior.wheelMs = constrain(wm, 60, 300);
+    bool quiet = doc["quiet"] | false;
+    Serial.printf("[Behavior] idle=%d wheels=%d speech=%d led=%d nghi %u-%us nhip banh %ums%s\n",
+                  (int)behavior.idle, (int)behavior.idleWheels, (int)behavior.speechGestures, (int)behavior.led,
+                  (unsigned)behavior.idleMinS, (unsigned)behavior.idleMaxS, (unsigned)behavior.wheelMs,
+                  quiet ? " (gio yen lang)" : "");
+}
+
 // ─── Setup ───────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
     delay(500);
     Serial.println(F("\n======================================================="));
-    Serial.println(F("   VN-MATE AI // ROBOTICS COMPANION FIRMWARE v54.0    "));
+    Serial.println(F("   VN-MATE AI // ROBOTICS COMPANION FIRMWARE v55.0    "));
     Serial.println(F("   Pairing Code + XiaoZhi Conversation Flow           "));
     Serial.println(F("======================================================="));
 
@@ -169,6 +355,7 @@ void setup() {
     Face::setEmotion(Face::EMO_HAPPY, 2500);       // chào khi khởi động
     MotionCore::getInstance().waveArm();
     setConvState(CONV_IDLE);
+    startBehaviorTask();                           // v55: đèn RGB + cử động tự nhiên
 }
 
 // ─── Main Loop ───────────────────────────────────────────────────────────────
@@ -370,6 +557,8 @@ static void wakeProcessChunk(const int16_t* s, size_t n, float rms) {
     static int loud = 0;
     static uint32_t lastLoudMs = 0, cooldownUntil = 0;
     uint32_t now = millis();
+    // v55: đang cử động (bánh / servo) -> bỏ đoạn này, không coi tiếng động cơ là câu gọi tên.
+    if (now < motionQuietUntil) { capturing = false; loud = 0; preCount = 0; wakeLen = 0; return; }
     if (rms > wakePeakRms) wakePeakRms = rms;
     float startThr = max(wakeNoiseFloor * 2.0f, WAKE_MIN_RMS);
 
@@ -878,7 +1067,7 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
                 doc["device_id"]    = DEFAULT_DEVICE_ID;
                 doc["version"]      = FIRMWARE_VERSION;
                 doc["pairing_code"] = cfg_pairing_code.c_str();
-                doc["features"]     = "motor_l298n,tof_safety,servo_kinematics,oled_lipsync,touch_wake,i2s_audio,pairing_code,volume_ctrl,reboot,status_report";
+                doc["features"]     = "motor_l298n,tof_safety,servo_kinematics,oled_lipsync,touch_wake,i2s_audio,pairing_code,volume_ctrl,reboot,status_report,natural_behavior,rgb_led";
                 String hs; serializeJson(doc, hs);
                 webSocket.sendTXT(hs);
             }
@@ -924,6 +1113,12 @@ void handleIncomingJson(const char* jsonStr) {
         drawOledPairingCode(cfg_pairing_code);  // Hiển thị mã to để user đọc
         delay(4000);
         setConvState(CONV_IDLE);
+        return;
+    }
+
+    // ── v55: cấu hình cử động tự nhiên từ máy chủ ────────────────────────────
+    if (type == "behavior") {
+        applyBehaviorFrame(doc);
         return;
     }
 
@@ -974,6 +1169,7 @@ void handleIncomingJson(const char* jsonStr) {
         uint32_t holdMs = doc["hold_ms"] | 0;
         if (emotion.length() > 0 && !(state == "idle" && emotion == "sleeping"))
             Face::setEmotion(Face::parseEmotion(emotion), holdMs);
+        if (emotion.length() > 0) ledMood = moodFromEmotion(emotion);
     }
 
     // ── TTS Start / Stop ──────────────────────────────────────────────────────
@@ -997,12 +1193,13 @@ void handleIncomingJson(const char* jsonStr) {
 
     // ── Lệnh cử chỉ ──────────────────────────────────────────────────────────
     if (action == "animate" || (type == "cmd" && action == "animate")) {
+        // v55: chạy trong task cử động (không chặn vòng loop -> âm thanh không giật).
         String anim = doc["anim"] | "";
-        if      (anim == "wave_hand")   MotionCore::getInstance().waveArm();
-        else if (anim == "nod_head")    MotionCore::getInstance().nodNeck();
-        else if (anim == "look_around") MotionCore::getInstance().lookAround();
-        else if (anim == "excited")     MotionCore::getInstance().excited();
-        else if (anim == "sad")         MotionCore::getInstance().sad();
+        if      (anim == "wave_hand")   queueGesture(G_WAVE);
+        else if (anim == "nod_head")    queueGesture(G_NOD);
+        else if (anim == "look_around") queueGesture(G_LOOK);
+        else if (anim == "excited")     queueGesture(G_EXCITED);
+        else if (anim == "sad")         queueGesture(G_SAD);
     }
 
     // ── Lệnh di chuyển bánh xe ────────────────────────────────────────────────

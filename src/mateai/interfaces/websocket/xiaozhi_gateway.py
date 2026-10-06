@@ -335,6 +335,52 @@ class XiaozhiGateway:
         self._lock = asyncio.Lock()
         # Tham chiếu tới global pairing registry
         self.pairing_registry = pairing_registry
+        # Cử động tự nhiên (application/devices/robot_behavior): khung đã gửi theo thiết bị +
+        # vòng kiểm tra mỗi phút (đổi cấu hình, vào / ra giờ yên lặng).
+        self._behavior_sent: Dict[str, Dict[str, Any]] = {}
+        self._behavior_task: Optional["asyncio.Task[None]"] = None
+
+    # -----------------------------------------------------------------------
+    # Natural behaviour (idle motion, speech gestures)
+    # -----------------------------------------------------------------------
+
+    async def push_behavior(self, device_id: str, force: bool = False) -> bool:
+        """Gửi khung `behavior` khi khác lần gửi trước (hoặc `force`). Lỗi cấu hình không chặn robot."""
+        from mateai.application.devices.robot_behavior import behavior_frame
+        node = self._nodes.get(device_id)
+        if not node or not node.websocket:
+            return False
+        try:
+            frame = behavior_frame()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[Xiaozhi] Cấu hình robot_behavior lỗi: %s", exc)
+            return False
+        if not force and self._behavior_sent.get(device_id) == frame:
+            return False
+        try:
+            await node.websocket.send_text(json.dumps(frame, ensure_ascii=False))
+        except Exception:
+            return False
+        self._behavior_sent[device_id] = frame
+        return True
+
+    def behavior_allows_gestures(self, device_id: str) -> bool:
+        """Chỉ firmware khai báo `natural_behavior` (v55+): cử chỉ chạy trong task riêng. Firmware
+        cũ chạy cử chỉ NGAY trong vòng xử lý WebSocket -> âm thanh câu trả lời bị giật."""
+        node = self._nodes.get(device_id)
+        if not node or "natural_behavior" not in (node.capabilities or ""):
+            return False
+        return bool((self._behavior_sent.get(device_id) or {}).get("speech_gestures"))
+
+    def _ensure_behavior_loop(self) -> None:
+        if self._behavior_task is None or self._behavior_task.done():
+            self._behavior_task = asyncio.create_task(self._behavior_loop())
+
+    async def _behavior_loop(self, interval_s: float = 60.0) -> None:
+        while True:
+            await asyncio.sleep(interval_s)
+            for device_id in list(self._nodes):
+                await self.push_behavior(device_id)
 
     # -----------------------------------------------------------------------
     # Node Registry
@@ -1277,6 +1323,8 @@ class XiaozhiGateway:
                         }))
                         # Trả trạng thái idle để thiết bị đồng bộ OLED ngay
                         await self.send_ui_payload(device_id, state="idle", emotion="happy")
+                        await self.push_behavior(device_id, force=True)
+                        self._ensure_behavior_loop()
 
                     else:
                         await websocket.send_text(json.dumps({
@@ -1291,6 +1339,7 @@ class XiaozhiGateway:
         finally:
             async with self._lock:
                 self._nodes.pop(device_id, None)
+            self._behavior_sent.pop(device_id, None)      # kết nối lại = gửi cấu hình lại
             # Xoá pairing code khi robot offline
             await pairing_registry.unregister(device_id)
             from mateai.interfaces.websocket.realtime_hub import active_audio_nodes
@@ -1338,6 +1387,11 @@ class _XiaozhiSink:
             self.started = True
             self.emotion = emotion
             await self.gateway.send_ui_payload(device_id, state="speaking", emotion=emotion, text=text[:60])
+            if kind == "speech" and self.gateway.behavior_allows_gestures(device_id):
+                from mateai.application.devices.robot_behavior import gesture_for_text
+                gesture = gesture_for_text(text, emotion)
+                if gesture:
+                    await self.gateway.send_command(device_id, {"type": "cmd", "action": "animate", "anim": gesture})
             try:
                 await ws.send_text(json.dumps({"session_id": device_id, "type": "tts", "state": "start"}))
                 await ws.send_text(json.dumps({

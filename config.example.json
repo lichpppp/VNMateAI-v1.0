@@ -138,6 +138,17 @@
     "hr_summary": "👤 **THÔNG TIN NHÂN SỰ**\n- **Họ và tên:** {họ_tên}\n- **Phòng ban:** {phòng_ban}\n- **Chức danh:** {chức_danh}\n- **Thiết bị cấp phát:** {tên_máy_tính} ({ip})\n- **Liên hệ:** {email} | {sđt}",
     "system_health": "📊 **TRẠNG THÁI HỆ THỐNG ({thời_gian})**\n- **CPU:** {cpu}%\n- **RAM:** {ram}%\n- **Active Nodes:** {số_lượng} client\n- **Cảnh báo bảo mật:** {số_lượng_cảnh_báo}"
   },
+  "robot_behavior": {
+    "enabled": true,
+    "idle_motion": true,
+    "idle_wheels": true,
+    "speech_gestures": true,
+    "led": true,
+    "idle_min_s": 30,
+    "idle_max_s": 120,
+    "wheel_ms": 120,
+    "quiet_hours": "22:00-07:00"
+  },
   "memory_db": {
     "mode": "local",
     "local_path": "./storage/vector_db",

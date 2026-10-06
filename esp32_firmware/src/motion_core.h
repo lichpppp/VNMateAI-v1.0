@@ -48,6 +48,8 @@ public:
     void lookAround();
     void excited();
     void sad();
+    void smallNod();      // gật rất nhẹ (nhịp khi đang nói)
+    void tiltHead(int angle, uint32_t holdMs);   // nghiêng cổ rồi về giữa
     void centerServos();
 
     // Getters

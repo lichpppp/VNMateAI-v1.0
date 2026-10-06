@@ -400,6 +400,30 @@ void MotionCore::excited() {
     digitalWrite(LED2_PIN, LOW);
 }
 
+void MotionCore::smallNod() {
+    // 90 -> 100 -> 88 -> 90, chậm: gật đầu nhẹ theo nhịp câu nói
+    for (int pos = 90; pos <= 100; pos += 2) { servoNeck_.write(pos); vTaskDelay(pdMS_TO_TICKS(25)); }
+    for (int pos = 100; pos >= 88; pos -= 2) { servoNeck_.write(pos); vTaskDelay(pdMS_TO_TICKS(25)); }
+    servoNeck_.write(90);
+}
+
+void MotionCore::tiltHead(int angle, uint32_t holdMs) {
+    angle = constrain(angle, 60, 120);
+    int step = angle > 90 ? 2 : -2;
+    for (int pos = 90; pos != angle; pos += step) {
+        servoNeck_.write(pos);
+        vTaskDelay(pdMS_TO_TICKS(25));
+        if ((step > 0 && pos + step > angle) || (step < 0 && pos + step < angle)) break;
+    }
+    vTaskDelay(pdMS_TO_TICKS(holdMs));
+    for (int pos = angle; pos != 90; pos -= step) {
+        servoNeck_.write(pos);
+        vTaskDelay(pdMS_TO_TICKS(25));
+        if ((step > 0 && pos - step < 90) || (step < 0 && pos - step > 90)) break;
+    }
+    servoNeck_.write(90);
+}
+
 void MotionCore::sad() {
     Serial.println(F("[MotionCore Kinematics] Thực hiện hoạt ảnh buồn bã (sad)..."));
     // Cổ cụp xuống 65 độ, tay hạ 60 độ

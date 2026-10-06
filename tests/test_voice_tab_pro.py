@@ -104,9 +104,14 @@ def test_v54_robot_controls_and_status_report(robot):
 def test_firmware_54_has_the_new_commands():
     fw = (ROOT / "esp32_firmware" / "src" / "main.cpp").read_text(encoding="utf-8")
     for needle in ('type == "set_volume"', 'type == "get_status"', 'type == "reboot"',
-                   '#define FIRMWARE_VERSION "54.0"', "volume_ctrl,reboot,status_report",
+                   "volume_ctrl,reboot,status_report",
                    'd["type"]      = "status_report"', "speakerVolume"):
         assert needle in fw, needle
+    import re
+    major = int(re.search(r'#define FIRMWARE_VERSION "(\d+)\.\d+"', fw).group(1))
+    assert major >= 54                                    # lệnh v54 còn nguyên ở các bản sau
+    if major >= 55:                                       # v55: cử động tự nhiên (robot_behavior)
+        assert 'type == "behavior"' in fw and "natural_behavior" in fw and "startBehaviorTask()" in fw
 
 
 # ── 5. Kiểm tra âm thanh ────────────────────────────────────────────────────

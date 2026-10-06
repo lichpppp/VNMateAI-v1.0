@@ -209,6 +209,7 @@ Sửa `config.json` **khi máy chủ đang tắt** (khi đang chạy: dùng tran
 | `ad_sync` | đồng bộ nhân sự / máy tính từ AD | `enabled` (cần RSAT + máy chủ trong domain) |
 | `autonomy` | giới hạn AI tự trị | `max_tool_calls_per_turn` (12), `max_agent_seconds` (180), `max_tool_failures_per_turn` (3), `emergency_max_actions_per_minute` (30), `never_autonomous_tools`, `approval_grant_ttl_days` (30), `kill_switch` |
 | `backup` | sao lưu (mục 11) | `offsite_dirs`, `keep` (30), `max_age_hours` (26) |
+| `robot_behavior` | cử động tự nhiên của robot (firmware ≥ 55) | `enabled`, `idle_motion` (ngó quanh, nghiêng đầu, đèn thở lúc rảnh), `idle_wheels` (lắc bánh nhẹ: trái/phải, nhích tiến rồi lùi — luôn về chỗ cũ, không nhích tiến khi cảm biến báo mép bàn), `speech_gestures` (vẫy tay khi chào, gật khi xác nhận, buồn khi xin lỗi… + gật nhẹ theo nhịp nói), `led` (đèn RGB theo trạng thái / cảm xúc), `idle_min_s` / `idle_max_s` (30 / 120), `wheel_ms` (120, giới hạn 60–300), `quiet_hours` (vd `22:00-07:00`: không cử động, tắt đèn) |
 | `audio` | giọng đọc | `tts_engine` (`edge-tts`), `tts_voice` (`vi-VN-HoaiMyNeural`), `speech_rate`, `volume` |
 | `persona`, `AI_NAME`, `WAKE_WORD` | tên, tính cách trợ lý | — |
 | `memory_db` | trí nhớ vector | để `mode: "local"`. Chế độ `microservice` mặc định cổng 8000 — **trùng** cổng IoT, phải đổi |
