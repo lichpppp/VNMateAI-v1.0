@@ -25,11 +25,17 @@
 - Máy chủ đã nhận diện cờ `FLAG_OPUS` (`infrastructure/websocket/binary_transport.py`) và tham số `format` (`xiaozhi_gateway`). Phần còn thiếu là **bộ mã hoá Opus trong firmware** (ESP32-S3 chạy được libopus / esp-adf) và giải mã phía máy chủ trước STT.
 - Việc này cần nạp và thử trên chip thật, nên nằm ngoài phạm vi kiểm được ở máy phát triển. Đã ghi vào `docs/production/owner-todo.md`.
 
+## Đo thực tế chiều tải lên (robot `vnmate_robot_01`, firmware 54.0, 2026-10-06)
+
+Firmware chỉ gửi **đoạn có tiếng nói** (bộ lọc trên chip), không gửi liên tục. Đo trong 11 phút (18:26–18:37): robot gửi **88 đoạn, tổng 210,6 s** âm thanh (khoảng 32 % thời gian). Như vậy PCM 16 kHz chỉ tốn trung bình khoảng **82 kbps**, trong khi Wi-Fi của robot ở −41 dBm (mạnh). Opus sẽ bớt khoảng 78 kbps trung bình, nhưng **băng thông hiện không phải nút cổ chai**. Vì thế chưa đổi codec ở chiều này: chỉ làm khi có robot ở vùng Wi-Fi yếu (rớt khung đo được).
+
+Quan sát kèm theo: 88 đoạn trong 11 phút, gần hết là "không gọi tên". Bộ lọc tiếng nói đang để lọt tiếng ồn nền (RMS khoảng 1 000–2 800), nên nếu muốn bớt lưu lượng thì nâng ngưỡng bộ lọc sẽ hiệu quả hơn đổi codec.
+
 ## Quyết định
 
 | Chiều | Codec | Lý do |
 |---|---|---|
 | TTS → client | MP3 (giữ) | không phải nút cổ chai; đổi thì tốn thêm CPU và một bước trên đường nóng |
-| Micro robot → máy chủ | Opus 16 kbps (đề xuất, cần firmware) | giảm băng thông tải lên 16 lần |
+| Micro robot → máy chủ | PCM (giữ) — Opus 16 kbps chỉ khi Wi-Fi yếu | đo thật trung bình khoảng 82 kbps nhờ lọc tiếng nói trên chip; Wi-Fi −41 dBm |
 
 Chạy lại: `pip install -r requirements-dev.txt && python scripts/bench_codec.py --n 60`.

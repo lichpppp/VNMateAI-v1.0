@@ -11,7 +11,7 @@
 | Câu hỏi | Trả lời |
 |---|---|
 | Kiến trúc lõi đúng hướng prompt chưa? | **Rồi.** Mỗi chức năng lõi một bản chuẩn; 10 luật kiến trúc tự động = 0 vi phạm; **827 pytest + 14 test Node** đạt; lint lỗi chạy thật = 0; quét lỗ hổng phụ thuộc chỉ còn chromadb (không áp dụng — §7). |
-| Đã đủ điều kiện production theo §150? | **Gần đủ ở mức mã nguồn; chưa ở mức triển khai.** Đã có: identity, phân quyền (RBAC + ABAC), policy, risk, audit có chuỗi băm, evidence, verification, kill switch + chế độ khẩn cấp, backup / restore (+ đẩy lên S3), health, trace OpenTelemetry, log có cấu trúc, rate limit, timeout, kịch bản vàng 15/15. Còn: ứng dụng vẫn chạy trên **SQLite** (công cụ di trú PostgreSQL đã kiểm trên dữ liệu thật, chưa cutover), Docker trên máy này chưa chạy được (WSL thiếu kernel), CI GitHub chưa xác nhận chạy. |
+| Đã đủ điều kiện production theo §150? | **Gần đủ.** Hạ tầng Docker đang chạy thật (PostgreSQL 16, Redis 7, S3 có khoá, OTel collector; chỉ mở trên 127.0.0.1); máy chủ đã nối Redis + S3 + OTLP; sao lưu tự động 02:00 đẩy lên S3; robot chạy firmware 54.0. Đã có: identity, phân quyền (RBAC + ABAC), policy, risk, audit có chuỗi băm, evidence, verification, kill switch + chế độ khẩn cấp, backup / restore (+ đẩy lên S3), health, trace OpenTelemetry, log có cấu trúc, rate limit, timeout, kịch bản vàng 15/15. Còn: ứng dụng vẫn đọc / ghi **SQLite** (bản sao đã ở PostgreSQL Docker, chưa cutover), CI GitHub chưa xác nhận chạy. |
 | Còn trùng lặp không lý do? | Không. Hai chỗ "hai thứ" có lý do (§6). |
 | Còn đường cũ chạy được? | Một: alias `/ws/audio-stream` cho firmware cũ (cùng handler mới, log `[DEPRECATED]`). |
 | Rủi ro lớn nhất còn lại | Chưa cutover sang PostgreSQL (vẫn một tệp SQLite) + mật khẩu `admin/admin123` mặc định chưa đổi. |
@@ -127,9 +127,9 @@ LLM / fast router / Portal / đa tác nhân / plugin_registry gọi thẳng
 | Kho | Vai trò | Trạng thái |
 |---|---|---|
 | `vnmateai.db`, `hr_kpi.db` (SQLite) | nguồn sự thật hiện tại | đang dùng |
-| PostgreSQL | nguồn sự thật đích | `pg_migration`: schema map → chép trong một transaction → đối chiếu số dòng + checksum → rollback. **Chạy thử trên bản sao dữ liệu thật: 23 bảng, 1 195 dòng, khớp 100 %.** Cutover (ứng dụng chạy trên PG) chưa làm — §10 |
-| Redis | trạng thái ngắn hạn dùng chung | `shared_state` dùng khi có `REDIS_URL`; đã kiểm trên máy chủ thật (khoá đăng nhập ghi vào Redis). Không là nguồn sự thật |
-| Object storage (local / S3) | tài liệu tri thức, bản sao lưu | `object_storage`; kiểm trên S3 thật (SeaweedFS). Mặc định `local` (`storage/objects`) |
+| PostgreSQL | nguồn sự thật đích (PostgreSQL 16 Docker đang chạy, schema `vnmate` = bản sao 23 bảng / 1 231 dòng) | `pg_migration`: schema map → chép trong một transaction → đối chiếu số dòng + checksum → rollback. **Chạy thử trên bản sao dữ liệu thật: 23 bảng, 1 195 dòng, khớp 100 %.** Cutover (ứng dụng chạy trên PG) chưa làm — §10 |
+| Redis | trạng thái ngắn hạn dùng chung | **Đang dùng** — Redis 7 Docker (mật khẩu, 127.0.0.1); `REDIS_URL` mã hoá trong config.json. Không là nguồn sự thật |
+| Object storage (local / S3) | tài liệu tri thức, bản sao lưu | **Đang dùng S3** Docker (bắt buộc khoá); sao lưu 02:00 hằng ngày đẩy lên, kéo về kiểm chứng ĐẠT |
 | `config.json` (khoá mã hoá) | cấu hình + chính sách | một đường ghi có lịch sử + audit |
 | `storage/vector_db`, `chroma_db` | trí nhớ + RAG | Chroma nhúng; bản ghi trí nhớ có `confidence`, `scope`, `expires_at` |
 | RAM | phiên WS, hội thoại ngắn, hàng đợi TTS | theo tiến trình (đúng bản chất phiên realtime) |
@@ -162,7 +162,7 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 | Một bản chuẩn, legacy, luật phụ thuộc (§1, §11–§17, §124, §160–§163, §176) | **PASS** | §6; 10 luật = 0; gói rỗng đã xoá |
 | Realtime: streaming, sentence, TTS theo câu, nhị phân, barge-in, huỷ, bounded queue (§22–§30) | **PASS** | test realtime; HUD phê duyệt nay cũng nhị phân |
 | Jitter buffer (§26) | **PASS** | `voice-audio-queue.js` + test Node (cạn bộ đệm, trần 250 ms) |
-| Codec (§27) | **PASS (đã đánh giá)** | `docs/realtime/codec-evaluation.md`: giữ MP3 chiều xuống; Opus 16 kbps đề xuất cho micro robot (cần firmware) |
+| Codec (§27) | **PASS (đã đánh giá, có số đo cả hai chiều)** | giữ MP3 chiều xuống; chiều lên đo thật khoảng 82 kbps → giữ PCM (`codec-evaluation.md`) |
 | STT partial (§82) | PARTIAL | trình duyệt có kết quả tạm (Web Speech); STT máy chủ (robot) theo đoạn sau VAD |
 | Policy / Risk / Autonomy / Approval / Kill switch (§31–§38, §51, §53) | **PASS** | |
 | Emergency mode · loop guard (§54, §55, §158) | **PASS** | `test_emergency_and_loop_guards.py`, kịch bản vàng g4b |
@@ -184,7 +184,7 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 | Redis (§67) · object storage (§68) | **PASS** | kiểm trên server thật |
 | PostgreSQL (§65–§66) | PARTIAL | di trú + kiểm chứng PASS trên dữ liệu thật; **cutover chưa làm** |
 | Mở rộng ngang (§145, §164) | PARTIAL | bộ đếm dùng chung qua Redis; còn SQLite + phiên WS theo tiến trình |
-| Deployment (§138) | PARTIAL | compose cho hạ tầng; ứng dụng phụ thuộc Windows (COM, micro) nên chạy trên host |
+| Deployment (§138) | **PASS (phạm vi một máy)** | compose hạ tầng đang chạy thật; ứng dụng chạy trên host Windows (COM, micro) |
 | CI/CD (§139) | PARTIAL | workflow: lint lỗi chạy thật + pip-audit + pytest + Node; **chưa xác nhận chạy trên GitHub** (repo riêng tư, máy không có `gh`) |
 | Backup / DR (§136–§137) | **PASS** | backup có kiểm chứng + đẩy / kéo S3 |
 | Governance (§108–§109) | PARTIAL | `docs/governance/ai-governance.md`; chưa có risk register riêng |
@@ -255,7 +255,7 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 
 ## 10. Việc tiếp theo
 
-1. **Chủ dự án** (`docs/production/owner-todo.md`): đổi mật khẩu admin; `wsl --update` để Docker chạy; gán phòng ban / cấp bảo mật cho tài khoản; cấu hình S3 private + `backup.py create --push`; đặt `REDIS_URL` khi chạy nhiều tiến trình.
+1. **Chủ dự án**: đổi mật khẩu admin; gán phòng ban / cấp bảo mật cho tài khoản manager / viewer. (Docker, Redis, S3, sao lưu tự động, firmware 54: **đã xong 2026-10-06**.)
 2. **PostgreSQL cutover** — SQL đã gom trong 3 tệp persistence (`db_manager`, `erp_database`, `domain_sync`). Phần phải chuyển: 17 `PRAGMA`, 11 DDL `AUTOINCREMENT`, 10 `lastrowid`, khoảng 80 placeholder `?`, 59 `strftime`. Cách làm: lớp kết nối theo dialect → chạy toàn bộ bộ test trên PostgreSQL (`pgserver`) → ghi song song một thời gian → chuyển đọc → giữ SQLite làm bản lùi.
 3. **Xác nhận CI** trên GitHub (cần quyền repo).
-4. **Opus** cho micro robot (firmware) + STT máy chủ có kết quả tạm.
+4. STT máy chủ có kết quả tạm; nâng ngưỡng bộ lọc tiếng nói trên robot (88 đoạn ồn nền / 11 phút).
