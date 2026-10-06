@@ -112,7 +112,7 @@ check("có sổ theo dõi task theo phiên", "active_tasks" in server_py)
 check("có hàm huỷ lượt đang chạy", "def cancel_task" in server_py)
 check("lệnh mới gọi huỷ trước khi tạo task mới",
       server_py.index("hud_voice.cancel_task(\"hud\")")
-      < server_py.index("asyncio.create_task(hud_voice.process_command("))
+      < server_py.index("_spawn(hud_voice.process_command("))
 # Dọn sổ phải ở `finally` — dọn ở từng nhánh return là dễ sót, và hàm thân có
 # nhiều nhánh return sớm.
 wrapper = server_py.split("async def process_command(", 1)[-1].split("async def process_command_body(", 1)[0]

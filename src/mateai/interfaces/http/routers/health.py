@@ -163,3 +163,15 @@ async def health_dashboard_endpoint() -> Dict[str, Any]:
         counters.setdefault("bg_max_concurrent", 0)
 
     return SYSTEM_HEALTH_CACHE
+
+
+@router.get("/api/v1/health/startup", summary="Kết quả từng bước khởi động dịch vụ nền")
+async def startup_report(user: Dict[str, Any] = Depends(require_roles(["admin", "manager"]))) -> Dict[str, Any]:
+    """ok / skipped / error + thời gian của từng bước (`interfaces/http/lifecycle.py`).
+
+    Trước Phase 10 dịch vụ nền khởi động lỗi chỉ để lại một dòng log cảnh báo.
+    """
+    from mateai.interfaces.http import lifecycle
+    st = lifecycle.STATE
+    return {"complete": st.complete, "steps": st.report,
+            "failed": [k for k, v in st.report.items() if v.get("status") == "error"]}

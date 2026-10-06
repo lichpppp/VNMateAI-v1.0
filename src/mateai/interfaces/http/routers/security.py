@@ -6,11 +6,8 @@ hàng đợi tác vụ chờ duyệt và phê duyệt (HITL của hội thoại 
 """
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import re
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -18,9 +15,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from core.plugin_manager import run_blocking
-from mateai.interfaces.http import enrollment, speech
+from mateai.interfaces.http import enrollment
 from mateai.interfaces.http.auth_dependencies import get_current_user, require_roles
-from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_portal_ui
+from mateai.interfaces.websocket.realtime_hub import broadcast_portal_ui
 
 logger = logging.getLogger(__name__)
 
@@ -398,178 +395,13 @@ async def confirm_action_endpoint(
     chủ, không qua Zero-Trust/RBAC. Nay tác vụ đã duyệt chạy qua cổng tool
     chung với `approved=True`; RBAC áp theo người YÊU CẦU tác vụ.
     """
-    from mateai.application.security.safety_guard import security_engine
-    from mateai.application.agent.state_manager import state_manager
-    from mateai.application.agent.tool_gate import pending_view
-    from mateai.application.security.zero_trust import hitl_manager
-
-    approver = str(current_user.get("username") or "admin")
-    # Có action_id → đúng yêu cầu đó (đã xử lý / hết hạn → 404, KHÔNG duyệt nhầm
-    # sang yêu cầu khác). Không có → yêu cầu mới nhất (modal cũ của portal).
-    if payload.action_id:
-        item = hitl_manager.get_pending(payload.action_id)
-    elif not payload.skill_name:
-        _all = hitl_manager.get_pending_list()
-        item = _all[-1] if _all else None
-    else:
-        _match = [it for it in hitl_manager.get_pending_list() if it.get("action_name") == payload.skill_name]
-        item = _match[-1] if _match else None
-
-    if not item:
-        raise HTTPException(
-            status_code=404,
-            detail="Không tìm thấy tác vụ đang chờ phê duyệt (có thể đã được xử lý hoặc hết hạn).",
-        )
-    pending = pending_view(item)
-    lookup_key = pending["id"]
-    skill_name = pending["tool_name"] or ""
-    client_id = pending["target_client"]
-    if payload.skill_name and payload.skill_name != skill_name:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Tác vụ đang chờ là '{skill_name}', không phải '{payload.skill_name}'.",
-        )
-
-    if not payload.approved:
-        rej = hitl_manager.reject(lookup_key, rejected_by=approver, reason="Từ chối trên Cổng Web")
-        if rej.get("status") != "success":
-            raise HTTPException(status_code=409, detail=rej.get("message"))
-        rej_msg = f"Tác vụ '{skill_name}' đã bị người quản trị hủy bỏ."
-
-        # Broadcast rejection to HUD
-        try:
-            await broadcast_hud({
-                "type": "security_approval_resolved",
-                "action_id": lookup_key,
-                "status": "rejected",
-                "skill": skill_name,
-                "message": rej_msg,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-            await broadcast_hud({
-                "type": "voice_active",
-                "status": "idle",
-                "text": rej_msg,
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        except Exception:
-            pass
-
-        return {
-            "status": "rejected",
-            "message": rej_msg,
-        }
-
-    # Duyệt qua hàng đợi chung: executor chạy tool qua cổng với approved=True,
-    # RBAC theo người YÊU CẦU; audit HITL_APPROVED_* ghi người duyệt.
-    logger.info("[Phase 25] Admin '%s' phê duyệt tác vụ '%s' trên '%s'.", approver, skill_name, client_id)
-    approval = await hitl_manager.approve_async(lookup_key, approved_by=approver)
-    if approval.get("status") == "error":
-        raise HTTPException(status_code=409, detail=approval.get("message"))
-    res = approval.get("execution_result")
-    if res is None:
-        res = {"status": "error", "error": approval.get("execution_error") or approval.get("message")}
-    orig_q = pending.get("query") or f"Thực thi {skill_name}"
-
-    # ── Phase 25: Synthesize natural AI response & record completed action ────
-    masked_res = security_engine.mask_sensitive_data(json.dumps(res, ensure_ascii=False, default=str))
-    synth_reply = ""
-    try:
-        from mateai.application.agent.llm_engine import llm_engine
-        synth_messages = [
-            {"role": "system", "content": "Bạn là trợ lý AI Ly Ly (VN-MateAI). Hãy tổng hợp kết quả công cụ để trả lời súc tích, tự nhiên, kính cẩn bằng tiếng Việt cho người dùng."},
-            {"role": "user", "content": orig_q},
-            {"role": "user", "content": f"Tác vụ đã được phê duyệt qua Web Portal. Kết quả công cụ `{skill_name}`:\n```json\n{masked_res}\n```\nHãy thông báo kết quả thực thi một cách rõ ràng."},
-        ]
-        synth_resp = await llm_engine._call_llm(messages=synth_messages, tools=None)
-        synth_reply = synth_resp.choices[0].message.content or f"Dạ, tác vụ '{skill_name}' đã được phê duyệt và hoàn tất thành công."
-    except Exception as e:
-        logger.warning("[Phase 25] Lỗi synthesize câu trả lời sau duyệt: %s", e)
-        synth_reply = f"Dạ, tác vụ '{skill_name}' đã được phê duyệt và thực thi thành công."
-
-    state_manager.record_completed_action(pending, res, synth_reply)
-
-    # ── Phase 25: Nếu tác vụ xuất phát từ Telegram, gửi thông báo về Telegram ──
-    tg_chat_id = pending.get("chat_id")
-    if not tg_chat_id:
-        src = pending.get("source_device", "")
-        if "telegram:" in src:
-            parts = src.split(":")
-            if len(parts) >= 2 and parts[1].isdigit():
-                tg_chat_id = parts[1]
-
-    if tg_chat_id:
-        try:
-            from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
-            telegram_gateway.send_incident_alert(f"✅ [ĐÃ PHÊ DUYỆT]\n\n{synth_reply}", target=tg_chat_id)
-        except Exception as exc:
-            logger.warning("[Phase 25] Lỗi gửi thông báo Telegram sau duyệt: %s", exc)
-
-    # ── Phase 25: Phát sóng thời gian thực tới Web Portal qua WebSocket ────────
-    try:
-        await broadcast_portal_ui("action_approved_result", {
-            "action_id": lookup_key,
-            "skill": skill_name,
-            "client_id": client_id,
-            "query": orig_q,
-            "reply": synth_reply,
-            "result": res,
-        })
-    except Exception as exc:
-        logger.warning("[Phase 25] Lỗi broadcast WebSocket sau duyệt: %s", exc)
-
-    # ── Phase 34.8: Phát sóng tức thời tới Standby HUD & Tổng hợp giọng nói Hoài My ──────
-    speech_reply = llm_engine._make_concise_speech_text(synth_reply)
+    from mateai.interfaces.http import approval_flow
 
     try:
-        await broadcast_hud({
-            "type": "security_approval_resolved",
-            "action_id": lookup_key,
-            "status": "approved",
-            "skill": skill_name,
-            "query": orig_q,
-            "reply": synth_reply,
-            "speech_reply": speech_reply,
-            "message": f"Tác vụ '{skill_name}' đã được phê duyệt qua Web Portal.",
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-    except Exception as hud_exc:
-        logger.warning("[Phase 34.8] Lỗi broadcast HUD security_approval_resolved: %s", hud_exc)
-
-    async def _async_synth_and_speak_hud(speech_text: str):
-        try:
-            import base64
-            audio_bytes = await speech.tts_bytes(speech_text)
-            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8") if audio_bytes else None
-            await broadcast_hud({
-                "type": "voice_active",
-                "status": "speaking",
-                "text": speech_text,
-                "audio_base64": audio_b64,
-                "source_device": "security_approval",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-
-            est_dur = max(4.0, (len(speech_text) / 15.0) + 1.8)
-            await asyncio.sleep(est_dur)
-            await broadcast_hud({
-                "type": "voice_active",
-                "status": "idle",
-                "text": "Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...",
-                "timestamp": datetime.utcnow().isoformat(),
-            })
-        except Exception as exc:
-            logger.warning("[Phase 34.8] Lỗi async TTS/speak HUD sau duyệt: %s", exc)
-
-    asyncio.create_task(_async_synth_and_speak_hud(speech_reply))
-
-    return {
-        "status": "success",
-        "client_id": client_id,
-        "skill": skill_name,
-        "result": res,
-        "reply": synth_reply,
-    }
+        return await approval_flow.confirm(payload.approved, str(current_user.get("username") or "admin"),
+                                           action_id=payload.action_id, skill_name=payload.skill_name)
+    except approval_flow.ApprovalDecisionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 
 
 # ── Kiểm soát tự trị: kill switch, tắt tác nhân / tool, L5, ngân sách ──────────

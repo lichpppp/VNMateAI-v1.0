@@ -59,7 +59,9 @@ DESCRIPTIONS = {
 
 _ROUTER_WRITE_CALLS = ("write_raw_config", "update_config_section")
 
-_BLOCKING_IN_ASYNC = ("time.sleep", "requests.get", "requests.post", "requests.put", "requests.delete", "requests.request")
+_BLOCKING_IN_ASYNC = ("time.sleep", "requests.get", "requests.post", "requests.put", "requests.delete", "requests.request",
+                      # P10: routers/config.py gọi urlopen trong hàm async — mỗi lần Lưu chặn loop tới 5 s
+                      "urllib.request.urlopen", "urlopen")
 
 
 def _own_calls(fn):

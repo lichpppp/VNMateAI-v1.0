@@ -10,8 +10,6 @@ import json
 import logging
 import os
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -21,6 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from core.plugin_manager import run_blocking
+from mateai.application.administration import config_service
 from mateai.config.loader import get_assistant_name, settings
 from mateai.interfaces.http.auth_dependencies import get_current_user, require_roles
 from mateai.interfaces.http.secret_masking import (
@@ -77,7 +76,8 @@ async def test_llm_endpoint(payload: LLMTestRequest, user: dict = Depends(requir
     from mateai.config.loader import settings
 
     cfg_llm = getattr(settings, "llm", None)
-    default_base = getattr(cfg_llm, "base_url", "http://localhost:20128/v1") if cfg_llm else "http://localhost:20128/v1"
+    default_base = getattr(cfg_llm, "base_url", "") if cfg_llm else ""
+    default_base = default_base or config_service.DEFAULT_BASE_URL
     default_model = (getattr(cfg_llm, "model_name", "") if cfg_llm else "") or ""
     default_key = getattr(cfg_llm, "api_key", "sk-dummy") if cfg_llm else "sk-dummy"
 
@@ -266,26 +266,8 @@ async def proxy_models_endpoint(
         }
 
 
-def _deep_merge(base: Any, incoming: Any) -> Any:
-    """
-    Ghép `incoming` vào `base`, xuống từng khối con thay vì chỉ một tầng.
-
-    Vì sao cần: `{**existing, **payload}` ghép NÔNG. Giao diện gửi
-    `{"telegram": {"admin_chat_ids": [...]}}` thì khối telegram của bản lưu bị
-    thay TRỌN — mọi trường mà form không gửi (khoá bot, cờ `enabled`) biến
-    mất lặng lẽ trong khi người dùng chỉ định sửa một trường khác. Đây chính
-    là lỗi đã xảy ra thật: bấm "Lưu" ở tab Cấu Hình xoá token bot và tắt
-    gateway Telegram.
-
-    Danh sách vẫn THAY thế, không nối thêm — nối sẽ ra kết quả sai với ý
-    "danh sách admin Telegram này là danh sách này".
-    """
-    if isinstance(base, dict) and isinstance(incoming, dict):
-        out = dict(base)
-        for k, v in incoming.items():
-            out[k] = _deep_merge(base.get(k), v) if k in base else v
-        return out
-    return incoming
+#: Giữ tên cũ (test + người gọi cũ) — nghiệp vụ ở config_service.
+_deep_merge = config_service.deep_merge
 
 
 @router.get(
@@ -308,37 +290,7 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
     """
     try:
         from mateai.config.loader import read_raw_config
-        data = read_raw_config(strict=True)
-
-        # Phase 22: Ensure 'llm' block is present
-        if "llm" not in data or not isinstance(data["llm"], dict):
-            old_primary = data.get("routing", {}).get("primary", {})
-            data["llm"] = {
-                "base_url": old_primary.get("api_base") or data.get("BASE_URL", "http://localhost:20128/v1"),
-                "model_name": old_primary.get("provider_model") or data.get("MODEL_NAME", ""),
-                "api_key": old_primary.get("api_key") or data.get("API_KEY", "sk-dummy"),
-            }
-
-        llm = data["llm"]
-        # Sync top-level backward compatibility aliases
-        data["MODEL_NAME"] = llm.get("model_name", "")
-        data["API_KEY"] = llm.get("api_key", "")
-        data["BASE_URL"] = llm.get("base_url", "")
-        data["auto_execute"] = data.get("auto_execute", data.get("AUTO_EXECUTE_UNVERIFIED_CODE", False))
-
-        # Backward compatibility for legacy UI expecting 'routing' or 'router'
-        if "routing" not in data:
-            data["routing"] = {
-                "primary": {
-                    "provider_model": llm.get("model_name", ""),
-                    "api_key": llm.get("api_key", ""),
-                    "api_base": llm.get("base_url", ""),
-                    "api_keys": [llm.get("api_key", "")] if llm.get("api_key") else [],
-                },
-                "fallback_1": {"provider_model": "", "api_key": "", "api_base": "", "api_keys": []},
-                "fallback_2": {"provider_model": "", "api_key": "", "api_base": "", "api_keys": []},
-            }
-        data["router"] = data["routing"]
+        data = config_service.legacy_view(await run_blocking(lambda: read_raw_config(strict=True)))
 
         # Che bí mật ở CỬA CUỐI cùng: mọi nhánh tương thích ngược phía trên
         # (`API_KEY`, `routing.*`, `router.*`) đều nhân bản cùng một khoá ra
@@ -351,42 +303,9 @@ async def get_config(user: dict = Depends(require_roles(["manager", "admin"]))) 
 
 
 async def _router_model_pool() -> List[str]:
-    """
-    Hỏi router đang phục vụ model nào, trả về danh sách dùng làm dự phòng.
-
-    Router là nguồn sự thật: nó chỉ liệt kê model tới được từ provider đang bật
-    và còn hạn mức. Hardcode tên model trong code nghĩa là chỉ đúng vào một
-    thời điểm — hôm sau provider hết tiền, cấu hình lưu xuống lại toàn model
-    chết và hệ thống cứ thử chết trước khi tới model thật.
-
-    Bỏ qua mọi thứ không phải model chat: combo do người dùng đặt (tên không
-    có dấu "/"), và các loại khác nếu router có trả về.
-    """
-    from mateai.config.loader import settings  # import cục bộ như các hàm khác
-    base = (getattr(settings.llm, "base_url", "") if settings else "") or ""
-    if not base:
-        return []
-    try:
-        root = base.rsplit("/v1", 1)[0] if "/v1" in base else base.rstrip("/")
-        key = (getattr(settings.llm, "api_key", "") if settings else "") or ""
-        req = urllib.request.Request(
-            f"{root}/v1/models",
-            headers={"Authorization": f"Bearer {key}"} if key else {},
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning("[Config] Không đọc được danh sách model từ router: %s", exc)
-        return []
-
-    out: List[str] = []
-    for entry in payload.get("data") or []:
-        mid = entry.get("id") if isinstance(entry, dict) else None
-        # Combo của người dùng (ví dụ "VN-MateAi") không có dấu "/" — đưa vào
-        # danh sách dự phòng thì gọi lại chính nó, tức lặp vô hạn.
-        if mid and "/" in mid and mid not in out:
-            out.append(mid)
-    return out
+    """Model router đang phục vụ (dự phòng) — `config_service.router_model_pool`, chạy
+    ngoài event loop. Giữ tên này: test thay nó để không gọi mạng."""
+    return await config_service.router_model_pool()
 
 
 @router.get(
@@ -437,122 +356,23 @@ async def save_config(
     try:
         from mateai.config.loader import read_raw_config
         # strict: config.json hỏng thì báo lỗi, KHÔNG ghi đè bằng bản chỉ có payload.
-        existing: Dict[str, Any] = read_raw_config(strict=True)
+        existing: Dict[str, Any] = await run_blocking(lambda: read_raw_config(strict=True))
         # Giao diện đã hỏi người dùng và họ vẫn muốn lưu model không có trên 9Router.
         force_models = bool(payload.pop("_force_models", False)) if isinstance(payload, dict) else False
 
-        # Thay ký hiệu chỗ trống bằng giá trị đang lưu TRƯỚC KHI chuẩn hoá.
-        #
-        # Bắt buộc thực hiện ở đây, không làm sau: các nhánh chuẩn hoá bên dưới
-        # dùng `payload[...].get("api_key") or existing...` — ký hiệu "••••••••"
-        # là chuỗi TRÌNH (truthy) nên sẽ thắng, và khoá thật bị ghi đè bằng
-        # ký hiệu. Hậu quả: người dùng chỉ cần bấm "Lưu" để sửa một trường
-        # không liên quan là khoá LLM hỏng, mà không có lỗi nào báo ra.
+        # Thay ký hiệu chỗ trống bằng giá trị đang lưu TRƯỚC KHI chuẩn hoá: ký hiệu
+        # "••••••••" là chuỗi khác rỗng nên sẽ thắng nhánh `or existing...` và khoá thật
+        # bị ghi đè bằng ký hiệu (người dùng chỉ bấm "Lưu" một trường khác là hỏng khoá LLM).
         payload = _restore_masked_secrets(payload, existing)
 
-        # Phase 68: danh sách dự phòng lấy TỪ ROUTER thay vì hardcode.
-        #
-        # Trước đây danh sách này ghi cứng tên model của một provider cụ thể
-        # (`ag/...`). Khi provider đó hết tiền hoặc mất khoá, mọi lần lưu cấu
-        # hình lại ghi 3 model chết vào config — khiến vòng lặp dự phòng gọi
-        # 3 lần vào chỗ chết trước khi tới model thật, và làm chuyển giao
-        # chuyên gia hỏng hoàn toàn.
-        #
-        # Nay hỏi router xem nó đang phục vụ model nào, rồi dùng chính những
-        # model đó. Tự lành khi bạn nạp tiền provider, và không cần sửa code
-        # khi đổi nhà cung cấp.
         pool = await _router_model_pool()
-        if not pool:
-            # Router không trả lời — không đoán, để trống cho tới lần lưu sau.
-            logger.warning(
-                "[Config] Router không trả danh sách model — bỏ trống danh sách dự phòng "
-                "thay vì ghi model chết."
-            )
-        DEFAULT_ROUTER_FALLBACKS = list(pool)
-        DEFAULT_SPECIALIST_FALLBACKS = list(pool)
-
-        # Phase 73: các nhánh chuẩn hoá bên trên KHÔNG tự điền "sk-dummy" nữa.
-        # Khi cả payload lẫn cấu hình cũ đều không có khoá, ta ghi chuỗi rỗng —
-        # một khoá giả ghi xuống đĩa trông y hệt khoá thật. `settings` vẫn có
-        # mặc định riêng cho lúc dựng client, nên LLM vẫn chạy bình thường.
-
-        if "llm" in payload and isinstance(payload["llm"], dict):
-            existing_llm = existing.get("llm", {})
-            new_model = payload["llm"].get("model_name", existing_llm.get("model_name", "")) or ""
-            r_models = payload["llm"].get("router_models", existing_llm.get("router_models", []))
-            if not isinstance(r_models, list) or not r_models:
-                r_models = DEFAULT_ROUTER_FALLBACKS
-            if new_model and new_model not in r_models:
-                r_models = [new_model] + [m for m in r_models if m != new_model]
-            s_models = payload["llm"].get("specialist_models", existing_llm.get("specialist_models", DEFAULT_SPECIALIST_FALLBACKS))
-            # Giữ MỌI trường khác form gửi (tri_brain_enabled, controller/voice/ops_model…).
-            # Trước đây khối llm bị dựng lại chỉ với 9 trường cố định: cấu hình
-            # Tri-Brain trên giao diện bị bỏ âm thầm, chưa từng được lưu.
-            payload["llm"] = {
-                **payload["llm"],
-                "base_url": payload["llm"].get("base_url", existing_llm.get("base_url", "http://localhost:20128/v1")),
-                "model_name": new_model,
-                "api_key": payload["llm"].get("api_key") or existing_llm.get("api_key") or "",
-                "router_models": r_models,
-                "specialist_models": s_models,
-                # Phase 91: Dual-mode routing fields
-                "routing_mode": payload["llm"].get("routing_mode", existing_llm.get("routing_mode", "router")),
-                "direct_url": payload["llm"].get("direct_url", existing_llm.get("direct_url", "")),
-                "direct_model": payload["llm"].get("direct_model", existing_llm.get("direct_model", "")),
-                # Không ghi khoá giả vào config.json; client direct tự dùng
-                # khoá giữ chỗ khi rỗng (llm_engine: `direct_api_key or "lm-studio"`).
-                "direct_api_key": payload["llm"].get("direct_api_key") or existing_llm.get("direct_api_key") or "",
-            }
-        elif "routing" in payload and isinstance(payload["routing"], dict):
-            # If incoming is legacy routing, extract primary into 'llm'
-            primary = payload["routing"].get("primary", {})
-            new_model = primary.get("provider_model", "") or ""
-            payload["llm"] = {
-                "base_url": primary.get("api_base", "http://localhost:20128/v1"),
-                "model_name": new_model,
-                "api_key": primary.get("api_key") or existing.get("llm", {}).get("api_key") or "",
-                "router_models": [new_model] + [m for m in DEFAULT_ROUTER_FALLBACKS if m != new_model],
-                "specialist_models": DEFAULT_SPECIALIST_FALLBACKS,
-            }
-        elif "MODEL_NAME" in payload or "BASE_URL" in payload:
-            existing_llm = existing.get("llm", {})
-            new_model = payload.get("MODEL_NAME", existing_llm.get("model_name", "")) or ""
-            payload["llm"] = {
-                "base_url": payload.get("BASE_URL", existing_llm.get("base_url", "http://localhost:20128/v1")),
-                "model_name": new_model,
-                "api_key": payload.get("API_KEY") or existing_llm.get("api_key") or "",
-                "router_models": [new_model] + [m for m in DEFAULT_ROUTER_FALLBACKS if m != new_model],
-                "specialist_models": DEFAULT_SPECIALIST_FALLBACKS,
-            }
-
-        # Keep auto_execute and AUTO_EXECUTE_UNVERIFIED_CODE in sync
-        if "auto_execute" in payload:
-            payload["AUTO_EXECUTE_UNVERIFIED_CODE"] = bool(payload["auto_execute"])
-        elif "AUTO_EXECUTE_UNVERIFIED_CODE" in payload:
-            payload["auto_execute"] = bool(payload["AUTO_EXECUTE_UNVERIFIED_CODE"])
-
-        comment_keys = {k: v for k, v in existing.items() if k.startswith("_")}
-        merged = _deep_merge({**existing, **comment_keys}, payload)
-
-        # Kiểm tra TRƯỚC khi ghi — chỉ các mục form này gửi lên (cấu hình cũ ở mục
-        # khác có lỗi thì không chặn việc lưu mục này).
-        from mateai.application.administration import config_governance as gov
-        touched_cfg = {k: merged[k] for k in payload if k in merged}
-        errors, unknown = gov.validate(touched_cfg, pool, check_models=("llm" in payload and not force_models))
-        if errors or unknown:
-            raise HTTPException(status_code=400, detail={
-                "message": "Cấu hình chưa hợp lệ — chưa lưu gì.",
-                "errors": errors,
-                "unknown_models": unknown,
-            })
+        try:
+            merged, payload = config_service.prepare_save(payload, existing, pool, force_models)
+        except config_service.ConfigInvalid as bad:
+            raise HTTPException(status_code=400, detail=bad.detail)
 
         by = user.get("username") if isinstance(user, dict) else "api"
-
-        def _apply(cfg: Dict[str, Any]) -> None:
-            cfg.clear()
-            cfg.update(merged)
-
-        gov.save_config(str(by), _apply, "Lưu", _mask_secrets)
+        await run_blocking(lambda: config_service.save(str(by), merged, "Lưu", _mask_secrets))
         logger.info("config.json updated via Web Portal.")
 
         await _apply_written_config(merged, payload)
@@ -665,19 +485,14 @@ async def config_history_restore(entry_id: int, user: dict = Depends(require_rol
     snap = await run_blocking(lambda: gov.snapshot(entry_id))
     if snap is None:
         raise HTTPException(status_code=404, detail=f"Không có phiên bản #{entry_id}")
-    current = read_raw_config(strict=True)
-    restored = _restore_masked_secrets(snap, current)
-    restored.update({k: v for k, v in current.items() if str(k).startswith("_")})
-    errors, _unknown = gov.validate(restored, None, check_models=False)
-    if errors:
-        raise HTTPException(status_code=400, detail={"message": "Phiên bản này không hợp lệ với hệ thống hiện tại.",
-                                                     "errors": errors})
-    def _apply(cfg: Dict[str, Any]) -> None:
-        cfg.clear()
-        cfg.update(restored)
-
-    gov.save_config(str(user.get("username")), _apply, f"Khôi phục phiên bản #{entry_id}", _mask_secrets,
-                    audit_action="config_restore")
+    current = await run_blocking(lambda: read_raw_config(strict=True))
+    try:
+        restored = config_service.prepare_restore(snap, current, _restore_masked_secrets)
+    except config_service.ConfigInvalid as bad:
+        raise HTTPException(status_code=400, detail=bad.detail)
+    await run_blocking(lambda: config_service.save(str(user.get("username")), restored,
+                                                   f"Khôi phục phiên bản #{entry_id}", _mask_secrets,
+                                                   audit_action="config_restore"))
     await _apply_written_config(restored, {k: restored[k] for k in restored})
     logger.info("Cấu hình đã khôi phục về phiên bản #%s bởi %s", entry_id, user.get("username"))
     return {"status": "success", "message": f"Đã khôi phục cấu hình về phiên bản #{entry_id}."}
@@ -746,7 +561,8 @@ async def update_routing_endpoint(
 ) -> Dict[str, Any]:
     """Cập nhật cấu hình định tuyến AI 3 tầng, lưu vào config.json và hot-reload runtime."""
     routing_data = payload.get("routing") if "routing" in payload else payload
-    res = await save_config({"routing": routing_data})
+    # Truyền người dùng thật: trước Phase 10 thiếu `user`, lịch sử + audit ghi "api".
+    await save_config({"routing": routing_data}, user=user)
     return {
         "status": "success",
         "message": "Đã cập nhật và kích hoạt cấu hình định tuyến AI 3 tầng thành công.",

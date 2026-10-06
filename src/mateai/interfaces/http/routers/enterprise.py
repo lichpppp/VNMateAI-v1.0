@@ -46,8 +46,8 @@ async def api_enterprise_kpi_overview(
     """Lấy toàn bộ chỉ số KPI: Tasks, Nhân sự, Tài chính, Cashflow, Burn Rate, Runway."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        overview = erp_db.get_company_kpi_overview()
-        leaderboard = erp_db.get_task_leaderboard(5)
+        overview = await run_blocking(erp_db.get_company_kpi_overview)
+        leaderboard = await run_blocking(erp_db.get_task_leaderboard, limit=5)
         overview["leaderboard"] = leaderboard
         return {"status": "success", "data": overview}
     except Exception as e:
@@ -68,8 +68,8 @@ async def api_enterprise_finances(
     """Lấy danh sách giao dịch tài chính (lọc theo loại: income/expense)."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        records = erp_db.get_finances(finance_type=finance_type, limit=limit)
-        summary = erp_db.get_financial_summary()
+        records = await run_blocking(erp_db.get_finances, finance_type=finance_type, limit=limit)
+        summary = await run_blocking(erp_db.get_financial_summary)
         return {"status": "success", "total": len(records), "summary": summary, "records": records}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -114,7 +114,7 @@ async def api_enterprise_attendance(
     """Lấy danh sách chấm công theo ngày."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        records = erp_db.get_attendance(date_str=date_str, limit=limit)
+        records = await run_blocking(erp_db.get_attendance, date_str=date_str, limit=limit)
         return {"status": "success", "date": date_str or "Hôm nay", "total": len(records), "records": records}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -132,7 +132,7 @@ async def api_enterprise_leaderboard(
     """Lấy bảng xếp hạng hoàn thành công việc (Employee Leaderboard)."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        leaderboard = erp_db.get_task_leaderboard(limit=limit)
+        leaderboard = await run_blocking(erp_db.get_task_leaderboard, limit=limit)
         return {"status": "success", "leaderboard": leaderboard}
     except Exception as e:
         return {"status": "error", "error": str(e)}

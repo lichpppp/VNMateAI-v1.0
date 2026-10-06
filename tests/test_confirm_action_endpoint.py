@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 import mateai.application.agent.tool_gate as tool_gate
 import mateai.interfaces.http.server as server
 from mateai.interfaces.http import speech
-import mateai.interfaces.http.routers.security as sec
+import mateai.interfaces.http.routers.security as sec  # noqa: F401
+from mateai.interfaces.http import approval_flow
 from mateai.application.agent.llm_engine import llm_engine
 from mateai.application.security.auth_manager import auth_manager
 from mateai.interfaces.http.auth_dependencies import get_current_user
@@ -42,8 +43,8 @@ def env(monkeypatch):
 
     monkeypatch.setattr(tool_gate, "run_tool_with_policy", fake_gate)
     monkeypatch.setattr(llm_engine, "_call_llm", no_llm)
-    monkeypatch.setattr(sec, "broadcast_hud", noop)
-    monkeypatch.setattr(sec, "broadcast_portal_ui", noop)
+    monkeypatch.setattr(approval_flow, "broadcast_hud", noop)
+    monkeypatch.setattr(approval_flow, "broadcast_portal_ui", noop)
     monkeypatch.setattr(speech, "tts_bytes", no_tts)
     # Hàng đợi duyệt duy nhất, riêng cho mỗi test.
     import mateai.application.security.zero_trust as zt

@@ -36,6 +36,19 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+#: Task nền tạo từ handler (lượt thoại HUD, duyệt): asyncio chỉ giữ tham chiếu YẾU.
+_TASKS: set = set()
+
+
+def _spawn(coro) -> None:
+    task = asyncio.get_running_loop().create_task(coro)
+    _TASKS.add(task)
+    task.add_done_callback(_TASKS.discard)
+
+
+def _is_admin(user: Optional[Dict[str, Any]]) -> bool:
+    return bool(user) and user.get("role") == "admin"
+
 
 async def _handle_audio_stream(websocket: WebSocket, device_id: str) -> None:
     """
@@ -142,6 +155,11 @@ async def websocket_portal_ui(websocket: WebSocket) -> None:
             action = data.get("action") or data.get("event")
             if action == "ping":
                 await websocket.send_text(json.dumps({"event": "pong"}))
+            elif action in ("switch_tab", "show_toast") and not _is_admin(ws_user):
+                # Phát lên màn hình của MỌI người: trước Phase 10 tài khoản bất kỳ (kể cả
+                # viewer) giả được thông báo hệ thống trên portal của admin.
+                logger.warning("[Portal-UI] Bỏ '%s' từ '%s' (vai trò %s): chỉ admin được phát.",
+                               action, ws_user.get("username"), ws_user.get("role"))
             elif action == "switch_tab":
                 tab_name = data.get("tab") or data.get("target_tab")
                 if tab_name:
@@ -305,21 +323,21 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                             "interrupted": True,
                             "timestamp": datetime.utcnow().isoformat(),
                         })
-                    asyncio.create_task(hud_voice.process_command(
+                    _spawn(hud_voice.process_command(
                         cmd_query, caller=str(ws_user.get("username") or "anonymous")))
             elif action == "end_conversation":
                 # HUD báo: chờ 30s không nghe phản hồi ("timeout") hoặc admin nói
                 # không còn yêu cầu ("user_done"). Chỉ phiên đã đăng nhập.
                 if ws_user is not None:
                     reason = "timeout" if data.get("reason") == "timeout" else "user_done"
-                    asyncio.create_task(hud_voice.end_conversation("hud", reason))
+                    _spawn(hud_voice.end_conversation("hud", reason))
             elif action == "confirm_action":
                 approved = bool(data.get("approved", True))
                 action_id = data.get("action_id")
                 skill_name = data.get("skill_name")
                 # Zero-Trust: chỉ admin được phê duyệt hành động rủi ro cao — cùng
-                # quy tắc với POST /api/v1/security/confirm-action (hàm dưới được gọi
-                # thẳng nên Depends(require_roles) của nó KHÔNG chạy ở đây).
+                # quy tắc với POST /api/v1/security/confirm-action (`approval_flow` không
+                # tự kiểm quyền — người gọi kiểm).
                 if ws_user is None or ws_user.get("role") != "admin":
                     await websocket.send_text(json.dumps({
                         "type": "security_approval_rejected",
@@ -329,20 +347,10 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                         "timestamp": datetime.utcnow().isoformat(),
                     }, ensure_ascii=False))
                     continue
-                from mateai.interfaces.http.routers.security import (
-                    ConfirmActionRequest,
-                    confirm_action_endpoint,
-                )
-                confirm_req = ConfirmActionRequest(
-                    approved=approved,
-                    action_id=action_id,
-                    skill_name=skill_name,
-                )
-                asyncio.create_task(confirm_action_endpoint(
-                    payload=confirm_req,
-                    current_user=ws_user,
-                ))
-            elif action == "simulate":
+                _spawn(_hud_confirm(websocket, approved, ws_user, action_id, skill_name))
+            elif action == "simulate" and _is_admin(ws_user):
+                # Chỉ admin: trước Phase 10 kết nối CHƯA đăng nhập cũng phát chữ tuỳ ý
+                # lên mọi HUD.
                 sim_type = data.get("simulate_type", "voice_active")
                 if sim_type == "voice_active":
                     ai_name = get_assistant_name()
@@ -359,6 +367,24 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
     finally:
         active_hud_websockets.discard(websocket)
         logger.info("VN-MateAI HUD disconnected (%d remaining).", len(active_hud_websockets))
+
+
+async def _hud_confirm(websocket: WebSocket, approved: bool, user: Dict[str, Any],
+                       action_id: Optional[str], skill_name: Optional[str]) -> None:
+    """Duyệt từ HUD qua luồng chung với REST. Lỗi (không còn yêu cầu, lệch tên, đã xử lý)
+    báo về ĐÚNG HUD đã bấm — trước Phase 10 lỗi bị nuốt trong task nền."""
+    from mateai.interfaces.http import approval_flow
+    try:
+        await approval_flow.confirm(approved, str(user.get("username") or "admin"),
+                                    action_id=action_id, skill_name=skill_name)
+    except approval_flow.ApprovalDecisionError as exc:
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "security_approval_rejected", "message": exc.detail, "action_id": action_id,
+                "timestamp": datetime.utcnow().isoformat(),
+            }, ensure_ascii=False))
+        except Exception:  # noqa: BLE001 — HUD đã đóng
+            pass
 
 
 @router.websocket("/ws/v1/voice-stream")

@@ -7,7 +7,7 @@
 
 | Hạng mục | Phase 0 | Nay | Bằng chứng / lý do |
 |---|---|---|---|
-| Kiến trúc | PARTIAL | **PARTIAL** | Một đường thoại, một provider LLM, một TTS (RULE-012 = 0), một cổng chính sách (RULE-017 = 0), application không SQL (RULE-024 = 0), lớp domain chết đã xoá. Còn: 2 danh mục tool (L5), schema sự kiện HUD riêng (L10), router lớn còn nghiệp vụ (`routers/enterprise.py` 1 436 dòng) |
+| Kiến trúc | PARTIAL | **PARTIAL** | Một đường thoại, một provider LLM, một TTS (RULE-012 = 0), một cổng chính sách (RULE-017 = 0), application không SQL (RULE-024 = 0), lớp domain chết đã xoá. Router chỉ vận chuyển (P10: `server.py` 218 dòng, khởi động theo bước có báo cáo, RULE-027 = 0). Còn: 2 danh mục tool (L5), schema sự kiện HUD riêng (L10) |
 | Bảo mật | PARTIAL | **PARTIAL** | Đóng 11 lỗ hổng (`docs/evaluation/security-evaluation.md` §3); 8 kịch bản đối kháng ĐẠT. Còn: mật khẩu mặc định (S7), không ABAC phòng ban (S10), bản cấu hình chưa mã hoá còn trên đĩa |
 | Tự trị | NOT IMPLEMENTED | **PASS** (phạm vi một tiến trình) | Policy Engine + Risk Engine, L0–L5, kill switch toàn cục / tác nhân / tool, danh tính tác nhân, uỷ quyền có hạn, ngân sách lượt, sổ tác vụ có máy trạng thái, kiểm chứng, bằng chứng, leo thang — `test_policy_engine`, `test_task_ledger`, `test_autonomy_controls`, kịch bản vàng; kiểm thật: kill switch chặn ghi tệp |
 | Realtime | PARTIAL | **PARTIAL** | Stream, TTS theo câu, audio nhị phân, ngắt lời, lệnh nhanh, câu đệm: PASS. Câu cần LLM p50 4,9 s / lệnh vận hành phụ thuộc nhà cung cấp (`performance-before-after.md`); p99, 50/100 phiên chưa đo |

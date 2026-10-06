@@ -76,7 +76,9 @@ from mateai.interfaces.http.secret_masking import (  # noqa: E402
 _HTTP_DIR = ROOT / "src" / "mateai" / "interfaces" / "http"
 SRC = "\n\n".join(
     p.read_text(encoding="utf-8")
-    for p in [_HTTP_DIR / "server.py", _HTTP_DIR / "secret_masking.py", *sorted((_HTTP_DIR / "routers").glob("*.py"))]
+    for p in [_HTTP_DIR / "server.py", _HTTP_DIR / "secret_masking.py", *sorted((_HTTP_DIR / "routers").glob("*.py")),
+              # Supervisor P10: chuẩn hoá / ghép cấu hình chuyển sang tầng application.
+              ROOT / "src" / "mateai" / "application" / "administration" / "config_service.py"]
 )
 SRC_CODE = re.sub(r"\"\"\"[\s\S]*?\"\"\"", "", SRC)
 SRC_CODE = re.sub(r"^\s*#.*$", "", SRC_CODE, flags=re.M)
@@ -540,7 +542,7 @@ check(
 )
 check(
     "save_config dùng ghép sâu",
-    "merged = _deep_merge(" in SRC,
+    "merged = deep_merge(" in SRC,
     "còn `{**existing, **payload}` là mất trường của mọi khối con",
 )
 

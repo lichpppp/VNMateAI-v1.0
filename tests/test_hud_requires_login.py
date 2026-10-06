@@ -73,14 +73,14 @@ def test_authenticated_hud_runs_voice_as_logged_in_user(monkeypatch):
 
 def test_manager_cannot_approve_over_hud_socket(monkeypatch):
     """Duyệt chỉ admin — cùng quy tắc với POST /api/v1/security/confirm-action."""
-    import mateai.interfaces.http.routers.security as sec
+    from mateai.interfaces.http import approval_flow
 
     approved = []
 
-    async def fake_confirm(payload, current_user):
-        approved.append((payload.action_id, current_user["username"]))
+    async def fake_confirm(ok, approver, action_id=None, skill_name=None):
+        approved.append((action_id, approver))
 
-    monkeypatch.setattr(sec, "confirm_action_endpoint", fake_confirm)
+    monkeypatch.setattr(approval_flow, "confirm", fake_confirm)
     monkeypatch.setattr(ws_auth, "authenticate_websocket",
                         lambda _ws: {"username": "mona", "role": "manager"})
     client = TestClient(server.app)
@@ -93,14 +93,14 @@ def test_manager_cannot_approve_over_hud_socket(monkeypatch):
 
 
 def test_admin_approval_over_hud_socket_reaches_confirm_endpoint(monkeypatch):
-    import mateai.interfaces.http.routers.security as sec
+    from mateai.interfaces.http import approval_flow
 
     approved = []
 
-    async def fake_confirm(payload, current_user):
-        approved.append((payload.action_id, current_user["username"]))
+    async def fake_confirm(ok, approver, action_id=None, skill_name=None):
+        approved.append((action_id, approver))
 
-    monkeypatch.setattr(sec, "confirm_action_endpoint", fake_confirm)
+    monkeypatch.setattr(approval_flow, "confirm", fake_confirm)
     monkeypatch.setattr(ws_auth, "authenticate_websocket",
                         lambda _ws: {"username": "carol", "role": "admin"})
     client = TestClient(server.app)

@@ -233,14 +233,14 @@ check('hudStopListeningForTurn cũng giữ cảnh báo',
 section('Bản nạp vào trình duyệt phải là bản mới');
 // Hai lỗi trước đều do trình duyệt chạy bản cache cũ mà không ai biết:
 // StaticFiles không gửi Cache-Control, và thẻ script ghi số phiên bản cứng.
-// Tầng HTTP: server.py + routers/*.py (route tách khỏi server.py).
+// Tầng HTTP: server.py + routes.py (gắn file tĩnh, Supervisor P10) + routers/*.py.
 const _httpDir = join(ROOT, 'src', 'mateai', 'interfaces', 'http');
-const srv = [join(_httpDir, 'server.py'), ...readdirSync(join(_httpDir, 'routers')).filter((f) => f.endsWith('.py')).map((f) => join(_httpDir, 'routers', f))]
+const srv = [join(_httpDir, 'server.py'), join(_httpDir, 'routes.py'), ...readdirSync(join(_httpDir, 'routers')).filter((f) => f.endsWith('.py')).map((f) => join(_httpDir, 'routers', f))]
   .map((f) => readFileSync(f, 'utf8')).join('\n\n').replace(/\r\n/g, '\n');
 check('static buộc kiểm tra lại bản mới',
   srv.includes('no-cache, must-revalidate'));
 check('có lớp static tuỳ chỉnh cache',
-  srv.includes('class _NoStaleStatic'));
+  srv.includes('class NoStaleStatic'));
 check('phiên bản script lấy từ mtime file',
   srv.includes('st_mtime_ns'),
   'số phiên bản cứng không đổi sau khi sửa JS');

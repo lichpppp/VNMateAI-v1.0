@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from mateai.application.operations import topology_events
+from mateai.config.loader import settings
 
 logger = logging.getLogger(__name__)
 
@@ -341,7 +342,7 @@ def _automation_nodes(nodes: List[Dict[str, Any]], edges: List[Dict[str, Any]]) 
     alive = _thread_alive("vnmate-udp-beacon")
     nodes.append(_node("beacon", "beacon", "UDP Beacon (tìm máy chủ)", "ok" if alive else "down",
                        "" if alive else "luồng beacon không chạy — robot mới không tự tìm được máy chủ",
-                       {"port": 8888}, group="automation"))
+                       {"port": settings.DISCOVERY_PORT}, group="automation"))
     edges += [_edge("beacon", "robot:*")]
 
 

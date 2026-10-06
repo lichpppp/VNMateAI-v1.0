@@ -240,7 +240,7 @@ def _install_log_filters() -> None:
 
 def _start_uvicorn() -> None:
     """
-    Run both Primary HTTPS (port 443) and IoT Plain WS (port 8000) concurrently
+    Run both Primary HTTPS (settings.PORT) and IoT Plain WS (settings.IOT_PORT) concurrently
     on the EXACT SAME asyncio event loop.
     Eliminates cross-loop Future exceptions and guarantees thread-safe WebSocket/audio streaming.
     """
@@ -269,7 +269,7 @@ def _start_uvicorn() -> None:
         # Cổng không TLS: chỉ đường WS của thiết bị + health probe (xem server.iot_listener_app).
         app=iot_listener_app,
         host="0.0.0.0",
-        port=8000,
+        port=settings.IOT_PORT,
         log_level="warning",
         loop="asyncio",
         reload=False,
@@ -281,9 +281,10 @@ def _start_uvicorn() -> None:
 
     async def _serve_both():
         logger.info(
-            "Uvicorn Dual Listeners starting: HTTPS on https://%s:%d & IoT WS on ws://0.0.0.0:8000",
+            "Uvicorn Dual Listeners starting: HTTPS on https://%s:%d & IoT WS on ws://0.0.0.0:%d",
             settings.HOST,
             settings.PORT,
+            settings.IOT_PORT,
         )
         await asyncio.gather(
             _uvicorn_server.serve(),

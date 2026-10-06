@@ -506,6 +506,10 @@ class AppSettings(BaseSettings):
     # Server settings
     HOST: str = Field(default="0.0.0.0", description="Uvicorn bind host.")
     PORT: int = Field(default=443, ge=1, le=65535, description="Uvicorn bind port.")
+    IOT_PORT: int = Field(default=8000, ge=1, le=65535,
+                          description="Cổng WS không TLS cho mạch ESP32/Xiaozhi (chỉ đường thiết bị + probe).")
+    DISCOVERY_PORT: int = Field(default=8888, ge=1, le=65535,
+                                description="Cổng UDP beacon để robot mới tự tìm máy chủ.")
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level.")
 
     # Audio Pipeline Settings

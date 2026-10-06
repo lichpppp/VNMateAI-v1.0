@@ -812,11 +812,13 @@ def test_connector_tools_registered() -> None:
 
 def test_startup_guarded_once() -> None:
     section("── Vòng đời: startup chỉ chạy 1 lần ──")
-    src = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
-    check("có cờ chặn chạy lần hai", "_STARTUP_DONE" in src)
+    # Supervisor P10: vòng khởi động chuyển sang interfaces/http/lifecycle.py.
+    src = Path("src/mateai/interfaces/http/lifecycle.py").read_text(encoding="utf-8")
+    check("có cờ chặn chạy lần hai", "if STATE.started:" in src)
     check(
         "cờ được kiểm tra TRƯỚC khi làm việc nặng",
-        src.index("if _STARTUP_DONE:") < src.index("Phase 60: Register connector tools"),
+        src.index("if STATE.started:") > src.index("def run_startup(")
+        and src.index("if STATE.started:") < src.index("for step in steps"),
     )
     main_src = Path("main.py").read_text(encoding="utf-8")
     check("main.py thật sự chạy 2 uvicorn server trên cùng app (lý do cần cờ chặn)",

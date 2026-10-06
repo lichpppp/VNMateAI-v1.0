@@ -88,7 +88,7 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 | Quy tắc | Trạng thái | Bằng chứng |
 |---|---|---|
 | RULE-001/002 | Đạt (Phase 4 xong) | toàn bộ code chạy thật nằm trong `src/mateai` theo tầng domain/application/infrastructure/interfaces; `test_architecture_boundaries` giữ ranh giới (RULE-003: application không import web framework/sqlite; RULE-004: interfaces không chạy SQL). `core/` chỉ còn `plugin_manager` (API plugin công khai) |
-| RULE-005 | Một phần | mọi kênh thoại dùng chung `mateai.application.voice.voice_turn.process_voice_turn`; handler WS vẫn nằm trong `server.py` |
+| RULE-005 | Một phần | mọi kênh thoại dùng chung `mateai.application.voice.voice_turn.process_voice_turn`; handler WS ở `routers/websockets.py` (chỉ vận chuyển; duyệt từ HUD qua `approval_flow` dùng chung với REST — Supervisor P10) |
 | RULE-007 | **Chưa đạt** (2026-10-05) | Tool do LLM gọi qua `tool_gate.run_tool_with_policy`; nhưng còn 2 đường khác: `routers/skills.py:233–245` (RBAC + `execute_with_hitl` riêng) và cổng duyệt trong `plugin_registry.py:441–514`; `agent_orchestrator.py:252,264` gọi hàm skill thẳng, không qua cổng. Danh sách `security.forbidden_keywords` / `require_confirmation_actions` không được áp dụng ở cổng (chỉ `routers/security.py:166` dùng). Còn hai mô hình role (portal ↔ RBAC) |
 | RULE-008 | Một phần | `plugin_registry`: timeout + circuit breaker; client httpx riêng còn lại đã phân loại có lý do (plan §19) |
 | RULE-009 | Chỉ kênh portal/HUD | huỷ lượt khi có lệnh mới (barge-in) |
@@ -98,7 +98,7 @@ Số vi phạm RULE-011…015 do `tests/architecture/test_core_rules.py` đo tr�
 | RULE-013 | **0** | `config_loader` là cổng duy nhất (plan §18) |
 | RULE-014 | **0** | `mateai.infrastructure.database.erp_database.open_sqlite` là đường mở duy nhất (plan §23) |
 | RULE-015 | **0** | trạng thái kết nối + phát sóng ở `mateai/interfaces/websocket/realtime_hub.py`, helper xuất file ở `mateai/infrastructure/files/file_export.py` (plan §27) |
-| RULE-016 | Đạt về tên trùng; **hai danh mục** | không tên nào đăng ký hai lần; nhưng `plugin_registry` vẫn giữ tool riêng đăng ký lúc khởi động (`server.py:575–587`: connector qua `tool_bridge`, computer-use) — `plugin_manager` không chứa chúng. Gộp ở Phase 6 |
+| RULE-016 | Đạt về tên trùng; **hai danh mục** | không tên nào đăng ký hai lần; nhưng `plugin_registry` vẫn giữ tool riêng đăng ký lúc khởi động (bước khởi động `connector_tools` / `computer_use_tool` trong `interfaces/http/lifecycle.py`: connector qua `tool_bridge`, computer-use) — `plugin_manager` không chứa chúng. Gộp ở Phase 6 |
 
 ## VI. QUY TẮC KIỂM SOÁT TỰ TRỊ (bổ sung 2026-10-05 — prompt Supervisor §118, §122)
 
@@ -115,5 +115,5 @@ Chưa có test tự động cho các quy tắc này; trạng thái là kết qu�
 | RULE-023 | Nội dung ngoài (kết quả tool, RAG, email, web, tệp) không được đưa vào phần chỉ thị hệ thống | Một phần: tool không ghi / xoá được mã nguồn, cấu hình, `identity_core.md` (`test_file_write_protection`); nhãn "dữ liệu không tin cậy" cho kết quả tool: chưa | AST/grep: chỉ hằng số + cấu hình được vào system prompt; tệp trong danh sách bảo vệ không ghi được qua tool |
 | RULE-024 | Application không truy vấn SQL trực tiếp (RULE-003 mở rộng cho `application/`) | Baseline 17 (`agent_orchestrator` 6, `onboarding_workflow` 4, `proactive_manager` 7) — chỉ được giảm; xử lý ở Phase 8 | mở rộng `test_architecture_boundaries` sang `get_connection()` / `.execute(` |
 | RULE-025 | Không `subprocess(..., shell=True)` | **Đạt**: 0 (`test_rule_025_…`) | AST, baseline = 2, chỉ được giảm |
-| RULE-026 | Hàm `async` không gọi API chặn (`psutil.cpu_percent(interval>0)`, `time.sleep`, `requests`) | **Đạt**: 0 (`test_rule_026_…`) |
+| RULE-026 | Hàm `async` không gọi API chặn (`psutil.cpu_percent(interval>0)`, `time.sleep`, `requests`, `urllib.request.urlopen`) | **Đạt**: 0 (`test_rule_026_…`; `urlopen` thêm 2026-10-06 sau khi gặp ở `routers/config.py`) |
 | RULE-027 | Router HTTP không tự ghi tệp / cấu hình — qua use case tầng application (§198) | **Đạt**: 0 (2026-10-06). Mọi lần ghi cấu hình qua `config_governance.save_config` (nguyên tử + lịch sử phiên bản + audit); bố cục topology qua `application/operations/topology_layout` (`test_rule_027_…`, `test_config_writes_versioned.py`) | AST trong thân `async def` |

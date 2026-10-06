@@ -95,5 +95,15 @@ async def test_shutdown_stops_background_services_and_pools(monkeypatch):
         calls.append("pools")
 
     monkeypatch.setattr(connection_pool_manager, "close_all", close_all)
+    # Không dừng worker manager THẬT (singleton) — test chạy sau sẽ không submit được.
+    from mateai.application.operations.background_workers import background_worker_manager
+    from mateai.interfaces.http import lifecycle
+
+    async def stop_workers(timeout=10.0):
+        calls.append("workers")
+
+    monkeypatch.setattr(background_worker_manager, "stop", stop_workers)
+    monkeypatch.setattr(lifecycle, "STATE", lifecycle.LifecycleState())
     await server._on_shutdown()
-    assert {"proactive", "email", "pools"} <= set(calls)
+    await server._on_shutdown()          # listener thứ hai: không dừng lại lần nữa
+    assert sorted(calls) == ["email", "pools", "proactive", "workers"]
