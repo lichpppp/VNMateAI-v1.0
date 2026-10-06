@@ -1,0 +1,48 @@
+VN-MateAI — Giấy phép độc quyền / Proprietary License
+
+Copyright (c) 2026 Dương Thanh Lịch. Bảo lưu mọi quyền. All rights reserved.
+
+TIẾNG VIỆT
+
+Phần mềm này, gồm mã nguồn, firmware, tài liệu và mọi tệp đi kèm (gọi chung là
+"Phần mềm"), thuộc quyền sở hữu của Dương Thanh Lịch.
+
+Nếu không có văn bản cho phép của chủ sở hữu, không ai được:
+  1. sao chép, sửa đổi, gộp, xuất bản, phân phối, cấp phép lại hoặc bán Phần mềm,
+     dù là toàn bộ hay một phần;
+  2. sử dụng Phần mềm cho bất kỳ mục đích thương mại hay phi thương mại nào;
+  3. dịch ngược, tách mã hoặc tạo sản phẩm phái sinh từ Phần mềm.
+
+Việc xem được mã nguồn (ví dụ trên GitHub) không có nghĩa là được cấp quyền sử
+dụng.
+
+Phần mềm được cung cấp "NGUYÊN TRẠNG", không kèm bất kỳ bảo đảm nào, rõ ràng
+hay ngụ ý. Chủ sở hữu không chịu trách nhiệm về bất kỳ thiệt hại nào phát sinh
+từ việc sử dụng Phần mềm.
+
+Các thư viện bên thứ ba mà Phần mềm sử dụng vẫn tuân theo giấy phép riêng của
+từng thư viện.
+
+Liên hệ để xin phép sử dụng: Dương Thanh Lịch.
+
+ENGLISH
+
+This software, including its source code, firmware, documentation and all
+accompanying files (the "Software"), is the property of Dương Thanh Lịch.
+
+Without the owner's written permission, no one may:
+  1. copy, modify, merge, publish, distribute, sublicense or sell the Software,
+     in whole or in part;
+  2. use the Software for any commercial or non-commercial purpose;
+  3. reverse engineer the Software or create derivative works from it.
+
+Being able to view the source code (for example on GitHub) does not grant any
+right to use it.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE OWNER BE LIABLE FOR ANY DAMAGES ARISING FROM THE
+USE OF THE SOFTWARE.
+
+Third-party libraries used by the Software remain under their own licenses.
+
+To request permission to use the Software, contact Dương Thanh Lịch.

@@ -305,4 +305,4 @@ Không commit: `config.json`, `deploy/.env`, `deploy/s3.json`, khoá / chứng c
 
 ## 📜 Giấy phép
 
-Repo chưa có tệp `LICENSE`. Chủ dự án cần chọn giấy phép trước khi công bố rộng rãi.
+Phần mềm độc quyền — © 2026 Dương Thanh Lịch. Bảo lưu mọi quyền. Không được sao chép, sử dụng hay phân phối khi chưa có văn bản cho phép của chủ sở hữu. Xem [`LICENSE`](LICENSE).
