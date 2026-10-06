@@ -121,6 +121,10 @@ async def _run_tool_with_policy(
         or "master"
     ).strip()
     agent = agent_id or policy_engine.agent_id_for(source_device)
+    # ABAC: skill đọc dữ liệu theo phòng ban / cấp bảo mật của NGƯỜI được phục vụ (danh tính
+    # máy chủ xác thực, không phải tham số LLM). Ngữ cảnh con của lời gọi này — không lan.
+    from mateai.application.security.security_guard import CURRENT_PRINCIPAL
+    CURRENT_PRINCIPAL.set(caller)
 
     def _done(result: Dict[str, Any]) -> Dict[str, Any]:
         return {"target_client": target_client, "args": fn_args, "result": result}

@@ -29,9 +29,10 @@ Design:
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 logger = logging.getLogger("mateai.application.security.security_guard")
 
@@ -150,6 +151,41 @@ DEVICE_ROLES = ("admin", "it_support", "operator", "viewer")
 SERVICE_PRINCIPAL_ROLES: Dict[str, str] = {}
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ABAC — phòng ban + cấp bảo mật (prompt cuối §35, §62, §64, §155)
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: Cấp bảo mật mặc định theo role RBAC (khi tài khoản chưa được đặt riêng).
+CLEARANCE_BY_ROLE: Dict[str, int] = {"admin": 4, "it_support": 3, "operator": 2, "viewer": 1}
+#: Cấp tối thiểu để dùng dữ liệu theo mức phân loại khai ở `@export_skill`.
+CLEARANCE_FOR_CLASSIFICATION: Dict[str, int] = {"PUBLIC": 0, "INTERNAL": 1, "CONFIDENTIAL": 3, "RESTRICTED": 4}
+
+#: Người (danh tính máy chủ đã xác thực) mà lượt hiện tại đang phục vụ — `tool_gate` đặt
+#: trước khi chạy tool, để skill đọc dữ liệu tự lọc theo phòng ban / cấp bảo mật.
+CURRENT_PRINCIPAL: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_principal", default=None)
+
+
+def required_clearance(tool_name: str) -> int:
+    """Cấp bảo mật tối thiểu để chạy tool, theo mức phân loại trong tool contract."""
+    try:
+        from core.plugin_manager import plugin_manager
+        contract = plugin_manager.get_tool_contract(tool_name) or {}
+    except Exception:  # noqa: BLE001
+        contract = {}
+    return CLEARANCE_FOR_CLASSIFICATION.get(str(contract.get("data_classification") or "INTERNAL"), 1)
+
+
+def scope_rows(rows: Iterable[Dict[str, Any]], principal: Dict[str, Any], dept_key: str = "dept_name") -> List[Dict[str, Any]]:
+    """Giữ các dòng thuộc phòng ban người hỏi được xem (admin: tất cả; chưa gán: không dòng nào)."""
+    rows = list(rows or [])
+    if principal.get("all_departments"):
+        return rows
+    dept = principal.get("department")
+    if not dept:
+        return []
+    return [r for r in rows if str(r.get(dept_key) or "").strip().lower() == dept.strip().lower()]
+
+
 class SecurityGuard:
     """
     RBAC Middleware & Audit Logging Interceptor cho VN-MateAI Phase 48.
@@ -246,6 +282,31 @@ class SecurityGuard:
     def resolve_role(self, employee_id: Optional[str]) -> str:
         """Role RBAC hiệu lực của một danh tính (fail-closed, xem `_resolve_role`)."""
         return self._resolve_role(employee_id)
+
+    def principal(self, employee_id: Optional[str]) -> Dict[str, Any]:
+        """Thuộc tính ABAC: role, phòng ban, cấp bảo mật (fail-closed như role).
+
+        Phòng ban / cấp bảo mật lấy từ tài khoản Portal (admin đặt ở Quản lý người dùng);
+        nhân viên ERP lấy phòng ban theo `dept_id`. Admin xem mọi phòng ban."""
+        role = self._resolve_role(employee_id)
+        department: Optional[str] = None
+        clearance: Optional[int] = None
+        if employee_id:
+            try:
+                from mateai.infrastructure.database.db_manager import db_manager
+                user = db_manager.get_user_by_username_or_id(str(employee_id))
+                if user:
+                    department = (user.get("department") or None)
+                    clearance = user.get("clearance_level")
+                else:
+                    from mateai.infrastructure.database.erp_database import erp_db
+                    emp = erp_db.get_employee_by_identifier(str(employee_id))
+                    department = (emp or {}).get("dept_name") or None
+            except Exception as exc:  # noqa: BLE001 — fail-closed: không phòng ban, cấp theo role
+                logger.warning("Không đọc được thuộc tính ABAC của '%s': %s", employee_id, exc)
+        level = int(clearance) if clearance is not None else CLEARANCE_BY_ROLE.get(role, 1)
+        return {"id": employee_id, "role": role, "department": department,
+                "clearance": max(0, min(4, level)), "all_departments": role == "admin"}
 
     def _resolve_role(self, employee_id: Optional[str]) -> str:
         """

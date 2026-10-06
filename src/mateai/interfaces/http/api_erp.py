@@ -96,14 +96,18 @@ def _audit(user: Dict[str, Any], action: str, details: Dict[str, Any]) -> None:
 async def get_erp_structure(
     current_user: Dict[str, Any] = Depends(get_current_user),
 ) -> Dict[str, Any]:
-    """Trả về danh sách phòng ban và các thực thể con (Nhân viên, Máy tính, Task, Sổ sách)."""
+    """Trả về danh sách phòng ban và các thực thể con (Nhân viên, Máy tính, Task, Sổ sách).
+
+    ABAC (prompt cuối §155): chỉ phòng ban của người hỏi; admin thấy toàn bộ."""
+    from mateai.application.security.security_guard import scope_rows, security_guard
     try:
         tree = await run_blocking(erp_db.get_structure_tree)
-        return {
-            "status": "success",
-            "count": len(tree),
-            "departments": tree,
-        }
+        who = await run_blocking(security_guard.principal, employee_id=current_user.get("username"))
+        visible = scope_rows(tree, who, dept_key="name")
+        out = {"status": "success", "count": len(visible), "departments": visible}
+        if not who["all_departments"] and not who["department"]:
+            out["scope_note"] = "Tài khoản chưa được gán phòng ban — nhờ quản trị gán ở Quản lý người dùng."
+        return out
     except Exception as exc:
         logger.error("Lỗi khi lấy cây cấu trúc ERP: %s", exc)
         raise HTTPException(status_code=500, detail=f"Lỗi truy vấn dữ liệu ERP: {exc}")

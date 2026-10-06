@@ -9456,7 +9456,7 @@ function renderUsersTable(users) {
           </div>
         </td>
         <td class="py-3 px-4 text-slate-700 dark:text-slate-200 font-medium">${escapeHtml(u.full_name || u.username)}</td>
-        <td class="py-3 px-4 text-center">${badge}</td>
+        <td class="py-3 px-4 text-center">${badge}<div class="mt-1 text-[11px] text-slate-500">${u.department ? escapeHtml(u.department) : 'chưa gán phòng ban'} · cấp ${u.clearance_level || 'theo vai trò'}</div></td>
         <td class="py-3 px-4 text-center">
           <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -9549,6 +9549,22 @@ function copyText(txt, msg = 'Đã sao chép!') {
   }
 }
 
+// ABAC: danh sách phòng ban lấy từ cơ cấu ERP thật (admin thấy toàn bộ).
+async function fillUserAbacFields(user) {
+  const sel = document.getElementById('user-modal-department');
+  const cl = document.getElementById('user-modal-clearance');
+  if (cl) cl.value = user && user.clearance_level ? String(user.clearance_level) : '';
+  if (!sel) return;
+  try {
+    const res = await fetch(`${API_BASE}/api/erp/structure`, { headers: { Authorization: `Bearer ${getAuthToken()}` } });
+    const data = await res.json();
+    const names = (data.departments || []).map(d => d.name);
+    sel.innerHTML = '<option value="">— Chưa gán —</option>' +
+      names.map(n => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
+  } catch (e) { /* giữ ô trống: vẫn lưu được các trường khác */ }
+  sel.value = (user && user.department) || '';
+}
+
 function openAddUserModal() {
   document.getElementById('user-modal-title').textContent = 'Thêm Tài Khoản Mới';
   document.getElementById('user-modal-subtitle').textContent = 'Thiết lập tài khoản người dùng và vai trò phân quyền';
@@ -9559,6 +9575,7 @@ function openAddUserModal() {
   uInput.classList.remove('opacity-60', 'cursor-not-allowed');
   document.getElementById('user-modal-fullname').value = '';
   document.getElementById('user-modal-role').value = 'viewer';
+  fillUserAbacFields(null);
   const pwGroup = document.getElementById('user-modal-password-group');
   if (pwGroup) pwGroup.classList.remove('hidden');
   const pwInput = document.getElementById('user-modal-password');
@@ -9589,6 +9606,7 @@ function openEditUserModal(userId) {
   uInput.classList.add('opacity-60', 'cursor-not-allowed');
   document.getElementById('user-modal-fullname').value = user.full_name || '';
   document.getElementById('user-modal-role').value = user.role || 'viewer';
+  fillUserAbacFields(user);
   const pwGroup = document.getElementById('user-modal-password-group');
   if (pwGroup) pwGroup.classList.add('hidden');
   const pwInput = document.getElementById('user-modal-password');
@@ -9613,6 +9631,9 @@ async function handleUserFormSubmit(e) {
   const full_name = document.getElementById('user-modal-fullname').value.trim();
   const role = document.getElementById('user-modal-role').value;
   const password = document.getElementById('user-modal-password').value;
+  const department = (document.getElementById('user-modal-department') || {}).value || '';
+  const clRaw = (document.getElementById('user-modal-clearance') || {}).value || '';
+  const abac = { department, clearance_level: clRaw ? Number(clRaw) : null };
   const errEl = document.getElementById('user-modal-error');
   const btn = document.getElementById('btn-save-user');
 
@@ -9625,11 +9646,13 @@ async function handleUserFormSubmit(e) {
       if (!password || password.length < 6) {
         throw new Error('Mật khẩu khởi tạo phải có độ dài tối thiểu 6 ký tự.');
       }
-      await apiCreateUser({ username, full_name, role, password });
+      const created = await apiCreateUser({ username, full_name, role, password });
+      const newId = (created && (created.user || created).id) || username;
+      if (abac.department || abac.clearance_level) await apiUpdateUser(newId, abac);
       showToast('Đã tạo tài khoản thành công.', 'success');
     } else {
       // Cập nhật thông tin tài khoản
-      await apiUpdateUser(id, { full_name, role });
+      await apiUpdateUser(id, { full_name, role, ...abac });
       showToast('Cập nhật tài khoản thành công.', 'success');
     }
     closeUserModal();

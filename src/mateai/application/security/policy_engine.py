@@ -15,6 +15,7 @@ Thứ tự (DENY luôn thắng — kể cả admin, kể cả khi đã được 
   1. kill switch toàn cục / tác nhân / tool        -> DENY
   2. L5 (never_autonomous) + tool cấm + từ khoá cấm  -> DENY
   3. RBAC theo danh tính người/thiết bị gọi          -> DENY
+     ABAC: cấp bảo mật người gọi < mức phân loại dữ liệu của tool (tool contract) -> DENY
   4. rủi ro -> mức tự trị:  1 = L0, 2 = L2 (tự chạy)
                             >= 3 = L3: chỉ chạy khi người có quyền đã duyệt lượt này,
                                        hoặc có uỷ quyền còn hạn cho đúng danh tính + tool (L4)
@@ -252,6 +253,16 @@ def authorize(
                                                      session_id=session_id, payload=args)
         if not ok:
             return deny("rbac", reason)
+
+    # 3b. ABAC (prompt cuối §35, §62): dữ liệu CONFIDENTIAL / RESTRICTED cần đủ cấp bảo mật —
+    # kể cả khi AI gọi thay người. Luôn xét (kể cả cổng lồng), lấy thuộc tính từ máy chủ.
+    from mateai.application.security.security_guard import required_clearance
+    need = required_clearance(name)
+    if need > 1:
+        who = security_guard.principal(caller)
+        if who["clearance"] < need:
+            return deny("abac_clearance", f"Tác vụ '{name}' dùng dữ liệu cần cấp bảo mật {need}; "
+                                          f"tài khoản hiện có cấp {who['clearance']}.")
 
     # 4. Rủi ro -> mức tự trị.
     level = _level_for(risk)

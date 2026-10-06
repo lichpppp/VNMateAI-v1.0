@@ -76,6 +76,14 @@ class DatabaseManager:
                     cursor.execute(
                         "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);"
                     )
+                    # ABAC (prompt cuối §35, §64): phòng ban + cấp bảo mật của tài khoản.
+                    # NULL = chưa gán (phòng ban: không thấy dữ liệu theo phòng ban trừ admin;
+                    # cấp bảo mật: lấy theo vai trò — security_guard.CLEARANCE_BY_ROLE).
+                    _ucols = {r[1] for r in cursor.execute("PRAGMA table_info(users);").fetchall()}
+                    if "department" not in _ucols:
+                        cursor.execute("ALTER TABLE users ADD COLUMN department TEXT;")
+                    if "clearance_level" not in _ucols:
+                        cursor.execute("ALTER TABLE users ADD COLUMN clearance_level INTEGER;")
 
                     # 2. Bảng tasks — schema chung, định nghĩa ở mateai.infrastructure.database.erp_database.
                     ensure_tasks_table(cursor)
@@ -349,7 +357,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    SELECT id, username, full_name, role, created_at, updated_at
+                    SELECT id, username, full_name, role, department, clearance_level, created_at, updated_at
                     FROM users
                     ORDER BY created_at ASC;
                     """
@@ -365,7 +373,8 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    SELECT id, username, full_name, role, password_hash, created_at, updated_at
+                    SELECT id, username, full_name, role, department, clearance_level, password_hash,
+                           created_at, updated_at
                     FROM users
                     WHERE LOWER(username) = ? OR LOWER(id) = ?;
                     """,
@@ -419,8 +428,15 @@ class DatabaseManager:
             "created_at": now_str,
         }
 
+    @staticmethod
+    def public_user(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Bản ghi người dùng để trả ra ngoài — KHÔNG có password_hash."""
+        return {k: v for k, v in (user or {}).items() if k != "password_hash"}
+
     def update_user(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Cập nhật full_name hoặc role của user."""
+        """Cập nhật full_name / role / department / clearance_level. Trả bản ghi KHÔNG có
+        password_hash (trước đây PUT /api/v1/users/{id} trả nguyên hash ra API).
+        `department=""` = bỏ gán phòng ban; `clearance_level=None` (gửi tường minh) = theo vai trò."""
         existing = self.get_user_by_username_or_id(user_id)
         if not existing:
             raise ValueError(f"Không tìm thấy người dùng với định danh '{user_id}'.")
@@ -439,9 +455,15 @@ class DatabaseManager:
             if r in ("admin", "manager", "viewer"):
                 updates.append("role = ?")
                 params.append(r)
+        if "department" in data:
+            updates.append("department = ?")
+            params.append(str(data["department"]).strip() or None if data["department"] is not None else None)
+        if "clearance_level" in data:
+            updates.append("clearance_level = ?")
+            params.append(int(data["clearance_level"]) if data["clearance_level"] is not None else None)
 
         if not updates:
-            return existing
+            return self.public_user(existing)
 
         updates.append("updated_at = ?")
         params.append(now_str)
@@ -457,7 +479,7 @@ class DatabaseManager:
                 conn.commit()
 
         updated = self.get_user_by_username_or_id(existing["id"])
-        return updated or {}
+        return self.public_user(updated)
 
     def delete_user(self, user_id: str) -> None:
         """Xóa tài khoản người dùng."""

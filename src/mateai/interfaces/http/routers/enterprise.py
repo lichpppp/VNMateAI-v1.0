@@ -46,8 +46,13 @@ async def api_enterprise_kpi_overview(
     """Lấy toàn bộ chỉ số KPI: Tasks, Nhân sự, Tài chính, Cashflow, Burn Rate, Runway."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
+        from mateai.application.security.security_guard import scope_rows, security_guard
         overview = await run_blocking(erp_db.get_company_kpi_overview)
-        leaderboard = await run_blocking(erp_db.get_task_leaderboard, limit=5)
+        who = await run_blocking(security_guard.principal, employee_id=current_user.get("username"))
+        leaderboard = scope_rows(await run_blocking(erp_db.get_task_leaderboard, limit=5), who)
+        if who["clearance"] < 3:      # tài chính là CONFIDENTIAL (prompt cuối §62)
+            overview["finances"] = None
+            overview["finances_note"] = "Số liệu tài chính cần cấp bảo mật 3."
         overview["leaderboard"] = leaderboard
         return {"status": "success", "data": overview}
     except Exception as e:
@@ -65,8 +70,13 @@ async def api_enterprise_finances(
     finance_type: Optional[str] = None,
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
-    """Lấy danh sách giao dịch tài chính (lọc theo loại: income/expense)."""
+    """Lấy danh sách giao dịch tài chính (lọc theo loại: income/expense). CONFIDENTIAL:
+    cần cấp bảo mật 3 (prompt cuối §62) — trước đây mọi tài khoản viewer đọc được sổ quỹ."""
+    from mateai.application.security.security_guard import security_guard
     from mateai.infrastructure.database.erp_database import erp_db
+    who = await run_blocking(security_guard.principal, employee_id=current_user.get("username"))
+    if who["clearance"] < 3:
+        raise HTTPException(status_code=403, detail="Sổ quỹ là dữ liệu mật — cần cấp bảo mật 3.")
     try:
         records = await run_blocking(erp_db.get_finances, finance_type=finance_type, limit=limit)
         summary = await run_blocking(erp_db.get_financial_summary)
@@ -114,7 +124,9 @@ async def api_enterprise_attendance(
     """Lấy danh sách chấm công theo ngày."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        records = await run_blocking(erp_db.get_attendance, date_str=date_str, limit=limit)
+        from mateai.application.security.security_guard import scope_rows, security_guard
+        who = await run_blocking(security_guard.principal, employee_id=current_user.get("username"))
+        records = scope_rows(await run_blocking(erp_db.get_attendance, date_str=date_str, limit=limit), who)
         return {"status": "success", "date": date_str or "Hôm nay", "total": len(records), "records": records}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -132,7 +144,9 @@ async def api_enterprise_leaderboard(
     """Lấy bảng xếp hạng hoàn thành công việc (Employee Leaderboard)."""
     from mateai.infrastructure.database.erp_database import erp_db
     try:
-        leaderboard = await run_blocking(erp_db.get_task_leaderboard, limit=limit)
+        from mateai.application.security.security_guard import scope_rows, security_guard
+        who = await run_blocking(security_guard.principal, employee_id=current_user.get("username"))
+        leaderboard = scope_rows(await run_blocking(erp_db.get_task_leaderboard, limit=limit), who)
         return {"status": "success", "leaderboard": leaderboard}
     except Exception as e:
         return {"status": "error", "error": str(e)}

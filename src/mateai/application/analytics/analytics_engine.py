@@ -527,6 +527,7 @@ analytics_engine = AnalyticsEngine()
 
 @export_skill(
     name="generate_dynamic_sql_chart",
+    data_classification="CONFIDENTIAL",
     description="Chuyển đổi yêu cầu phân tích dữ liệu kinh doanh của CEO (ví dụ: 'Vẽ biểu đồ chi phí', 'Thống kê task theo phòng ban', 'Biểu đồ dòng tiền') thành câu lệnh SQL an toàn và sinh cấu hình Chart.js hiển thị ngay trên Web.",
     parameters_schema={
         "type": "object",
@@ -546,6 +547,7 @@ def generate_dynamic_sql_chart(prompt: str) -> Dict[str, Any]:
 
 @export_skill(
     name="check_cashflow_predictive_health",
+    data_classification="CONFIDENTIAL",
     description="Chạy thuật toán dự báo dòng tiền và tốc độ đốt tiền (Burn Rate & Runway). Nếu phát hiện quỹ công ty cạn kiệt trong vòng dưới 15 ngày, tự động kích hoạt CẢNH BÁO ĐỎ.",
     parameters_schema={"type": "object", "properties": {}},
 )

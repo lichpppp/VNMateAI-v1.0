@@ -124,6 +124,7 @@ async def _execute_connector_action(
 
 @export_skill(
     name="check_aws_cost",
+    data_classification="CONFIDENTIAL",
     description="Kiểm tra chi phí AWS (AWS Cost Explorer) trong khoảng thời gian. Trả về tổng chi phí USD và breakdown theo service.",
     parameters_schema={
         "type": "object",
@@ -358,6 +359,7 @@ async def download_paperless_document(doc_id: int, original: bool = False) -> Di
 
 @export_skill(
     name="check_einvoice_daily",
+    data_classification="CONFIDENTIAL",
     description="Thống kê hóa đơn điện tử (HĐĐT) trong 1 ngày: số lượng, tổng tiền, thuế, số lỗi, hủy.",
     parameters_schema={
         "type": "object",
@@ -386,6 +388,7 @@ async def check_einvoice_daily(
 
 @export_skill(
     name="search_einvoices",
+    data_classification="CONFIDENTIAL",
     description="Tìm kiếm hóa đơn điện tử theo từ khóa, mã số thuế người mua, trạng thái, khoảng ngày.",
     parameters_schema={
         "type": "object",
@@ -432,6 +435,7 @@ async def search_einvoices(
 
 @export_skill(
     name="get_einvoice_details",
+    data_classification="CONFIDENTIAL",
     description="Lấy chi tiết 1 hóa đơn điện tử (items, seller, buyer, XML, PDF URL).",
     parameters_schema={
         "type": "object",

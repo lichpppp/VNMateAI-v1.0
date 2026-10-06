@@ -7381,6 +7381,27 @@
           </select>
         </div>
 
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-300 mb-1">Phòng Ban (ABAC)</label>
+            <select id="user-modal-department" class="input-dark w-full">
+              <option value="">— Chưa gán —</option>
+            </select>
+            <p class="text-[11px] text-slate-500 mt-1">Chỉ thấy dữ liệu ERP của phòng ban này (Admin thấy tất cả).</p>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-300 mb-1">Cấp Bảo Mật Dữ Liệu</label>
+            <select id="user-modal-clearance" class="input-dark w-full">
+              <option value="">Theo vai trò</option>
+              <option value="1">1 — Nội bộ cơ bản</option>
+              <option value="2">2 — Nội bộ</option>
+              <option value="3">3 — Mật (tài chính, nhân sự)</option>
+              <option value="4">4 — Tối mật</option>
+            </select>
+            <p class="text-[11px] text-slate-500 mt-1">Dữ liệu tài chính / nhân sự cần cấp 3.</p>
+          </div>
+        </div>
+
         <div id="user-modal-password-group">
           <label class="block font-semibold text-slate-300 mb-1">Mật Khẩu Khởi Tạo</label>
           <div class="relative">
@@ -7824,7 +7845,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
-  <script src="/static/app.js?v=56.1"></script>
+  <script src="/static/app.js?v=56.2"></script>
 </body>
 
 </html>

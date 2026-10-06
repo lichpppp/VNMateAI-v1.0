@@ -73,10 +73,21 @@ logger = logging.getLogger(__name__)
 _DECORATOR_STAGING: Dict[Callable, Dict[str, Any]] = {}
 
 
+#: Mức phân loại dữ liệu (prompt cuối §62) — cấp bảo mật tối thiểu người hỏi phải có ở
+#: `security_guard.CLEARANCE_FOR_CLASSIFICATION`.
+DATA_CLASSIFICATIONS = ("PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED")
+
+
 def export_skill(
     name: str,
     description: str,
     parameters_schema: Dict[str, Any],
+    *,
+    data_classification: str = "INTERNAL",
+    reversible: Optional[bool] = None,
+    output_schema: Optional[Dict[str, Any]] = None,
+    data_scope: Optional[str] = None,
+    verification_required: Optional[bool] = None,
 ) -> Callable:
     """
     Decorator that marks a function as an exportable skill tool.
@@ -101,6 +112,18 @@ def export_skill(
             ...
     """
 
+    if data_classification not in DATA_CLASSIFICATIONS:
+        raise ValueError(f"data_classification phải thuộc {DATA_CLASSIFICATIONS}, nhận '{data_classification}'")
+    # Tool contract (prompt cuối §39 / §50): mức dữ liệu, có hoàn tác được không, schema kết
+    # quả, phạm vi dữ liệu. Không đưa vào schema gửi LLM — chỉ cổng chính sách đọc.
+    contract = {
+        "data_classification": data_classification,
+        "reversible": reversible,
+        "output_schema": output_schema,
+        "data_scope": data_scope,
+        "verification_required": verification_required,
+    }
+
     def decorator(func: Callable) -> Callable:
         _DECORATOR_STAGING[func] = {
             "name": name,
@@ -112,6 +135,7 @@ def export_skill(
             "name": name,
             "description": description,
             "parameters": parameters_schema,
+            "contract": contract,
         }
         return func
 
@@ -455,6 +479,13 @@ def {name}(**kwargs) -> dict:
             "module": "skills.custom_skills",
             "enabled": True,
         }
+
+    def get_tool_contract(self, name: str) -> Optional[Dict[str, Any]]:
+        """Tool contract đã khai ở `@export_skill` (None nếu không phải skill đã nạp)."""
+        self._ensure_loaded()
+        with self._lock:
+            entry = self._registry.get(name)
+            return dict((entry or {}).get("meta", {}).get("contract") or {}) if entry else None
 
     def get_skill_count(self) -> int:
         """Return the number of currently loaded skills."""

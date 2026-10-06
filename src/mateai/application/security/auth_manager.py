@@ -139,10 +139,29 @@ class AuthManager:
         logger.info("Đã tạo người dùng mới: %s (role: %s, id: %s)", created["username"], created["role"], created["id"])
         return created
 
-    def update_user(self, user_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Cập nhật full_name và role của user."""
+    def update_user(self, user_id: str, data: Dict[str, Any], actor: str = "system") -> Dict[str, Any]:
+        """Cập nhật họ tên / vai trò / phòng ban / cấp bảo mật. Trả bản ghi KHÔNG có hash.
+
+        Phòng ban phải là phòng ban ERP đang có ("" = bỏ gán). Đổi vai trò, phòng ban hay cấp
+        bảo mật là thay đổi quyền -> ghi audit (prompt cuối §149)."""
+        dept = data.get("department")
+        if dept:
+            from mateai.infrastructure.database.erp_database import erp_db
+            names = {str(d.get("name") or "").strip().lower() for d in erp_db.get_structure_tree()}
+            if dept.strip().lower() not in names:
+                raise ValueError(f"Phòng ban '{dept}' không có trong cơ cấu tổ chức ERP.")
+        before = db_manager.public_user(db_manager.get_user_by_username_or_id(user_id))
         updated = db_manager.update_user(user_id, data)
         logger.info("Đã cập nhật người dùng: %s (id: %s)", updated.get("username"), user_id)
+        changed = {k: {"before": before.get(k), "after": updated.get(k)}
+                   for k in ("role", "department", "clearance_level") if before.get(k) != updated.get(k)}
+        if changed:
+            try:
+                from mateai.application.security.safety_guard import security_engine
+                security_engine.log_audit(actor, "user_access_change", "USER", "SUCCESS",
+                                          {"user": updated.get("username"), "changes": changed})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Không ghi được audit đổi quyền người dùng: %s", exc)
         return updated
 
     def delete_user(self, user_id: str) -> bool:

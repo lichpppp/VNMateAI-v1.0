@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 @export_skill(
     name="record_expense",
+    data_classification="CONFIDENTIAL",
     description="Ghi nhận khoản chi tiêu (chi phí) vào Sổ quỹ tài chính doanh nghiệp. Dùng khi CEO hoặc quản lý ra lệnh chi tiền hoặc báo cáo chi phí.",
     parameters_schema={
         "type": "object",
@@ -76,6 +77,7 @@ def record_expense(
 
 @export_skill(
     name="record_income",
+    data_classification="CONFIDENTIAL",
     description="Ghi nhận khoản thu (doanh thu, thanh toán hợp đồng) vào Sổ quỹ doanh nghiệp.",
     parameters_schema={
         "type": "object",
@@ -133,6 +135,7 @@ def record_income(
 
 @export_skill(
     name="get_financial_summary",
+    data_classification="CONFIDENTIAL",
     description="Lấy báo cáo tổng hợp dòng tiền (Cashflow, Thu, Chi, Số dư quỹ, Tốc độ đốt tiền Burn Rate, Runway) của doanh nghiệp.",
     parameters_schema={
         "type": "object",

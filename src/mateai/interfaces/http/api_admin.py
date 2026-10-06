@@ -59,7 +59,8 @@ class WorknodeHeartbeatRequest(BaseModel):
 
 class CrossReportRequest(BaseModel):
     scope: Optional[List[str]] = Field(default=None, description="Danh sách phòng ban cần đối soát")
-    clearance_level: int = Field(default=3, description="Mức bảo mật của người yêu cầu")
+    #: Bỏ qua (giữ cho client cũ): cấp bảo mật lấy từ tài khoản người gọi, không tự khai.
+    clearance_level: Optional[int] = Field(default=None, description="Không dùng — lấy từ tài khoản")
 
 
 # ─── Endpoints ─────────────────────────────────────────────────────────────
@@ -160,10 +161,13 @@ async def get_worknodes_status(user: dict = _READ) -> Dict[str, Any]:
 @router.post("/admin/cross-report")
 async def generate_cross_report_api(req: CrossReportRequest, user: dict = _ADMIN) -> Dict[str, Any]:
     """Kích hoạt báo cáo liên phòng ban tức thời từ Admin Web UI."""
+    from mateai.application.agent.agent_orchestrator import principal_clearance
+    from core.plugin_manager import run_blocking
+    level = await run_blocking(principal_clearance, username=user.get("username"))
     return multi_agent_system.generate_cross_domain_report(
         query_context="Yêu cầu từ Admin Web UI",
         requested_departments=req.scope,
-        clearance_level=req.clearance_level,
+        clearance_level=level,
     )
 
 

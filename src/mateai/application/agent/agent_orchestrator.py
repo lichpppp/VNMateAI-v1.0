@@ -475,9 +475,9 @@ class CEORouterAgent:
         active_tasks = kpi.get("active_tasks", 0)
         completion_rate = kpi.get("completion_rate", 0.0)
 
-        # Đánh giá chi phí hạ tầng so với doanh thu
-        cloud_cost_est = 15000000.0  # VND ước tính
-        cloud_cost_ratio = (cloud_cost_est / income * 100) if income > 0 else 0.0
+        # Trước đây: "chi phí cloud" là hằng số bịa 15 000 000 VND rồi tính "tỷ trọng ~x% (Tối ưu)".
+        # Không có số đo chi phí thật trong báo cáo này -> không nêu tỷ trọng (prompt: không bịa số).
+        cloud_cost_ratio = None
 
         # Kiểm tra Data Clearance Level
         is_confidential = clearance_level >= 3
@@ -491,7 +491,6 @@ class CEORouterAgent:
         else:
             voice_lines.append("Tình hình tài chính và dòng tiền vận hành duy trì ngưỡng an toàn.")
 
-        voice_lines.append("Hạ tầng kỹ thuật đám mây và hệ thống trạm thực thi ngoại vi hoạt động ổn định 100%.")
         voice_summary = " ".join(voice_lines)
 
         # 4. Tạo Rich Markdown Details
@@ -506,7 +505,7 @@ class CEORouterAgent:
                 f"- **Tổng thu trong kỳ:** {income:,.0f} VND",
                 f"- **Tổng chi trong kỳ:** {expense:,.0f} VND",
                 f"- **Số dư ròng:** {net_balance:,.0f} VND",
-                f"- **Tỷ trọng chi phí Cloud / Doanh thu:** ~{cloud_cost_ratio:.2f}% (Tối ưu)",
+                "- **Chi phí Cloud:** chưa có số đo trong báo cáo này (xem `check_aws_cost`).",
             ])
         else:
             md_lines.append("- *(Số liệu chi tiết dòng tiền yêu cầu Clearance Level ≥ 3)*")
@@ -518,9 +517,8 @@ class CEORouterAgent:
             f"- **Đang thực hiện:** {active_tasks} | **Hoàn tất:** {kpi.get('completed_tasks', 0)} ({completion_rate}%)",
             f"- **Nhiệm vụ quá hạn:** {kpi.get('overdue_tasks', 0)} việc",
             "",
-            "## 3. TRẠNG THÁI HỆ THỐNG & ĐIỀU PHỐI (CTO & GRID)",
-            "- **Trục bảo vệ Zero-Trust Guard:** Trực chiến 24/7.",
-            "- **Hồ máy trạm Standby Worker Grid:** Sẵn sàng tiếp nhận tác vụ phân tán.",
+            "## 3. KIỂM SOÁT TỰ TRỊ",
+            f"- **Kill switch:** {'ĐANG BẬT — chỉ tác vụ chỉ đọc' if _kill_switch_on() else 'tắt'}",
         ])
 
         rich_details = "\n".join(md_lines)
@@ -535,9 +533,23 @@ class CEORouterAgent:
                 "active_tasks": active_tasks,
                 "completion_rate": completion_rate,
                 "net_balance": net_balance if is_confidential else None,
-                "cloud_ratio_pct": round(cloud_cost_ratio, 2) if is_confidential else None,
+                "cloud_ratio_pct": cloud_cost_ratio,
             },
         }
+
+
+def _kill_switch_on() -> bool:
+    try:
+        from mateai.config.loader import settings
+        return bool(settings.autonomy.kill_switch)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def principal_clearance(username: Optional[str]) -> int:
+    """Cấp bảo mật THẬT của người hỏi (ABAC) — không lấy từ request hay hằng số."""
+    from mateai.application.security.security_guard import security_guard
+    return int(security_guard.principal(username)["clearance"])
 
 
 # Singleton instance
@@ -567,6 +579,7 @@ def delegate_to_multi_agent(query: str) -> Dict[str, Any]:
 
 @export_skill(
     name="get_executive_standup_briefing",
+    data_classification="CONFIDENTIAL",
     description="Tạo báo cáo Họp Giao Ban Tự Động (Executive Daily Standup) tóm tắt tình hình toàn diện công ty trong 24h qua (Dòng tiền CFO, Tiến độ HR, Hạ tầng CTO). Dùng khi CEO yêu cầu báo cáo tình hình bằng giọng nói.",
     parameters_schema={"type": "object", "properties": {}},
 )
@@ -577,6 +590,7 @@ def get_executive_standup_briefing() -> Dict[str, Any]:
 
 @export_skill(
     name="get_enterprise_executive_summary",
+    data_classification="CONFIDENTIAL",
     description="Bộ não tổng hợp & Báo cáo điều hành tức thì (Executive Intelligence) cho giọng nói, Web và Telegram. Trả về voice_summary (<4 câu, siêu tốc) và rich_details định dạng Markdown.",
     parameters_schema={
         "type": "object",
@@ -599,10 +613,12 @@ def get_enterprise_executive_summary(target_scope: str = "all", time_range: str 
     depts = None
     if target_scope and target_scope != "all":
         depts = [target_scope.upper()]
+    # Trước đây clearance_level=4 cố định: ai hỏi qua giọng nói cũng nhận số liệu tài chính mật.
+    from mateai.application.security.security_guard import CURRENT_PRINCIPAL
     return multi_agent_system.generate_cross_domain_report(
         query_context=f"Báo cáo điều hành phạm vi {target_scope} thời gian {time_range}",
         requested_departments=depts,
-        clearance_level=4,
+        clearance_level=principal_clearance(CURRENT_PRINCIPAL.get()),
     )
 
 

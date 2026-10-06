@@ -31,6 +31,9 @@ class UpdateUserRequest(BaseModel):
     """Payload for PUT /api/v1/users/{user_id}."""
     full_name: Optional[str] = Field(default=None, description="Họ và tên người dùng")
     role: Optional[str] = Field(default=None, description="Vai trò (admin, manager, viewer)")
+    #: ABAC (prompt cuối §35, §64): phòng ban ERP ("" = bỏ gán) và cấp bảo mật 1–4 (null = theo vai trò).
+    department: Optional[str] = Field(default=None, max_length=120, description="Tên phòng ban ERP")
+    clearance_level: Optional[int] = Field(default=None, ge=1, le=4, description="Cấp bảo mật 1–4")
 
 
 class ChangeUserPasswordRequest(BaseModel):
@@ -96,7 +99,8 @@ async def update_user_endpoint(
     """Cập nhật họ tên hoặc vai trò của tài khoản theo user_id."""
     try:
         update_data = payload.dict(exclude_unset=True)
-        updated_user = auth_manager.update_user(user_id, update_data)
+        updated_user = auth_manager.update_user(user_id, update_data,
+                                                actor=str(admin_user.get("username") or "admin"))
         return {
             "status": "success",
             "message": "Đã cập nhật thông tin tài khoản thành công.",

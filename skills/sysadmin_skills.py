@@ -179,6 +179,7 @@ def manage_windows_service(service_name: str, action: str) -> Dict[str, Any]:
 
 @export_skill(
     name="run_local_sql_check",
+    data_classification="CONFIDENTIAL",
     description=(
         "Thực thi một câu truy vấn T-SQL lên SQL Server cục bộ (không cần GUI) "
         "thông qua tiện ích sqlcmd. Trả về kết quả dưới dạng văn bản."

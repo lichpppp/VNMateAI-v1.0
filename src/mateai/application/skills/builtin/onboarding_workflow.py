@@ -247,6 +247,7 @@ onboarding_workflow = OnboardingWorkflow()
 
 @export_skill(
     name="zero_touch_onboard_employee",
+    data_classification="CONFIDENTIAL",
     description="Quy trình tự động hóa Onboarding nhân sự mới không chạm (Zero-Touch RPA): tạo hồ sơ trong ERP, khởi tạo thư mục Workspace, gán bộ task hội nhập, gửi Telegram chào mừng và ghi nhật ký bất biến Audit Log. LƯU Ý: hệ thống KHÔNG tạo tài khoản Active Directory (chỉ sinh lệnh PowerShell để admin chạy tay) và KHÔNG tạo mailbox Google Workspace/Exchange. Kết quả trả về kèm mảng `steps` đánh dấu từng bước là executed / not_executed / failed.",
     parameters_schema={
         "type": "object",
