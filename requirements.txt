@@ -1,6 +1,6 @@
 # ============================================================
 # VN-MateAI — Dependency Manifest
-# Platform: Windows 10/11 x64 | Python 3.10+
+# Platform: Windows 10/11 x64 / linux | Python 3.10+
 # Pin versions for reproducible builds & PyInstaller compat
 # ============================================================
 
