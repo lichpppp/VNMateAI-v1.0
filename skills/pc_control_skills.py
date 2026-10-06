@@ -83,8 +83,8 @@ def _bytes_to_gb(b: int) -> float:
 @export_skill(
     name="get_system_info",
     description=(
-        "Lấy thông tin hệ thống máy tính: CPU usage, RAM, Disk, Uptime, "
-        "tên máy, OS version, múi giờ, và nhiệt độ CPU (nếu có)."
+        "Lấy thông tin hệ thống máy tính / máy chủ: máy đang dùng bao nhiêu CPU, RAM, ổ đĩa (Disk), "
+        "thời gian chạy (Uptime), tên máy, OS version, múi giờ, và nhiệt độ CPU (nếu có)."
     ),
     parameters_schema={
         "type": "object",

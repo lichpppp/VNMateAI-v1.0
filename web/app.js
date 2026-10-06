@@ -4218,7 +4218,7 @@ async function _renderAgentDialog(newCode) {
       `<br><span class="text-[10px] text-slate-400">${_esc(p.hint)}</span></span></label>`;
   }).join('');
 
-  const fmtT = (t) => (t ? String(t).replace('T', ' ').slice(0, 16) : '—');
+  const fmtT = (t) => fmtServerTime(t, { seconds: false });
   const devices = (data.devices || []).map((d) => {
     const st = d.revoked_at ? '<span class="text-rose-500">đã thu hồi</span>'
       : (d.online ? '<span class="text-emerald-500">trực tuyến</span>' : '<span class="text-slate-400">ngoại tuyến</span>');
@@ -5242,7 +5242,7 @@ async function loadConfigHistory() {
     box.className = 'text-xs space-y-2 max-h-[28rem] overflow-y-auto pr-1';
     box.innerHTML = items.map((h) =>
       `<div class="p-2.5 rounded-xl border border-slate-200 dark:border-white/10">` +
-      `<div class="flex items-center gap-2"><b>#${h.id}</b><span class="text-slate-400 text-[10px]">${_esc(String(h.saved_at).replace('T', ' ').slice(0, 19))} UTC · ${_esc(h.saved_by || '?')}</span>` +
+      `<div class="flex items-center gap-2"><b>#${h.id}</b><span class="text-slate-400 text-[10px]">${_esc(fmtServerTime(h.saved_at))} · ${_esc(h.saved_by || '?')}</span>` +
       `<span class="ml-auto flex gap-1">` +
       `<button class="text-[10px] px-2 py-0.5 rounded border border-slate-200 dark:border-white/10" onclick="showConfigDiff(${h.id})">So với hiện tại</button>` +
       `<button class="text-[10px] px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-300 font-bold" onclick="restoreConfigVersion(${h.id})">Khôi phục</button></span></div>` +
@@ -7178,7 +7178,7 @@ async function loadDeviceAccess() {
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
               <div class="font-mono font-semibold text-slate-800 dark:text-slate-100">${id}</div>
-              <div class="text-[10px] text-slate-400">Kết nối gần nhất: ${escapeHtml(d.last_seen_at || 'chưa kết nối')}</div>
+              <div class="text-[10px] text-slate-400">Kết nối gần nhất: ${escapeHtml(d.last_seen_at ? fmtServerTime(d.last_seen_at) : 'chưa kết nối')}</div>
             </div>
             <label class="flex items-center gap-2 text-[11px] text-slate-600 dark:text-slate-300">Quyền
               <select class="px-2 py-1 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800"
@@ -7650,7 +7650,7 @@ function renderAuditLogsTable(logs) {
       statusBadge = `<span class="text-slate-400">${escapeHtml(log.status)}</span>`;
     }
 
-    const timeFormatted = log.timestamp ? log.timestamp.replace('T', ' ').substring(0, 19) : '--';
+    const timeFormatted = log.timestamp ? fmtServerTime(log.timestamp) : '--';   // audit lưu UTC
     const detailObj = log.details || log.args || {};
     const argsPretty = typeof detailObj === 'object' ? JSON.stringify(detailObj) : String(detailObj);
 
@@ -9428,7 +9428,8 @@ function renderUsersTable(users) {
     let createdDisplay = '--';
     if (u.created_at) {
       try {
-        const d = new Date(u.created_at);
+        const d = parseServerTime(u.created_at);   // users.created_at lưu UTC
+        if (!d) throw new Error('bad date');
         const day = String(d.getDate()).padStart(2, '0');
         const month = String(d.getMonth() + 1).padStart(2, '0');
         const year = d.getFullYear();

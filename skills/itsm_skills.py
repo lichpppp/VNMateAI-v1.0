@@ -321,8 +321,8 @@ def update_ticket_status(
 @export_skill(
     name="get_tickets",
     description=(
-        "Lấy danh sách phiếu ITSM từ hệ thống ERP. "
-        "Hỗ trợ lọc theo trạng thái, phòng ban, hoặc chỉ xem phiếu do AI tạo."
+        "Xem danh sách ticket / phiếu ITSM (phiếu hỗ trợ, sự cố) từ hệ thống ERP: ticket đang mở, "
+        "đang xử lý, đã đóng. Hỗ trợ lọc theo trạng thái, phòng ban, hoặc chỉ xem phiếu do AI tạo."
     ),
     parameters_schema={
         "type": "object",
