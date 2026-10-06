@@ -118,3 +118,30 @@ def test_portal_ui_broadcast_requires_admin(monkeypatch, role, allowed):
         ws.send_text(json.dumps({"action": "ping"}))
         _drain_until(ws, "pong", key="event")
     assert (len(sent) == 2) is allowed and (len(sent) == 0) is (not allowed)
+
+
+async def test_approval_speech_goes_to_hud_as_binary_not_base64(monkeypatch):
+    """Prompt cuối §25 / L10: audio realtime là khung NHỊ PHÂN; base64 chỉ còn ở biên REST."""
+    from mateai.interfaces.http import approval_flow
+    sent_json, sent_bin = [], []
+
+    async def fake_json(payload):
+        sent_json.append(payload)
+
+    async def fake_bin(data):
+        sent_bin.append(data)
+
+    async def fake_tts(text):
+        return b"ID3" + b"\x00" * 300
+
+    async def no_sleep(_s):
+        return None
+
+    monkeypatch.setattr(approval_flow, "broadcast_hud", fake_json)
+    monkeypatch.setattr(approval_flow, "broadcast_hud_binary", fake_bin)
+    monkeypatch.setattr(approval_flow.speech, "tts_bytes", fake_tts)
+    monkeypatch.setattr(approval_flow.asyncio, "sleep", no_sleep)
+    await approval_flow._speak_on_hud("Dạ, đã duyệt xong.")
+    speaking = [p for p in sent_json if p.get("status") == "speaking"][0]
+    assert "audio_base64" not in speaking and speaking["has_audio"] is True
+    assert sent_bin and sent_bin[0].startswith(b"ID3")

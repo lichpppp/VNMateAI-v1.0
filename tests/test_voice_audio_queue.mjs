@@ -51,7 +51,9 @@ console.log('▸ Thứ tự phát theo thứ tự nhận');
   await Promise.all([q.enqueueChunk(chunk(1)), q.enqueueChunk(chunk(2)), q.enqueueChunk(chunk(3))]);
   await sleep(250);
   check('phát 1 → 2 → 3', ctx.started.map((s) => s.n).join() === '1,2,3', JSON.stringify(ctx.started));
-  check('nối tiếp không khe hở', ctx.started[1].t === 0.5 && ctx.started[2].t === 1.0);
+  const near = (a, b) => Math.abs(a - b) < 1e-9;
+  check('nối tiếp không khe hở', near(ctx.started[1].t, ctx.started[0].t + 0.5) && near(ctx.started[2].t, ctx.started[0].t + 1.0));
+  check('đệm ban đầu nhỏ (jitter lead 50 ms)', near(ctx.started[0].t, 0.05));
 }
 
 console.log('\n▸ Ngắt lời trong lúc giải mã');
@@ -96,6 +98,21 @@ console.log('\n▸ Kết thúc lượt');
   p.markStreamEnded();
   check('portal: markStreamEnded → kết thúc', ends2 === 1);
   check('portal: giữ MP3 để phát lại', p.receivedChunks.length === 1);
+}
+
+// 5. Jitter buffer (prompt cuối §26): cạn bộ đệm giữa lượt -> tăng đệm, có trần thấp.
+{
+  const ctx = new FakeCtx();
+  const q = new VoiceAudioQueue({ getContext: () => ctx, notifyOnStop: false });
+  await q.enqueueChunk(chunk(3));
+  check('đoạn đầu không tính là cạn', q.stats().underruns === 0);
+  ctx.currentTime = 2;                       // đoạn đầu phát xong từ lâu, đoạn kế mới tới
+  await q.enqueueChunk(chunk(3));
+  const s1 = q.stats();
+  check('đoạn đến trễ = 1 lần cạn, đệm tăng 40 ms', s1.underruns === 1 && Math.abs(s1.leadSec - 0.09) < 1e-9);
+  check('đoạn trễ phát sau đệm mới', Math.abs(ctx.started[1].t - 2.09) < 1e-9);
+  for (let i = 0; i < 10; i += 1) { ctx.currentTime += 5; await q.enqueueChunk(chunk(3)); }
+  check('đệm có trần 250 ms (không đệm vài giây)', q.stats().leadSec <= 0.25 + 1e-9);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

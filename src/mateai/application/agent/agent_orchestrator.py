@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
@@ -22,6 +23,14 @@ from mateai.infrastructure.database.erp_database import erp_db
 from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)
+
+
+def _principal_of(context: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Người mà chuỗi tác nhân đang phục vụ: từ tin nhắn bus, không thì từ cổng tool."""
+    if context and context.get("principal"):
+        return str(context["principal"])
+    from mateai.application.security.security_guard import CURRENT_PRINCIPAL
+    return CURRENT_PRINCIPAL.get()
 
 
 class BaseAgent:
@@ -92,12 +101,17 @@ class AgentMessageBus:
                 "truncated": True,
             }
 
+        # Prompt cuối §57: tác nhân khác là chủ thể KHÔNG tin sẵn — mỗi tin nhắn mang id, người
+        # gửi / nhận, thời điểm và NGƯỜI được phục vụ (phân quyền theo người đó, không theo tác nhân).
+        principal = _principal_of(payload)
         interaction = {
+            "message_id": uuid.uuid4().hex[:12],
             "timestamp": datetime.now().isoformat(),
             "from": from_agent,
             "to": to_agent,
             "query": query,
             "depth": self._depth,
+            "principal": principal,
         }
         self.interaction_log.append(interaction)
         if len(self.interaction_log) > self.MAX_LOG_ENTRIES:
@@ -106,7 +120,9 @@ class AgentMessageBus:
 
         self._depth += 1
         try:
-            return target.process(query, context={"requester": from_agent, "payload": payload or {}})
+            return target.process(query, context={"requester": from_agent, "payload": payload or {},
+                                                  "principal": principal,
+                                                  "message_id": interaction["message_id"]})
         finally:
             self._depth -= 1
 
@@ -130,6 +146,12 @@ class CFOAgent(BaseAgent):
     def process(self, query: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         text = query.lower()
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Tài chính là CONFIDENTIAL (prompt cuối §62): xét cấp bảo mật của NGƯỜI hỏi — kể cả khi
+        # yêu cầu tới từ tác nhân khác qua bus. Trước đây CFO trả số liệu cho bất kỳ ai.
+        if principal_clearance(_principal_of(context)) < 3:
+            return {"status": "error", "agent": self.name, "role": self.role, "denied": "abac_clearance",
+                    "reply": "💰 [CFO] Số liệu tài chính cần cấp bảo mật 3 — tài khoản hiện tại không đủ."}
 
         # Trường hợp CEO hỏi về chi phí server / hạ tầng Cloud: CFO tự ping CTO Agent qua Message Bus
         if any(w in text for w in ("chi phí server", "tiền server", "cloud", "aws", "azure")):
@@ -266,8 +288,9 @@ class HRAgent(BaseAgent):
             # RBAC đã xét ở lớp ngoài (`delegate_to_multi_agent`).
             from mateai.application.security import policy_engine as pe
             from mateai.application.security.safety_guard import security_engine
-            decision = pe.authorize("assign_task_intelligently", {"description": query}, caller=None,
-                                    agent_id=pe.AGENT_ORCHESTRATOR, check_rbac=False)
+            # Phân quyền theo NGƯỜI đang được phục vụ (trước đây caller=None: mất danh tính).
+            decision = pe.authorize("assign_task_intelligently", {"description": query},
+                                    caller=_principal_of(context), agent_id=pe.AGENT_ORCHESTRATOR)
             security_engine.log_audit("orchestrator", "assign_task_intelligently", str(decision.risk),
                                       "SUCCESS" if decision.allowed else "REJECTED",
                                       {"agent_id": decision.agent_id, "decision": decision.effect,
@@ -398,6 +421,12 @@ class CEORouterAgent:
 
         # Mặc định: Phản hồi từ CEO Agent với thông tin tổng quan
         overview = erp_db.get_company_kpi_overview()
+        # Số dư quỹ chỉ cho người đủ cấp bảo mật (trước đây chèn sẵn vào câu trả lời cho mọi người).
+        if principal_clearance(_principal_of(None)) < 3:
+            overview = {**overview, "finances": None}
+            money = ""
+        else:
+            money = f" và số dư quỹ là {overview['finances']['net_balance']:,.0f} VND"
         return {
             "status": "success",
             "agent": "CEO_Router_Agent",
@@ -406,7 +435,7 @@ class CEORouterAgent:
                 f"👑 [VIRTUAL C.O.O & ENTERPRISE O.S]:\n"
                 f"Tôi đã tiếp nhận chỉ thị: '{query}'.\n"
                 f"Hệ thống Multi-Agent đang sẵn sàng với CFO (Tài chính), HR (Nhân sự) và CTO (Kỹ thuật).\n"
-                f"Hiện toàn công ty có {overview['active_tasks']} task đang thực thi và số dư quỹ là {overview['finances']['net_balance']:,.0f} VND."
+                f"Hiện toàn công ty có {overview['active_tasks']} task đang thực thi{money}."
             ),
             "data": overview,
         }

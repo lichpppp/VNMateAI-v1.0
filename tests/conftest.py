@@ -182,5 +182,9 @@ def _reset_emergency_counter():
     """Bộ đếm chế độ khẩn cấp (§54) là theo tiến trình: không để hàng trăm test cộng dồn
     thành "AI hành động dồn dập" rồi tự bật kill switch giữa bộ test."""
     from mateai.infrastructure.cache import shared_state
+    from mateai.infrastructure.files import object_storage
     shared_state.reset()        # bộ đếm khẩn cấp + giới hạn tần suất + khoá đăng nhập (§54, §97)
+    # Object storage (§68) của test vào thư mục tạm — không ghi vào storage/objects thật
+    # (đã xảy ra 2026-10-06: test upload để lại tệp trong kho thật).
+    object_storage._STORE = object_storage.LocalObjectStore(_TEST_DATA_DIR / "objects")
     yield

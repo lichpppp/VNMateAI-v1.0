@@ -92,3 +92,12 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - Quyền chỉ áp dụng khi thiết bị kết nối bằng **token riêng** (máy chủ gán danh tính `device:<id>`); token dùng chung không mang quyền này.
 - Theo lựa chọn A: tác vụ rủi ro cao (Level ≥ 3: dừng tiến trình, PowerShell, xoá…) robot vẫn **hỏi duyệt lần đầu**; anh bấm Đồng ý một lần thì tác vụ đó được **nhớ** — lần sau robot làm luôn (audit ghi `APPROVAL_REMEMBERED`). Nhớ theo TÊN tác vụ, không theo tham số (duyệt "dừng tiến trình" một lần = sau đó dừng được mọi tiến trình). Thu hồi từng tác vụ hoặc tất cả ở cùng thẻ.
 - Không làm (bị chặn, theo lựa chọn A): robot chạy tác vụ rủi ro cao mà không duyệt lần nào.
+
+## Prompt cuối — hạ tầng & thiết bị (2026-10-06)
+
+- [ ] **Docker trên máy này**: WSL 2 thiếu kernel ("The WSL 2 kernel file is not found"), nên Docker Desktop không chạy. Chạy `wsl --update` bằng quyền quản trị (có thể cần khởi động lại máy), rồi `docker compose -f deploy/docker-compose.infra.yml up -d`. Trong lúc chưa có Docker: `python scripts/dev_infra.py fetch && python scripts/dev_infra.py start` (Redis + S3 chạy tạm, không bền qua khởi động lại máy).
+- [ ] **Bật Redis cho máy chủ** khi chạy nhiều tiến trình: đặt `VNMATEAI_REDIS_URL` (hoặc `REDIS_URL` trong config.json). Chưa đặt = RAM một tiến trình (vẫn đúng với một máy).
+- [ ] **Object storage**: khối `object_storage` trong config.json (`backend: "s3"`, endpoint, bucket **PRIVATE**, khoá). Bản sao lưu chứa bí mật, nên bucket không được công khai. Sau đó `python scripts/backup.py create --push`.
+- [ ] **PostgreSQL**: chạy thử `python scripts/migrate_sqlite_to_pg.py migrate --pg <dsn>` trên bản sao lưu, xem báo cáo (phải `ok: true`). Đã chạy thử với bản sao dữ liệu thật: 23 bảng, 1.195 dòng, khớp checksum. Chuyển ứng dụng sang chạy trên PostgreSQL (cutover) là giai đoạn sau, xem `docs/architecture/current-system-map.md` §10.
+- [ ] **Opus cho micro robot**: thêm bộ mã hoá Opus 16 kbps vào firmware ESP32-S3, giúp giảm băng thông tải lên 16 lần (`docs/realtime/codec-evaluation.md`). Cần build và nạp trên chip thật.
+- [ ] **Gán phòng ban + cấp bảo mật** cho tài khoản `manager` / `viewer` (Quản lý người dùng). Tài khoản chưa gán phòng ban không thấy dữ liệu ERP theo phòng ban; dữ liệu tài chính cần cấp 3.

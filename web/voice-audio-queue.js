@@ -23,6 +23,13 @@
  *   notifyOnStop          gọi onPlaybackEnd khi stop() (mặc định true)
  *   keepChunks            giữ MP3 đã nhận cho getCombinedBlob() (mặc định true;
  *                         HUD không bao giờ reset nên tắt để RAM không tăng mãi)
+ *   jitterLeadSec         đệm ban đầu trước đoạn đầu / sau khi cạn (mặc định 0.05 s)
+ *   jitterStepSec         mỗi lần CẠN bộ đệm (đoạn kế đến trễ) đệm thêm (mặc định 0.04 s)
+ *   jitterMaxSec          trần đệm (mặc định 0.25 s) — prompt cuối §26: thấp độ trễ, không đệm vài giây
+ *
+ * Jitter buffer (prompt cuối §26): đoạn tới khi hàng đợi đã phát hết = một lần cạn (underrun,
+ * người nghe thấy khe lặng). Mỗi lần cạn tăng đệm một bước để lần sau đỡ ngắt quãng;
+ * `stats()` trả số lần cạn + độ đệm hiện tại để đo.
  */
 (function (root) {
   'use strict';
@@ -43,6 +50,10 @@
       this.hasFirstAudio = false;
       this.receivedChunks = [];
       this._chunkCount = 0;
+      this._lead = options.jitterLeadSec ?? 0.05;
+      this._leadStep = options.jitterStepSec ?? 0.04;
+      this._leadMax = options.jitterMaxSec ?? 0.25;
+      this._underruns = 0;
       // Gán sau khi tạo (portal) hoặc qua options.
       this.onFirstAudio = options.onFirstAudio || null;
       this.onPlaybackEnd = options.onPlaybackEnd || null;
@@ -117,8 +128,19 @@
         ? (this._opts.getDestination(ctx) || ctx.destination) : ctx.destination;
       source.connect(dest);
 
-      // Nối tiếp tuyệt đối: câu sau bắt đầu đúng lúc câu trước kết thúc.
-      const startAt = Math.max(ctx.currentTime, this._nextStartTime);
+      // Nối tiếp tuyệt đối: câu sau bắt đầu đúng lúc câu trước kết thúc. Hàng đợi đã cạn
+      // (đầu lượt hoặc đoạn đến trễ) -> đệm một chút; cạn GIỮA lượt -> tăng đệm (jitter).
+      const now = ctx.currentTime;
+      let startAt;
+      if (this._nextStartTime > now) {
+        startAt = this._nextStartTime;
+      } else {
+        if (this.isPlaying) {
+          this._underruns += 1;
+          this._lead = Math.min(this._leadMax, this._lead + this._leadStep);
+        }
+        startAt = now + this._lead;
+      }
       source.start(startAt);
       this._nextStartTime = startAt + audioBuf.duration;
       this._activeSources.push(source);
@@ -179,6 +201,11 @@
         this._endTimer = null;
       }
       if (this._opts.notifyOnStop !== false) this._call(this.onPlaybackEnd);
+    }
+
+    /** Số đo jitter buffer: số lần cạn bộ đệm và độ đệm hiện tại (giây). */
+    stats() {
+      return { underruns: this._underruns, leadSec: this._lead, chunks: this._chunkCount };
     }
 
     /** Toàn bộ MP3 đã nhận (phát lại / tải xuống). */

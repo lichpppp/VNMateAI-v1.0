@@ -191,6 +191,11 @@ def get_vector_db_client(config: Optional[dict] = None) -> Any:
             "[CognitiveMemory] Khởi tạo ChromaDB HttpClient tới Microservice: host=%s, port=%d, ssl=%s",
             clean_host, port, is_ssl,
         )
+        # pip-audit 2026-10-06: Chroma SERVER có lỗ hổng chưa vá (CVE-2026-45829 chạy mã từ xa không cần
+        # đăng nhập, CVE-2026-45830/45831 vượt tenant). Chế độ nhúng (local) không mở cổng nên không bị.
+        logger.warning("[CognitiveMemory] Chroma server (%s:%d) có lỗ hổng CHƯA VÁ CVE-2026-45829 / 45830 / 45831 "
+                       "— chỉ chạy trong mạng nội bộ kín, chặn mọi truy cập ngoài; ưu tiên chế độ local.",
+                       clean_host, port)
         _chroma_client = chromadb.HttpClient(
             host=clean_host,
             port=port,

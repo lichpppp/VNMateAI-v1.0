@@ -34,6 +34,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      # Prompt cuối §125 / §139: lỗi CHẠY THẬT (tên chưa định nghĩa…) — 2026-10-06 bắt được
+      # NameError ở /api/v1/skills/execute (skill chạy xong rồi 500, mất audit).
+      - name: Lint lỗi chạy thật
+        run: ruff check --select F821,F823,F632,F704 src core main.py scripts
+
+      # Quét lỗ hổng phụ thuộc. chromadb: lỗ hổng nằm ở Chroma SERVER (/api/v2/…), chưa có bản vá;
+      # hệ thống chạy Chroma nhúng (PersistentClient, không mở cổng) — xem cognitive_memory.py.
+      - name: Quét lỗ hổng phụ thuộc
+        run: >
+          pip-audit --progress-spinner off --skip-editable
+          --ignore-vuln PYSEC-2026-311 --ignore-vuln PYSEC-2026-3813
+          --ignore-vuln PYSEC-2026-3814 --ignore-vuln PYSEC-2026-3815
+
       # Trang admin (Next.js, xuất tĩnh ra admin/out) — server phục vụ /admin/*
       # từ đó và test topology (phase88) gọi thật các trang này.
       - name: Build trang admin

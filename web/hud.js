@@ -2537,9 +2537,7 @@ function hudOpenMicForFollowup() {
       if (packet.reply) {
         setHudState('speaking', packet.reply, packet.reply.length * 65);
       }
-      if (packet.audio_base64) {
-        speakHoaiMy(packet.speech_reply || packet.reply, packet.audio_base64, 'security_approval');
-      }
+      // Tiếng đọc kết quả tới qua sự kiện voice_active + khung nhị phân (approval_flow), không base64.
     } else {
       appendSystemLog(`[SEC] 🚫 Tác vụ '${packet.skill || 'hệ thống'}' đã bị hủy bỏ bởi người quản trị.`, 'WARNING');
       setHudState('idle', 'Tác vụ đã bị hủy bỏ theo yêu cầu.');

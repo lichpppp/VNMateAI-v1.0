@@ -10,14 +10,13 @@ Người gọi phải kiểm quyền (chỉ admin) TRƯỚC khi gọi `confirm`.
 from __future__ import annotations
 
 import asyncio
-import base64
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Set
 
 from mateai.application.security import approval_decisions as decisions
 from mateai.interfaces.http import speech
-from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_portal_ui
+from mateai.interfaces.websocket.realtime_hub import broadcast_hud, broadcast_hud_binary, broadcast_portal_ui
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +31,13 @@ def _now() -> str:
 async def _speak_on_hud(text: str) -> None:
     try:
         audio = await speech.tts_bytes(text)
-        await broadcast_hud({"type": "voice_active", "status": "speaking", "text": text,
-                             "audio_base64": base64.b64encode(audio).decode("utf-8") if audio else None,
+        has_audio = bool(audio and len(audio) > 100)
+        # Cùng giao thức lượt thoại HUD (hud_voice.say): JSON báo có tiếng + khung NHỊ PHÂN —
+        # không nhét MP3 base64 vào JSON (prompt cuối §25, L10).
+        await broadcast_hud({"type": "voice_active", "status": "speaking", "text": text, "has_audio": has_audio,
                              "source_device": "security_approval", "timestamp": _now()})
+        if has_audio:
+            await broadcast_hud_binary(audio)
         await asyncio.sleep(max(4.0, (len(text) / 15.0) + 1.8))
         await broadcast_hud({"type": "voice_active", "status": "idle",
                              "text": "Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...", "timestamp": _now()})

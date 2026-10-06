@@ -218,6 +218,7 @@ async def execute_skill_endpoint(
     # trong `execute_with_hitl` (trước đây router tự gọi RBAC rồi mới qua cổng duyệt).
     t0 = time.perf_counter()
     args = payload.arguments or {}
+    source_ip = request.client.host if request.client else "unknown"
 
     # ── Zero-Trust HITL: tác vụ rủi ro Level 3-5 phải chờ CEO duyệt ─────────
     # RBAC (SecurityGuard) chỉ kiểm tra VAI TRÒ, không kiểm tra RỦI RO. Nên
