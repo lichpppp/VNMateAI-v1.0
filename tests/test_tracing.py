@@ -69,5 +69,6 @@ def test_http_request_span_has_request_id(spans):
 
 
 def test_none_exporter_is_default():
-    from mateai.config.loader import settings
-    assert settings.OTEL_EXPORTER == "none"
+    """Mặc định của schema là none (máy chủ có thể bật otlp trong config.json)."""
+    from mateai.config.loader import AppSettings
+    assert AppSettings.model_fields["OTEL_EXPORTER"].default == "none"

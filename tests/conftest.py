@@ -38,6 +38,8 @@ os.environ["VNMATEAI_HR_DB_PATH"] = str(_TEST_DATA_DIR / "hr_kpi.db")
 # config.json thật có token bot Telegram thật: test không được gửi tin chủ động
 # (cảnh báo, yêu cầu duyệt) vào nhóm vận hành. Tiến trình con kế thừa biến này.
 os.environ["VNMATEAI_TELEGRAM_OUTBOUND"] = "off"
+# Không gửi trace của bộ test tới OTel collector thật (config.json có thể đặt otlp).
+os.environ["VNMATEAI_OTEL_EXPORTER"] = "none"
 
 #: File cấu hình thật mà test có thể ghi vào. DB SQLite KHÔNG nằm trong danh
 #: sách: server có thể đang mở DB, chép đè lên DB đang mở sẽ làm hỏng dữ liệu.
@@ -183,7 +185,9 @@ def _reset_emergency_counter():
     thành "AI hành động dồn dập" rồi tự bật kill switch giữa bộ test."""
     from mateai.infrastructure.cache import shared_state
     from mateai.infrastructure.files import object_storage
-    shared_state.reset()        # bộ đếm khẩn cấp + giới hạn tần suất + khoá đăng nhập (§54, §97)
+    # Mỗi test một kho RAM riêng — KHÔNG dùng Redis của máy chủ dù config.json có REDIS_URL
+    # (reset() trên Redis thật sẽ xoá khoá đăng nhập / rate limit của máy chủ đang chạy).
+    shared_state._STORE = shared_state.MemoryStore()
     # Object storage (§68) của test vào thư mục tạm — không ghi vào storage/objects thật
     # (đã xảy ra 2026-10-06: test upload để lại tệp trong kho thật).
     object_storage._STORE = object_storage.LocalObjectStore(_TEST_DATA_DIR / "objects")

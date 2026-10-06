@@ -106,3 +106,7 @@ backups/
 
 # Server chạy thử cục bộ (Redis / SeaweedFS S3) — tải bằng scripts/dev_infra.py, không commit
 .infra/
+
+# Mật khẩu hạ tầng Docker (deploy/docker-compose.infra.yml) — không commit
+deploy/.env
+deploy/s3.json

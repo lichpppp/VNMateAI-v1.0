@@ -44,6 +44,8 @@ SECRET_FIELD_NAMES = frozenset({
     "webhook_url", "hmac_secret",
     # Âm thanh
     "elevenlabs_api_key",
+    # Hạ tầng (prompt cuối §67): URL Redis chứa mật khẩu.
+    "redis_url",
 })
 
 _lock = threading.Lock()

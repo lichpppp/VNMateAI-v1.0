@@ -253,5 +253,6 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    sys.stdout.reconfigure(encoding="utf-8")   # chạy từ Task Scheduler / console cp1252 vẫn in được tiếng Việt
+    sys.stderr.reconfigure(encoding="utf-8")
     sys.exit(main())

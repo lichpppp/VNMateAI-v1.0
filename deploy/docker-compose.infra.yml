@@ -15,7 +15,7 @@ services:
       POSTGRES_USER: vnmate
       POSTGRES_DB: vnmate
       POSTGRES_PASSWORD: ${VNMATE_PG_PASSWORD:?đặt VNMATE_PG_PASSWORD trong .env}
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:5432:5432"]   # chỉ máy này — ứng dụng chạy cùng host
     volumes: ["pgdata:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U vnmate -d vnmate"]
@@ -27,7 +27,7 @@ services:
     image: redis:7-alpine
     # Chỉ giữ số đếm ngắn hạn (rate limit, khoá đăng nhập) — không phải nguồn sự thật (§67).
     command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "${VNMATE_REDIS_PASSWORD:?đặt VNMATE_REDIS_PASSWORD}"]
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${VNMATE_REDIS_PASSWORD}", "ping"]
       interval: 10s
@@ -36,16 +36,18 @@ services:
 
   s3:
     image: chrislusf/seaweedfs:4.48
-    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.port.lance=0", "-s3.port.iceberg=0"]
-    ports: ["8333:8333"]
-    volumes: ["s3data:/data"]
+    # S3 BẮT BUỘC khoá (deploy/s3.json, sinh từ deploy/.env, không commit): bản sao lưu chứa bí mật.
+    command: ["server", "-dir=/data", "-s3", "-s3.port=8333", "-s3.port.lance=0", "-s3.port.iceberg=0",
+              "-s3.config=/etc/seaweedfs/s3.json"]
+    ports: ["127.0.0.1:8333:8333"]
+    volumes: ["s3data:/data", "./s3.json:/etc/seaweedfs/s3.json:ro"]
     restart: unless-stopped
 
   otel-collector:
     image: otel/opentelemetry-collector:0.110.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes: ["./otel-collector.yaml:/etc/otelcol/config.yaml:ro"]
-    ports: ["4317:4317"]
+    ports: ["127.0.0.1:4317:4317"]
     restart: unless-stopped
 
 volumes:

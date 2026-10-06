@@ -112,7 +112,18 @@ def test_redis_outage_degrades_to_memory(caplog):
 
 
 def test_default_backend_is_memory_without_redis_url(monkeypatch):
+    from mateai.config.loader import settings
     from mateai.infrastructure.cache import shared_state
     monkeypatch.delenv("VNMATEAI_REDIS_URL", raising=False)
+    monkeypatch.setattr(settings, "REDIS_URL", "")
     shared_state._STORE = None
     assert isinstance(shared_state.store(), shared_state.MemoryStore)
+
+
+def test_redis_url_is_treated_as_a_secret():
+    """REDIS_URL chứa mật khẩu: phải được che ở API cấu hình và mã hoá khi lưu."""
+    from mateai.config.secret_box import is_secret as is_secret_field
+    from mateai.interfaces.http.secret_masking import _mask_secrets
+    assert is_secret_field("REDIS_URL")
+    masked = _mask_secrets({"REDIS_URL": "redis://:matkhau@127.0.0.1:6379/0"})
+    assert "matkhau" not in str(masked)
