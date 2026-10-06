@@ -1,7 +1,7 @@
 <div align="center">
 
 # 🤖 VN-MateAI
-### Trợ lý AI vận hành doanh nghiệp + robot để bàn ESP32
+### Trợ lý AI vận hành doanh nghiệp + robot Trợ Lý
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.135.4-009688.svg)](https://fastapi.tiangolo.com)
