@@ -20,10 +20,10 @@
 - Độ trễ đo được nằm ở chỗ khác (`docs/realtime/performance-before-after.md`, `/api/v1/ops/overview`): token LLM đầu tiên p50 khoảng 2,6 s, TTS câu đầu khoảng 2,0 s. Đổi codec không rút ngắn hai con số này.
 - Trình duyệt giải mã cả hai qua `decodeAudioData`. MP3 tương thích rộng hơn (Safari cũ).
 
-**Tải lên (micro robot ESP32 → máy chủ): NÊN dùng Opus — đây mới là lợi ích thật.**
+**Tải lên (micro robot ESP32 → máy chủ): lý thuyết thì Opus có lợi; đo thật cho thấy chưa cần (mục dưới).**
 - Robot gửi PCM 16 kHz / 16 bit = **256 kbps**. Opus 16 kbps (chất lượng thoại tốt) bằng khoảng **1/16** con số đó, giúp Wi-Fi yếu bớt rớt khung.
 - Máy chủ đã nhận diện cờ `FLAG_OPUS` (`infrastructure/websocket/binary_transport.py`) và tham số `format` (`xiaozhi_gateway`). Phần còn thiếu là **bộ mã hoá Opus trong firmware** (ESP32-S3 chạy được libopus / esp-adf) và giải mã phía máy chủ trước STT.
-- Việc này cần nạp và thử trên chip thật, nên nằm ngoài phạm vi kiểm được ở máy phát triển. Đã ghi vào `docs/production/owner-todo.md`.
+- Muốn bật thì cần bộ mã hoá trong firmware và bộ giải mã trước STT; chỉ đáng làm khi số đo dưới đây đổi.
 
 ## Đo thực tế chiều tải lên (robot `vnmate_robot_01`, firmware 54.0, 2026-10-06)
 
