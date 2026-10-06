@@ -94,3 +94,7 @@ rank-bm25>=0.2.2
 
 # Gói kiến trúc đích src/mateai (code chạy thật được chuyển dần từ core/) — cài editable.
 -e .
+
+# Trace OpenTelemetry (prompt cuối §93) — dùng trực tiếp, không dựa vào chromadb kéo theo.
+opentelemetry-sdk>=1.45,<2
+opentelemetry-exporter-otlp-proto-grpc>=1.45,<2

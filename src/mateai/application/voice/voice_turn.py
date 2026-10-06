@@ -241,6 +241,8 @@ class VoiceTurnTrace:
         _ensure_traces_loaded()
         _RECENT_TRACES.append(data)
         _persist_trace(data)
+        from mateai.infrastructure.observability.tracing import emit_voice_turn
+        emit_voice_turn(data)            # OpenTelemetry (§93) — dựng lại từ số đo, không chạm hot path
         summary = " · ".join(p for p in (
             outcome,
             f"LLM {data['llm_first_token_ms']} ms" if data.get("llm_first_token_ms") is not None else "",
@@ -390,6 +392,19 @@ async def process_voice_turn(
               detail=f"nhận câu: {query}" + (f" (STT {round(stt_ms)} ms)" if stt_ms is not None else ""))
     result: Optional[VoiceTurnResult] = None
     outcome = "error"
+    # Giới hạn tần suất (prompt cuối §97) — theo người / thiết bị; quá ngưỡng thì không chạy
+    # pipeline (không LLM, không TTS), báo rõ thời gian chờ.
+    from mateai.application.security import rate_limit
+    wait = rate_limit.hit(f"voice:{caller or source_device or session_id}",
+                          rate_limit.limit("voice_turns_per_min", 30), 60.0)
+    if wait:
+        msg = rate_limit.busy_message(wait)
+        result = VoiceTurnResult(reply_text=msg, display_text=msg, sentences=[msg])
+        try:
+            await sink.on_sentence(0, msg, msg)
+        finally:
+            result.trace = trace.finish("rate_limited", result)
+        return result
     try:
         result = await _run_voice_turn(
             query, sink=_TracingSink(sink, trace), trace=trace, session_id=session_id,

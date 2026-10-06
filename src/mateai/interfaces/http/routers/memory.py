@@ -104,8 +104,10 @@ async def memorize_solution_endpoint(
     who = str(current_user.get("username") or "?")
     trusted = str(current_user.get("role") or "").lower() == "admin"
     meta = {k: v for k, v in dict(payload.metadata or {}).items()
-            if k not in ("created_by", "verified", "source")}   # không cho người gửi tự khai
-    meta.update({"created_by": who, "verified": trusted, "source": "portal"})
+            if k not in ("created_by", "verified", "source", "confidence", "verified_by",
+                         "verified_at", "expires_at")}   # không cho người gửi tự khai độ tin cậy
+    meta.update({"created_by": who, "verified": trusted, "source": "portal",
+                 "confidence": 1.0 if trusted else 0.5})
     doc_id = memorize_solution(
         error_signature=payload.error_signature,
         root_cause=payload.root_cause,
@@ -120,6 +122,23 @@ async def memorize_solution_endpoint(
     except Exception:  # noqa: BLE001
         pass
     return {"status": "success", "id": doc_id, "verified": trusted}
+
+
+@router.post("/api/v1/memory/{doc_id}/verify", summary="Xác minh một bản ghi trí nhớ (chỉ admin)",
+             tags=["Cognitive Memory"])
+async def verify_memory_endpoint(doc_id: str,
+                                 current_user: Dict[str, Any] = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    """Prompt cuối §59–§60: bản ghi do manager / AI tạo chỉ được coi là đáng tin khi admin xác minh."""
+    from mateai.infrastructure.memory.cognitive_memory import verify_solution
+    who = str(current_user.get("username") or "admin")
+    if not await run_blocking(verify_solution, doc_id=doc_id, verified_by=who):
+        raise HTTPException(status_code=404, detail="Không có bản ghi trí nhớ này.")
+    try:
+        from mateai.application.security.safety_guard import security_engine
+        security_engine.log_audit(who, "memory_verify", "MEMORY", "SUCCESS", {"id": doc_id})
+    except Exception:  # noqa: BLE001
+        pass
+    return {"status": "success", "id": doc_id, "verified": True}
 
 
 @router.post(

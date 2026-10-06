@@ -131,5 +131,7 @@ def test_long_term_memory_cannot_be_poisoned_by_low_roles(monkeypatch):
     assert client("viewer").post("/api/v1/memory/memorize", json=body).status_code == 403
     r = client("manager").post("/api/v1/memory/memorize", json=body).json()
     assert r["verified"] is False
-    assert stored[-1]["metadata"] == {"created_by": "manager_u", "verified": False, "source": "portal"}
+    # prompt cuối §59: thêm độ tin cậy — bản ghi chưa xác minh = 0.5, người gửi không tự khai được.
+    assert stored[-1]["metadata"] == {"created_by": "manager_u", "verified": False, "source": "portal",
+                                      "confidence": 0.5}
     assert client("admin").post("/api/v1/memory/memorize", json=body).json()["verified"] is True

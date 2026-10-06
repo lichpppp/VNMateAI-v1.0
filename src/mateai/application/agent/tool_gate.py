@@ -49,8 +49,13 @@ async def run_tool_with_policy(fn_name: str, fn_args: Optional[Dict[str, Any]] =
     _topo("tool", stage="start", source="tools", target=where, status="running",
           detail=f"{fn_name} @ {target}")
     t0 = time.perf_counter()
+    from mateai.infrastructure.observability.tracing import set_attrs, span
     try:
-        gate = await _run_tool_with_policy(fn_name, fn_args, **kw)
+        with span("tool.execute", **{"tool.name": fn_name, "tool.target": target,
+                                     "tool.caller": kw.get("caller")}) as sp:
+            gate = await _run_tool_with_policy(fn_name, fn_args, **kw)
+            _r = gate.get("result") if isinstance(gate, dict) else None
+            set_attrs(sp, **{"tool.status": (_r or {}).get("status") if isinstance(_r, dict) else None})
     except Exception as exc:
         _topo("tool", stage="end", source="tools", target=where, status="error",
               ms=(time.perf_counter() - t0) * 1000, detail=f"{fn_name}: {type(exc).__name__}")
@@ -138,6 +143,11 @@ async def _run_tool_with_policy(
         declared = None
     decision = policy_engine.authorize(fn_name, fn_args, caller=caller, agent_id=agent,
                                        approved=approved, declared_risk=declared, session_id=session_id)
+    from opentelemetry import trace as _otel
+    from mateai.infrastructure.observability.tracing import set_attrs as _set_attrs
+    _set_attrs(_otel.get_current_span(), **{"policy.decision": decision.effect, "policy.rule": decision.rule,
+                                            "policy.level": decision.level, "policy.risk": decision.risk,
+                                            "policy.version": decision.policy_version, "agent.id": agent})
     audit_ctx = {"agent_id": agent, "target": target_client, "session_id": session_id,
                  "decision": decision.effect, "level": decision.level, "rule": decision.rule,
                  "policy_version": decision.policy_version, "args": fn_args}

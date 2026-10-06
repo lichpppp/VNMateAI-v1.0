@@ -388,6 +388,9 @@ class LLMConfig(BaseModel):
 
 class SecurityConfig(BaseModel):
     """Enterprise Zero-Trust Security Configuration."""
+    #: Giới hạn tần suất (prompt cuối §97) — mỗi người; 0 = tắt. Xem application/security/rate_limit.
+    rate_limits: Dict[str, int] = Field(default_factory=lambda: {
+        "voice_turns_per_min": 30, "agent_turns_per_min": 40, "ws_voice_sessions_per_user": 5})
     forbidden_keywords: List[str] = Field(
         default_factory=lambda: [
             "rmdir /s", "format c:", "drop database", "del /f /s",
@@ -520,6 +523,8 @@ class AppSettings(BaseSettings):
     DISCOVERY_PORT: int = Field(default=8888, ge=1, le=65535,
                                 description="Cổng UDP beacon để robot mới tự tìm máy chủ.")
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level.")
+    OTEL_EXPORTER: str = Field(default="none", pattern="^(none|console|otlp)$",
+                               description="Trace OpenTelemetry (§93): none / console / otlp.")
     LOG_FORMAT: str = Field(default="text", pattern="^(text|json)$",
                             description="text: đọc bằng mắt; json: một JSON mỗi dòng (§95).")
 

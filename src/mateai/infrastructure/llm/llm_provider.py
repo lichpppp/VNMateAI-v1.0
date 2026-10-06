@@ -500,10 +500,14 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 kwargs_api["tools"] = tools
                 kwargs_api["tool_choice"] = "auto"
             try:
-                response = await asyncio.wait_for(
-                    self.client.chat.completions.create(**kwargs_api),
-                    timeout=min(timeout_s, remaining),
-                )
+                from mateai.infrastructure.observability.tracing import set_attrs, span
+                with span("llm.complete", **{"llm.model": model_name, "llm.brain": brain_role}) as _sp:
+                    response = await asyncio.wait_for(
+                        self.client.chat.completions.create(**kwargs_api),
+                        timeout=min(timeout_s, remaining),
+                    )
+                    _u = getattr(response, "usage", None)
+                    set_attrs(_sp, **{"llm.total_tokens": getattr(_u, "total_tokens", None)})
                 msg = response.choices[0].message if getattr(response, "choices", None) else None
                 content = getattr(msg, "content", "") or ""
                 if msg is not None and not getattr(msg, "tool_calls", None) \

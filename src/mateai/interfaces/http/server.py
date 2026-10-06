@@ -210,8 +210,12 @@ async def request_id_middleware(request: Request, call_next):
     incoming = request.headers.get("x-request-id", "")
     rid = incoming if _SAFE_REQUEST_ID.match(incoming) else uuid.uuid4().hex[:16]
     token = REQUEST_ID.set(rid)
+    from mateai.infrastructure.observability.tracing import set_attrs, span
     try:
-        response = await call_next(request)
+        with span("http.request", **{"http.method": request.method, "http.target": request.url.path,
+                                     "http.request_id": rid}) as sp:
+            response = await call_next(request)
+            set_attrs(sp, **{"http.status_code": response.status_code})
     finally:
         REQUEST_ID.reset(token)
     response.headers["X-Request-ID"] = rid

@@ -105,6 +105,13 @@ def _core(ctx: StepContext) -> Awaitable[str]:
     return _load()
 
 
+def _tracing(ctx: StepContext) -> str:
+    from mateai.infrastructure.observability.tracing import setup_tracing
+    from mateai.config.loader import settings
+    setup_tracing()
+    return f"exporter {settings.OTEL_EXPORTER}"
+
+
 def _ephemeral_sweeper(ctx: StepContext) -> None:
     from mateai.infrastructure.cache.ephemeral_cache import ephemeral_cache
     spawn(ephemeral_cache.start_sweeper_loop(), "ephemeral-sweeper")   # tự huỷ dữ liệu RAM mỗi 60 s
@@ -233,6 +240,7 @@ def _email_gateway(ctx: StepContext) -> str:
 def default_steps() -> List[Step]:
     return [
         Step("core", _core, critical=True),
+        Step("tracing", _tracing),
         Step("ephemeral_sweeper", _ephemeral_sweeper),
         Step("telegram", _telegram),
         Step("observability_workers", _observability),

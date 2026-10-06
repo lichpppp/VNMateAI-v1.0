@@ -31,7 +31,8 @@ from mateai.interfaces.http import lifecycle
 NEW_ROUTES = {"/api/v1/health/startup",
               # prompt cuối: model registry §79, sự cố §88, mục tiêu §42, toàn vẹn audit §73
               "/api/v1/llm/model-registry", "/api/v1/ops/incidents", "/api/v1/ops/incidents/{task_id}/phase",
-              "/api/v1/ops/goals", "/api/v1/security/audit-logs/verify"}
+              "/api/v1/ops/goals", "/api/v1/security/audit-logs/verify",
+              "/api/v1/memory/{doc_id}/verify"}   # memory trust §59
 
 
 def _rows(app):

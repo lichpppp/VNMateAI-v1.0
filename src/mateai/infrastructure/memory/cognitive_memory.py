@@ -23,7 +23,7 @@ import shutil
 import time
 import uuid
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -113,6 +113,10 @@ class FastSemanticEmbeddingFunction(EmbeddingFunction[Documents]):
 # ---------------------------------------------------------------------------
 # BƯỚC 1 & 2: FACTORY PATTERN KẾT NỐI CHROMADB
 # ---------------------------------------------------------------------------
+
+#: Hạn dùng mặc định của một bản ghi trí nhớ (prompt cuối §59).
+MEMORY_TTL_DAYS = 365
+
 
 def _get_config_dict() -> dict:
     """Tải cấu hình memory_db từ config_loader hoặc trực tiếp từ config.json."""
@@ -266,6 +270,13 @@ def memorize_solution(
         for k, v in metadata.items():
             if isinstance(v, (str, int, float, bool)):
                 meta[str(k)] = v
+    # Độ tin cậy (prompt cuối §59): mặc định CHƯA xác minh, tin cậy thấp, có hạn dùng.
+    meta.setdefault("verified", False)
+    meta.setdefault("confidence", 1.0 if meta["verified"] else 0.5)
+    meta.setdefault("scope", target_client or "global")
+    meta.setdefault("source", "unknown")
+    meta.setdefault("created_by", "unknown")
+    meta.setdefault("expires_at", (datetime.utcnow() + timedelta(days=MEMORY_TTL_DAYS)).isoformat())
 
     col.add(
         documents=[doc_text],
@@ -278,6 +289,20 @@ def memorize_solution(
         doc_id, error_signature[:50],
     )
     return doc_id
+
+
+def verify_solution(doc_id: str, verified_by: str) -> bool:
+    """Admin xác minh một bản ghi: verified=True, confidence=1.0, ghi người xác minh."""
+    col = get_collection()
+    got = col.get(ids=[doc_id])
+    metas = got.get("metadatas") or []
+    if not metas:
+        return False
+    meta = dict(metas[0] or {})
+    meta.update({"verified": True, "confidence": 1.0, "verified_by": verified_by,
+                 "verified_at": datetime.utcnow().isoformat()})
+    col.update(ids=[doc_id], metadatas=[meta])
+    return True
 
 
 def search_past_incidents(
@@ -317,7 +342,12 @@ def search_past_incidents(
     metas = results.get("metadatas", [[]])[0]
     distances = results.get("distances", [[]])[0] if "distances" in results and results["distances"] else []
 
+    now_iso = datetime.utcnow().isoformat()
     for i in range(len(ids)):
+        meta_i = metas[i] if i < len(metas) else {}
+        # Hết hạn -> không dùng nữa (§59). Bản ghi cũ không có expires_at: giữ, đánh dấu legacy.
+        if meta_i.get("expires_at") and str(meta_i["expires_at"]) < now_iso:
+            continue
         dist = distances[i] if i < len(distances) else 0.0
         # Similarity score: khoảng cách càng nhỏ thì độ tương đồng càng cao
         sim = round(max(0.0, 1.0 / (1.0 + float(dist))), 4) if dist is not None else 1.0
@@ -328,6 +358,9 @@ def search_past_incidents(
             "metadata": metas[i] if i < len(metas) else {},
             "distance": round(float(dist), 4) if dist is not None else None,
             "similarity_score": sim,
+            # Nhãn cho người / AI đọc: chưa xác minh là THAM KHẢO, không phải sự thật (§60).
+            "trust": ("verified" if meta_i.get("verified") is True
+                      else "unverified" if "verified" in meta_i else "legacy_unverified"),
         }
         normalized_results.append(item)
 

@@ -829,6 +829,15 @@ class LLMEngine:
         from core.plugin_manager import plugin_manager
         from mateai.application.skills.meta_architect import meta_architect
         from mateai.application.security.safety_guard import security_engine
+        from mateai.application.security import rate_limit
+
+        # Giới hạn tần suất lượt agent (prompt cuối §97): chặn TRƯỚC mọi lời gọi LLM.
+        _wait = rate_limit.hit(f"agent:{caller or source_device or session_id}",
+                               rate_limit.limit("agent_turns_per_min", 40), 60.0)
+        if _wait:
+            _msg = rate_limit.busy_message(_wait)
+            return {"reply": _msg, "speech_reply": _msg, "tool_calls_made": [], "success": False,
+                    "error": "rate_limited", "retry_after_s": round(_wait, 1)}
 
         raw_tools = plugin_manager.get_all_tools()
 

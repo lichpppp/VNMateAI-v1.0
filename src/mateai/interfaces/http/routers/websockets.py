@@ -405,8 +405,18 @@ async def websocket_realtime_voice_endpoint(websocket: WebSocket) -> None:
         )
         await websocket.close(code=1008, reason="Unauthorized: thiếu token hợp lệ.")
         return
+    from mateai.application.security import rate_limit
     from mateai.interfaces.websocket.realtime_voice_ws import handle_realtime_voice_endpoint
-    await handle_realtime_voice_endpoint(websocket, user=ws_user)
+    who = str(ws_user.get("username") or "?")
+    # Prompt cuối §97: số phiên thoại đồng thời mỗi người (mỗi phiên giữ STT/LLM/TTS riêng).
+    if not rate_limit.open_session("ws_voice", who, rate_limit.limit("ws_voice_sessions_per_user", 5)):
+        logger.warning("Từ chối phiên thoại thứ quá ngưỡng của '%s'.", who)
+        await websocket.close(code=1013, reason="Quá số phiên thoại đồng thời — đóng bớt tab rồi thử lại.")
+        return
+    try:
+        await handle_realtime_voice_endpoint(websocket, user=ws_user)
+    finally:
+        rate_limit.close_session("ws_voice", who)
 
 
 @router.websocket("/ws/client")

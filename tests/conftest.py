@@ -181,6 +181,7 @@ def _protect_real_config_files():
 def _reset_emergency_counter():
     """Bộ đếm chế độ khẩn cấp (§54) là theo tiến trình: không để hàng trăm test cộng dồn
     thành "AI hành động dồn dập" rồi tự bật kill switch giữa bộ test."""
-    from mateai.application.security import policy_engine
+    from mateai.application.security import policy_engine, rate_limit
     policy_engine._RECENT_AUTONOMOUS.clear()
+    rate_limit.reset()          # giới hạn tần suất cũng theo tiến trình (§97)
     yield
