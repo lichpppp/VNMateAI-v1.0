@@ -101,10 +101,13 @@ async def toggle_telegram_gateway(
     if current_user.get("role") not in ("admin",):
         raise HTTPException(status_code=403, detail="Chỉ Admin mới có quyền bật/tắt Telegram Gateway.")
     try:
-        from mateai.config.loader import update_config_section
+        from mateai.application.administration import config_governance as gov
+        from mateai.interfaces.http.secret_masking import _mask_secrets
 
         enabled = bool(payload.get("enabled", False))
-        raw = update_config_section("telegram", {"enabled": enabled})
+        _, raw = gov.save_config(str(current_user.get("username", "?")),
+                                 lambda c: c.setdefault("telegram", {}).update({"enabled": enabled}),
+                                 f"{'Bật' if enabled else 'Tắt'} Telegram Gateway", _mask_secrets)
 
         from mateai.interfaces.telegram.telegram_gateway import telegram_gateway
         if enabled:
@@ -147,40 +150,32 @@ async def update_telegram_config(
     try:
         import json as _json2
         from pathlib import Path as _Path
-        from mateai.config.loader import read_raw_config, write_raw_config
+        from mateai.application.administration import config_governance as gov
 
-        # Load raw config file (strict: file hỏng thì dừng, không ghi đè bằng bản rỗng)
-        raw = read_raw_config(strict=True)
+        def _apply(raw: Dict[str, Any]) -> None:
+            raw.setdefault("telegram", {})
+            # Phase 80: chốt bí mật cho endpoint này, y hệt `/api/v1/config`. Ô token trống
+            # nghĩa là GIỮ token đang lưu (giao diện không bao giờ nhận lại token thật).
+            incoming = {
+                "enabled": payload.enabled,
+                "bot_token": payload.bot_token,
+                "admin_chat_ids": payload.admin_chat_ids,
+                "incident_group_id": payload.incident_group_id,
+            }
+            incoming = _restore_masked_secrets(incoming, raw.get("telegram", {}))
+            if incoming["enabled"] is not None:
+                raw["telegram"]["enabled"] = incoming["enabled"]
+            if incoming["bot_token"]:
+                raw["telegram"]["bot_token"] = incoming["bot_token"]
+            if incoming["admin_chat_ids"] is not None:
+                raw["telegram"]["admin_chat_ids"] = incoming["admin_chat_ids"]
+            if incoming["incident_group_id"] is not None:
+                raw["telegram"]["incident_group_id"] = incoming["incident_group_id"]
 
-        # Update telegram section
-        raw.setdefault("telegram", {})
-
-        # Phase 80: chốt bí mật cho endpoint này, y hệt `/api/v1/config`.
-        #
-        # `TelegramConfigRequest.bot_token` mặc định là `""` chứ không phải
-        # `None`, nên `if payload.bot_token is not None` LUÔN đúng — client chỉ
-        # cần bỏ trống ô là token thật bị ghi đè bằng chuỗi rỗng. Từ Phase 79
-        # ô trên giao diện luôn để trống (server không trả token nữa) nên mọi
-        # lần bấm Lưu cấu hình Telegram đều xoá token. Ô trống phải nghĩa là
-        # GIỮ, giống mọi ô bí mật khác.
-        incoming = {
-            "enabled": payload.enabled,
-            "bot_token": payload.bot_token,
-            "admin_chat_ids": payload.admin_chat_ids,
-            "incident_group_id": payload.incident_group_id,
-        }
-        incoming = _restore_masked_secrets(incoming, raw.get("telegram", {}))
-
-        if incoming["enabled"] is not None:
-            raw["telegram"]["enabled"] = incoming["enabled"]
-        if incoming["bot_token"]:
-            raw["telegram"]["bot_token"] = incoming["bot_token"]
-        if incoming["admin_chat_ids"] is not None:
-            raw["telegram"]["admin_chat_ids"] = incoming["admin_chat_ids"]
-        if incoming["incident_group_id"] is not None:
-            raw["telegram"]["incident_group_id"] = incoming["incident_group_id"]
-
-        write_raw_config(raw)
+        # `admin_chat_ids` quyết định AI nhận lệnh admin từ chat nào — thay đổi quyền hạn:
+        # trước đây không lịch sử, không audit (§70).
+        _, raw = gov.save_config(str(current_user.get("username", "?")), _apply,
+                                 "Cấu hình Telegram (token / chat admin / nhóm sự cố)", _mask_secrets)
 
         # Reload settings in-memory
         try:

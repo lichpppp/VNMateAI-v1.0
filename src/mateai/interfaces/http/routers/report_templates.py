@@ -62,13 +62,11 @@ async def update_report_templates(
     if not isinstance(templates, dict):
         raise HTTPException(status_code=400, detail="Dữ liệu biểu mẫu không hợp lệ, phải là một JSON object.")
 
-    from mateai.config.loader import read_raw_config, reload_settings, write_raw_config
+    from mateai.application.administration import config_governance as gov
 
     try:
-        raw = read_raw_config(strict=True)
-        raw["report_templates"] = templates
-        write_raw_config(raw)
-        reload_settings()
+        gov.save_config(str(current_user.get("username", "?")),
+                        lambda c: c.__setitem__("report_templates", templates), "Biểu mẫu báo cáo")
         return {
             "status": "success",
             "message": "Đã lưu kho biểu mẫu báo cáo tiêu chuẩn thành công. System Prompt đã được cập nhật.",

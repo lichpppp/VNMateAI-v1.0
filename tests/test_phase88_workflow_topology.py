@@ -144,7 +144,8 @@ def _client(role):
 
 def test_api_roles_layout_and_simulation(health, tmp_path, monkeypatch):
     import mateai.interfaces.http.routers.system as system
-    monkeypatch.setattr(system, "_CUSTOM_TOPOLOGY_PATH", tmp_path / "custom_topology.json")
+    from mateai.application.operations import topology_layout
+    monkeypatch.setattr(topology_layout, "LAYOUT_PATH", tmp_path / "custom_topology.json")
     assert _client("viewer").get("/api/v1/system/topology").status_code == 403
     for path, body in (("/api/v1/system/topology/save", {"nodes": []}),
                        ("/api/v1/system/topology/trigger", {}),

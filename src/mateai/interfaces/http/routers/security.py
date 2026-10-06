@@ -78,7 +78,7 @@ async def update_blacklist(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Add or remove an item from the active security policy (blacklist, confirm_actions, protected_dirs)."""
-    from mateai.config.loader import settings, read_raw_config, reload_settings, write_raw_config
+    from mateai.config.loader import settings
     from mateai.application.security.safety_guard import security_engine
 
     actor = str(user.get("username") or "admin")
@@ -86,38 +86,29 @@ async def update_blacklist(
     category = payload.category or "blacklist"
     kw = payload.keyword.strip()
 
+    key = {"confirm_actions": "require_confirmation_actions",
+           "protected_dirs": "protected_directories"}.get(category, "forbidden_keywords")
+    changed: List[str] = []
+
+    def _apply(cfg: Dict[str, Any]) -> None:
+        sec = cfg.setdefault("security", {})
+        current_list = sec.setdefault(key, list(getattr(settings.security, key, [])))
+        if payload.action == "add" and kw and kw not in current_list:
+            current_list.append(kw)
+            changed.append("add")
+        elif payload.action == "remove" and kw in current_list:
+            current_list.remove(kw)
+            changed.append("remove")
+
     try:
-        raw_cfg = read_raw_config(strict=True)
-        if "security" not in raw_cfg:
-            raw_cfg["security"] = {}
-
-        if category == "confirm_actions":
-            current_list = raw_cfg["security"].setdefault(
-                "require_confirmation_actions",
-                list(getattr(settings.security, "require_confirmation_actions", []))
-            )
-        elif category == "protected_dirs":
-            current_list = raw_cfg["security"].setdefault(
-                "protected_directories",
-                list(getattr(settings.security, "protected_directories", []))
-            )
-        else:
-            current_list = raw_cfg["security"].setdefault(
-                "forbidden_keywords",
-                list(getattr(settings.security, "forbidden_keywords", []))
-            )
-
-        if payload.action == "add":
-            if kw and kw not in current_list:
-                current_list.append(kw)
-                security_engine.log_audit(actor, f"update_{category}", "SAFE", "SUCCESS", {"action": "add", "item": kw, "category": category})
-        elif payload.action == "remove":
-            if kw in current_list:
-                current_list.remove(kw)
-                security_engine.log_audit(actor, f"update_{category}", "SAFE", "SUCCESS", {"action": "remove", "item": kw, "category": category})
-
-        write_raw_config(raw_cfg)
-        reload_settings()
+        from mateai.application.administration import config_governance as gov
+        from mateai.interfaces.http.secret_masking import _mask_secrets
+        # Luật bảo mật là chính sách: lịch sử phiên bản + audit (§70, §128).
+        gov.save_config(actor, _apply, f"Chính sách bảo mật: {payload.action} '{kw}' ({category})",
+                        _mask_secrets, audit=False)
+        if changed:
+            security_engine.log_audit(actor, f"update_{category}", "POLICY", "SUCCESS",
+                                      {"action": changed[0], "item": kw, "category": category})
     except Exception as exc:
         logger.error("Lỗi khi lưu cấu hình bảo mật vào config.json: %s", exc)
         raise HTTPException(status_code=500, detail=f"Lỗi lưu cấu hình: {exc}")

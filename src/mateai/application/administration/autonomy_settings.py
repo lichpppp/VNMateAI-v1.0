@@ -40,7 +40,7 @@ def update(actor: str, updates: Dict[str, Any], reason: str = "",
     from mateai.application.administration import config_governance as gov
     from mateai.application.security import policy_engine as pe
     from mateai.application.security.safety_guard import security_engine
-    from mateai.config.loader import AutonomyConfig, read_raw_config, reload_settings, settings, write_raw_config
+    from mateai.config.loader import AutonomyConfig, settings
 
     updates = dict(updates or {})
     if not updates:
@@ -54,18 +54,15 @@ def update(actor: str, updates: Dict[str, Any], reason: str = "",
             raise AutonomyUpdateError(f"Tác nhân không tồn tại: {', '.join(unknown)}")
 
     before_version = pe.policy_version()
-    before_cfg = read_raw_config(strict=True)
-    merged = dict(before_cfg)
-    section = {**settings.autonomy.model_dump(), **dict(before_cfg.get("autonomy") or {}), **updates}
-    AutonomyConfig(**section)  # kiểm tra kiểu trước khi ghi
-    merged["autonomy"] = section
-    write_raw_config(merged)
-    reload_settings()
-    try:
-        gov.record(before_cfg, merged, actor, "Giới hạn tự trị" + (f": {reason}" if reason else ""),
-                   mask or (lambda x: x))
-    except Exception as exc:  # noqa: BLE001 — lịch sử hỏng không chặn việc đổi công tắc
-        logger.warning("Không ghi được lịch sử cấu hình: %s", exc)
+    current = settings.autonomy.model_dump()
+
+    def _apply(cfg: Dict[str, Any]) -> None:
+        section = {**current, **dict(cfg.get("autonomy") or {}), **updates}
+        AutonomyConfig(**section)  # kiểm tra kiểu trước khi ghi
+        cfg["autonomy"] = section
+
+    before_cfg, _ = gov.save_config(actor, _apply, "Giới hạn tự trị" + (f": {reason}" if reason else ""),
+                                    mask, audit=False)   # audit chi tiết ngay dưới
     old = dict(before_cfg.get("autonomy") or {})
     security_engine.log_audit(actor, "autonomy_policy_change", "POLICY", "SUCCESS", {
         "changes": {k: {"before": old.get(k), "after": v} for k, v in updates.items()},

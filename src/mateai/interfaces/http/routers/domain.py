@@ -55,8 +55,10 @@ async def toggle_domain_sync(
     if current_user.get("role") not in ("admin", "manager"):
         raise HTTPException(status_code=403, detail="Chỉ Admin hoặc Manager mới có quyền thay đổi trạng thái AD.")
     try:
-        from mateai.config.loader import update_config_section
-        update_config_section("ad_sync", {"enabled": bool(payload.enabled)})
+        from mateai.application.administration import config_governance as gov
+        gov.save_config(str(current_user.get("username", "?")),
+                        lambda c: c.setdefault("ad_sync", {}).update({"enabled": bool(payload.enabled)}),
+                        "Bật/tắt đồng bộ Active Directory")
 
         status_text = "ĐÃ BẬT" if payload.enabled else "ĐÃ TẮT"
         logger.info("Active Directory sync feature has been %s by %s", status_text, current_user.get("username", "?"))

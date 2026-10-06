@@ -30,6 +30,7 @@ def isolated_config(monkeypatch, tmp_path):
     monkeypatch.setattr(loader, "CONFIG_PATH", cfg)
     monkeypatch.setattr(settings, "autonomy", settings.autonomy.model_copy(deep=True))
     yield cfg
+    monkeypatch.undo()          # trả CONFIG_PATH thật TRƯỚC khi nạp lại
     loader.reload_settings()
 
 

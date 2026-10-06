@@ -38,7 +38,8 @@ def test_server_paths_derive_from_root():
     root = Path(settings.PROJECT_ROOT).resolve()
     assert Path(s._ADMIN_OUT_DIR).resolve() == root / "admin" / "out"
     import mateai.interfaces.http.routers.system as system
-    assert Path(system._CUSTOM_TOPOLOGY_PATH).resolve() == root / "storage" / "custom_topology.json"
+    from mateai.application.operations import topology_layout
+    assert Path(topology_layout.LAYOUT_PATH).resolve() == root / "storage" / "custom_topology.json"
     import mateai.interfaces.http.routers.skills as skills
     assert Path(skills._REGISTRY_PATH).resolve() == root / "skills" / "registry.json"
 

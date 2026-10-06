@@ -163,3 +163,41 @@ def history(limit: int = 50) -> List[Dict[str, Any]]:
 def snapshot(entry_id: int) -> Optional[Dict[str, Any]]:
     row = db_manager.get_config_history(entry_id)
     return json.loads(row["snapshot_json"]) if row else None
+
+
+# ── Một đường ghi cấu hình cho mọi màn hình (Supervisor Phase 10, §70, §128) ──
+
+def save_config(actor: str, mutate, note: str, mask=None, audit_action: str = "config_change",
+                audit: bool = True) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Đọc – sửa – ghi `config.json` NGUYÊN TỬ (cùng khoá với loader), nạp lại cấu hình,
+    ghi lịch sử phiên bản (khôi phục được) và audit (chỉ tên khoá đã đổi, không giá trị).
+
+    `mutate(cfg)` sửa tại chỗ bản sao cấu hình. Không có thay đổi thì không ghi gì.
+    Trước đây 5 màn hình (Telegram — kể cả danh sách chat admin —, AD sync, mẫu báo cáo,
+    danh sách từ khoá bảo mật) tự ghi `config.json`: không lịch sử, phần lớn không audit.
+    Trả (trước, sau)."""
+    import copy
+    from mateai.config.loader import _CONFIG_LOCK, read_raw_config, reload_settings, write_raw_config
+
+    with _CONFIG_LOCK:
+        before = read_raw_config(strict=True)
+        after = copy.deepcopy(before)
+        mutate(after)
+        if after == before:
+            return before, after
+        write_raw_config(after)
+    reload_settings()
+    changes = diff(before, after)
+    try:
+        record(before, after, actor, note, mask or (lambda x: x))
+    except Exception as exc:  # noqa: BLE001 — lịch sử hỏng không chặn việc lưu
+        import logging
+        logging.getLogger(__name__).warning("Không ghi được lịch sử cấu hình: %s", exc)
+    if audit:
+        try:
+            from mateai.application.security.safety_guard import security_engine
+            security_engine.log_audit(actor, audit_action, "CONFIG", "SUCCESS",
+                                      {"note": note, "paths": [c["path"] for c in changes][:50]})
+        except Exception:  # noqa: BLE001
+            pass
+    return before, after

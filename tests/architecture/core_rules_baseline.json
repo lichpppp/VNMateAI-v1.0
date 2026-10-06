@@ -8,12 +8,5 @@
   "RULE-024": {},
   "RULE-025": {},
   "RULE-026": {},
-  "RULE-027": {
-    "src/mateai/interfaces/http/routers/config.py": 2,
-    "src/mateai/interfaces/http/routers/domain.py": 1,
-    "src/mateai/interfaces/http/routers/report_templates.py": 1,
-    "src/mateai/interfaces/http/routers/security.py": 1,
-    "src/mateai/interfaces/http/routers/system.py": 1,
-    "src/mateai/interfaces/http/routers/telegram.py": 2
-  }
+  "RULE-027": {}
 }

@@ -69,7 +69,6 @@ async def get_system_stats(user: dict = Depends(require_roles(["manager", "admin
     }
 
 
-_CUSTOM_TOPOLOGY_PATH = Path(settings.PROJECT_ROOT) / "storage" / "custom_topology.json"
 
 
 @router.get(
@@ -86,27 +85,9 @@ async def get_system_topology(user: dict = Depends(require_roles(["manager", "ad
     """
     from mateai.interfaces.http.topology import snapshot
     snap = await run_blocking(snapshot)
-    snap["layout"] = _saved_layout()
+    from mateai.application.operations import topology_layout
+    snap["layout"] = topology_layout.load()
     return snap
-
-
-def _saved_layout() -> Dict[str, Dict[str, float]]:
-    """Vị trí ô người dùng đã kéo thả: {node_id: {x, y}} (bản lưu cũ có cả nodes -> lấy position)."""
-    if not _CUSTOM_TOPOLOGY_PATH.exists():
-        return {}
-    try:
-        data = json.loads(_CUSTOM_TOPOLOGY_PATH.read_text(encoding="utf-8"))
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Không đọc được bố cục topology đã lưu: %s", exc)
-        return {}
-    if isinstance(data.get("positions"), dict):
-        return data["positions"]
-    out = {}
-    for n in data.get("nodes") or []:
-        pos = n.get("position") if isinstance(n, dict) else None
-        if isinstance(pos, dict) and "x" in pos and "y" in pos:
-            out[str(n.get("id"))] = {"x": pos["x"], "y": pos["y"]}
-    return out
 
 
 @router.get(
@@ -150,22 +131,13 @@ async def save_custom_topology(
     user: dict = Depends(require_roles(["admin"])),
 ) -> Dict[str, Any]:
     """Lưu BỐ CỤC (vị trí các ô) — trạng thái không lưu, luôn lấy thật."""
+    from mateai.application.operations import topology_layout
     try:
-        _CUSTOM_TOPOLOGY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        positions = {
-            str(n.get("id")): {"x": n["position"]["x"], "y": n["position"]["y"]}
-            for n in payload.nodes
-            if isinstance(n, dict) and isinstance(n.get("position"), dict)
-            and "x" in n["position"] and "y" in n["position"]
-        }
-        data = {"positions": positions, "saved_at": datetime.utcnow().isoformat(),
-                "saved_by": user.get("username")}
-        _CUSTOM_TOPOLOGY_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.info("[Topology] Đã lưu bố cục sơ đồ (%d ô)", len(positions))
+        count = topology_layout.save(payload.nodes, str(user.get("username") or "?"))
         return {
             "status": "success",
             "message": "Đã lưu bố cục sơ đồ (vị trí các ô)",
-            "total_nodes": len(positions),
+            "total_nodes": count,
         }
     except Exception as exc:
         logger.error("[Topology] Lỗi khi lưu custom_topology: %s", exc)
@@ -180,9 +152,8 @@ async def save_custom_topology(
 async def reset_custom_topology(user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
     """Khôi phục sơ đồ topology về mặc định ban đầu do hệ thống tự phát hiện."""
     try:
-        if _CUSTOM_TOPOLOGY_PATH.exists():
-            _CUSTOM_TOPOLOGY_PATH.unlink()
-            logger.info("[Topology] Đã xoá custom_topology.json, khôi phục mặc định")
+        from mateai.application.operations import topology_layout
+        topology_layout.reset()
         return {
             "status": "success",
             "message": "Đã khôi phục sơ đồ topology về cấu hình mặc định",

@@ -435,7 +435,7 @@ async def save_config(
     Re-initialises in-memory settings so changes take effect without a restart.
     """
     try:
-        from mateai.config.loader import read_raw_config, write_raw_config
+        from mateai.config.loader import read_raw_config
         # strict: config.json hỏng thì báo lỗi, KHÔNG ghi đè bằng bản chỉ có payload.
         existing: Dict[str, Any] = read_raw_config(strict=True)
         # Giao diện đã hỏi người dùng và họ vẫn muốn lưu model không có trên 9Router.
@@ -546,13 +546,14 @@ async def save_config(
                 "unknown_models": unknown,
             })
 
-        write_raw_config(merged)
-        logger.info("config.json updated via Web Portal.")
         by = user.get("username") if isinstance(user, dict) else "api"
-        try:
-            gov.record(existing, merged, str(by), "Lưu", _mask_secrets)
-        except Exception as hist_err:  # noqa: BLE001 — lịch sử hỏng không chặn việc lưu
-            logger.warning("Không ghi được lịch sử cấu hình: %s", hist_err)
+
+        def _apply(cfg: Dict[str, Any]) -> None:
+            cfg.clear()
+            cfg.update(merged)
+
+        gov.save_config(str(by), _apply, "Lưu", _mask_secrets)
+        logger.info("config.json updated via Web Portal.")
 
         await _apply_written_config(merged, payload)
         return ConfigSaveResponse(success=True, message="Cấu hình hệ thống và điểm nối 9router đã được lưu thành công.")
@@ -660,7 +661,7 @@ async def config_history_diff(entry_id: int, user: dict = Depends(require_roles(
 async def config_history_restore(entry_id: int, user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
     """Khoá bí mật lấy từ cấu hình HIỆN TẠI (lịch sử không lưu khoá thật)."""
     from mateai.application.administration import config_governance as gov
-    from mateai.config.loader import read_raw_config, write_raw_config
+    from mateai.config.loader import read_raw_config
     snap = await run_blocking(lambda: gov.snapshot(entry_id))
     if snap is None:
         raise HTTPException(status_code=404, detail=f"Không có phiên bản #{entry_id}")
@@ -671,8 +672,12 @@ async def config_history_restore(entry_id: int, user: dict = Depends(require_rol
     if errors:
         raise HTTPException(status_code=400, detail={"message": "Phiên bản này không hợp lệ với hệ thống hiện tại.",
                                                      "errors": errors})
-    write_raw_config(restored)
-    gov.record(current, restored, str(user.get("username")), f"Khôi phục phiên bản #{entry_id}", _mask_secrets)
+    def _apply(cfg: Dict[str, Any]) -> None:
+        cfg.clear()
+        cfg.update(restored)
+
+    gov.save_config(str(user.get("username")), _apply, f"Khôi phục phiên bản #{entry_id}", _mask_secrets,
+                    audit_action="config_restore")
     await _apply_written_config(restored, {k: restored[k] for k in restored})
     logger.info("Cấu hình đã khôi phục về phiên bản #%s bởi %s", entry_id, user.get("username"))
     return {"status": "success", "message": f"Đã khôi phục cấu hình về phiên bản #{entry_id}."}
