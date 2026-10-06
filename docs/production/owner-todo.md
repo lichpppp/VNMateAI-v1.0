@@ -29,7 +29,7 @@ Máy chủ đã hỗ trợ token riêng cho từng robot. Mã firmware đã đư
 - [ ] Cấp token (tài khoản admin): `POST /api/v1/security/devices` với `{"device_id": "<id>"}` — token chỉ hiện một lần.
 - [ ] `esp32_firmware/src/secrets.h`: đặt `DEFAULT_DEVICE_ID` và `DEFAULT_DEVICE_TOKEN`; build và nạp.
 - [ ] Kiểm: robot kết nối được; `GET /api/v1/security/devices` có `last_seen_at`.
-- [ ] Khi **mọi** robot đã có token riêng: thêm `"security": {"require_per_device_token": true}` vào `config.json` → token chung cũ (`certs/device_secret.key`) bị từ chối.
+- [x] Bắt buộc token riêng từng robot (2026-10-06): `security.require_per_device_token = true` — robot `vnmate_robot_01` dùng token riêng, vẫn kết nối bình thường.
 
 Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — nạp lại theo các bước trên.
 
@@ -39,7 +39,7 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] Tường lửa: chỉ cho VLAN thiết bị vào cổng 8000; người dùng vào cổng 443.
 - [ ] Đặt `VNMATEAI_JWT_SECRET` nếu sẽ chạy lại máy chủ ở máy khác (để phiên đăng nhập không mất).
 - [ ] Worker daemon (nếu dùng): đặt `VNMATE_ENROLLMENT_TOKEN` (giá trị `enrollment_token` trong gói tải agent) và `MASTER_API_URL`.
-- [ ] Lịch sao lưu `vnmateai.db`, `hr_kpi.db`, `certs/`, `config.json` (xem operations.md §1).
+- [x] Lịch sao lưu (2026-10-06): 02:00 hằng ngày, chụp PostgreSQL, đẩy S3, chép sang ổ vật lý thứ hai `E:\VNMateAI-backups` (giữ 30 bản), tự chạy bù khi lỡ giờ; sentinel cảnh báo khi quá 26 giờ không có bản mới. **Còn:** cho tác vụ chạy cả khi chưa đăng nhập Windows — mở PowerShell bằng quyền Administrator và chạy: `Set-ScheduledTask -TaskName VNMateAI-Backup -Principal (New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U)`. Bản sao thật sự ngoài máy (OneDrive / ổ ngoài): thêm thư mục vào `backup.offsite_dirs` — bản sao lưu chứa bí mật, chỉ chọn nơi bạn kiểm soát.
 
 ## Connector (khi dùng)
 
@@ -56,10 +56,10 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 
 ## Kiểm tra / quyết định còn mở
 
-- [ ] **CI GitHub Actions** (`.github/workflows/tests.yml`) đã thêm nhưng **chưa thấy chạy trên GitHub** (máy này không có `gh`). Mở tab Actions của repo xem lần chạy đầu; nếu bước `pip install` lỗi (torch, pyaudio trên runner) báo lại để chỉnh. Bộ test đã qua 371/371 trên bản checkout sạch với `config.example.json`.
+- [ ] **CI GitHub Actions**: đã chạy trên repo `lichpppp/VNMateAI-v1.0` nhưng job **không được khởi động — tài khoản GitHub bị khoá do vấn đề thanh toán** (2026-10-06). Việc của chủ dự án: GitHub → Settings → Billing của tài khoản `lichpppp`. Mọi bước của workflow đã chạy đạt trên máy này (lint, pip-audit, build admin, pytest, Node, kiểm bí mật).
 - [ ] **Skill trùng giữa máy chủ và gói agent máy trạm**: `skills/{custom_skills, pc_control_skills, sysadmin_skills}.py` giống hệt `client_agent/skills/`; `file_system`, `monitoring_skills`, `excel_records_skill`, `visual_skills` đã lệch nhau. Quyết định: máy chủ có cần tự điều khiển chính nó (chuột/bàn phím/cửa sổ) không? Nếu không → bỏ bản ở `skills/`, chỉ giữ ở agent; nếu có → giữ một nguồn và đóng gói agent từ nguồn đó.
 - [x] **PostgreSQL — cutover** (2026-10-06): ứng dụng chạy trên PostgreSQL 16 Docker. Bản lùi: `backups/pre-pg-cutover/` + tệp SQLite gốc. Việc của chủ dự án: giữ Docker chạy cùng máy chủ; muốn quay về SQLite thì xoá `DATABASE_URL` trong config.json (dữ liệu sau cutover cần chép ngược).
-- [ ] **Tách tiến trình api / realtime / worker + Redis** (state chia sẻ: hàng đợi duyệt, phiên thoại, WebSocket): chưa làm — cần Redis và quyết định có chạy nhiều tiến trình không. Hiện một tiến trình là đủ cho một văn phòng; khôi phục hàng đợi duyệt sau khởi động lại đã có.
+- [ ] **Tách tiến trình / nhiều tiến trình**: chưa cần — đo thật 100 phiên trên một tiến trình không nghẽn. Kế hoạch + kiểm kê trạng thái trong RAM: `docs/architecture/multi-process-plan.md`.
 - [ ] **Container**: chưa làm — ứng dụng dùng COM/pywin32, micro, điều khiển màn hình Windows nên không chạy được trong container Linux; nếu cần, chỉ tách phần API thuần.
 - [ ] `skills/registry.json` và hai skill do AI tạo (`skills/auto_play_music.py`, `skills/thong_ke_lo_xsmb.py`) cùng `get_lotto.py`, `generate_pdf.py` ở gốc repo là tệp sinh trong lúc chạy / của bạn — **chưa commit, không đụng tới**. Xem lại và tự quyết có đưa vào git không.
 
@@ -70,7 +70,7 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] **Audit ghi hai dòng cho mỗi lần chạy tool** (một từ cổng tool, một kèm ghi chú RBAC, cùng thời điểm). Không sửa vì thuộc phần bảo mật / audit bất biến — quyết định có gộp không.
 - [ ] **HUD dùng chung schema sự kiện với portal (D4)** — chưa làm: cần viết lại phần nhận sự kiện của `hud.js` và kiểm trên trình duyệt.
 - [ ] **Robot: gộp ba nhánh kết thúc câu nói (L5)** — cần thử trên robot thật (mỗi nhánh gửi thông điệp khác nhau theo firmware). Đồng thời đo `stt_ms` của robot (đã có trong trace, chưa có số vì không có thiết bị lúc đo).
-- [ ] **Đồng thời 50 / 100 phiên** chưa đo: tốn hạn mức 9Router và sẽ đo giới hạn nhà cung cấp; qua WebSocket cần N tài khoản (mỗi người một phiên `/ws/v1/voice-stream`).
+- [x] **Đồng thời 50 / 100 phiên** (2026-10-06): `scripts/load_test.py` — 100 / 100 phiên kết nối, 0 rớt, `/readyz` p99 105 ms. Chưa gồm LLM / STT (xem multi-process-plan.md).
 
 ## Tạo kỹ năng mới (2026-10-04)
 

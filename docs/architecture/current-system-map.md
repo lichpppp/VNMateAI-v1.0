@@ -34,7 +34,7 @@ VNMateaiv1/
 ├── client_agent/     14 tệp  4 415 dòng   agent máy trạm (độc lập, không import `mateai`)
 ├── workers/           5 tệp  1 246 dòng   worker từ xa
 ├── web/               8 tệp 28 260 dòng   portal + HUD; `voice-audio-queue.js` (bộ phát chung + jitter buffer)
-├── admin/            41 tệp  5 435 dòng   app Next.js cũ — đã gỡ định tuyến (Phase 81)
+├── admin/            41 tệp  5 435 dòng   app Next.js — còn phục vụ /admin/topology và /admin/computer-use (build ra admin/out, CI build)
 ├── esp32_firmware/  130 tệp 10 414 dòng   firmware robot Xiaozhi
 ├── deploy/                              docker-compose.infra.yml (PostgreSQL, Redis, S3, OTel collector) + otel-collector.yaml
 ├── scripts/           9 tệp  1 265 dòng   backup (+push/pull S3), migrate_sqlite_to_pg, dev_infra, bench_codec, build CSS
@@ -255,7 +255,7 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 
 ## 10. Việc tiếp theo
 
-1. **Chủ dự án**: đổi mật khẩu admin; gán phòng ban / cấp bảo mật cho tài khoản manager / viewer. (Docker, Redis, S3, sao lưu tự động, firmware 54: **đã xong 2026-10-06**.)
-2. **PostgreSQL cutover** — SQL đã gom trong 3 tệp persistence (`db_manager`, `erp_database`, `domain_sync`). Phần phải chuyển: 17 `PRAGMA`, 11 DDL `AUTOINCREMENT`, 10 `lastrowid`, khoảng 80 placeholder `?`, 59 `strftime`. Cách làm: lớp kết nối theo dialect → chạy toàn bộ bộ test trên PostgreSQL (`pgserver`) → ghi song song một thời gian → chuyển đọc → giữ SQLite làm bản lùi.
-3. **Xác nhận CI** trên GitHub (cần quyền repo).
+1. **Chủ dự án**: gán phòng ban / cấp bảo mật cho tài khoản manager / viewer; gỡ khoá thanh toán GitHub để CI chạy; cho tác vụ sao lưu chạy khi chưa đăng nhập (lệnh quản trị trong owner-todo). (Mật khẩu admin, Docker, Redis, S3, PostgreSQL, sao lưu tự động + bản sao ổ thứ hai, firmware 54: **đã xong 2026-10-06**.)
+2. **Thu hẹp tool cho portal / agent** như đường thoại: đo trên LLM thật giảm 70 % token, chất lượng bằng nhau (`docs/evaluation/llm-evaluation.md`) — cần thêm câu đánh giá cho tool ít dùng trước khi đổi.
+3. **Quy ước thời gian**: hai kiểu lưu (ISO không múi giờ = UTC; `YYYY-MM-DD HH:MM:SS` = giờ địa phương), mỗi cột một kiểu. Portal hiển thị qua `web/server-time.js`. Chuyển sang `TIMESTAMPTZ` để sau — `audit_logs.timestamp` nằm trong chuỗi băm, không đổi được dữ liệu cũ.
 4. STT máy chủ có kết quả tạm; nâng ngưỡng bộ lọc tiếng nói trên robot (88 đoạn ồn nền / 11 phút).

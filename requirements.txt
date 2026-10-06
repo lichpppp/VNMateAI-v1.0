@@ -7,6 +7,9 @@
 # --- API Gateway & Async Runtime ---
 starlette==1.7.0   # vá PYSEC-2026-1943/1941/161 (pip-audit 2026-10-06)
 fastapi==0.135.4   # >= 0.137 gói router lười (_IncludedRouter) — vỡ bảng route; 0.135.4 cho starlette >= 1.0 (đã vá)
+# Thử 0.142.2 (2026-10-06): phục vụ đúng (851 test chức năng đạt) nhưng app.routes không còn liệt kê route,
+# không có API công khai thay thế -> 4 test bảng route phải dựa vào nội bộ fastapi. pip-audit: 0.135.4 không có
+# lỗ hổng đã biết. Nâng khi fastapi có API liệt kê route công khai hoặc khi có bản vá bảo mật cần thiết.
 uvicorn[standard]==0.29.0
 websockets==12.0
 python-multipart==0.0.32   # vá PYSEC-2026-1851/1852/3038
