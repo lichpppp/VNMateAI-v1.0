@@ -241,6 +241,17 @@ class DatabaseManager:
                     for _col in ("llm_calls", "total_tokens"):
                         if _col not in _op_cols:
                             cursor.execute(f"ALTER TABLE op_tasks ADD COLUMN {_col} INTEGER NOT NULL DEFAULT 0;")
+                    # Vòng đời sự cố (prompt cuối §88): pha, người phụ trách, tài sản bị ảnh hưởng.
+                    for _col in ("incident_phase", "owner", "affected_assets", "goal_id"):
+                        if _col not in _op_cols:
+                            cursor.execute(f"ALTER TABLE op_tasks ADD COLUMN {_col} TEXT;")
+                    # Phân cấp mục tiêu (prompt cuối §42): company -> department -> operational.
+                    cursor.execute(
+                        "CREATE TABLE IF NOT EXISTS op_goals ("
+                        " goal_id TEXT PRIMARY KEY, parent_id TEXT, level TEXT NOT NULL,"
+                        " title TEXT NOT NULL, department TEXT, owner TEXT,"
+                        " status TEXT NOT NULL DEFAULT 'ACTIVE', due_date TEXT, created_at TEXT NOT NULL);")
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_op_goals_parent ON op_goals(parent_id);")
 
                     conn.commit()
 
@@ -891,8 +902,32 @@ class DatabaseManager:
                      "channel", "priority", "risk", "status", "current_step", "approval_id", "result_summary",
                      "verification_status", "source", "trace_id")
 
+    def op_get_goal(self, goal_id: str) -> Optional[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            row = conn.execute("SELECT * FROM op_goals WHERE goal_id = ?;", (goal_id,)).fetchone()
+            return dict(row) if row else None
+
+    def op_list_goals(self, parent_id: Optional[str] = None, top_level: bool = False) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            if top_level:
+                rows = conn.execute("SELECT * FROM op_goals WHERE parent_id IS NULL ORDER BY created_at;").fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM op_goals WHERE parent_id = ? ORDER BY created_at;",
+                                    (parent_id,)).fetchall()
+            return [dict(r) for r in rows]
+
+    def op_goal_task_counts(self, goal_ids: List[str]) -> Dict[str, int]:
+        if not goal_ids:
+            return {"tasks": 0, "completed": 0}
+        marks = ", ".join("?" * len(goal_ids))
+        with self._get_connection() as conn:
+            total, done = conn.execute(
+                f"SELECT COUNT(*), SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) FROM op_tasks "
+                f"WHERE goal_id IN ({marks});", goal_ids).fetchone()
+            return {"tasks": int(total or 0), "completed": int(done or 0)}
+
     def op_insert(self, table: str, row: Dict[str, Any]) -> None:
-        if table not in ("op_tasks", "op_task_steps", "op_evidence"):
+        if table not in ("op_tasks", "op_task_steps", "op_evidence", "op_goals"):
             raise ValueError(table)
         cols = list(row)
         with self._lock:

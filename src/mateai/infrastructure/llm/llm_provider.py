@@ -105,6 +105,20 @@ def _mark_model_ok(model: str) -> None:
     _model_down_until.pop(model, None)
 
 
+MODEL_STATUSES = ("APPROVED", "EXPERIMENTAL", "DEPRECATED", "BLOCKED")
+
+
+def model_status(model: str) -> str:
+    """Trạng thái trong `llm.model_registry` (prompt cuối §79); chưa đăng ký -> UNREGISTERED."""
+    try:
+        from mateai.config.loader import settings
+        entry = (getattr(settings.llm, "model_registry", None) or {}).get(str(model or "").strip()) or {}
+    except Exception:  # noqa: BLE001
+        entry = {}
+    st = str((entry.get("status") if isinstance(entry, dict) else "") or "").upper()
+    return st if st in MODEL_STATUSES else "UNREGISTERED"
+
+
 def model_health() -> Dict[str, float]:
     """Model đang bị xếp cuối -> số giây còn lại (cho chẩn đoán)."""
     now = time.monotonic()
@@ -190,6 +204,8 @@ class DirectLLMProvider(BaseLLMProvider):
         brain_role: str = "voice",
         **kwargs: Any,
     ) -> AsyncGenerator[LLMStreamChunk, None]:
+        if model_status(self.model) == "BLOCKED":       # model registry §79
+            raise RuntimeError(f"Model '{self.model}' bị BLOCKED trong model registry — không gọi.")
         kwargs_api: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -253,6 +269,8 @@ class DirectLLMProvider(BaseLLMProvider):
         brain_role: str = "controller",
         **kwargs: Any,
     ) -> Any:
+        if model_status(self.model) == "BLOCKED":       # model registry §79
+            raise RuntimeError(f"Model '{self.model}' bị BLOCKED trong model registry — không gọi.")
         kwargs_api: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -286,16 +304,22 @@ class NineRouterLLMProvider(BaseLLMProvider):
         self.router_models = [m for m in router_models if m]
 
     def _resolve_candidate_models(self, preferred_model: Optional[str] = None) -> List[str]:
-        """Thứ tự thử: model ưu tiên -> danh sách dự phòng; model vừa hỏng xếp cuối."""
+        """Thứ tự thử: model ưu tiên -> danh sách dự phòng; model vừa hỏng xếp cuối.
+        Model registry (§79): BLOCKED bị loại hẳn, DEPRECATED xếp sau mọi model khác."""
         ordered: List[str] = []
         for m in [preferred_model or self.primary_model, *self.router_models]:
             clean = str(m or "").strip()
             if clean and clean not in ordered and not _PLACEHOLDER_RE.match(clean):
                 ordered.append(clean)
+        status = {m: model_status(m) for m in ordered}
+        blocked = [m for m in ordered if status[m] == "BLOCKED"]
+        if blocked:
+            logger.warning("[ModelRegistry] Bỏ model BLOCKED khỏi danh sách thử: %s", blocked)
+        ordered = [m for m in ordered if status[m] != "BLOCKED"]
         now = time.monotonic()
-        healthy = [m for m in ordered if _model_down_until.get(m, 0.0) <= now]
-        cooling = [m for m in ordered if _model_down_until.get(m, 0.0) > now]
-        return healthy + cooling
+        healthy = [m for m in ordered if _model_down_until.get(m, 0.0) <= now and status[m] != "DEPRECATED"]
+        cooling = [m for m in ordered if _model_down_until.get(m, 0.0) > now and status[m] != "DEPRECATED"]
+        return healthy + cooling + [m for m in ordered if status[m] == "DEPRECATED"]
 
     async def stream(
         self,
@@ -308,7 +332,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         models = self._resolve_candidate_models(kwargs.get("model"))
         if not models:
-            raise ValueError("Chưa cấu hình model nào cho NineRouterLLMProvider.")
+            raise RuntimeError("Không có model nào được phép gọi (chưa cấu hình, hoặc đều BLOCKED trong model registry).")
 
         stream = None
         used_model = models[0]
@@ -498,7 +522,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 _mark_model_failed(model_name, exc)
                 continue
         if not models:
-            raise ValueError("Chưa cấu hình model nào cho NineRouterLLMProvider.")
+            raise RuntimeError("Không có model nào được phép gọi (chưa cấu hình, hoặc đều BLOCKED trong model registry).")
         raise RuntimeError(f"Tất cả model {models} đều thất bại: {last_err}")
 
 

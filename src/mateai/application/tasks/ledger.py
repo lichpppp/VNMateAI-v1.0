@@ -63,6 +63,48 @@ def _db():
     return db_manager
 
 
+_LEVEL_SCORE = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+_PRIORITY_ORDER = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
+def score_priority(*, impact: str = "low", urgency: str = "low", deadline: Optional[str] = None,
+                   security_impact: bool = False, affected_users: int = 0, dependencies: int = 0,
+                   risk: int = 1, severity: Optional[str] = None) -> Dict[str, Any]:
+    """Priority engine (prompt cuối §43): tác động, độ khẩn, SLA, bảo mật, phụ thuộc, số người bị
+    ảnh hưởng — tất định, không hỏi LLM, trả kèm lý do để người xem hiểu vì sao."""
+    score = _LEVEL_SCORE.get(str(impact).lower(), 1) + _LEVEL_SCORE.get(str(urgency).lower(), 1)
+    reasons = [f"tác động {impact}, độ khẩn {urgency}"]
+    if deadline:
+        try:
+            left_min = (datetime.fromisoformat(str(deadline)) - datetime.now()).total_seconds() / 60
+            if left_min <= 60:
+                score += 4
+                reasons.append(f"SLA còn {max(0, int(left_min))} phút")
+            elif left_min <= 24 * 60:
+                score += 2
+                reasons.append("SLA trong 24 giờ")
+        except ValueError:
+            reasons.append("hạn SLA không đọc được — bỏ qua")
+    if security_impact:
+        score += 4
+        reasons.append("ảnh hưởng bảo mật")
+    if affected_users >= 100:
+        score += 3
+        reasons.append(f"{affected_users} người bị ảnh hưởng")
+    elif affected_users >= 10:
+        score += 1
+        reasons.append(f"{affected_users} người bị ảnh hưởng")
+    if dependencies:
+        score += min(2, int(dependencies))
+        reasons.append(f"{dependencies} việc phụ thuộc")
+    base = priority_for("", risk, severity)
+    by_score = "CRITICAL" if score >= 9 else "HIGH" if score >= 6 else "MEDIUM" if score >= 4 else "LOW"
+    final = max(base, by_score, key=_PRIORITY_ORDER.index)
+    if final == base and base != by_score:
+        reasons.append(f"mức nghiêm trọng / rủi ro đặt tối thiểu {base}")
+    return {"priority": final, "score": score, "reasons": reasons}
+
+
 def priority_for(kind: str, risk: int = 1, severity: Optional[str] = None) -> str:
     """Ưu tiên tất định (§23) — không hỏi LLM."""
     sev = str(severity or "").lower()
@@ -78,14 +120,18 @@ def priority_for(kind: str, risk: int = 1, severity: Optional[str] = None) -> st
 def open_task(title: str, *, kind: str = "agent_turn", created_by: Optional[str] = None,
               agent_id: Optional[str] = None, channel: Optional[str] = None, source: Optional[str] = None,
               trace_id: Optional[str] = None, risk: int = 1, severity: Optional[str] = None,
-              goal: Optional[str] = None, status: str = NEW) -> Optional[str]:
+              goal: Optional[str] = None, status: str = NEW, goal_id: Optional[str] = None,
+              impact: str = "low", urgency: str = "low", deadline: Optional[str] = None,
+              security_impact: bool = False, affected_users: int = 0) -> Optional[str]:
     task_id = f"OP-{uuid.uuid4().hex[:10]}"
     now = _now()
+    prio = score_priority(impact=impact, urgency=urgency, deadline=deadline, security_impact=security_impact,
+                          affected_users=affected_users, risk=risk, severity=severity)["priority"]
     try:
         _db().op_insert("op_tasks", {
-            "task_id": task_id, "kind": kind, "title": str(title or "")[:300], "goal": goal,
+            "task_id": task_id, "kind": kind, "title": str(title or "")[:300], "goal": goal, "goal_id": goal_id,
             "created_at": now, "updated_at": now, "created_by": created_by, "agent_id": agent_id,
-            "channel": channel, "priority": priority_for(kind, risk, severity), "risk": int(risk),
+            "channel": channel, "priority": prio, "risk": int(risk),
             "status": status, "current_step": 0, "source": source, "trace_id": trace_id,
         })
     except Exception as exc:  # noqa: BLE001
@@ -226,6 +272,109 @@ def add_usage(task_id: Optional[str], usage: Optional[Dict[str, int]]) -> None:
         logger.warning("[Ledger] Không ghi được số token: %s", exc)
 
 
+# ── Phân cấp mục tiêu (prompt cuối §42) ──────────────────────────────────────
+GOAL_LEVELS = ("company", "department", "operational")
+
+
+def create_goal(title: str, *, level: str, parent_id: Optional[str] = None, department: Optional[str] = None,
+                owner: Optional[str] = None, due_date: Optional[str] = None) -> str:
+    """company (không cha) -> department -> operational: cấp con đúng một bậc dưới cha."""
+    if level not in GOAL_LEVELS:
+        raise ValueError(f"Cấp mục tiêu phải thuộc {GOAL_LEVELS}")
+    if level == "company":
+        if parent_id:
+            raise ValueError("Mục tiêu công ty không có mục tiêu cha.")
+    else:
+        parent = _db().op_get_goal(parent_id or "")
+        if parent is None:
+            raise ValueError("Không có mục tiêu cha này.")
+        if GOAL_LEVELS.index(parent["level"]) != GOAL_LEVELS.index(level) - 1:
+            raise ValueError(f"'{level}' phải nằm ngay dưới '{GOAL_LEVELS[GOAL_LEVELS.index(level) - 1]}'.")
+    if not str(title or "").strip():
+        raise ValueError("Mục tiêu cần tên.")
+    goal_id = f"GOAL-{uuid.uuid4().hex[:8]}"
+    _db().op_insert("op_goals", {"goal_id": goal_id, "parent_id": parent_id, "level": level,
+                                 "title": str(title).strip()[:300], "department": department, "owner": owner,
+                                 "status": "ACTIVE", "due_date": due_date, "created_at": _now()})
+    return goal_id
+
+
+def goal_tree(goal_id: Optional[str] = None) -> Any:
+    """Cây mục tiêu kèm tiến độ THẬT (tác vụ COMPLETED / tổng, gộp cả cấp con)."""
+    def build(g: Dict[str, Any]) -> Dict[str, Any]:
+        children = [build(c) for c in _db().op_list_goals(parent_id=g["goal_id"])]
+        own = _db().op_goal_task_counts([g["goal_id"]])
+        tasks = own["tasks"] + sum(c["progress"]["tasks"] for c in children)
+        done = own["completed"] + sum(c["progress"]["completed"] for c in children)
+        return {**g, "children": children,
+                "progress": {"tasks": tasks, "completed": done,
+                             "percent": round(done / tasks * 100, 1) if tasks else 0.0}}
+    if goal_id:
+        g = _db().op_get_goal(goal_id)
+        return build(g) if g else None
+    return [build(g) for g in _db().op_list_goals(top_level=True)]
+
+
+# ── Vòng đời sự cố (prompt cuối §88) ─────────────────────────────────────────
+#: Pha xử lý sự cố — nằm cạnh trạng thái tác vụ (incident vẫn ESCALATED tới khi RESOLVED: AI
+#: không tự xử lý sự cố). ESCALATED (pha) đến được từ mọi pha chưa đóng.
+INCIDENT_PHASES = ("DETECTED", "TRIAGED", "INVESTIGATING", "MITIGATING", "VERIFYING", "RESOLVED", "ESCALATED")
+_PHASE_NEXT: Dict[str, tuple] = {
+    "DETECTED": ("TRIAGED", "INVESTIGATING"),
+    "TRIAGED": ("INVESTIGATING", "MITIGATING"),
+    "INVESTIGATING": ("MITIGATING", "VERIFYING"),
+    "MITIGATING": ("VERIFYING", "INVESTIGATING"),
+    "VERIFYING": ("RESOLVED", "INVESTIGATING", "MITIGATING"),
+    "ESCALATED": ("TRIAGED", "INVESTIGATING", "MITIGATING", "VERIFYING"),
+    "RESOLVED": (),
+}
+
+
+def incident_phase(task_id: str, phase: str, *, actor: str, note: str = "", owner: Optional[str] = None,
+                   assets: Optional[str] = None) -> Dict[str, Any]:
+    """Chuyển pha sự cố; mỗi bước thành một mục dòng thời gian (bằng chứng có tên người làm).
+    RESOLVED chỉ từ VERIFYING — và đóng tác vụ COMPLETED (người đã kiểm chứng)."""
+    task = get_task(task_id)
+    if task is None or task.get("kind") != "incident":
+        raise InvalidTransition("Không phải sự cố.")
+    if phase not in INCIDENT_PHASES:
+        raise InvalidTransition(f"Pha không hợp lệ: {phase}")
+    cur = task.get("incident_phase") or "DETECTED"
+    if task["status"] in TERMINAL or cur == "RESOLVED":
+        raise InvalidTransition("Sự cố đã đóng.")
+    if phase != cur and phase != "ESCALATED" and phase not in _PHASE_NEXT.get(cur, ()):
+        raise InvalidTransition(f"{cur} -> {phase}")
+    fields: Dict[str, Any] = {"incident_phase": phase, "updated_at": _now()}
+    if owner is not None:
+        fields["owner"] = owner.strip() or None
+    if assets is not None:
+        fields["affected_assets"] = assets.strip() or None
+    _db().op_update("op_tasks", "task_id", task_id, fields)
+    add_evidence(task_id, source=f"human:{actor}", kind="FACT", verified=True,
+                 summary=f"{cur} -> {phase} ({actor}){': ' + note if note else ''}")
+    if phase == "RESOLVED":
+        transition(task_id, COMPLETED, verification_status="passed",
+                   result_summary=f"Đã xử lý xong — {actor} kiểm chứng. {note}".strip()[:300])
+    return get_task(task_id) or {}
+
+
+def resolve_incident_by_probe(category: str, evidence: str) -> Optional[str]:
+    """Sentinel đo lại thấy nguồn đã khôi phục: đóng sự cố bằng số đo THẬT (không đoán)."""
+    try:
+        existing = _db().op_find_open_incident(f"sentinel:{category}")
+    except Exception:  # noqa: BLE001
+        existing = None
+    if not existing:
+        return None
+    tid = existing["task_id"]
+    add_evidence(tid, source=f"sentinel:{category}", kind="FACT", verified=True,
+                 summary=f"Đo lại: {evidence}")
+    _db().op_update("op_tasks", "task_id", tid, {"incident_phase": "RESOLVED", "updated_at": _now()})
+    transition(tid, COMPLETED, verification_status="passed",
+               result_summary=f"Tự khôi phục — Sentinel đo lại xác nhận: {evidence}"[:300])
+    return tid
+
+
 def open_incident(category: str, title: str, message: str, severity: str = "critical") -> Optional[str]:
     """Sự cố do giám sát phát hiện: một tác vụ incident đang mở cho mỗi nguồn (không nhân bản)."""
     source = f"sentinel:{category}"
@@ -237,8 +386,10 @@ def open_incident(category: str, title: str, message: str, severity: str = "crit
         add_evidence(existing["task_id"], source=source, kind="FACT", summary=f"Lặp lại: {title} — {message}")
         return existing["task_id"]
     tid = open_task(title, kind="incident", created_by="VN-MATEAI-SENTINEL", agent_id="VN-MATEAI-SENTINEL",
-                    channel="sentinel", source=source, severity=severity, status=NEW)
+                    channel="sentinel", source=source, severity=severity, status=NEW,
+                    impact="high", urgency="high")
     if tid:
+        _db().op_update("op_tasks", "task_id", tid, {"incident_phase": "DETECTED", "affected_assets": category})
         add_evidence(tid, source=source, kind="FACT", summary=message)
         transition(tid, ESCALATED, result_summary="Đã cảnh báo người phụ trách; AI không tự xử lý sự cố.")
     return tid

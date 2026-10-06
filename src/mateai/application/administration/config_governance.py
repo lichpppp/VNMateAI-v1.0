@@ -88,6 +88,20 @@ def validate(cfg: Dict[str, Any], router_models: Optional[Iterable[str]] = None,
     if prompt is not None and len(str(prompt)) > MAX_PROMPT_CHARS:
         errors.append(f"Chỉ thị cá tính dài {len(str(prompt))} ký tự — tối đa {MAX_PROMPT_CHARS}")
 
+    # Model registry (prompt cuối §79): không lưu cấu hình dùng model đã bị BLOCKED.
+    registry = _get(cfg, "llm.model_registry")
+    if registry is None:
+        try:
+            from mateai.config.loader import settings
+            registry = settings.llm.model_registry
+        except Exception:  # noqa: BLE001
+            registry = {}
+    blocked = {m for m, e in (registry or {}).items() if str((e or {}).get("status", "")).upper() == "BLOCKED"}
+    for path, label in MODEL_FIELDS + (("llm.direct_model", "Model kết nối trực tiếp"),):
+        m = str(_get(cfg, path) or "").strip()
+        if m and m in blocked:
+            errors.append(f"{label} '{m}' đang bị BLOCKED trong model registry")
+
     missing: List[str] = []
     known = set(router_models or [])
     if check_models and known and (mode or "router") == "router":

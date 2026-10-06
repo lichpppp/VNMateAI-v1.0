@@ -12,7 +12,7 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, JSONResponse
@@ -496,6 +496,39 @@ async def config_history_restore(entry_id: int, user: dict = Depends(require_rol
     await _apply_written_config(restored, {k: restored[k] for k in restored})
     logger.info("Cấu hình đã khôi phục về phiên bản #%s bởi %s", entry_id, user.get("username"))
     return {"status": "success", "message": f"Đã khôi phục cấu hình về phiên bản #{entry_id}."}
+
+
+# ── Model registry (prompt cuối §79) ────────────────────────────────────────
+
+class ModelRegistryEntry(BaseModel):
+    status: Literal["APPROVED", "EXPERIMENTAL", "DEPRECATED", "BLOCKED"]
+    privacy: Optional[Literal["external", "local"]] = None
+    use_cases: Optional[List[str]] = None
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
+class ModelRegistryUpdate(BaseModel):
+    #: model -> mục đăng ký; null = gỡ đăng ký.
+    models: Dict[str, Optional[ModelRegistryEntry]]
+    reason: str = Field(default="", max_length=300)
+
+
+@router.get("/api/v1/llm/model-registry", summary="Danh sách model + trạng thái phê duyệt", tags=["LLM Router"])
+async def get_model_registry(user: dict = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    return {"status": "success", **config_service.model_registry_view(await _router_model_pool())}
+
+
+@router.put("/api/v1/llm/model-registry", summary="Đổi trạng thái model (chỉ admin, có lịch sử + audit)",
+            tags=["LLM Router"])
+async def put_model_registry(payload: ModelRegistryUpdate,
+                             user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    changes = {m.strip(): (e.model_dump() if e else None) for m, e in payload.models.items() if m.strip()}
+    if not changes:
+        raise HTTPException(status_code=400, detail="Không có thay đổi nào.")
+    warnings = await run_blocking(config_service.update_model_registry, actor=str(user.get("username")),
+                                  changes=changes, reason=payload.reason, mask=_mask_secrets)
+    return {"status": "success", "warnings": warnings,
+            **config_service.model_registry_view(await _router_model_pool())}
 
 
 # ── Thử trước khi lưu ───────────────────────────────────────────────────────

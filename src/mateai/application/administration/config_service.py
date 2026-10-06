@@ -229,3 +229,43 @@ def prepare_restore(snapshot: Dict[str, Any], current: Dict[str, Any], restore_s
 
 __all__ = ["ConfigInvalid", "DEFAULT_BASE_URL", "deep_merge", "fetch_router_models", "legacy_view",
            "prepare_restore", "prepare_save", "router_model_pool", "save"]
+
+
+# ── Model registry (prompt cuối §79) ─────────────────────────────────────────
+
+def model_registry_view(pool: List[str]) -> Dict[str, Any]:
+    """Mọi model đang biết (router phục vụ + đã đăng ký + đang được cấu hình dùng) kèm trạng thái."""
+    from mateai.infrastructure.llm.llm_provider import model_status
+    registry = dict(getattr(settings.llm, "model_registry", None) or {})
+    in_use: Dict[str, List[str]] = {}
+    for path, label in gov.MODEL_FIELDS + (("llm.direct_model", "Model kết nối trực tiếp"),):
+        m = str(getattr(settings.llm, path.split(".", 1)[1], "") or "").strip()
+        if m:
+            in_use.setdefault(m, []).append(label)
+    names = sorted(set(pool) | set(registry) | set(in_use))
+    return {"models": [{"model": m, "status": model_status(m), "in_router": m in pool,
+                        "used_as": in_use.get(m, []), **{k: (registry.get(m) or {}).get(k)
+                                                          for k in ("privacy", "use_cases", "note")}}
+                       for m in names],
+            "statuses": ["APPROVED", "EXPERIMENTAL", "DEPRECATED", "BLOCKED"]}
+
+
+def update_model_registry(actor: str, changes: Dict[str, Any], reason: str = "", mask=None) -> List[str]:
+    """Ghi `llm.model_registry` qua đường ghi cấu hình chuẩn (lịch sử + audit). Giá trị None =
+    gỡ đăng ký. Trả cảnh báo (vd vừa BLOCK model đang là model chính -> sẽ dùng dự phòng)."""
+    def _apply(cfg: Dict[str, Any]) -> None:
+        reg = dict((cfg.setdefault("llm", {}) or {}).get("model_registry") or {})
+        for model, entry in changes.items():
+            if entry is None:
+                reg.pop(model, None)
+            else:
+                reg[model] = {k: v for k, v in entry.items() if v not in (None, "", [])}
+        cfg["llm"]["model_registry"] = reg
+
+    gov.save_config(actor, _apply, "Model registry" + (f": {reason}" if reason else ""), mask)
+    warnings = []
+    for path, label in gov.MODEL_FIELDS:
+        m = str(getattr(settings.llm, path.split(".", 1)[1], "") or "").strip()
+        if m and str((changes.get(m) or {}).get("status", "")).upper() == "BLOCKED":
+            warnings.append(f"{label} '{m}' vừa bị BLOCKED — hệ thống sẽ chỉ dùng model dự phòng cho tới khi đổi.")
+    return warnings

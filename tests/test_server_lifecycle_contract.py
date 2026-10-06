@@ -28,7 +28,10 @@ import mateai.interfaces.http.server as server
 from mateai.interfaces.http import lifecycle
 
 #: Route thêm có chủ đích sau bản chụp (không đổi thứ tự route cũ).
-NEW_ROUTES = {"/api/v1/health/startup"}
+NEW_ROUTES = {"/api/v1/health/startup",
+              # prompt cuối: model registry §79, sự cố §88, mục tiêu §42, toàn vẹn audit §73
+              "/api/v1/llm/model-registry", "/api/v1/ops/incidents", "/api/v1/ops/incidents/{task_id}/phase",
+              "/api/v1/ops/goals", "/api/v1/security/audit-logs/verify"}
 
 
 def _rows(app):

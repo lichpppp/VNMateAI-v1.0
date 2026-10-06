@@ -317,6 +317,12 @@ class ERPDatabase:
                     """
                 )
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp);")
+                # Toàn vẹn (prompt cuối §73): chuỗi băm + trigger chặn UPDATE / DELETE.
+                _acols = {r[1] for r in cursor.execute("PRAGMA table_info(audit_logs);").fetchall()}
+                for _col in ("prev_hash", "row_hash"):
+                    if _col not in _acols:
+                        cursor.execute(f"ALTER TABLE audit_logs ADD COLUMN {_col} TEXT;")
+                self._create_audit_guards(cursor)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_employee ON audit_logs(employee_id);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action_type);")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_status ON audit_logs(status);")
@@ -996,6 +1002,53 @@ class ERPDatabase:
 
     # ── Phase 48: Audit Log ORM (INSERT / SELECT only — no UPDATE / DELETE) ──────
 
+    # ── Toàn vẹn audit (prompt cuối §73) ──────────────────────────────────────
+    _AUDIT_GENESIS = "GENESIS"
+
+    @staticmethod
+    def _create_audit_guards(cursor: Any) -> None:
+        """Trigger: audit_logs chỉ được INSERT. Kể cả code ghi SQL thẳng cũng bị DB từ chối."""
+        cursor.execute(
+            "CREATE TRIGGER IF NOT EXISTS audit_logs_no_update BEFORE UPDATE ON audit_logs "
+            "BEGIN SELECT RAISE(ABORT, 'audit_logs là append-only: không được sửa'); END;")
+        cursor.execute(
+            "CREATE TRIGGER IF NOT EXISTS audit_logs_no_delete BEFORE DELETE ON audit_logs "
+            "BEGIN SELECT RAISE(ABORT, 'audit_logs là append-only: không được xoá'); END;")
+
+    def ensure_audit_guards(self) -> None:
+        with self.get_connection() as conn:
+            self._create_audit_guards(conn.cursor())
+            conn.commit()
+
+    @staticmethod
+    def _audit_hash(prev: str, row: "tuple") -> str:
+        import hashlib
+        import json as _json
+        blob = _json.dumps([prev, *row], ensure_ascii=False, default=str, separators=(",", ":"))
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+    def verify_audit_chain(self) -> Dict[str, Any]:
+        """Tính lại chuỗi băm từ đầu. Dòng cũ trước khi có chuỗi (row_hash NULL) chỉ được đếm."""
+        legacy = verified = 0
+        prev = self._AUDIT_GENESIS
+        with self.get_connection() as conn:
+            rows = conn.execute(
+                "SELECT id, timestamp, employee_id, action_type, payload, status, approved_by, source_ip, "
+                "session_id, prev_hash, row_hash FROM audit_logs ORDER BY id;").fetchall()
+        for r in rows:
+            r = tuple(r)
+            if r[10] is None:
+                legacy += 1
+                continue
+            content = r[1:9]
+            if r[9] != prev or self._audit_hash(prev, content) != r[10]:
+                return {"ok": False, "verified": verified, "legacy_unhashed": legacy, "first_broken_id": r[0],
+                        "reason": "nối chuỗi sai (dòng trước bị xoá / chèn)" if r[9] != prev
+                                  else "nội dung dòng đã bị sửa"}
+            prev = r[10]
+            verified += 1
+        return {"ok": True, "verified": verified, "legacy_unhashed": legacy, "first_broken_id": None}
+
     def write_audit_log(
         self,
         action_type: str,
@@ -1018,16 +1071,23 @@ class ERPDatabase:
         valid_statuses = {"success", "failed", "pending", "blocked"}
         if status not in valid_statuses:
             status = "failed"
+        content = (now, employee_id, action_type, payload, status, approved_by, source_ip, session_id)
         with self._lock:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                # Đọc mắt xích cuối + chèn trong CÙNG một transaction ghi (không lọt dòng chen giữa).
+                cursor.execute("BEGIN IMMEDIATE;")
+                last = cursor.execute(
+                    "SELECT row_hash FROM audit_logs WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1;").fetchone()
+                prev = last[0] if last else self._AUDIT_GENESIS
                 cursor.execute(
                     """
                     INSERT INTO audit_logs
-                        (timestamp, employee_id, action_type, payload, status, approved_by, source_ip, session_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+                        (timestamp, employee_id, action_type, payload, status, approved_by, source_ip, session_id,
+                         prev_hash, row_hash)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
                     """,
-                    (now, employee_id, action_type, payload, status, approved_by, source_ip, session_id),
+                    (*content, prev, self._audit_hash(prev, content)),
                 )
                 conn.commit()
                 log_id = cursor.lastrowid

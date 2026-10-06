@@ -253,6 +253,69 @@ async def confirm_op_task(task_id: str, payload: OpTaskDecision,
     return {"status": "success", "task": ledger.get_task(task_id)}
 
 
+# ── Mục tiêu (prompt cuối §42) ──────────────────────────────────────────────
+
+class GoalRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=300)
+    level: str = Field(..., pattern="^(company|department|operational)$")
+    parent_id: Optional[str] = None
+    department: Optional[str] = Field(default=None, max_length=120)
+    owner: Optional[str] = Field(default=None, max_length=80)
+    due_date: Optional[str] = Field(default=None, max_length=30)
+
+
+@router.get("/api/v1/ops/goals", summary="Cây mục tiêu + tiến độ thật", tags=["AI Operations"])
+async def list_goals(current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.tasks import ledger
+    return {"status": "success", "goals": await run_blocking(ledger.goal_tree)}
+
+
+@router.post("/api/v1/ops/goals", summary="Tạo mục tiêu (công ty / phòng ban / vận hành)", tags=["AI Operations"])
+async def create_goal(payload: GoalRequest,
+                      current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.tasks import ledger
+    if payload.level == "company" and current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Chỉ admin đặt mục tiêu cấp công ty.")
+    try:
+        goal_id = await run_blocking(ledger.create_goal, **payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    _audit(current_user, "goal_create", {"goal_id": goal_id, **payload.model_dump()})
+    return {"status": "success", "goal": await run_blocking(ledger.goal_tree, goal_id=goal_id)}
+
+
+# ── Sự cố (prompt cuối §88) ──────────────────────────────────────────────────
+
+class IncidentPhaseRequest(BaseModel):
+    phase: str = Field(..., max_length=20)
+    note: str = Field(default="", max_length=500)
+    owner: Optional[str] = Field(default=None, max_length=80)
+    affected_assets: Optional[str] = Field(default=None, max_length=300)
+
+
+@router.get("/api/v1/ops/incidents", summary="Sự cố: pha xử lý, người phụ trách, tài sản", tags=["AI Operations"])
+async def list_incidents(limit: int = 50,
+                         current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.tasks import ledger
+    rows = await run_blocking(ledger.list_tasks, kind="incident", limit=max(1, min(limit, 200)))
+    return {"status": "success", "phases": list(ledger.INCIDENT_PHASES), "incidents": rows}
+
+
+@router.post("/api/v1/ops/incidents/{task_id}/phase", summary="Chuyển pha xử lý sự cố", tags=["AI Operations"])
+async def set_incident_phase(task_id: str, payload: IncidentPhaseRequest,
+                             current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:
+    from mateai.application.tasks import ledger
+    who = str(current_user.get("username") or "?")
+    try:
+        task = await run_blocking(ledger.incident_phase, task_id=task_id, phase=payload.phase.strip().upper(),
+                                  actor=who, note=payload.note, owner=payload.owner, assets=payload.affected_assets)
+    except ledger.InvalidTransition as exc:
+        code = 404 if "Không phải sự cố" in str(exc) else 409
+        raise HTTPException(status_code=code, detail=str(exc))
+    _audit(current_user, "incident_phase", {"task_id": task_id, "phase": payload.phase, "note": payload.note})
+    return {"status": "success", "incident": task}
+
+
 @router.post("/api/v1/ops/tasks/{task_id}/cancel", summary="Huỷ tác vụ của AI", tags=["AI Operations"])
 async def cancel_op_task(task_id: str, payload: OpTaskDecision,
                          current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"]))) -> Dict[str, Any]:

@@ -289,6 +289,13 @@ class AutonomousSentinel:
         from mateai.application.operations import alert_dispatcher
         await alert_dispatcher.dispatch(res_title, res_msg, category=f"sentinel:{category}",
                                         source="Autonomous Sentinel", resolved=True)
+        # Sổ tác vụ (§88): đóng sự cố bằng lần đo vừa rồi — trước đây sự cố đã khôi phục vẫn mở mãi.
+        try:
+            from mateai.application.tasks import ledger
+            await asyncio.to_thread(ledger.resolve_incident_by_probe, category,
+                                    f"probe '{category}' không còn phát hiện lỗi lúc {datetime.now():%H:%M:%S}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[AutonomousSentinel] Không đóng được sự cố trong sổ: %s", exc)
 
         try:
             from mateai.application.operations.health_monitor import SYSTEM_HEALTH_CACHE

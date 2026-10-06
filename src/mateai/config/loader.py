@@ -225,6 +225,10 @@ class LLMConfig(BaseModel):
         default="http://localhost:20128/v1",
         description="Base URL of the OpenAI-compatible proxy (9router, LMStudio, Ollama, etc.).",
     )
+    #: Model registry (prompt cuối §79): {model_id: {status, privacy, use_cases, note}}.
+    #: status: APPROVED / EXPERIMENTAL / DEPRECATED / BLOCKED. Model chưa đăng ký vẫn dùng được
+    #: (hiện "UNREGISTERED"); BLOCKED không bao giờ được gọi; DEPRECATED chỉ làm dự phòng cuối.
+    model_registry: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     router_models: List[str] = Field(
         default_factory=list,
         description="Priority list of router models for auto-fallback. Empty = no fallback; "
