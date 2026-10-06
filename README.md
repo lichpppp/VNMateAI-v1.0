@@ -26,7 +26,7 @@ Mọi hành động của AI đều đi qua **một cổng duy nhất**:
 Một chương trình, một tiến trình Python. Dữ liệu nằm ở **PostgreSQL**. Trạng thái dùng chung nằm ở **Redis**. Tệp và bản sao lưu nằm ở **S3**.
 
 > Bản đồ hệ thống chi tiết (có số liệu kiểm chứng): [`docs/architecture/current-system-map.md`](docs/architecture/current-system-map.md).
-> Triển khai và vận hành: [`docs/production/`](docs/production/README.md).
+> Triển khai và vận hành: [`docs/production/`](docs/production/README.md) — hướng dẫn từng bước: [`production-setup-guide.md`](docs/production/production-setup-guide.md).
 
 ---
 
