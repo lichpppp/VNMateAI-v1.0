@@ -195,47 +195,14 @@ def _build_tray_icon_image() -> "Image.Image":
 # ---------------------------------------------------------------------------
 
 
-class _RedactTokenFilter(logging.Filter):
-    """
-    Che JWT trong access log của uvicorn.
-
-    Một số endpoint buộc phải nhận token qua query string vì browser không cho
-    gắn header: thẻ <audio src> / <a download> cho tệp âm thanh, và WebSocket
-    (WebSocket API không hỗ trợ custom header). Token đăng nhập có hiệu lực 24 giờ,
-    nên nếu ghi thẳng vào access log thì bất kỳ ai đọc log — hoặc bất kỳ endpoint
-    nào trả bản sao log — đều chiếm được phiên.
-
-    Filter này thay giá trị của các tham số nhạy cảm bằng `[REDACTED]` trước khi ghi.
-    """
-
-    # Bắt cả dạng `?token=`, `&token=`, `%26token=` và các tên tham số nhạy cảm
-    # tương tự (access_token, api_key, password...).
-    _SENSITIVE_PARAM_RE = re.compile(
-        r"((?:[?&]|%26)(?:access_token|refresh_token|auth_token|api[_-]?key|"
-        r"apikey|password|passwd|pwd|secret|token)="
-        r")[^&\s\"']+",
-        re.IGNORECASE,
-    )
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        try:
-            message = record.getMessage()
-        except Exception:
-            return True
-        redacted = self._SENSITIVE_PARAM_RE.sub(r"\1[REDACTED]", message)
-        if redacted != message:
-            record.msg = redacted
-            record.args = ()
-        return True
-
-
 def _install_log_filters() -> None:
-    """Gắn filter redact token vào các logger của uvicorn."""
-    redactor = _RedactTokenFilter()
+    """Che token trong access log của uvicorn (token qua query string ở <audio src>, WebSocket…)
+    và gắn request_id — dùng CHUNG bộ lọc với log ứng dụng (`mateai.config.log_setup`)."""
+    from mateai.config.log_setup import ContextFilter
     for name in ("uvicorn.access", "uvicorn.error", "uvicorn"):
         log = logging.getLogger(name)
-        if not any(isinstance(f, _RedactTokenFilter) for f in log.filters):
-            log.addFilter(redactor)
+        if not any(isinstance(f, ContextFilter) for f in log.filters):
+            log.addFilter(ContextFilter())
 
 
 def _start_uvicorn() -> None:

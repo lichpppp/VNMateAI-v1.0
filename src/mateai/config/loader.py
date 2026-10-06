@@ -520,6 +520,8 @@ class AppSettings(BaseSettings):
     DISCOVERY_PORT: int = Field(default=8888, ge=1, le=65535,
                                 description="Cổng UDP beacon để robot mới tự tìm máy chủ.")
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level.")
+    LOG_FORMAT: str = Field(default="text", pattern="^(text|json)$",
+                            description="text: đọc bằng mắt; json: một JSON mỗi dòng (§95).")
 
     # Audio Pipeline Settings
     ASR_BACKEND: str = Field(default="local_whisper", description="ASR backend (local_whisper, google, groq, whisper).")
@@ -690,8 +692,8 @@ def reload_settings() -> AppSettings:
 
 settings: AppSettings = _build_settings()
 
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
-    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-)
+from mateai.config.log_setup import configure_logging  # noqa: E402
+
+# Một cấu hình log cho tiến trình (prompt cuối §95): request_id + che bí mật; LOG_FORMAT=json
+# cho hệ thống thu log. VNMATEAI_LOG_FORMAT ghi đè cấu hình.
+configure_logging(settings.LOG_LEVEL, os.environ.get("VNMATEAI_LOG_FORMAT") or settings.LOG_FORMAT)

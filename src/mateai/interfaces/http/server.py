@@ -13,7 +13,6 @@ Supervisor Phase 10 (§198) — file này KHÔNG chứa nghiệp vụ:
 
 from __future__ import annotations
 
-import contextvars
 import logging
 import os
 import re
@@ -90,8 +89,8 @@ app.add_middleware(
 
 
 # ─── Request ID + mô hình lỗi chuẩn (prompt cuối §95, §143) ──────────────────
-#: Id của request đang xử lý — đọc được ở mọi tầng trong cùng request (log, audit).
-REQUEST_ID: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+#: Id của request đang xử lý — một nguồn ở `config/log_setup` (log của request mang theo).
+from mateai.config.log_setup import REQUEST_ID  # noqa: E402
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 
