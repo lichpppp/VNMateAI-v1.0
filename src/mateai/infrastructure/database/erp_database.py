@@ -26,6 +26,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 
 
+def is_pg(obj: Any) -> bool:
+    """Kết nối / cursor đang chạy trên PostgreSQL (pg_compat) hay SQLite."""
+    from mateai.infrastructure.database import pg_compat
+    return isinstance(obj, (pg_compat.PgConnection, pg_compat.PgCursor))
+
+
 def open_sqlite(
     path: "Path | str",
     *,
@@ -35,8 +41,29 @@ def open_sqlite(
     synchronous: Optional[str] = None,
 ) -> sqlite3.Connection:
     """
-    Nơi DUY NHẤT mở kết nối SQLite trong core/ (RULE-014) — đổi driver / thêm
-    tuỳ chọn chung (vd. chuyển PostgreSQL) chỉ sửa ở đây.
+    Nơi DUY NHẤT mở kết nối CSDL của ứng dụng (RULE-014).
+
+    Có `DATABASE_URL` / `VNMATEAI_DATABASE_URL` (postgresql://…) -> PostgreSQL qua
+    `pg_compat` (prompt cuối §65, cutover); `path` chỉ còn dùng để chọn schema
+    (vnmateai.db -> schema chính, hr_kpi.db -> schema nhân sự). Không có -> SQLite như cũ.
+    Công cụ đọc file SQLite thật (di trú, sao lưu) dùng `open_sqlite_file`.
+    """
+    from mateai.infrastructure.database import pg_compat
+    if pg_compat.database_url():
+        return pg_compat.connect(path, timeout=timeout)  # type: ignore[return-value]
+    return open_sqlite_file(path, timeout=timeout, foreign_keys=foreign_keys, wal=wal, synchronous=synchronous)
+
+
+def open_sqlite_file(
+    path: "Path | str",
+    *,
+    timeout: float = 30.0,
+    foreign_keys: bool = False,
+    wal: bool = True,
+    synchronous: Optional[str] = None,
+) -> sqlite3.Connection:
+    """
+    Mở đúng FILE SQLite (bất kể backend ứng dụng) — cho di trú / sao lưu / bản lùi.
 
     Kết nối là ClosingConnection (thoát khối `with` là ĐÓNG, không chỉ commit),
     row_factory = sqlite3.Row. Probe sức khoẻ dùng wal=False: chỉ đọc, không đổi
@@ -63,6 +90,15 @@ def check_sqlite_integrity(path: "Path | str", timeout: float = 0.8) -> "tuple[s
     quick_check KHÔNG ném lỗi khi file hỏng — nó trả các dòng mô tả lỗi ("ok"
     nếu lành), nên phải đọc kết quả.
     """
+    from mateai.infrastructure.database import pg_compat
+    if pg_compat.database_url():
+        # PostgreSQL tự bảo đảm toàn vẹn trang; kiểm được là kết nối + đọc được.
+        try:
+            with open_sqlite(path, timeout=timeout) as conn:
+                conn.execute("SELECT 1").fetchone()
+            return "ok", ""
+        except Exception as exc:  # pylint: disable=broad-except
+            return "error", str(exc)
     try:
         with open_sqlite(path, timeout=timeout, wal=False) as conn:
             problems = [str(r[0]) for r in conn.execute("PRAGMA quick_check").fetchall()]
@@ -90,8 +126,9 @@ def ensure_tasks_table(cursor: sqlite3.Cursor) -> None:
     phụ thuộc module nào khởi tạo trước: ERP trước → title NOT NULL → lệnh giao
     việc cho máy trạm (không có title) lỗi "NOT NULL constraint failed".
     """
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks';")
-    existing_task_table = cursor.fetchone()
+    # PRAGMA table_info chạy được cả SQLite lẫn PostgreSQL (pg_compat dịch sang information_schema).
+    cursor.execute("PRAGMA table_info(tasks);")
+    existing_task_table = cursor.fetchall()
 
     if not existing_task_table:
         # Bảng `tasks` do hai tầng cùng dùng: `db_manager` (schema cũ,
@@ -1008,6 +1045,15 @@ class ERPDatabase:
     @staticmethod
     def _create_audit_guards(cursor: Any) -> None:
         """Trigger: audit_logs chỉ được INSERT. Kể cả code ghi SQL thẳng cũng bị DB từ chối."""
+        if is_pg(cursor):
+            cursor.execute(
+                "CREATE OR REPLACE FUNCTION audit_logs_append_only() RETURNS trigger AS $$ "
+                "BEGIN RAISE EXCEPTION 'audit_logs là append-only: không được sửa / xoá'; END $$ LANGUAGE plpgsql")
+            cursor.execute("CREATE OR REPLACE TRIGGER audit_logs_no_update BEFORE UPDATE ON audit_logs "
+                           "FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only()")
+            cursor.execute("CREATE OR REPLACE TRIGGER audit_logs_no_delete BEFORE DELETE ON audit_logs "
+                           "FOR EACH ROW EXECUTE FUNCTION audit_logs_append_only()")
+            return
         cursor.execute(
             "CREATE TRIGGER IF NOT EXISTS audit_logs_no_update BEFORE UPDATE ON audit_logs "
             "BEGIN SELECT RAISE(ABORT, 'audit_logs là append-only: không được sửa'); END;")
@@ -1077,6 +1123,9 @@ class ERPDatabase:
                 cursor = conn.cursor()
                 # Đọc mắt xích cuối + chèn trong CÙNG một transaction ghi (không lọt dòng chen giữa).
                 cursor.execute("BEGIN IMMEDIATE;")
+                if is_pg(cursor):
+                    # Chuỗi băm: đọc mắt xích cuối + chèn phải tuần tự giữa MỌI tiến trình.
+                    cursor.execute("LOCK TABLE audit_logs IN SHARE ROW EXCLUSIVE MODE")
                 last = cursor.execute(
                     "SELECT row_hash FROM audit_logs WHERE row_hash IS NOT NULL ORDER BY id DESC LIMIT 1;").fetchone()
                 prev = last[0] if last else self._AUDIT_GENESIS
@@ -1197,6 +1246,11 @@ class ERPDatabase:
             return sqlite3.SQLITE_DENY
 
         with self.get_connection() as conn:
+            if is_pg(conn):
+                # PostgreSQL: transaction CHỈ ĐỌC (engine từ chối mọi ghi / DDL) + giới hạn thời gian.
+                conn.set_read_only()
+                rows = conn.execute(sql).fetchmany(max_rows)
+                return [dict(r) for r in rows]
             conn.execute("PRAGMA query_only = ON;")
             conn.set_authorizer(_authorizer)
             try:

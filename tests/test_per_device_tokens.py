@@ -66,8 +66,9 @@ def test_shared_secret_can_be_switched_off(store, monkeypatch):
 
 def test_only_hash_is_stored(store):
     tok = store.issue_device_token("robot_h")
-    import sqlite3
-    raw = sqlite3.connect(store.db_path).execute("SELECT * FROM device_tokens").fetchall()
+    from mateai.infrastructure.database.erp_database import open_sqlite
+    with open_sqlite(store.db_path) as conn:
+        raw = [tuple(r) for r in conn.execute("SELECT * FROM device_tokens").fetchall()]
     assert tok not in str(raw)
 
 

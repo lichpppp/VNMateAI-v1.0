@@ -45,7 +45,7 @@ SECRET_FIELD_NAMES = frozenset({
     # Âm thanh
     "elevenlabs_api_key",
     # Hạ tầng (prompt cuối §67): URL Redis chứa mật khẩu.
-    "redis_url",
+    "redis_url", "database_url",
 })
 
 _lock = threading.Lock()

@@ -28,6 +28,12 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+
+
+def _open_db(path):
+    """Mở qua tầng persistence (SQLite hoặc PostgreSQL theo cấu hình)."""
+    from mateai.infrastructure.database.erp_database import open_sqlite
+    return open_sqlite(path)
 import sys
 import tempfile
 from contextlib import closing
@@ -243,7 +249,7 @@ section("Schema tasks của ERPDatabase phải tự đủ, không phụ thuộc 
 with tempfile.TemporaryDirectory() as tmp:
     path = Path(tmp) / "fresh.db"
     ERPDatabase(path)
-    with closing(sqlite3.connect(path)) as conn:  # with thuần không đóng kết nối
+    with closing(_open_db(path)) as conn:  # with thuần không đóng kết nối
         cols = {row[1]: (row[2] or "").upper() for row in conn.execute("PRAGMA table_info(tasks)")}
 
     check("tasks.id khai báo TEXT (code chèn id 'erp_<hex>')",
@@ -258,14 +264,14 @@ section("CSDL cũ thiếu cột phải được migrate, không ném lỗi")
 
 with tempfile.TemporaryDirectory() as tmp:
     path = Path(tmp) / "old.db"
-    with closing(sqlite3.connect(path)) as conn:  # with thuần không đóng kết nối
+    with closing(_open_db(path)) as conn:  # with thuần không đóng kết nối
         conn.execute(
             "CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, "
             "title TEXT NOT NULL, status TEXT DEFAULT 'pending');"
         )
         conn.commit()
     ERPDatabase(path)  # phải migrate chứ không được vỡ
-    with closing(sqlite3.connect(path)) as conn:  # with thuần không đóng kết nối
+    with closing(_open_db(path)) as conn:  # with thuần không đóng kết nối
         cols = {row[1] for row in conn.execute("PRAGMA table_info(tasks)")}
     for col in ("created_at", "updated_at", "timestamp", "client_id", "task_message", "sender",
                 "dept_id", "assignee_id", "due_date", "created_by_ai", "resolution_notes"):

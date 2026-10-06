@@ -13,16 +13,16 @@
 | Realtime | PARTIAL | **PARTIAL** | Stream, TTS theo câu, audio nhị phân (cả HUD phê duyệt), ngắt lời, lệnh nhanh, jitter buffer 50–250 ms, đánh giá codec có số đo (`codec-evaluation.md`). Còn: STT máy chủ có kết quả tạm, Opus cho micro robot (firmware), p99 / 50–100 phiên chưa đo |
 | Độ tin cậy | PARTIAL | **PARTIAL** | Ngân sách thử model, idempotency giao việc, tắt máy đóng pool, Redis lỗi → lùi về RAM, dừng tool lỗi lặp, chế độ khẩn cấp. Còn: idempotency cho gửi tin, circuit breaker cho TTS |
 | Quan sát | PARTIAL | **PASS** | OpenTelemetry (http / voice + giai đoạn / tool + quyết định chính sách / llm), log JSON có request_id + che bí mật, trace thoại bền 30 ngày, báo cáo khởi động từng bước, token / tác vụ. Chi phí tiền chưa có (router không trả giá) |
-| Dữ liệu | PARTIAL | **PARTIAL** | Repository một tầng; phân loại dữ liệu + phạm vi phòng ban; Redis (`shared_state`) và S3 (`object_storage`) kiểm trên server thật; di trú PostgreSQL có kiểm chứng — bản sao dữ liệu thật 23 bảng / 1 195 dòng khớp. Còn: cutover sang PostgreSQL |
-| Khả năng mở rộng | FAIL | **PARTIAL** | Giới hạn đăng nhập, rate limit, bộ đếm khẩn cấp dùng chung qua Redis (kiểm trên máy chủ thật); tệp nhị phân ra object storage. Còn: SQLite (chờ cutover PostgreSQL), phiên WS + hàng đợi TTS theo tiến trình (cần sticky session), idempotency giao việc trong RAM |
+| Dữ liệu | PARTIAL | **PASS** | Repository một tầng; phân loại dữ liệu + phạm vi phòng ban; Redis (`shared_state`) và S3 (`object_storage`) kiểm trên server thật; **PostgreSQL là nguồn sự thật** (cutover 2026-10-06: 23 bảng / 1 260 dòng khớp checksum, khoá ngoại hợp lệ; máy chủ ghi audit vào PG, chuỗi băm `ok`). Sao lưu chụp từ PG (REPEATABLE READ, kiểm chứng) — chạy thật 1,26 s |
+| Khả năng mở rộng | FAIL | **PARTIAL** | Giới hạn đăng nhập, rate limit, bộ đếm khẩn cấp dùng chung qua Redis (kiểm trên máy chủ thật); tệp nhị phân ra object storage. CSDL dùng chung (PostgreSQL). Còn: phiên WS + hàng đợi TTS theo tiến trình (cần sticky session), idempotency giao việc trong RAM |
 | Quản trị AI | NOT IMPLEMENTED | **PARTIAL** | `docs/governance/ai-governance.md`: danh mục hệ thống AI, kiểm soát, đo lường, thay đổi có audit + phiên bản chính sách. Chưa: phiên bản tác nhân tách riêng, quy trình phê duyệt thay đổi model, đánh giá tác động định kỳ |
-| Kiểm thử | PARTIAL | **PASS** | 827 pytest + 14 Node: kiến trúc, đối kháng, kịch bản vàng 15/15, hạ tầng thật (Redis / S3 / PostgreSQL), sao lưu; `check()` cũ không còn trượt im lặng. Còn: đánh giá trên LLM thật, tải 50/100 phiên |
+| Kiểm thử | PARTIAL | **PASS** | 831 pytest (chạy được trên SQLite và PostgreSQL) + 14 Node: kiến trúc, đối kháng, kịch bản vàng 15/15, hạ tầng thật (Redis / S3 / PostgreSQL), sao lưu; `check()` cũ không còn trượt im lặng. Còn: đánh giá trên LLM thật, tải 50/100 phiên |
 | Triển khai | PARTIAL | **PARTIAL** | CI: lint lỗi chạy thật + pip-audit + pytest + Node; `deploy/docker-compose.infra.yml` (PostgreSQL, Redis, S3, OTel collector); `scripts/dev_infra.py` khi không có Docker. Còn: CI chưa xác nhận chạy trên GitHub, Docker trên máy này cần `wsl --update`, ứng dụng chạy trên host Windows |
 | Khôi phục | NOT IMPLEMENTED | **PARTIAL** | `scripts/backup.py` tạo / kiểm chứng / khôi phục (có bản an toàn trước khi ghi đè) — chạy thật 0,09 s, ĐẠT; runbook. Chưa: lịch sao lưu tự động, bản sao ngoài máy, RPO / RTO cam kết |
 
 ## Việc chủ hệ thống cần làm
 
-1. Đổi mật khẩu `admin` (máy chủ vẫn nhận `admin123`).
+1. ~~Đổi mật khẩu `admin`~~ — đã đổi (2026-10-06).
 2. Xoá `certs/config.json.pre-encrypt.bak` sau khi đã kiểm cấu hình mã hoá chạy đúng.
 3. Đặt lịch `python scripts/backup.py create` (Task Scheduler) và chép `backups/` ra nơi lưu trữ được bảo vệ.
 4. Nạp firmware 54 cho robot khi cắm (`pio run -e esp32s3 -t upload --upload-port COM7`).

@@ -1,6 +1,6 @@
 # Kế hoạch chuyển SQLite → PostgreSQL
 
-Trạng thái: **KẾ HOẠCH — chưa thực hiện.** Cần chủ dự án quyết định thời điểm và cung cấp máy chủ PostgreSQL (xem `docs/production/owner-todo.md`).
+Trạng thái: **ĐÃ CUTOVER (2026-10-06).** Ứng dụng chạy trên PostgreSQL 16 Docker. Thực tế khác kế hoạch ban đầu: thay vì viết lại từng câu SQL, lớp `pg_compat` dịch SQL kiểu SQLite sang PostgreSQL tại điểm mở duy nhất `open_sqlite`; kiểu thời gian giữ TEXT (định dạng `YYYY-MM-DD HH:MM:SS`, so sánh chuỗi như cũ); mỗi tệp DB → một schema (`vnmate`, `hr`). Toàn bộ pytest chạy trên cả hai backend. Phần dưới là kế hoạch gốc, giữ để đối chiếu.
 
 Điều kiện tiên quyết đã đạt (Phase Data, plan §21–23):
 - Mỗi bảng có **một chủ schema**: `vnmateai.db` thuộc `mateai.infrastructure.database.erp_database`, `hr_kpi.db` thuộc `mateai.infrastructure.directory.domain_sync` (giám sát chỉ đọc qua `probe_hr_database` và `check_sqlite_integrity`). `sqlite3.connect` ngoài các module này bị test RULE-014 chặn.

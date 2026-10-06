@@ -41,6 +41,22 @@ os.environ["VNMATEAI_TELEGRAM_OUTBOUND"] = "off"
 # Không gửi trace của bộ test tới OTel collector thật (config.json có thể đặt otlp).
 os.environ["VNMATEAI_OTEL_EXPORTER"] = "none"
 
+# Backend CSDL của bộ test — KHÔNG BAO GIỜ là DB vận hành (config.json có DATABASE_URL sau cutover):
+#   mặc định  : SQLite tạm ở trên
+#   VNMATEAI_TEST_BACKEND=pg : PostgreSQL THẬT (pgserver) với schema riêng mỗi lượt chạy —
+#                              chạy cả bộ test trên PostgreSQL (prompt cuối §66: kiểm trước cutover).
+_PG_SERVER = None
+if os.environ.get("VNMATEAI_TEST_BACKEND", "").lower() == "pg":
+    import uuid as _uuid
+    import pgserver as _pgserver
+    _PG_SERVER = _pgserver.get_server(str(_TEST_DATA_DIR / "pg"), cleanup_mode="stop")
+    _suffix = _uuid.uuid4().hex[:8]
+    os.environ["VNMATEAI_DATABASE_URL"] = _PG_SERVER.get_uri()
+    os.environ["VNMATEAI_PG_SCHEMA"] = f"t_vnmate_{_suffix}"
+    os.environ["VNMATEAI_PG_HR_SCHEMA"] = f"t_hr_{_suffix}"
+else:
+    os.environ["VNMATEAI_DATABASE_URL"] = "sqlite"
+
 #: File cấu hình thật mà test có thể ghi vào. DB SQLite KHÔNG nằm trong danh
 #: sách: server có thể đang mở DB, chép đè lên DB đang mở sẽ làm hỏng dữ liệu.
 _PROTECTED_FILES = [

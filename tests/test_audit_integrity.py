@@ -38,7 +38,8 @@ def test_tampering_is_detected_at_the_right_row():
     from mateai.infrastructure.database.erp_database import erp_db
     ids = _ids(3)
     with erp_db.get_connection() as conn:
-        conn.execute("DROP TRIGGER IF EXISTS audit_logs_no_update;")
+        from mateai.infrastructure.database.erp_database import is_pg
+        conn.execute("DROP TRIGGER IF EXISTS audit_logs_no_update" + (" ON audit_logs" if is_pg(conn) else ""))
         conn.execute("UPDATE audit_logs SET payload = '{\"i\": 999}' WHERE id = ?;", (ids[1],))
         conn.commit()
     try:

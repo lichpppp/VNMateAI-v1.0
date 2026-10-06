@@ -108,7 +108,7 @@ Tương thích: token **chung** (`certs/device_secret.key`, `GET /api/v1/securit
 
 | Việc | Lệnh | Ghi chú |
 |---|---|---|
-| Sao lưu | `python scripts/backup.py create` | SQLite chụp trực tuyến (an toàn khi máy chủ đang chạy) + `config.json` + khoá trong `certs/` + `storage/vector_db`; tự kiểm chứng (sha256, `integrity_check`, số dòng). Đo 2026-10-05: 0,09 s, 1,3 MB |
+| Sao lưu | `python scripts/backup.py create` | CSDL chụp trực tuyến (an toàn khi máy chủ đang chạy): khi có `DATABASE_URL` thì chụp từng schema PostgreSQL (REPEATABLE READ) ra tệp SQLite và đối chiếu checksum, ngược lại chụp tệp SQLite; khôi phục vào PostgreSQL bằng `pg_migration.migrate` + `config.json` + khoá trong `certs/` + `storage/vector_db`; tự kiểm chứng (sha256, `integrity_check`, số dòng). Đo 2026-10-05: 0,09 s, 1,3 MB |
 | Kiểm chứng bản cũ | `python scripts/backup.py verify backups\<thư mục>` | ĐẠT / KHÔNG ĐẠT + lý do |
 | Khôi phục | dừng máy chủ → `python scripts/backup.py restore backups\<thư mục> --yes` | từ chối bản không đạt kiểm chứng; tự lưu trạng thái hiện tại vào `backups\pre-restore-*` |
 | Rollback mã | `git checkout <commit trước>` → chạy lại máy chủ | schema chỉ THÊM bảng / cột (không xoá) nên bản cũ vẫn đọc được DB mới; nếu cần trạng thái dữ liệu cũ: khôi phục bản sao lưu tương ứng |

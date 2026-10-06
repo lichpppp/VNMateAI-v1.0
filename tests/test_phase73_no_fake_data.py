@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         conn.execute("INSERT INTO devices (dept_id, owner_id, hostname, ip_address, type) VALUES (1, 1, 'SERVER-01', '192.168.1.10', 'Server');")
         conn.execute("INSERT INTO finances (type, amount, category, description, date) VALUES ('income', 250000000.0, 'Doanh thu', 'hợp đồng mẫu', '2026-09-01 10:00:00');")
         conn.execute("INSERT INTO attendance (employee_id, check_in_time, status) VALUES (1, '2026-09-01 08:15:00', 'present');")
-        conn.execute("INSERT INTO tasks (title, status, created_by_ai) VALUES ('Nhiệm vụ mẫu', 'pending', 0);")
+        conn.execute("INSERT INTO tasks (id, title, status, created_by_ai) VALUES ('mau-1', 'Nhiệm vụ mẫu', 'pending', 0);")
         conn.commit()
 
     check("dữ liệu mẫu đã được nhồi sẵn trước khi gọi hàm", count_rows(polluted, "finances") == 1)
@@ -132,7 +132,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         conn.execute("INSERT INTO employees (dept_id, name, position) VALUES (?, 'Nguyễn Văn A', 'Kỹ sư');", (new_dept,))
         cur = conn.execute("INSERT INTO employees (dept_id, name, position) VALUES (?, 'Lê Hoàng C', 'DevOps');", (new_dept,))
         new_emp = cur.lastrowid
-        conn.execute("INSERT INTO tasks (title, status, created_by_ai, assignee_id) VALUES ('Nhiệm vụ', 'pending', 0, ?);", (new_emp,))
+        conn.execute("INSERT INTO tasks (id, title, status, created_by_ai, assignee_id) VALUES ('nv-1', 'Nhiệm vụ', 'pending', 0, ?);", (new_emp,))
         conn.commit()
     polluted.purge_sample_data()
     check(
@@ -143,6 +143,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
 
 # Kiểm tra DB thật đã được dọn
 try:
+    # Bảng users do db_manager dựng khi khởi động (như ứng dụng thật) — DB/schema mới tinh chưa có.
+    from mateai.infrastructure.database.db_manager import db_manager  # noqa: F401
     check(
         "DB thật vnmateai.db không còn dữ liệu mẫu",
         all(count_rows(erp_db, t) == 0 for t in ERP_TABLES),

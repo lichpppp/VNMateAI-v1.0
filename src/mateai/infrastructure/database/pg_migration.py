@@ -28,19 +28,9 @@ class MigrationError(RuntimeError):
 
 
 def _pg_type(declared: str) -> str:
-    """Theo quy tắc type affinity của SQLite."""
-    t = (declared or "").upper()
-    if "INT" in t:
-        return "BIGINT"
-    if any(k in t for k in ("CHAR", "CLOB", "TEXT")):
-        return "TEXT"
-    if "BLOB" in t:
-        return "BYTEA"
-    if any(k in t for k in ("REAL", "FLOA", "DOUB")):
-        return "DOUBLE PRECISION"
-    if any(k in t for k in ("NUMERIC", "DECIMAL")):
-        return "NUMERIC"
-    return "TEXT"
+    """Một nguồn ánh xạ kiểu với DDL lúc chạy (pg_compat) — hai bên không được lệch."""
+    from mateai.infrastructure.database.pg_compat import sqlite_type_to_pg
+    return sqlite_type_to_pg(declared)
 
 
 def _q(name: str) -> str:
@@ -48,8 +38,9 @@ def _q(name: str) -> str:
 
 
 def _open(path: Path):
-    from mateai.infrastructure.database.erp_database import open_sqlite
-    return open_sqlite(path, timeout=30.0)
+    # Luôn đọc FILE SQLite thật (kể cả khi ứng dụng đã chạy trên PostgreSQL).
+    from mateai.infrastructure.database.erp_database import open_sqlite_file
+    return open_sqlite_file(path, timeout=30.0)
 
 
 def schema_map(sqlite_path: Path) -> List[Dict[str, Any]]:
@@ -72,7 +63,9 @@ def schema_map(sqlite_path: Path) -> List[Dict[str, Any]]:
                              "default": dflt, "identity": identity})
             indexes = [r[0] for r in conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL;", (t,))]
-            plan.append({"table": t, "columns": cols, "primary_key": pk, "indexes": indexes})
+            fks = [{"from": r[3], "table": r[2], "to": r[4], "on_delete": r[6]}
+                   for r in conn.execute(f"PRAGMA foreign_key_list({_q(t)});").fetchall()]
+            plan.append({"table": t, "columns": cols, "primary_key": pk, "indexes": indexes, "foreign_keys": fks})
         return plan
     finally:
         conn.close()
@@ -117,7 +110,9 @@ def _index_sql(schema: str, sql: str) -> Optional[str]:
         return None
     unique, name, table, cols = m.groups()
     name, table = name.strip('"[]`'), table.strip('"[]`')
-    return (f"CREATE {'UNIQUE ' if unique else ''}INDEX IF NOT EXISTS {_q(schema + '_' + name)} "
+    # Giữ nguyên tên index (duy nhất trong schema) — ứng dụng chạy `CREATE INDEX IF NOT EXISTS <tên>`
+    # lúc khởi động; đổi tên ở đây sẽ sinh index trùng.
+    return (f"CREATE {'UNIQUE ' if unique else ''}INDEX IF NOT EXISTS {_q(name)} "
             f"ON {_q(schema)}.{_q(table)} ({cols});")
 
 
@@ -206,17 +201,39 @@ def migrate(sqlite_path: Path, pg_dsn: str, schema: str = "vnmate", replace: boo
                     else:
                         skipped_indexes.append(isql)
                 if t["table"] == "audit_logs":
+                    # Cùng tên hàm / trigger với lúc chạy (erp_database._create_audit_guards).
                     pg.execute(f"""
-                        CREATE FUNCTION {_q(schema)}.audit_logs_append_only() RETURNS trigger AS $$
+                        CREATE OR REPLACE FUNCTION {_q(schema)}.audit_logs_append_only() RETURNS trigger AS $$
                         BEGIN RAISE EXCEPTION 'audit_logs là append-only: không được sửa / xoá'; END
                         $$ LANGUAGE plpgsql;""")
-                    pg.execute(f"CREATE TRIGGER audit_logs_append_only BEFORE UPDATE OR DELETE "
-                               f"ON {_q(schema)}.audit_logs FOR EACH ROW "
-                               f"EXECUTE FUNCTION {_q(schema)}.audit_logs_append_only();")
+                    for trg, ev in (("audit_logs_no_update", "UPDATE"), ("audit_logs_no_delete", "DELETE")):
+                        pg.execute(f"CREATE OR REPLACE TRIGGER {trg} BEFORE {ev} ON {_q(schema)}.audit_logs "
+                                   f"FOR EACH ROW EXECUTE FUNCTION {_q(schema)}.audit_logs_append_only();")
+            # Khoá ngoại sau khi đủ bảng + dữ liệu (ON DELETE CASCADE / SET NULL mà ứng dụng dựa vào).
+            fk_skipped = []
+            for t in plan:
+                for fk in t.get("foreign_keys") or []:
+                    name = f"fk_{t['table']}_{fk['from']}"
+                    on_del = fk["on_delete"] if fk["on_delete"] and fk["on_delete"] != "NO ACTION" else ""
+                    stmt = (f"ALTER TABLE {_q(schema)}.{_q(t['table'])} ADD CONSTRAINT {_q(name)} "
+                            f"FOREIGN KEY ({_q(fk['from'])}) REFERENCES {_q(schema)}.{_q(fk['table'])} ({_q(fk['to'])})"
+                            + (f" ON DELETE {on_del}" if on_del else ""))
+                    try:
+                        with pg.transaction():
+                            pg.execute(stmt)
+                    except psycopg.Error as exc:
+                        # Dữ liệu cũ vi phạm (bản ghi mồ côi): gắn NOT VALID — ràng buộc áp cho dữ liệu MỚI.
+                        try:
+                            with pg.transaction():
+                                pg.execute(stmt + " NOT VALID")
+                            fk_skipped.append({"constraint": name, "note": f"NOT VALID: {exc}".splitlines()[0]})
+                        except psycopg.Error as exc2:
+                            fk_skipped.append({"constraint": name, "note": str(exc2).splitlines()[0]})
     finally:
         src.close()
     rep = verify(sqlite_path, pg_dsn, schema, plan=plan)
-    rep.update({"duration_s": round(time.perf_counter() - t0, 2), "skipped_indexes": skipped_indexes})
+    rep.update({"duration_s": round(time.perf_counter() - t0, 2), "skipped_indexes": skipped_indexes,
+                "foreign_keys_not_validated": fk_skipped})
     return rep
 
 
@@ -248,6 +265,110 @@ def verify(sqlite_path: Path, pg_dsn: str, schema: str = "vnmate",
     finally:
         src.close()
     return {"ok": not mismatches, "tables": tables, "mismatches": mismatches, "schema": schema}
+
+
+_PG_TO_SQLITE = {"bigint": "INTEGER", "integer": "INTEGER", "smallint": "INTEGER", "boolean": "INTEGER",
+                 "double precision": "REAL", "real": "REAL", "numeric": "NUMERIC", "bytea": "BLOB"}
+
+
+def _sqlite_default(pg_default: Optional[str]) -> Optional[str]:
+    """Mặc định cột PostgreSQL -> SQLite (chỉ hằng số + thời điểm hiện tại; còn lại bỏ)."""
+    if not pg_default or "nextval(" in pg_default:
+        return None
+    d = re.sub(r"::[A-Za-z ]+$", "", pg_default.strip())
+    if d.startswith("to_char(now()"):
+        return "CURRENT_TIMESTAMP"
+    if re.fullmatch(r"-?\d+(\.\d+)?", d) or re.fullmatch(r"'(?:[^']|'')*'", d):
+        return d
+    return None
+
+
+_PG_INDEX_RE = re.compile(r"CREATE\s+(UNIQUE\s+)?INDEX\s+(\S+)\s+ON\s+\S+\s+USING\s+btree\s+\((.+)\)\s*$", re.I)
+
+
+def export_to_sqlite(pg_dsn: str, schema: str, sqlite_path: Path) -> Dict[str, Any]:
+    """Chụp MỘT schema PostgreSQL ra file SQLite (đường lùi + định dạng sao lưu chung).
+
+    Đọc trong một transaction REPEATABLE READ READ ONLY -> bản chụp nhất quán kể cả khi máy chủ đang
+    ghi. File ra dùng lại được bằng `migrate(..., replace=True)` (khôi phục) — cùng đường kiểm chứng
+    checksum. Trả số dòng + checksum từng bảng tính TRONG bản chụp, đã đối chiếu với file vừa ghi."""
+    import psycopg
+    from mateai.infrastructure.database.erp_database import open_sqlite_file
+    sqlite_path = Path(sqlite_path)
+    if sqlite_path.exists():
+        raise MigrationError(f"{sqlite_path} đã tồn tại — không ghi đè")
+    out = open_sqlite_file(sqlite_path, wal=False)      # một file duy nhất, không kèm -wal
+    tables: List[Dict[str, Any]] = []
+    try:
+        with psycopg.connect(pg_dsn) as pg:
+            pg.execute("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            if not _schema_exists(pg, schema):
+                raise MigrationError(f"Schema '{schema}' không tồn tại")
+            names = [r[0] for r in pg.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = %s "
+                "AND table_type = 'BASE TABLE' ORDER BY table_name", (schema,))]
+            for t in names:
+                cols = pg.execute(
+                    "SELECT column_name, data_type, is_nullable, column_default, is_identity "
+                    "FROM information_schema.columns WHERE table_schema = %s AND table_name = %s "
+                    "ORDER BY ordinal_position", (schema, t)).fetchall()
+                pk = [r[0] for r in pg.execute(
+                    "SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid "
+                    "AND a.attnum = ANY(i.indkey) WHERE i.indrelid = %s::regclass AND i.indisprimary "
+                    "ORDER BY array_position(i.indkey, a.attnum)", (f'{_q(schema)}.{_q(t)}',))]
+                fks = pg.execute(
+                    "SELECT kcu.column_name, ccu.table_name, ccu.column_name, rc.delete_rule "
+                    "FROM information_schema.referential_constraints rc "
+                    "JOIN information_schema.key_column_usage kcu ON kcu.constraint_name = rc.constraint_name "
+                    " AND kcu.constraint_schema = rc.constraint_schema "
+                    "JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_name = rc.unique_constraint_name "
+                    " AND ccu.constraint_schema = rc.unique_constraint_schema "
+                    "WHERE rc.constraint_schema = %s AND kcu.table_name = %s", (schema, t)).fetchall()
+                parts, types = [], []
+                for name, dtype, nullable, dflt, ident in cols:
+                    st = _PG_TO_SQLITE.get(dtype, "TEXT")
+                    types.append(_pg_type(st))
+                    if ident == "YES" and pk == [name]:
+                        parts.append(f"{_q(name)} INTEGER PRIMARY KEY AUTOINCREMENT")
+                        continue
+                    p = f"{_q(name)} {st}"
+                    if nullable == "NO":
+                        p += " NOT NULL"
+                    d = _sqlite_default(dflt)
+                    if d is not None:
+                        p += f" DEFAULT {d}"
+                    parts.append(p)
+                if pk and not any("PRIMARY KEY" in p for p in parts):
+                    parts.append("PRIMARY KEY (" + ", ".join(_q(k) for k in pk) + ")")
+                for col, rt, rc, rule in fks:
+                    parts.append(f"FOREIGN KEY ({_q(col)}) REFERENCES {_q(rt)} ({_q(rc)})"
+                                 + (f" ON DELETE {rule}" if rule and rule != "NO ACTION" else ""))
+                out.execute(f"CREATE TABLE {_q(t)} (" + ", ".join(parts) + ")")
+                colnames = [c[0] for c in cols]
+                rows = pg.execute(f"SELECT {', '.join(_q(n) for n in colnames)} FROM {_q(schema)}.{_q(t)}").fetchall()
+                conv = [tuple(str(v) if type(v).__name__ == "Decimal" else v for v in r) for r in rows]
+                out.executemany(f"INSERT INTO {_q(t)} VALUES ({', '.join('?' for _ in colnames)})", conv)
+                for (idxdef,) in pg.execute("SELECT indexdef FROM pg_indexes WHERE schemaname = %s AND tablename = %s "
+                                            "AND indexname NOT IN (SELECT conname FROM pg_constraint "
+                                            "WHERE connamespace = %s::regnamespace)", (schema, t, _q(schema))):
+                    m = _PG_INDEX_RE.match(idxdef)
+                    if m:
+                        out.execute(f"CREATE {'UNIQUE ' if m.group(1) else ''}INDEX IF NOT EXISTS "
+                                    f"{_q(m.group(2).strip(chr(34)))} ON {_q(t)} ({m.group(3)})")
+                tables.append({"table": t, "rows": len(rows), "checksum": _checksum(rows, types),
+                               "_cols": colnames, "_types": types})
+            pg.rollback()
+        out.commit()
+        mismatches = []
+        for t in tables:
+            back = [tuple(r) for r in out.execute(f"SELECT {', '.join(_q(n) for n in t.pop('_cols'))} FROM {_q(t['table'])}")]
+            if len(back) != t["rows"] or _checksum(back, t.pop("_types")) != t["checksum"]:
+                mismatches.append(t["table"])
+    finally:
+        out.close()
+    if mismatches:
+        raise MigrationError("Bản chụp SQLite lệch PostgreSQL ở: " + ", ".join(mismatches))
+    return {"ok": True, "schema": schema, "tables": tables}
 
 
 def rollback(pg_dsn: str, schema: str = "vnmate") -> None:

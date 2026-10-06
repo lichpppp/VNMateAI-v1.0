@@ -11,6 +11,13 @@ from __future__ import annotations
 
 import pytest
 
+import os
+
+# Nguồn di trú là FILE SQLite của ứng dụng; khi cả bộ test chạy trên PostgreSQL thì ứng dụng không
+# ghi SQLite nên không có nguồn để chép.
+pytestmark = pytest.mark.skipif(os.environ.get("VNMATEAI_DATABASE_URL", "sqlite") != "sqlite",
+                                reason="nguồn di trú là SQLite — bộ test đang chạy trên PostgreSQL")
+
 pgserver = pytest.importorskip("pgserver", reason="cần gói dev pgserver (PostgreSQL thật) — requirements-dev.txt")
 
 

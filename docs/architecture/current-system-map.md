@@ -10,11 +10,11 @@
 
 | Câu hỏi | Trả lời |
 |---|---|
-| Kiến trúc lõi đúng hướng prompt chưa? | **Rồi.** Mỗi chức năng lõi một bản chuẩn; 10 luật kiến trúc tự động = 0 vi phạm; **827 pytest + 14 test Node** đạt; lint lỗi chạy thật = 0; quét lỗ hổng phụ thuộc chỉ còn chromadb (không áp dụng — §7). |
-| Đã đủ điều kiện production theo §150? | **Gần đủ.** Hạ tầng Docker đang chạy thật (PostgreSQL 16, Redis 7, S3 có khoá, OTel collector; chỉ mở trên 127.0.0.1); máy chủ đã nối Redis + S3 + OTLP; sao lưu tự động 02:00 đẩy lên S3; robot chạy firmware 54.0. Đã có: identity, phân quyền (RBAC + ABAC), policy, risk, audit có chuỗi băm, evidence, verification, kill switch + chế độ khẩn cấp, backup / restore (+ đẩy lên S3), health, trace OpenTelemetry, log có cấu trúc, rate limit, timeout, kịch bản vàng 15/15. Còn: ứng dụng vẫn đọc / ghi **SQLite** (bản sao đã ở PostgreSQL Docker, chưa cutover), CI GitHub chưa xác nhận chạy. |
+| Kiến trúc lõi đúng hướng prompt chưa? | **Rồi.** Mỗi chức năng lõi một bản chuẩn; 10 luật kiến trúc tự động = 0 vi phạm; **831 pytest (cả SQLite lẫn PostgreSQL: 823 + 8 bỏ qua có lý do) + 14 test Node** đạt; lint lỗi chạy thật = 0; quét lỗ hổng phụ thuộc chỉ còn chromadb (không áp dụng — §7). |
+| Đã đủ điều kiện production theo §150? | **Gần đủ.** Hạ tầng Docker đang chạy thật (PostgreSQL 16, Redis 7, S3 có khoá, OTel collector; chỉ mở trên 127.0.0.1); máy chủ đã nối Redis + S3 + OTLP; sao lưu tự động 02:00 đẩy lên S3; robot chạy firmware 54.0. Đã có: identity, phân quyền (RBAC + ABAC), policy, risk, audit có chuỗi băm, evidence, verification, kill switch + chế độ khẩn cấp, backup / restore (+ đẩy lên S3), health, trace OpenTelemetry, log có cấu trúc, rate limit, timeout, kịch bản vàng 15/15. **Đã cutover sang PostgreSQL (2026-10-06)**: ứng dụng đọc / ghi PostgreSQL 16 Docker (schema `vnmate`, `hr`); tệp SQLite giữ làm đường lùi. Còn: CI GitHub chưa xác nhận chạy. |
 | Còn trùng lặp không lý do? | Không. Hai chỗ "hai thứ" có lý do (§6). |
 | Còn đường cũ chạy được? | Một: alias `/ws/audio-stream` cho firmware cũ (cùng handler mới, log `[DEPRECATED]`). |
-| Rủi ro lớn nhất còn lại | Chưa cutover sang PostgreSQL (vẫn một tệp SQLite) + mật khẩu `admin/admin123` mặc định chưa đổi. |
+| Rủi ro lớn nhất còn lại | Máy chủ ứng dụng + PostgreSQL cùng một máy (một điểm hỏng; sao lưu 02:00 đẩy lên S3 cùng máy) — cần bản sao lưu ngoài máy. Mật khẩu admin đã đổi (chủ dự án xác nhận 2026-10-06). |
 
 ---
 
@@ -38,7 +38,7 @@ VNMateaiv1/
 ├── esp32_firmware/  130 tệp 10 414 dòng   firmware robot Xiaozhi
 ├── deploy/                              docker-compose.infra.yml (PostgreSQL, Redis, S3, OTel collector) + otel-collector.yaml
 ├── scripts/           9 tệp  1 265 dòng   backup (+push/pull S3), migrate_sqlite_to_pg, dev_infra, bench_codec, build CSS
-├── tests/           154 tệp 24 660 dòng   827 pytest + 14 Node; tests/architecture = luật phụ thuộc
+├── tests/           154 tệp 24 660 dòng   831 pytest (chạy được trên SQLite và PostgreSQL) + 14 Node; tests/architecture = luật phụ thuộc
 └── docs/             53 tệp
 ```
 
@@ -62,7 +62,7 @@ Không có tệp tên `*_old / *_new / *_v2 / *_v3 / *_legacy / *_backup / *_cop
 
 | Gói | Nội dung |
 |---|---|
-| `database` | `erp_database` (mở SQLite DUY NHẤT; audit có chuỗi băm + trigger chặn sửa / xoá), `db_manager`, **`pg_migration`** (SQLite → PostgreSQL có kiểm chứng) |
+| `database` | `erp_database` (điểm mở CSDL DUY NHẤT `open_sqlite`: PostgreSQL khi có `DATABASE_URL`, ngược lại SQLite; audit có chuỗi băm + trigger chặn sửa / xoá trên cả hai), **`pg_compat`** (lớp tương thích: dịch SQL kiểu SQLite → PostgreSQL, pool kết nối, mỗi tệp DB cũ → một schema), `db_manager`, **`pg_migration`** (SQLite ⇄ PostgreSQL có kiểm chứng checksum; `export_to_sqlite` cho sao lưu) |
 | `cache` | `ephemeral_cache`, **`shared_state`** (RAM hoặc Redis: rate limit, bộ đếm khẩn cấp, khoá đăng nhập; Redis lỗi → lùi về RAM) |
 | `files` | `file_export`, **`object_storage`** (local / S3) |
 | `observability` | **`tracing`** (OpenTelemetry: none / console / otlp) |
@@ -126,8 +126,8 @@ LLM / fast router / Portal / đa tác nhân / plugin_registry gọi thẳng
 
 | Kho | Vai trò | Trạng thái |
 |---|---|---|
-| `vnmateai.db`, `hr_kpi.db` (SQLite) | nguồn sự thật hiện tại | đang dùng |
-| PostgreSQL | nguồn sự thật đích (PostgreSQL 16 Docker đang chạy, schema `vnmate` = bản sao 23 bảng / 1 231 dòng) | `pg_migration`: schema map → chép trong một transaction → đối chiếu số dòng + checksum → rollback. **Chạy thử trên bản sao dữ liệu thật: 23 bảng, 1 195 dòng, khớp 100 %.** Cutover (ứng dụng chạy trên PG) chưa làm — §10 |
+| `vnmateai.db`, `hr_kpi.db` (SQLite) | **đường lùi** (không còn được ghi từ 2026-10-06 19:35) | giữ nguyên + bản sao lưu đã kiểm chứng `backups/pre-pg-cutover/` |
+| PostgreSQL | **nguồn sự thật** (PostgreSQL 16 Docker, schema `vnmate` 23 bảng + `hr` 2 bảng; `DATABASE_URL` mã hoá trong config.json) | **Cutover 2026-10-06**: dừng máy chủ → sao lưu SQLite (kiểm chứng) → `pg_migration.migrate` 23 bảng / 1 260 dòng khớp checksum 100 %, khoá ngoại hợp lệ hết → bật `DATABASE_URL` → khởi động: `/readyz` ok, đăng nhập sai bị từ chối + ghi audit vào PG, chuỗi audit `ok`, robot nối lại. Sao lưu chụp từ PG (REPEATABLE READ → tệp SQLite, đối chiếu checksum); khôi phục bằng `migrate`. Đường lùi: xoá `DATABASE_URL` → về tệp SQLite (dữ liệu ghi sau cutover phải chép ngược bằng `export_to_sqlite`) |
 | Redis | trạng thái ngắn hạn dùng chung | **Đang dùng** — Redis 7 Docker (mật khẩu, 127.0.0.1); `REDIS_URL` mã hoá trong config.json. Không là nguồn sự thật |
 | Object storage (local / S3) | tài liệu tri thức, bản sao lưu | **Đang dùng S3** Docker (bắt buộc khoá); sao lưu 02:00 hằng ngày đẩy lên, kéo về kiểm chứng ĐẠT |
 | `config.json` (khoá mã hoá) | cấu hình + chính sách | một đường ghi có lịch sử + audit |
@@ -182,8 +182,8 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 | OpenTelemetry (§93) | **PASS** | span http / voice / tool / llm; exporter none / console / otlp; collector trong compose |
 | Model registry (§79) | **PASS** | |
 | Redis (§67) · object storage (§68) | **PASS** | kiểm trên server thật |
-| PostgreSQL (§65–§66) | PARTIAL | di trú + kiểm chứng PASS trên dữ liệu thật; **cutover chưa làm** |
-| Mở rộng ngang (§145, §164) | PARTIAL | bộ đếm dùng chung qua Redis; còn SQLite + phiên WS theo tiến trình |
+| PostgreSQL (§65–§66) | **PASS** | ứng dụng chạy trên PostgreSQL; toàn bộ pytest chạy được trên cả PG (`VNMATEAI_TEST_BACKEND=pg`) lẫn SQLite |
+| Mở rộng ngang (§145, §164) | PARTIAL | CSDL (PostgreSQL) + bộ đếm (Redis) đã dùng chung; còn phiên WS theo tiến trình |
 | Deployment (§138) | **PASS (phạm vi một máy)** | compose hạ tầng đang chạy thật; ứng dụng chạy trên host Windows (COM, micro) |
 | CI/CD (§139) | PARTIAL | workflow: lint lỗi chạy thật + pip-audit + pytest + Node; **chưa xác nhận chạy trên GitHub** (repo riêng tư, máy không có `gh`) |
 | Backup / DR (§136–§137) | **PASS** | backup có kiểm chứng + đẩy / kéo S3 |
@@ -221,7 +221,7 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 | 9 | Authorization path | `tool_gate` → `authorize()` (RBAC + ABAC) |
 | 10 | Task lifecycle | `application/tasks/ledger` (+ mục tiêu, ưu tiên, sự cố) |
 | 11 | Audit path | `erp_db.write_audit_log` → `audit_logs` (append-only, chuỗi băm, trigger) |
-| 12 | System of record | SQLite hiện tại; PostgreSQL là đích — đã có di trú có kiểm chứng |
+| 12 | System of record | PostgreSQL (từ 2026-10-06); SQLite là đường lùi |
 | 13 | Session state | phiên realtime trong RAM tiến trình; bộ đếm dùng chung ở Redis khi cấu hình |
 | 14 | Binary storage | object storage (local hoặc S3) |
 | 15 | Stateless | router HTTP, policy / risk / ABAC, provider LLM / TTS, object storage client |
@@ -248,8 +248,8 @@ PASS = có mã + test + chạy thật · PARTIAL = có, thiếu phần · NOT IM
 | 36 | Policy deny rate | đo ở cùng nơi; 24 h trước: 0 % |
 | 37 | Human override rate | chưa có mẫu đại diện |
 | 38 | Cost / task | đếm token thật mỗi tác vụ; router không trả giá tiền |
-| 39 | Chưa production-ready | PostgreSQL cutover; Docker trên máy này (WSL); CI GitHub chưa xác nhận; Opus cho robot (firmware); STT máy chủ có kết quả tạm |
-| 40 | Rủi ro cao nhất | còn một tệp SQLite làm nguồn sự thật + mật khẩu admin mặc định |
+| 39 | Chưa production-ready | Docker trên máy này (WSL); CI GitHub chưa xác nhận; Opus cho robot (firmware); STT máy chủ có kết quả tạm |
+| 40 | Rủi ro cao nhất | ứng dụng + CSDL + bản sao lưu trên cùng một máy |
 
 ---
 

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Schema định nghĩa cơ sở dữ liệu để LLM sinh câu truy vấn SQL chuẩn xác
 DB_SCHEMA_PROMPT = """
-Các bảng trong cơ sở dữ liệu SQLite (vnmateai.db):
+Các bảng trong cơ sở dữ liệu nghiệp vụ (PostgreSQL hoặc SQLite — chỉ dùng SQL chuẩn chạy được trên cả hai):
 1. finances (id, type: 'income'/'expense', amount: REAL, category: TEXT, description: TEXT, created_by: TEXT, date: TEXT 'YYYY-MM-DD HH:MM:SS')
 2. tasks (id, dept_id, assignee_id, title: TEXT, status: 'pending'/'in_progress'/'completed'/'cancelled', due_date: TEXT, created_by_ai: INTEGER)
 3. employees (id, dept_id, name: TEXT, position: TEXT, email: TEXT, phone: TEXT, role: TEXT)
@@ -47,7 +47,7 @@ QUY TẮC BẮT BUỘC:
 - CHỉ được trả về đúng một câu lệnh `SELECT`, không giải thích, không bọc trong code fence.
 - TUYỆT ĐỐI KHÔNG dùng: INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, REPLACE, PRAGMA, ATTACH.
 - Bắt buộc đặt bí danh cột đầu tiên là `label` và cột số thứ hai là `value` (hệ thống vẽ biểu đồ từ đúng hai cột này).
-- Với câu hỏi về thời gian, dùng `date(due_date)` hoặc `substr(date, 1, 7)` để gom nhóm.
+- Ngày giờ lưu dạng chuỗi 'YYYY-MM-DD HH:MM:SS': gom theo ngày dùng `substr(cot, 1, 10)`, theo tháng dùng `substr(cot, 1, 7)`. KHÔNG dùng hàm riêng của một CSDL (date(), strftime, julianday, to_char).
 - Chỉ dùng các bảng được liệt kê trên. Không bịa tên bảng/cột.
 - Giới hạn tối đa {MAX_SQL_ROWS} dòng (thêm LIMIT khi cần)."""
 

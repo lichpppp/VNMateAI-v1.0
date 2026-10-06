@@ -526,6 +526,7 @@ class AppSettings(BaseSettings):
                                 description="Cổng UDP beacon để robot mới tự tìm máy chủ.")
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level.")
     REDIS_URL: str = Field(default="", description="Kho trạng thái dùng chung (§67). Trống = RAM một tiến trình.")
+    DATABASE_URL: str = Field(default="", description="postgresql://… -> nguồn sự thật là PostgreSQL (§65). Trống = SQLite.")
     OTEL_EXPORTER: str = Field(default="none", pattern="^(none|console|otlp)$",
                                description="Trace OpenTelemetry (§93): none / console / otlp.")
     LOG_FORMAT: str = Field(default="text", pattern="^(text|json)$",

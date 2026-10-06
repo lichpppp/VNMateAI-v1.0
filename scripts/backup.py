@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import sqlite3
 import sys
@@ -75,6 +74,20 @@ def _integrity(db: Path) -> str:
         con.close()
 
 
+def _pg_target(root: Path, rel: str):
+    """(dsn, schema) khi CSDL đang chạy trên PostgreSQL (DATABASE_URL), ngược lại None.
+    Khi đó FILE .db cũ chỉ là bản lùi — sao lưu phải chụp từ PostgreSQL, không chép file.
+    Chỉ áp cho bản cài này (ROOT); cây thư mục khác (bản sao, thử nghiệm) giữ cách chép file."""
+    if Path(root).resolve() != ROOT.resolve():
+        return None
+    sys.path.insert(0, str(root / "src"))
+    from mateai.infrastructure.database import pg_compat
+    url = pg_compat.database_url()
+    if not url:
+        return None
+    return url, pg_compat.schema_for(root / rel)
+
+
 def create(root: Path = ROOT, out_dir: Path | None = None) -> Path:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     dest = out_dir or (root / "backups" / stamp)
@@ -83,6 +96,17 @@ def create(root: Path = ROOT, out_dir: Path | None = None) -> Path:
     manifest: Dict[str, Any] = {"created_at": datetime.now().isoformat(timespec="seconds"), "items": {}}
     for rel, kind in ITEMS:
         src = root / rel
+        pg = _pg_target(root, rel) if kind == "sqlite" else None
+        if pg is not None:
+            # PostgreSQL là nguồn sự thật: bản chụp nhất quán (REPEATABLE READ) ra file SQLite —
+            # cùng định dạng + cùng `verify`; khôi phục bằng pg_migration.migrate (đối chiếu checksum).
+            from mateai.infrastructure.database.pg_migration import export_to_sqlite
+            target = dest / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            export_to_sqlite(pg[0], pg[1], target)
+            manifest["items"][rel] = {"kind": kind, "present": True, "source": "postgresql", "schema": pg[1],
+                                      "sha256": _sha256(target), "rows": _row_counts(target)}
+            continue
         if not src.exists():
             manifest["items"][rel] = {"kind": kind, "present": False}
             continue
@@ -158,6 +182,14 @@ def restore(dest: Path, root: Path = ROOT) -> Path:
             continue
         src, target = dest / rel, root / rel
         target.parent.mkdir(parents=True, exist_ok=True)
+        pg = _pg_target(root, rel) if info["kind"] == "sqlite" else None
+        if pg is not None:
+            # Đang chạy PostgreSQL: nạp bản chụp vào schema (thay toàn bộ, trong một transaction).
+            from mateai.infrastructure.database.pg_migration import migrate
+            rep = migrate(src, pg[0], schema=pg[1], replace=True)
+            if not rep["ok"]:
+                raise RuntimeError(f"Khôi phục {rel} vào PostgreSQL lệch: {rep['mismatches']}")
+            continue
         if info["kind"] == "dir":
             if target.exists():
                 shutil.rmtree(target)

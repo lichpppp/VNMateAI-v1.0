@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mateai.infrastructure.database.erp_database import ERPDatabase  # noqa: E402
+from mateai.infrastructure.database.erp_database import ERPDatabase, open_sqlite  # noqa: E402
 
 PASS = 0
 FAIL = 0
@@ -45,7 +45,7 @@ def check(label: str, condition: bool, detail: str = "") -> None:
 def make_db(rows):
     """DB tạm có bảng `finances` rỗng rồi nạp `rows`."""
     path = Path(tempfile.mkdtemp()) / "t.db"
-    con = sqlite3.connect(path)
+    con = open_sqlite(path)   # cùng điểm mở với ứng dụng: SQLite hoặc PostgreSQL
     con.execute(
         """CREATE TABLE finances (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

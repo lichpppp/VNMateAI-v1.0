@@ -102,5 +102,6 @@ opentelemetry-exporter-otlp-proto-grpc>=1.45,<2
 
 # Hạ tầng production (prompt cuối §65–§68): PostgreSQL, Redis (trạng thái dùng chung), S3.
 psycopg[binary]>=3.2,<4
+psycopg-pool>=3.2,<4
 redis>=5,<9
 minio>=7.2,<8

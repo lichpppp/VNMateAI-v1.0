@@ -9,9 +9,17 @@ hỏng mà trả các dòng mô tả, nên CSDL hỏng không bao giờ bị ph�
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
+
+import pytest
+
+# Kiểm hành vi của FILE SQLite (journal, quick_check, sqlite3.Row). Khi bộ test chạy trên PostgreSQL
+# (VNMATEAI_TEST_BACKEND=pg) không có file SQLite nào — phần tương ứng của PG ở test_pg_backend.py.
+pytestmark = pytest.mark.skipif(os.environ.get("VNMATEAI_DATABASE_URL", "sqlite") != "sqlite",
+                                reason="kiểm file SQLite — bộ test đang chạy trên PostgreSQL")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

@@ -37,7 +37,9 @@ def test_both_writers_work_whatever_initialises_first(tmp_path, monkeypatch, erp
                             "task_message": "Kiểm tra backup", "sender": "CEO", "status": "pending"})
     erp_task = erp.create_erp_task(title="Lập báo cáo quý", status="pending")
 
-    rows = {r[0]: r for r in sqlite3.connect(db).execute(
-        "SELECT id, client_id, task_message, title FROM tasks").fetchall()}
+    from mateai.infrastructure.database.erp_database import open_sqlite
+    with open_sqlite(db) as conn:      # cùng điểm mở với ứng dụng (SQLite / PostgreSQL)
+        rows = {r[0]: tuple(r) for r in conn.execute(
+            "SELECT id, client_id, task_message, title FROM tasks").fetchall()}
     assert rows["t-lan-1"][1:] == ("PC-01", "Kiểm tra backup", "Kiểm tra backup")
     assert rows[erp_task["id"]][3] == "Lập báo cáo quý"
