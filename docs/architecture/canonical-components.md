@@ -83,7 +83,7 @@
 | TTS | 1 (+ skill) | **1** | skill 9Router qua engine |
 | Giao thức WS thoại | 2 + robot | 2 + robot | HUD chưa gộp (L10) |
 | Fast router | 1 | 1 | — |
-| Tool registry (danh mục) | 2 | 2 | L5 chưa gộp; thực thi đã qua một cổng |
+| Tool registry (danh mục) | 2 | 1 danh mục + 2 bộ thực thi | 2026-10-06: `plugin_registry` gọi thẳng cũng qua `tool_gate` (bỏ đường duyệt riêng); còn lại chỉ là bộ thực thi có breaker cho connector — xem `current-system-map.md` §6 |
 | Policy engine | 0 chuẩn / 4 nguồn | **1** (`policy_engine`) | 4 nguồn luật gộp vào một hàm quyết định |
 | Đường phân quyền tool | 3 | **1** (`authorize()`) | RULE-017 = 0 |
 | Task engine | 3 khái niệm + 0 sổ tự trị | 3 khái niệm nghiệp vụ + **1 sổ tác vụ AI** | việc máy trạm / ERP / tác vụ nền là dữ liệu nghiệp vụ khác nhau |

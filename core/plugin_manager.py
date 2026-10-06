@@ -19,6 +19,7 @@ Design Notes:
 from __future__ import annotations
 
 import asyncio
+import ast
 import importlib
 import importlib.util
 import inspect
@@ -122,6 +123,35 @@ def export_skill(
 # ---------------------------------------------------------------------------
 
 
+_SAFE_TOP_LEVEL = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef,
+                   ast.Assign, ast.AnnAssign, ast.AugAssign, ast.Pass)
+
+
+def _is_safe_top_level(node: ast.stmt) -> bool:
+    if isinstance(node, _SAFE_TOP_LEVEL):
+        return True
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):   # docstring
+        return True
+    if isinstance(node, ast.If) and "__name__" in ast.unparse(node.test):    # khối chạy tay
+        return True
+    if isinstance(node, ast.Try):                                            # import tuỳ chọn
+        blocks = [node.body, node.orelse, node.finalbody] + [h.body for h in node.handlers]
+        return all(_is_safe_top_level(x) for b in blocks for x in b)
+    return False
+
+
+def top_level_side_effects(path: Path) -> List[str]:
+    """Câu lệnh cấp module KHÔNG phải import / định nghĩa / gán (vd `with open(...)`,
+    `print(...)`, vòng lặp): import tệp là chạy chúng — trước mọi cổng chính sách.
+    Trả "dòng:loại:đoạn mã"; rỗng = an toàn để nạp. Tệp lỗi cú pháp coi là vi phạm."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError, OSError) as exc:
+        return [f"0:{type(exc).__name__}:{exc}"]
+    return [f"{n.lineno}:{type(n).__name__}:{ast.unparse(n).splitlines()[0][:60]}"
+            for n in tree.body if not _is_safe_top_level(n)]
+
+
 class PluginManager:
     """
     Manages discovery, import, hot-reload, and execution of skill plugins.
@@ -133,6 +163,8 @@ class PluginManager:
         self._registry: Dict[str, Dict[str, Any]] = {}
         self._skills_dir: Path = settings.SKILLS_DIR  # type: ignore[assignment]
         self._registry_json_path: Path = self._skills_dir / "registry.json"
+        #: Tệp trong skills/ bị từ chối nạp vì có lệnh cấp module (tên tệp -> vi phạm).
+        self.rejected_modules: Dict[str, List[str]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -175,10 +207,19 @@ class PluginManager:
                 pass
 
         new_registry: Dict[str, Dict[str, Any]] = {}
+        rejected: Dict[str, List[str]] = {}
 
         with self._lock:
             for skill_file in skill_files:
                 module_name = f"skills.{skill_file.stem}"
+                # Prompt cuối §106/§118: import = chạy code cấp module. Tệp có lệnh ở cấp
+                # module (script đặt nhầm, tệp sinh tự động) KHÔNG được import.
+                violations = top_level_side_effects(skill_file)
+                if violations:
+                    rejected[skill_file.name] = violations
+                    logger.warning("Từ chối nạp '%s': có lệnh chạy ở cấp module (%s) — skill chỉ được "
+                                   "chứa import / định nghĩa / gán.", skill_file.name, "; ".join(violations[:3]))
+                    continue
                 try:
                     if module_name in sys.modules:
                         module = importlib.reload(sys.modules[module_name])
@@ -200,6 +241,7 @@ class PluginManager:
                     )
 
             self._registry = new_registry
+            self.rejected_modules = rejected
             self._persist_registry()
 
         # Phase 8: Dynamic Skill Loading — cập nhật chỉ mục bộ định tuyến kỹ năng động

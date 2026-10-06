@@ -437,6 +437,11 @@ class AutonomyConfig(BaseModel):
     #: Ngân sách mỗi lượt agent (§35).
     max_agent_seconds: float = Field(default=180.0, ge=10.0, le=3600.0)
     max_tool_calls_per_turn: int = Field(default=12, ge=1, le=100)
+    #: Một tool lỗi quá số lần này trong cùng lượt -> không chạy tiếp, leo thang (§55, §158).
+    max_tool_failures_per_turn: int = Field(default=3, ge=1, le=20)
+    #: Chế độ khẩn cấp (§54): AI tự chạy (không người duyệt) quá số hành động có tác dụng
+    #: phụ này trong 60 s -> tự bật kill switch (chỉ đọc), chờ người tắt. 0 = tắt cơ chế.
+    emergency_max_actions_per_minute: int = Field(default=30, ge=0, le=1000)
     #: Email gateway: tự trả lời ra ngoài chỉ khi bật và người gửi thuộc miền được phép (§148).
     email_auto_reply: bool = False
     email_auto_reply_domains: List[str] = Field(default_factory=list)

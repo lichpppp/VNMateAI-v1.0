@@ -13,9 +13,12 @@ Supervisor Phase 10 (§198) — file này KHÔNG chứa nghiệp vụ:
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
+import re
 import sys
+import uuid
 from typing import Any, Dict
 
 from fastapi import FastAPI, Request
@@ -84,6 +87,30 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+
+# ─── Request ID + mô hình lỗi chuẩn (prompt cuối §95, §143) ──────────────────
+#: Id của request đang xử lý — đọc được ở mọi tầng trong cùng request (log, audit).
+REQUEST_ID: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+_SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+
+
+@app.exception_handler(Exception)
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Lỗi không bắt được: `{"error": {code, message, request_id}}`, không lộ stack trace
+    hay thông điệp ngoại lệ (có thể chứa đường dẫn / dữ liệu nhạy cảm). Chi tiết chỉ
+    nằm trong log máy chủ, tra theo request_id. Lỗi nghiệp vụ (HTTPException) giữ
+    dạng `detail` mà giao diện đang đọc."""
+    rid = request.headers.get("x-request-id", "")
+    rid = rid if _SAFE_REQUEST_ID.match(rid) else REQUEST_ID.get()
+    if rid == "-":
+        rid = uuid.uuid4().hex[:16]
+    logger.error("Lỗi không bắt được [request_id=%s] %s %s", rid, request.method, request.url.path, exc_info=exc)
+    return JSONResponse(status_code=500, headers={"X-Request-ID": rid}, content={"error": {
+        "code": "internal_error",
+        "message": f"Lỗi máy chủ nội bộ. Báo quản trị kèm mã {rid} để tra log.",
+        "request_id": rid,
+    }})
 
 
 # ─── Authentication Middleware (Zero-Trust RBAC Protection) ─────────────────
@@ -174,6 +201,22 @@ async def auth_middleware(request: Request, call_next):
                 headers={"WWW-Authenticate": "Bearer"},
             )
     return await call_next(request)
+
+
+# Khai báo SAU middleware xác thực => bọc NGOÀI cùng: cả phản hồi 401 cũng có X-Request-ID.
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Nhận `X-Request-ID` hợp lệ từ client (để nối log hai phía), không thì tự sinh;
+    luôn trả lại trong header. Giá trị lạ không được phản chiếu."""
+    incoming = request.headers.get("x-request-id", "")
+    rid = incoming if _SAFE_REQUEST_ID.match(incoming) else uuid.uuid4().hex[:16]
+    token = REQUEST_ID.set(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        REQUEST_ID.reset(token)
+    response.headers["X-Request-ID"] = rid
+    return response
 
 
 register_routes(app)

@@ -51,6 +51,8 @@ def check(name: str, cond: bool, extra: str = "") -> None:
     else:
         FAILED += 1
         FAILURES.append(f"  ✗ {name}" + (f" — {extra}" if extra else ""))
+        if "pytest" in sys.modules:   # dưới pytest trượt là ĐỎ (không có test giả)
+            raise AssertionError(f"{name}" + (f" — {extra}" if extra else ""))
 
 
 def section(title: str) -> None:

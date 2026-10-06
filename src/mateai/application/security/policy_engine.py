@@ -18,6 +18,10 @@ Thứ tự (DENY luôn thắng — kể cả admin, kể cả khi đã được 
   4. rủi ro -> mức tự trị:  1 = L0, 2 = L2 (tự chạy)
                             >= 3 = L3: chỉ chạy khi người có quyền đã duyệt lượt này,
                                        hoặc có uỷ quyền còn hạn cho đúng danh tính + tool (L4)
+  5. chế độ khẩn cấp (§54): AI tự chạy (L2 / L4, không người duyệt) quá
+     `emergency_max_actions_per_minute` hành động có tác dụng phụ trong 60 s
+     -> tự BẬT kill switch (bền trong cấu hình, có audit + cảnh báo), từ chối hành động
+     vượt ngưỡng. Chỉ người tắt lại được. Tác vụ chỉ đọc vẫn chạy.
 
 LLM không có đường nào ghi đè quyết định: đầu vào là tên tool, tham số, danh tính
 do máy chủ xác thực, cờ `approved` do hàng đợi duyệt đặt, và cấu hình.
@@ -26,9 +30,12 @@ Không có ngoại lệ theo vai trò: tài khoản admin cũng phải duyệt t
 """
 from __future__ import annotations
 
+import collections
 import hashlib
 import json
 import logging
+import threading
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -149,6 +156,45 @@ def remember_delegation(requested_by: Optional[str], tool: str, granted_by: str)
         logger.warning("Không lưu được uỷ quyền '%s' / '%s': %s", principal, tool, exc)
 
 
+# ── Chế độ khẩn cấp (§54) ────────────────────────────────────────────────────
+
+#: Thời điểm các hành động AI TỰ chạy (không người duyệt) có tác dụng phụ — 60 s gần nhất.
+_RECENT_AUTONOMOUS: "collections.deque[float]" = collections.deque()
+_EMERGENCY_LOCK = threading.Lock()
+EMERGENCY_ACTOR = "system:emergency-guard"
+
+
+def _autonomous_burst(limit: int) -> bool:
+    """Ghi một hành động tự chạy; True nếu vượt ngưỡng trong 60 s."""
+    now = time.monotonic()
+    with _EMERGENCY_LOCK:
+        while _RECENT_AUTONOMOUS and now - _RECENT_AUTONOMOUS[0] > 60.0:
+            _RECENT_AUTONOMOUS.popleft()
+        if len(_RECENT_AUTONOMOUS) >= limit:
+            return True
+        _RECENT_AUTONOMOUS.append(now)
+        return False
+
+
+def _engage_emergency(agent_id: str, tool: str, limit: int) -> None:
+    """Bật kill switch qua đường đổi giới hạn tự trị chuẩn (lịch sử + audit), rồi cảnh báo."""
+    reason = (f"Chế độ khẩn cấp: AI tự chạy quá {limit} hành động có tác dụng phụ trong 60 s "
+              f"(tác nhân {agent_id}, tool '{tool}'). Chỉ còn tác vụ chỉ đọc — cần người kiểm tra rồi tắt.")
+    try:
+        from mateai.application.administration import autonomy_settings
+        autonomy_settings.update(EMERGENCY_ACTOR, {"kill_switch": True}, reason)
+    except Exception as exc:  # noqa: BLE001 — không ghi được cấu hình: vẫn khoá trong RAM
+        logger.error("Không lưu được kill switch khẩn cấp: %s", exc)
+        _autonomy().kill_switch = True
+    logger.critical(reason)
+    try:
+        from mateai.application.operations import alert_dispatcher
+        alert_dispatcher.notify("Chế độ khẩn cấp AI đã bật", reason, severity="critical", category="security",
+                                source="policy_engine")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Không gửi được cảnh báo chế độ khẩn cấp: %s", exc)
+
+
 # ── Quyết định ───────────────────────────────────────────────────────────────
 
 def authorize(
@@ -209,11 +255,21 @@ def authorize(
 
     # 4. Rủi ro -> mức tự trị.
     level = _level_for(risk)
-    if risk < 3:
-        return Decision(ALLOW, level, risk, agent_id, [f"rủi ro {risk}: tự chạy"], "auto", version)
-    if approved:
+    if approved and risk >= 3:
         return Decision(ALLOW, "L3", risk, agent_id, ["người có quyền đã duyệt lượt này"], "approved", version)
-    if has_delegation(caller, name):
-        return Decision(ALLOW, "L4", risk, agent_id, ["uỷ quyền còn hạn cho danh tính + tool này"], "delegated", version)
+    if risk < 3:
+        decision = Decision(ALLOW, level, risk, agent_id, [f"rủi ro {risk}: tự chạy"], "auto", version)
+    elif has_delegation(caller, name):
+        decision = Decision(ALLOW, "L4", risk, agent_id, ["uỷ quyền còn hạn cho danh tính + tool này"], "delegated", version)
+    else:
+        decision = None
+    if decision is not None:
+        # 5. Chế độ khẩn cấp: chỉ đếm hành động AI TỰ chạy có tác dụng phụ.
+        limit = int(getattr(auto, "emergency_max_actions_per_minute", 0) or 0)
+        if is_ai and risk > 1 and not approved and limit > 0 and _autonomous_burst(limit):
+            _engage_emergency(agent_id, name, limit)
+            return deny("emergency_mode", f"Chế độ khẩn cấp: AI tự chạy quá {limit} hành động trong 60 s — "
+                                          "chuyển sang chỉ đọc, cần người kiểm tra.")
+        return decision
     return Decision(REQUIRE_APPROVAL, "L3", risk, agent_id,
                     [f"rủi ro {risk}/5: cần người có quyền duyệt"], "supervised", version)

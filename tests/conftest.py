@@ -175,3 +175,12 @@ def _protect_real_config_files():
                 path.unlink()
         shutil.rmtree(backup_dir, ignore_errors=True)
         shutil.rmtree(_TEST_DATA_DIR, ignore_errors=True)
+
+
+@pytest.fixture(autouse=True)
+def _reset_emergency_counter():
+    """Bộ đếm chế độ khẩn cấp (§54) là theo tiến trình: không để hàng trăm test cộng dồn
+    thành "AI hành động dồn dập" rồi tự bật kill switch giữa bộ test."""
+    from mateai.application.security import policy_engine
+    policy_engine._RECENT_AUTONOMOUS.clear()
+    yield

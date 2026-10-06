@@ -1059,6 +1059,11 @@ class LLMEngine:
         _budget = settings.autonomy
         _turn_t0 = time.monotonic()
         _tool_calls_used = [0]
+        # Tool lỗi lặp lại trong lượt (§55 / §158): đếm theo tên tool; quá ngưỡng thì
+        # không chạy tiếp, báo đúng trạng thái và leo thang một lần.
+        _tool_failures: Dict[str, int] = {}
+        agent_id_for_log = f"llm_engine:{source_device or 'unknown'}"
+        _escalated = [False]
         _usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "llm_calls": 0}
         _stop_reason = "MAX_TOOL_ROUNDS reached"
         # Sổ tác vụ (§21): lượt có gọi tool = một tác vụ; mở lúc gọi tool đầu tiên.
@@ -1179,6 +1184,23 @@ class LLMEngine:
                         return {"tool_call_id": _tc_id, "fn_name": fn_name, "target_client": "master", "args": fn_args,
                                 "result": {"status": "budget_exceeded", "success": False,
                                            "message": "Đã hết số lần gọi công cụ cho lượt này — tác vụ CHƯA được thực hiện."}}
+                    _max_fail = int(getattr(_budget, "max_tool_failures_per_turn", 3) or 3)
+                    if _tool_failures.get(fn_name, 0) >= _max_fail:
+                        if not _escalated[0]:
+                            _escalated[0] = True
+                            try:
+                                from mateai.application.operations import alert_dispatcher
+                                alert_dispatcher.notify(
+                                    f"AI dừng tool '{fn_name}' vì lỗi lặp lại",
+                                    f"Tool '{fn_name}' lỗi {_max_fail} lần trong một lượt (yêu cầu: {query[:200]}). "
+                                    "Đã dừng gọi lại — cần người kiểm tra.",
+                                    severity="warning", category="autonomy", source=agent_id_for_log)
+                            except Exception as _esc_exc:  # noqa: BLE001
+                                logger.warning("Không leo thang được lỗi lặp: %s", _esc_exc)
+                        return {"tool_call_id": _tc_id, "fn_name": fn_name, "target_client": "master", "args": fn_args,
+                                "result": {"status": "repeated_failure", "success": False,
+                                           "message": f"Công cụ '{fn_name}' đã lỗi {_max_fail} lần trong lượt này — "
+                                                      "đã dừng gọi lại và báo người phụ trách. Tác vụ CHƯA được thực hiện."}}
                     _tool_calls_used[0] += 1
 
                     # Cổng thực thi tool dùng chung (Zero-Trust, HITL, RBAC, audit) —
@@ -1195,6 +1217,9 @@ class LLMEngine:
                         registry_names=_registry_names,
                     )
                     _executed_calls[_key] = _gate
+                    _st = str(((_gate or {}).get("result") or {}).get("status") or "").lower()
+                    if _st in ("error", "failed", "failure", "timeout"):
+                        _tool_failures[fn_name] = _tool_failures.get(fn_name, 0) + 1
                     return {"tool_call_id": _tc_id, "fn_name": fn_name, **_gate}
 
                 logger.info(

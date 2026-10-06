@@ -438,95 +438,25 @@ class PluginRegistry:
             }
 
         # Đã được `tool_gate` quyết định (policy_engine) -> chạy luôn, không duyệt lần hai.
-        # Gọi trực tiếp (không qua cổng) -> cổng chính sách qua execute_with_hitl.
+        # Gọi trực tiếp (không qua cổng) -> ĐI QUA cổng chuẩn: một đường phân quyền duy
+        # nhất (prompt cuối §1, §40, §182). Trước đây nhánh này tự dựng một đường HITL
+        # riêng (`execute_with_hitl` + executor tự viết) — không ai gọi nữa nhưng vẫn
+        # chạy được nếu có code mới gọi vào.
         if not authorized:
-            from mateai.application.security.zero_trust import hitl_manager, execute_with_hitl
-
-            def _sync_executor() -> Dict[str, Any]:
-                """
-                Executor HÀNG ĐỘNG cho nhánh HITL. Bắt buộc là hàm sync, vì
-                `HITLManager.approve()` (zero_trust) gọi callback bằng `cb()`
-                một cách đồng bộ — truyền hàm async vào đây sẽ tạo coroutine
-                chưa được await, tức là "duyệt xong nhưng không chạy gì cả".
-
-                Bản gốc của hàm này gọi `tool.function(**arguments)` TỚI BA LẦN
-                trong nhánh sync (dead code `run_in_executor`, rồi `wait_for`,
-                rồi mới gọi thật) — với tool có tác dụng phụ (ghi log, ghi DB,
-                gọi API ngoài) đó là hậu quả thật, không phải lỗi hình thức.
-                """
-                import asyncio
-                import threading
-
-                def _run_coroutine_in_thread() -> Any:
-                    # Luôn dựng event loop RIÊNG trong thread riêng. Nếu dùng
-                    # `asyncio.run()` ngay trong luồng gọi, sẽ ném
-                    # "asyncio.run() cannot be called from a running event loop"
-                    # vì execute_tool() đang chạy trong event loop của server.
-                    out: Dict[str, Any] = {}
-
-                    def _worker() -> None:
-                        try:
-                            out["value"] = asyncio.run(
-                                asyncio.wait_for(
-                                    tool.function(**arguments),
-                                    timeout=tool.timeout_seconds,
-                                )
-                            )
-                        except BaseException as exc:  # noqa: BLE001
-                            out["error"] = exc
-
-                    th = threading.Thread(target=_worker, daemon=True)
-                    th.start()
-                    th.join(timeout=tool.timeout_seconds + 1.0)
-                    if th.is_alive():
-                        raise TimeoutError(f"Timeout sau {tool.timeout_seconds}s")
-                    if "error" in out:
-                        raise out["error"]
-                    return out.get("value")
-
-                try:
-                    if tool.is_async:
-                        return _run_coroutine_in_thread()
-                    return tool.function(**arguments)
-                except Exception as e:
-                    return {"success": False, "error": str(e)}
-
-            # `execute_with_hitl` là coroutine. Bản gốc gọi nó không `await`
-            # rồi gọi `.get()` ngay trên coroutine -> `AttributeError:
-            # 'coroutine' object has no attribute 'get'` cho MỌI tool có
-            # risk_level >= 3. Hiện chưa tool nào đạt ngưỡng nên lỗi chưa lộ,
-            # nhưng chỉ cần khai báo một connector action rủi ro cao là nổ.
-            #
-            # `risk_level=tool.risk_level` truyền mức rủi ro đã khai của tool
-            # vào cổng. Không có nó, cổng chỉ tra bảng rủi ro theo TÊN tác vụ
-            # và mặc định 2 — nên tool khai level 5 với tên trung tính
-            # ("check_*", "export_*") sẽ lọt qua mà không ai duyệt.
-            hitl_result = await execute_with_hitl(
-                action_name=tool_name,
-                params=arguments,
-                executor=_sync_executor,
-                requested_by=caller_id,
-                description=f"Tool '{tool_name}' (risk level {tool.risk_level}/5) được gọi bởi {caller_id}",
-                risk_level=tool.risk_level,
-                agent_id="VN-MATEAI-CONNECTOR",
-            )
-            if hitl_result.get("status") == "denied":
-                return {"success": False, "error": hitl_result.get("message"), "policy_denied": True,
+            from mateai.application.agent.tool_gate import run_tool_with_policy
+            from mateai.application.security.policy_engine import AGENT_CONNECTOR
+            gate = await run_tool_with_policy(tool_name, dict(arguments or {}), caller=caller_id,
+                                              source_device=source_device, agent_id=AGENT_CONNECTOR,
+                                              registry_names={tool_name})
+            res = dict((gate or {}).get("result") or {})
+            if res.get("status") in ("need_confirm", "awaiting_approval"):
+                return {"success": False, "awaiting_approval": True, "approval_id": res.get("approval_id"),
+                        "message": res.get("message"), "risk_level": res.get("risk_level"),
                         "circuit_state": breaker.get_status()["state"]}
-
-            if hitl_result.get("status") == "awaiting_approval":
-                return {
-                    "success": False,
-                    "awaiting_approval": True,
-                    "approval_id": hitl_result.get("approval_id"),
-                    "message": hitl_result.get("message"),
-                    "risk_level": hitl_result.get("risk_level"),
-                    "circuit_state": breaker.get_status()["state"],
-                }
-
-            # If executed, extract result
-            exec_result = hitl_result.get("result", {})
-            return self._finalize_result(tool_name, breaker, exec_result)
+            if res.get("code") in ("POLICY_DENIED", "RBAC_DENIED"):
+                return {"success": False, "error": res.get("message") or res.get("error"), "policy_denied": True,
+                        "circuit_state": breaker.get_status()["state"]}
+            return res
 
         # Low risk - execute directly with timeout
         return await self._execute_with_timeout(tool_name, tool, arguments, breaker)

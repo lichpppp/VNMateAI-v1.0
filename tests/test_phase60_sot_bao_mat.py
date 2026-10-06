@@ -52,6 +52,17 @@ FAIL = 0
 RESULTS: list[str] = []
 
 
+def _http_src() -> str:
+    """Mã tầng HTTP + use case nó gọi. Trước đây đọc mỗi `server.py` — sau khi tách router
+    (Phase 6 / Supervisor P10) các kiểm tra chuỗi này trượt mà pytest vẫn xanh."""
+    root = Path("src/mateai")
+    files = [root / "interfaces/http/server.py", root / "interfaces/http/topology.py",
+             root / "interfaces/http/approval_flow.py", root / "application/enterprise/integrations.py",
+             root / "application/security/approval_decisions.py",
+             *sorted((root / "interfaces/http/routers").glob("*.py"))]
+    return "\n\n".join(f.read_text(encoding="utf-8") for f in files)
+
+
 def check(name: str, cond: bool, extra: str = "") -> None:
     global PASS, FAIL
     if cond:
@@ -60,6 +71,10 @@ def check(name: str, cond: bool, extra: str = "") -> None:
     else:
         FAIL += 1
         RESULTS.append(f"  ❌ {name}" + (f" — {extra}" if extra else ""))
+        if "pytest" in sys.modules:
+            # Dưới pytest: trượt là ĐỎ. Trước đây chỉ ghi vào RESULTS nên 11 kiểm tra
+            # trượt mà bộ test vẫn xanh (prompt cuối: không có test giả).
+            raise AssertionError(f"{name}" + (f" — {extra}" if extra else ""))
 
 
 def section(title: str) -> None:
@@ -172,7 +187,7 @@ def test_hitl_executor_runs_once() -> None:
             "t_sync_side_effect", counted, "test", {"type": "object", "properties": {}},
             is_async=False, risk_level=5, timeout_seconds=5,
         )
-        res = await plugin_registry.execute_tool("t_sync_side_effect", {"a": 1}, caller_id="test")
+        res = await plugin_registry.execute_tool("t_sync_side_effect", {"a": 1}, caller_id="admin")
         check(
             "risk>=3 tạo yêu cầu HITL, chưa chạy",
             res.get("awaiting_approval") is True,
@@ -184,7 +199,7 @@ def test_hitl_executor_runs_once() -> None:
             "t_async_side_effect", counted_async, "test", {"type": "object", "properties": {}},
             is_async=True, risk_level=5, timeout_seconds=5,
         )
-        r2 = await plugin_registry.execute_tool("t_async_side_effect", {"b": 2}, caller_id="test")
+        r2 = await plugin_registry.execute_tool("t_async_side_effect", {"b": 2}, caller_id="admin")
         check("tool async risk cao cũng cần duyệt", r2.get("awaiting_approval") is True)
 
     asyncio.run(main())
@@ -196,11 +211,12 @@ def test_hitl_executor_runs_once() -> None:
         "t_sync_side_effect", counted, "test", {"type": "object", "properties": {}},
         is_async=False, risk_level=5, timeout_seconds=5,
     )
-    res = asyncio.run(plugin_registry.execute_tool("t_sync_side_effect", {"a": 1}, caller_id="test"))
+    res = asyncio.run(plugin_registry.execute_tool("t_sync_side_effect", {"a": 1}, caller_id="admin"))
     aid = res.get("approval_id")
     check("có approval_id để duyệt", bool(aid), str(res)[:120])
 
-    approved = hitl_manager.approve(aid, approved_by="test")
+    # Supervisor P10 / prompt cuối §182: registry đi qua cổng chuẩn -> duyệt bằng hàng đợi chuẩn.
+    approved = asyncio.run(hitl_manager.approve_async(aid, approved_by="test"))
     check("approve() báo đã thực thi", approved.get("executed") is True, str(approved)[:150])
     check("side-effect chạy ĐÚNG 1 lần", len(calls) == 1, f"gọi {len(calls)} lần")
     check("truyền đúng tham số", calls and calls[0] == {"a": 1}, str(calls))
@@ -373,7 +389,7 @@ def test_every_hitl_call_site_awaits() -> None:
     # một lần tự khoá chết trong `add_finance_record` đã treo CẢ SERVER
     # (`/health` cũng không trả lời). Nó phải đi qua `approve_async()`, vốn
     # tự đẩy callback đồng bộ sang thread.
-    srv = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
+    srv = _http_src()
     check(
         "endpoint hitl/approve dùng approve_async (tự đẩy việc sync sang thread)",
         "await hitl_manager.approve_async(" in srv,
@@ -508,7 +524,7 @@ def test_hitl_async_executor_really_runs() -> None:
     check("approve() đồng bộ từ chối coroutine tường minh", out["sync_refuses"])
 
     # Cả hai nơi gọi thật đều phải dùng bản async
-    srv = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
+    srv = _http_src()
     tg = Path("src/mateai/interfaces/telegram/telegram_gateway.py").read_text(encoding="utf-8")
     check("endpoint web gọi approve_async", "await hitl_manager.approve_async(" in srv,
           "đang gọi bản đồng bộ — tác vụ async sẽ không chạy")
@@ -648,11 +664,11 @@ def test_connector_config_status_is_honest() -> None:
           all(k in CONNECTOR_REQUIRED_FIELDS["aws"] + CONNECTOR_REQUIRED_FIELDS["einvoice"]
               for k in missing_required_fields("aws", {})),
           str(missing_required_fields("aws", {})))
-    srv_txt = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
+    srv_txt = _http_src()
     check("endpoint chỉ nêu tên khoá, không đính kèm giá trị",
           '"missing_fields": missing' in srv_txt)
 
-    srv = Path("src/mateai/interfaces/http/server.py").read_text(encoding="utf-8")
+    srv = _http_src()
     check("endpoint health dùng missing_required_fields",
           "missing = missing_required_fields(name)" in srv)
     check("endpoint health không còn phép kiểm tra 'có trường nào khác rỗng'",
@@ -693,7 +709,8 @@ def test_result_normalisation() -> None:
         plugin_registry.register_tool(
             "t_health_like", health_like, "t", {"type": "object", "properties": {}}, is_async=True
         )
-        r = await plugin_registry.execute_tool("t_health_like", {})
+        # Kiểm định dạng kết quả, không kiểm chính sách -> đã qua cổng (authorized).
+        r = await plugin_registry.execute_tool("t_health_like", {}, authorized=True)
         check("success=False thì error phải khác None", bool(r.get("error")), str(r.get("error")))
         check("error nêu đúng connector hỏng", "paperless" in str(r.get("error")), str(r.get("error"))[:120])
         check(
@@ -710,7 +727,7 @@ def test_result_normalisation() -> None:
         plugin_registry.register_tool(
             "t_nested_ok", nested_ok, "t", {"type": "object", "properties": {}}, is_async=True
         )
-        r2 = await plugin_registry.execute_tool("t_nested_ok", {})
+        r2 = await plugin_registry.execute_tool("t_nested_ok", {}, authorized=True)
         check("tool trả data lồng vẫn giữ nguyên data", r2.get("data") == {"a": 1}, str(r2.get("data")))
         check("tool thành công -> error là None", r2.get("error") is None, str(r2.get("error")))
 

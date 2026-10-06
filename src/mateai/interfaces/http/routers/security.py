@@ -416,6 +416,8 @@ class AutonomyUpdate(BaseModel):
     approval_grant_ttl_days: Optional[int] = Field(default=None, ge=1, le=365)
     max_agent_seconds: Optional[float] = Field(default=None, ge=10.0, le=3600.0)
     max_tool_calls_per_turn: Optional[int] = Field(default=None, ge=1, le=100)
+    max_tool_failures_per_turn: Optional[int] = Field(default=None, ge=1, le=20)
+    emergency_max_actions_per_minute: Optional[int] = Field(default=None, ge=0, le=1000)
     email_auto_reply: Optional[bool] = None
     email_auto_reply_domains: Optional[List[str]] = None
     reason: str = Field(default="", max_length=300)
