@@ -236,7 +236,7 @@ Admin có thể gán phòng ban và cấp bảo mật riêng cho từng tài kho
 
 ---
 
-## 🤖 Robot ESP32
+## 🤖 Robot Trợ Lý
 
 Firmware nằm ở `esp32_firmware/` (PlatformIO, `env:esp32s3`), dùng board ESP32-S3 với mic I2S INMP441 và ampli I2S.
 
