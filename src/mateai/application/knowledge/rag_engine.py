@@ -78,6 +78,12 @@ def save_upload(original_filename: str, payload: bytes) -> Path:
         dest.write_bytes(payload)
     except OSError as exc:
         raise UploadRejected(500, f"Không lưu được tệp: {exc}") from exc
+    # Bản lưu bền ở object storage (prompt cuối §68): bản cục bộ chỉ là bản làm việc để nạp RAG.
+    try:
+        from mateai.infrastructure.files.object_storage import object_store
+        object_store().put(f"knowledge/{safe_name}", payload)
+    except Exception as exc:  # noqa: BLE001 — kho đối tượng lỗi không chặn việc nạp tài liệu
+        logger.warning("Không lưu được '%s' vào object storage: %s", safe_name, exc)
     return dest
 
 

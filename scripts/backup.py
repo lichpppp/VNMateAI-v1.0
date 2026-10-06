@@ -4,6 +4,10 @@ scripts/backup.py — sao lưu / kiểm chứng / khôi phục VN-MateAI (prompt
   python scripts/backup.py create                 # tạo backups/<thời điểm>/ + manifest.json
   python scripts/backup.py verify backups/<dir>   # kiểm toàn vẹn: sha256, integrity_check, số dòng
   python scripts/backup.py restore backups/<dir> --yes   # DỪNG máy chủ trước; tự lưu trạng thái hiện tại
+  python scripts/backup.py create --push          # tạo + đẩy bản nén lên object storage (bản ngoài máy)
+  python scripts/backup.py push backups/<dir>     # đẩy một bản đã có
+  python scripts/backup.py list-remote            # bản sao lưu trên object storage
+  python scripts/backup.py pull backups/<tên>.zip # tải về + giải nén vào backups/ rồi `verify`
 
 "Có file backup" chưa đủ: `create` tự chạy `verify` ngay sau khi chép, và `restore`
 chỉ ghi đè khi bản sao lưu kiểm chứng đạt.
@@ -167,10 +171,45 @@ def restore(dest: Path, root: Path = ROOT) -> Path:
     return safety
 
 
+def _store(store=None):
+    if store is not None:
+        return store
+    sys.path.insert(0, str(ROOT / "src"))
+    from mateai.infrastructure.files.object_storage import object_store
+    return object_store()
+
+
+def push(path: Path, store=None) -> str:
+    """Đẩy bản sao lưu (thư mục -> nén zip; hoặc tệp có sẵn) lên object storage. Trả khoá."""
+    path = Path(path)
+    if path.is_dir():
+        archive = Path(shutil.make_archive(str(path), "zip", root_dir=path))
+    else:
+        archive = path
+    key = f"backups/{archive.name}"
+    _store(store).put(key, archive.read_bytes(), content_type="application/zip")
+    return key
+
+
+def fetch(key: str, dest_dir: Path, store=None) -> Path:
+    """Tải bản sao lưu từ object storage về `dest_dir` (thư mục backup: giải nén luôn)."""
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = dest_dir / Path(key).name
+    out.write_bytes(_store(store).get(key))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Sao lưu / kiểm chứng / khôi phục VN-MateAI")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("create")
+    c = sub.add_parser("create")
+    c.add_argument("--push", action="store_true", help="đẩy bản nén lên object storage sau khi kiểm chứng")
+    p = sub.add_parser("push")
+    p.add_argument("path")
+    sub.add_parser("list-remote")
+    pl = sub.add_parser("pull")
+    pl.add_argument("key")
     v = sub.add_parser("verify")
     v.add_argument("path")
     r = sub.add_parser("restore")
@@ -181,6 +220,25 @@ def main() -> int:
         dest = create()
         m = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
         print(f"OK {dest} ({m['duration_s']} s) — đã kiểm chứng. Thư mục chứa BÍ MẬT, cất ở nơi an toàn.")
+        if args.push:
+            print(f"Đã đẩy lên object storage: {push(dest)} (bucket phải PRIVATE — bản sao lưu chứa bí mật).")
+        return 0
+    if args.cmd == "push":
+        print(f"Đã đẩy: {push(Path(args.path))}")
+        return 0
+    if args.cmd == "list-remote":
+        for k in _store().list("backups/"):
+            print(k)
+        return 0
+    if args.cmd == "pull":
+        out = fetch(args.key, ROOT / "backups")
+        if out.suffix == ".zip":
+            target = out.with_suffix("")
+            shutil.unpack_archive(str(out), str(target))
+            problems = verify(target)
+            print(f"{target}: " + ("ĐẠT kiểm chứng" if not problems else "KHÔNG ĐẠT: " + "; ".join(problems)))
+            return 0 if not problems else 2
+        print(f"Đã tải: {out}")
         return 0
     if args.cmd == "verify":
         problems = verify(Path(args.path))

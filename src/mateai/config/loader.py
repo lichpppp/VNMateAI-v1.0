@@ -221,6 +221,8 @@ def update_config_section(name: str, updates: dict) -> dict:
 
 class LLMConfig(BaseModel):
     """Dual-model endpoint configuration for 9router (Gemini Router & Claude Specialist)."""
+    # Trường "model_name" / "model_registry" là tên nghiệp vụ, không đụng namespace nội bộ pydantic.
+    model_config = {"protected_namespaces": ()}
     base_url: str = Field(
         default="http://localhost:20128/v1",
         description="Base URL of the OpenAI-compatible proxy (9router, LMStudio, Ollama, etc.).",
@@ -523,6 +525,7 @@ class AppSettings(BaseSettings):
     DISCOVERY_PORT: int = Field(default=8888, ge=1, le=65535,
                                 description="Cổng UDP beacon để robot mới tự tìm máy chủ.")
     LOG_LEVEL: str = Field(default="INFO", description="Python logging level.")
+    REDIS_URL: str = Field(default="", description="Kho trạng thái dùng chung (§67). Trống = RAM một tiến trình.")
     OTEL_EXPORTER: str = Field(default="none", pattern="^(none|console|otlp)$",
                                description="Trace OpenTelemetry (§93): none / console / otlp.")
     LOG_FORMAT: str = Field(default="text", pattern="^(text|json)$",

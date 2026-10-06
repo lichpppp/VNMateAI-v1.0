@@ -83,7 +83,8 @@ async def test_kill_switch_stops_every_ai_agent(gate):
 def test_login_bruteforce_is_throttled(monkeypatch):
     import mateai.interfaces.http.routers.auth as auth
     from mateai.application.security.auth_manager import auth_manager
-    monkeypatch.setattr(auth, "_LOGIN_FAILS", {})
+    from mateai.infrastructure.cache import shared_state
+    shared_state.reset()
     monkeypatch.setattr(auth_manager, "authenticate_user", lambda username, password: None)
     app = FastAPI()
     app.include_router(auth.router)
@@ -94,9 +95,9 @@ def test_login_bruteforce_is_throttled(monkeypatch):
     assert codes[-1] == 429
     r = c.post("/api/v1/login", json={"username": "admin", "password": "dung"})
     assert r.status_code == 429 and int(r.headers["Retry-After"]) > 0          # đúng mật khẩu cũng phải chờ
-    # Hết thời gian khoá -> thử lại được.
-    for k in list(auth._LOGIN_FAILS):
-        auth._LOGIN_FAILS[k] = [t - auth.LOGIN_WINDOW_S - auth.LOGIN_LOCK_S for t in auth._LOGIN_FAILS[k]]
+    # Hết thời gian khoá -> thử lại được (đồng hồ của auth tiến qua cửa sổ + thời gian khoá).
+    later = auth.time.time() + auth.LOGIN_WINDOW_S + auth.LOGIN_LOCK_S + 1
+    monkeypatch.setattr(auth, "time", type("T", (), {"time": staticmethod(lambda: later)}))
     assert c.post("/api/v1/login", json={"username": "admin", "password": "x"}).status_code == 401
 
 

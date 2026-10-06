@@ -103,3 +103,6 @@ certs/*.bak
 
 # Bản sao lưu chứa bí mật (scripts/backup.py) — không bao giờ commit
 backups/
+
+# Server chạy thử cục bộ (Redis / SeaweedFS S3) — tải bằng scripts/dev_infra.py, không commit
+.infra/

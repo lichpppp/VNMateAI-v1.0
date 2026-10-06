@@ -34,8 +34,10 @@ router = APIRouter()
 LOGIN_MAX_FAILURES = 8
 LOGIN_WINDOW_S = 300.0
 LOGIN_LOCK_S = 300.0
-#: khoá -> các mốc sai gần đây (một tiến trình; nhiều tiến trình cần kho dùng chung).
-_LOGIN_FAILS: Dict[str, List[float]] = {}
+def _store():
+    """Mốc đăng nhập sai ở kho dùng chung (Redis khi có): khoá áp cho MỌI tiến trình (§145)."""
+    from mateai.infrastructure.cache import shared_state
+    return shared_state.store()
 
 
 def _login_locked(keys) -> float:
@@ -44,11 +46,7 @@ def _login_locked(keys) -> float:
     now = time.time()
     wait = 0.0
     for k in keys:
-        fails = [t for t in _LOGIN_FAILS.get(k, []) if now - t < LOGIN_WINDOW_S + LOGIN_LOCK_S]
-        if fails:
-            _LOGIN_FAILS[k] = fails
-        else:
-            _LOGIN_FAILS.pop(k, None)
+        fails = sorted(_store().events_since("login:" + k, now - LOGIN_WINDOW_S - LOGIN_LOCK_S))
         if len(fails) >= LOGIN_MAX_FAILURES and fails[-1] - fails[-LOGIN_MAX_FAILURES] <= LOGIN_WINDOW_S:
             wait = max(wait, LOGIN_LOCK_S - (now - fails[-1]))
     return max(0.0, wait)
@@ -57,7 +55,7 @@ def _login_locked(keys) -> float:
 def _login_failed(keys) -> None:
     now = time.time()
     for k in keys:
-        _LOGIN_FAILS.setdefault(k, []).append(now)
+        _store().events_add("login:" + k, now)
 
 
 def _login_audit(username: str, ip: str, event: str) -> None:
@@ -101,7 +99,7 @@ async def login_endpoint(payload: LoginRequest, request: Request) -> Dict[str, A
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không chính xác.",
         )
-    _LOGIN_FAILS.pop(keys[1], None)
+    _store().events_clear("login:" + keys[1])
     _login_audit(user["username"], ip, "LOGIN_OK")
 
     access_token = auth_manager.create_access_token(

@@ -4,20 +4,13 @@ mateai/application/security/rate_limit.py
 Giới hạn tần suất dùng chung (prompt cuối §97) cho voice, lượt agent / LLM và phiên
 WebSocket thoại. Ngưỡng: `settings.security.rate_limits` (0 = tắt).
 
-Đăng nhập giữ bộ đếm riêng ở `routers/auth.py` vì khác nghĩa: đếm lần SAI rồi khoá, không
-đếm mọi lần gọi. Bộ đếm này ở RAM một tiến trình — khi chạy nhiều tiến trình cần chuyển sang
-Redis (xem `docs/architecture/current-system-map.md`).
+Số đếm nằm ở kho trạng thái dùng chung (`infrastructure/cache/shared_state`): RAM khi chạy
+một tiến trình, Redis khi có REDIS_URL — nhiều tiến trình / máy cùng một giới hạn (§145).
+Đăng nhập dùng cùng kho nhưng khác nghĩa (đếm lần SAI rồi khoá) — xem `routers/auth.py`.
 """
 from __future__ import annotations
 
-import collections
-import threading
-import time
-from typing import Deque, Dict
-
-_LOCK = threading.Lock()
-_HITS: Dict[str, Deque[float]] = {}
-_SESSIONS: Dict[str, int] = collections.Counter()
+from mateai.infrastructure.cache import shared_state
 
 
 def limit(name: str, default: int) -> int:
@@ -30,40 +23,19 @@ def limit(name: str, default: int) -> int:
 
 def hit(key: str, max_hits: int, window_s: float) -> float:
     """Ghi một lần gọi. 0.0 = được phép; > 0 = số giây phải chờ (lần gọi này KHÔNG được tính)."""
-    if max_hits <= 0:
-        return 0.0
-    now = time.monotonic()
-    with _LOCK:
-        q = _HITS.setdefault(key, collections.deque())
-        while q and now - q[0] > window_s:
-            q.popleft()
-        if len(q) >= max_hits:
-            return max(0.1, window_s - (now - q[0]))
-        q.append(now)
-        return 0.0
+    return shared_state.store().hit("rl:" + key, max_hits, window_s)
 
 
 def open_session(kind: str, who: str, max_sessions: int) -> bool:
-    if max_sessions <= 0:
-        return True
-    key = f"{kind}:{who}"
-    with _LOCK:
-        if _SESSIONS[key] >= max_sessions:
-            return False
-        _SESSIONS[key] += 1
-        return True
+    return shared_state.store().slot_acquire(f"{kind}:{who}", max_sessions)
 
 
 def close_session(kind: str, who: str) -> None:
-    key = f"{kind}:{who}"
-    with _LOCK:
-        _SESSIONS[key] = max(0, _SESSIONS[key] - 1)
+    shared_state.store().slot_release(f"{kind}:{who}")
 
 
 def reset() -> None:
-    with _LOCK:
-        _HITS.clear()
-        _SESSIONS.clear()
+    shared_state.reset()
 
 
 def busy_message(wait_s: float) -> str:

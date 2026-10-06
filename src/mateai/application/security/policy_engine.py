@@ -31,12 +31,9 @@ Không có ngoại lệ theo vai trò: tài khoản admin cũng phải duyệt t
 """
 from __future__ import annotations
 
-import collections
 import hashlib
 import json
 import logging
-import threading
-import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -159,22 +156,14 @@ def remember_delegation(requested_by: Optional[str], tool: str, granted_by: str)
 
 # ── Chế độ khẩn cấp (§54) ────────────────────────────────────────────────────
 
-#: Thời điểm các hành động AI TỰ chạy (không người duyệt) có tác dụng phụ — 60 s gần nhất.
-_RECENT_AUTONOMOUS: "collections.deque[float]" = collections.deque()
-_EMERGENCY_LOCK = threading.Lock()
 EMERGENCY_ACTOR = "system:emergency-guard"
 
 
 def _autonomous_burst(limit: int) -> bool:
-    """Ghi một hành động tự chạy; True nếu vượt ngưỡng trong 60 s."""
-    now = time.monotonic()
-    with _EMERGENCY_LOCK:
-        while _RECENT_AUTONOMOUS and now - _RECENT_AUTONOMOUS[0] > 60.0:
-            _RECENT_AUTONOMOUS.popleft()
-        if len(_RECENT_AUTONOMOUS) >= limit:
-            return True
-        _RECENT_AUTONOMOUS.append(now)
-        return False
+    """Ghi một hành động AI TỰ chạy có tác dụng phụ; True nếu vượt ngưỡng trong 60 s.
+    Đếm ở kho dùng chung (Redis khi có): nhiều tiến trình cùng một ngưỡng toàn hệ thống."""
+    from mateai.infrastructure.cache import shared_state
+    return shared_state.store().hit("emergency:autonomous", limit, 60.0) > 0
 
 
 def _engage_emergency(agent_id: str, tool: str, limit: int) -> None:

@@ -98,3 +98,8 @@ rank-bm25>=0.2.2
 # Trace OpenTelemetry (prompt cuối §93) — dùng trực tiếp, không dựa vào chromadb kéo theo.
 opentelemetry-sdk>=1.45,<2
 opentelemetry-exporter-otlp-proto-grpc>=1.45,<2
+
+# Hạ tầng production (prompt cuối §65–§68): PostgreSQL, Redis (trạng thái dùng chung), S3.
+psycopg[binary]>=3.2,<4
+redis>=5,<9
+minio>=7.2,<8

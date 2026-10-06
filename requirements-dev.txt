@@ -3,3 +3,6 @@
 pytest>=8.0
 pytest-asyncio>=0.23
 pytest-timeout>=2.3
+
+# PostgreSQL THẬT cho test di trú (tests/test_pg_migration.py) — không dùng khi chạy.
+pgserver>=0.1.4

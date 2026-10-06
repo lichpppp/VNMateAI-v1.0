@@ -34,9 +34,10 @@ def isolated(monkeypatch, tmp_path):
     audits, alerts = [], []
     monkeypatch.setattr(safety_guard.security_engine, "log_audit", lambda *a, **k: audits.append(a))
     monkeypatch.setattr(alert_dispatcher, "notify", lambda title, message="", **k: alerts.append((title, k)) or True)
-    pe._RECENT_AUTONOMOUS.clear()
+    from mateai.infrastructure.cache import shared_state
+    shared_state.reset()
     yield cfg, audits, alerts
-    pe._RECENT_AUTONOMOUS.clear()
+    shared_state.reset()
     monkeypatch.undo()
     loader.reload_settings()
 
