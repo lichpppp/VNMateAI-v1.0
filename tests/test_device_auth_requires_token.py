@@ -35,6 +35,9 @@ def test_lan_device_without_token_is_rejected(ip):
 
 def test_device_secret_accepted_via_query_or_bearer(monkeypatch):
     monkeypatch.setattr(enrollment, "get_device_enrollment_secret", lambda: "dev-secret-123")
+    # Chế độ tương thích (token chung còn nhận) đặt TƯỜNG MINH — không phụ thuộc config.json của máy.
+    monkeypatch.setattr("mateai.config.loader.get_config_section",
+                        lambda name: {"require_per_device_token": False} if name == "security" else {})
     assert ws_auth.authenticate_device(_ws("192.168.1.50", token="dev-secret-123")) is True
     assert ws_auth.authenticate_device(_ws("8.8.8.8", header="Bearer dev-secret-123")) is True
     assert ws_auth.authenticate_device(_ws("192.168.1.50", token="wrong")) is False

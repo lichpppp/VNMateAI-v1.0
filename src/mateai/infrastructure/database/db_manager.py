@@ -242,6 +242,11 @@ class DatabaseManager:
                         if _col not in _op_cols:
                             cursor.execute(f"ALTER TABLE op_tasks ADD COLUMN {_col} INTEGER NOT NULL DEFAULT 0;")
                     # Vòng đời sự cố (prompt cuối §88): pha, người phụ trách, tài sản bị ảnh hưởng.
+                    # Chi phí LLM theo bảng giá model registry (NULL = không có phần nào có giá).
+                    if "llm_cost" not in _op_cols:
+                        cursor.execute("ALTER TABLE op_tasks ADD COLUMN llm_cost REAL;")
+                    if "llm_unpriced_tokens" not in _op_cols:
+                        cursor.execute("ALTER TABLE op_tasks ADD COLUMN llm_unpriced_tokens INTEGER NOT NULL DEFAULT 0;")
                     for _col in ("incident_phase", "owner", "affected_assets", "goal_id"):
                         if _col not in _op_cols:
                             cursor.execute(f"ALTER TABLE op_tasks ADD COLUMN {_col} TEXT;")
@@ -1025,6 +1030,10 @@ class DatabaseManager:
                                            (since,)).fetchone()[0]),
                 "llm_calls": int(conn.execute("SELECT COALESCE(SUM(llm_calls), 0) FROM op_tasks WHERE created_at >= ?;",
                                               (since,)).fetchone()[0]),
+                "llm_cost": conn.execute("SELECT SUM(llm_cost) FROM op_tasks WHERE created_at >= ?;",
+                                         (since,)).fetchone()[0],
+                "unpriced_tokens": int(conn.execute("SELECT COALESCE(SUM(llm_unpriced_tokens), 0) FROM op_tasks "
+                                                    "WHERE created_at >= ?;", (since,)).fetchone()[0]),
             }
 
     def op_find_open_incident(self, source: str) -> Optional[Dict[str, Any]]:

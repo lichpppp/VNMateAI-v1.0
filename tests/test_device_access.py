@@ -56,6 +56,9 @@ def test_auth_method_distinguishes_own_token_from_shared(device, monkeypatch):
     from mateai.interfaces.http import ws_auth, enrollment
     dev, token = device
     monkeypatch.setattr(enrollment, "get_device_enrollment_secret", lambda: "chung-123")
+    # Chế độ tương thích (token chung còn nhận) đặt TƯỜNG MINH — không phụ thuộc config.json của máy.
+    monkeypatch.setattr("mateai.config.loader.get_config_section",
+                        lambda name: {"require_per_device_token": False} if name == "security" else {})
     assert ws_auth.device_auth_method(_ws(token), dev) == ws_auth.DEVICE_TOKEN
     assert ws_auth.device_auth_method(_ws("chung-123"), dev) == ws_auth.SHARED_SECRET
     assert ws_auth.device_auth_method(_ws(token), "thiet_bi_khac") is None   # token gắn đúng id

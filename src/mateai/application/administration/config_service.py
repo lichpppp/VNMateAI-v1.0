@@ -245,7 +245,8 @@ def model_registry_view(pool: List[str]) -> Dict[str, Any]:
     names = sorted(set(pool) | set(registry) | set(in_use))
     return {"models": [{"model": m, "status": model_status(m), "in_router": m in pool,
                         "used_as": in_use.get(m, []), **{k: (registry.get(m) or {}).get(k)
-                                                          for k in ("privacy", "use_cases", "note")}}
+                                                          for k in ("privacy", "use_cases", "note",
+                                                                    "price_in_per_1m", "price_out_per_1m")}}
                        for m in names],
             "statuses": ["APPROVED", "EXPERIMENTAL", "DEPRECATED", "BLOCKED"]}
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 import sys
@@ -215,12 +216,60 @@ def push(path: Path, store=None) -> str:
     """Đẩy bản sao lưu (thư mục -> nén zip; hoặc tệp có sẵn) lên object storage. Trả khoá."""
     path = Path(path)
     if path.is_dir():
-        archive = Path(shutil.make_archive(str(path), "zip", root_dir=path))
+        archive = _archive(path)
     else:
         archive = path
     key = f"backups/{archive.name}"
     _store(store).put(key, archive.read_bytes(), content_type="application/zip")
     return key
+
+
+def _archive(path: Path) -> Path:
+    path = Path(path)
+    if path.is_file():
+        return path
+    zp = path.with_name(path.name + ".zip")
+    return zp if zp.is_file() else Path(shutil.make_archive(str(path), "zip", root_dir=path))
+
+
+_STAMP_ZIP = re.compile(r"^\d{8}-\d{6}\.zip$")
+
+
+def offsite_settings(root: Path = ROOT) -> Dict[str, Any]:
+    """`backup` trong config.json: offsite_dirs (thư mục trên Ổ VẬT LÝ KHÁC / ổ mạng / ổ ngoài),
+    keep (số bản giữ ở mỗi thư mục đó, mặc định 30). Chỉ áp cho bản cài này (ROOT)."""
+    if Path(root).resolve() != ROOT.resolve():
+        return {"offsite_dirs": [], "keep": 30}
+    sys.path.insert(0, str(root / "src"))
+    from mateai.config.loader import read_raw_config
+    cfg = read_raw_config().get("backup") or {}
+    return {"offsite_dirs": [str(d) for d in cfg.get("offsite_dirs") or [] if str(d).strip()],
+            "keep": max(1, int(cfg.get("keep", 30)))}
+
+
+def replicate(path: Path, dirs: List[str], keep: int = 30) -> List[Dict[str, Any]]:
+    """Chép bản sao lưu (nén zip) sang từng thư mục `dirs`, đối chiếu sha256 bản chép, rồi chỉ giữ
+    `keep` bản mới nhất mang tên chuẩn `YYYYMMDD-HHMMSS.zip` ở thư mục đó (tệp khác không đụng tới).
+    Lỗi một thư mục không chặn thư mục khác — kết quả từng nơi nằm trong danh sách trả về."""
+    archive = _archive(path)
+    digest = _sha256(archive)
+    out: List[Dict[str, Any]] = []
+    for d in dirs:
+        target_dir = Path(d)
+        try:
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target = target_dir / archive.name
+            shutil.copy2(archive, target)
+            if _sha256(target) != digest:
+                raise OSError("bản chép sai sha256")
+            olds = sorted(f for f in target_dir.iterdir() if f.is_file() and _STAMP_ZIP.match(f.name))
+            removed = [f.name for f in olds[:-keep]] if len(olds) > keep else []
+            for name in removed:
+                (target_dir / name).unlink()
+            out.append({"dir": str(target_dir), "ok": True, "file": target.name, "removed": removed})
+        except OSError as exc:
+            out.append({"dir": str(target_dir), "ok": False, "error": str(exc)})
+    return out
 
 
 def fetch(key: str, dest_dir: Path, store=None) -> Path:
@@ -232,11 +281,29 @@ def fetch(key: str, dest_dir: Path, store=None) -> Path:
     return out
 
 
+def _report_replicas(path: Path) -> int:
+    """Chép sang backup.offsite_dirs (nếu cấu hình). Mã thoát 3 khi một nơi lỗi — Task Scheduler
+    ghi nhận lần chạy thất bại thay vì im lặng."""
+    st = offsite_settings()
+    if not st["offsite_dirs"]:
+        return 0
+    rc = 0
+    for r in replicate(path, st["offsite_dirs"], st["keep"]):
+        if r["ok"]:
+            print(f"Đã chép sang {r['dir']}\{r['file']} (đối chiếu sha256 ĐẠT; xoá bản cũ: {len(r['removed'])})")
+        else:
+            print(f"LỖI chép sang {r['dir']}: {r['error']}")
+            rc = 3
+    return rc
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Sao lưu / kiểm chứng / khôi phục VN-MateAI")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("create")
     c.add_argument("--push", action="store_true", help="đẩy bản nén lên object storage sau khi kiểm chứng")
+    rp = sub.add_parser("replicate", help="chép một bản sao lưu sang backup.offsite_dirs")
+    rp.add_argument("path")
     p = sub.add_parser("push")
     p.add_argument("path")
     sub.add_parser("list-remote")
@@ -254,7 +321,9 @@ def main() -> int:
         print(f"OK {dest} ({m['duration_s']} s) — đã kiểm chứng. Thư mục chứa BÍ MẬT, cất ở nơi an toàn.")
         if args.push:
             print(f"Đã đẩy lên object storage: {push(dest)} (bucket phải PRIVATE — bản sao lưu chứa bí mật).")
-        return 0
+        return _report_replicas(dest)
+    if args.cmd == "replicate":
+        return _report_replicas(Path(args.path))
     if args.cmd == "push":
         print(f"Đã đẩy: {push(Path(args.path))}")
         return 0

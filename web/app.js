@@ -8132,7 +8132,12 @@ async function loadSupervisorOverview() {
     set('sup-actions', `${d.actions.total} / ${denied}`);
     set('sup-pending', d.approvals_pending ?? '—');
     set('sup-incidents', d.incidents_open);
-    set('sup-tokens', (d.cost.total_tokens || 0).toLocaleString('vi-VN'));
+    // Chi phí chỉ có khi model đã khai giá trong model registry; phần token chưa có giá ghi riêng.
+    const cost = d.cost || {};
+    set('sup-tokens', (cost.total_tokens || 0).toLocaleString('vi-VN') + (cost.currency_cost == null ? ''
+      : ` · ${cost.currency_cost.toLocaleString('en-US', { style: 'currency', currency: cost.currency || 'USD', maximumFractionDigits: 4 })}`));
+    const tokEl = document.getElementById('sup-tokens');
+    if (tokEl) tokEl.title = cost.unpriced_tokens ? `${cost.unpriced_tokens.toLocaleString('vi-VN')} token thuộc model chưa khai giá (model registry)` : '';
     // Ưu tiên lượt cần LLM (con số người dùng cảm nhận); không có thì nhóm nhiều lượt nhất.
     const groups = (d.voice && d.voice.by_outcome) || {};
     let pick = null;

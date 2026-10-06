@@ -505,6 +505,9 @@ class ModelRegistryEntry(BaseModel):
     privacy: Optional[Literal["external", "local"]] = None
     use_cases: Optional[List[str]] = None
     note: Optional[str] = Field(default=None, max_length=300)
+    #: Giá USD / 1 triệu token (vào / ra) — để tính chi phí từng tác vụ. Bỏ trống = chưa có giá.
+    price_in_per_1m: Optional[float] = Field(default=None, ge=0)
+    price_out_per_1m: Optional[float] = Field(default=None, ge=0)
 
 
 class ModelRegistryUpdate(BaseModel):

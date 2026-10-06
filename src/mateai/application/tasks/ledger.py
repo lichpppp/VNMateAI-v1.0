@@ -261,13 +261,18 @@ def settle(task_id: Optional[str]) -> Optional[str]:
         return None
 
 
-def add_usage(task_id: Optional[str], usage: Optional[Dict[str, int]]) -> None:
-    """Số lần gọi LLM + token THẬT do nhà cung cấp báo (không quy ra tiền khi không có bảng giá)."""
+def add_usage(task_id: Optional[str], usage: Optional[Dict[str, int]],
+              by_model: Optional[Dict[str, Dict[str, int]]] = None) -> None:
+    """Số lần gọi LLM + token THẬT do nhà cung cấp báo. Chi phí chỉ tính cho model đã khai giá
+    trong model registry; token của model chưa có giá ghi riêng (`llm_unpriced_tokens`)."""
     if not task_id or not usage:
         return
+    from mateai.infrastructure.llm.llm_provider import estimate_cost
+    cost, unpriced = estimate_cost(by_model or {})
     try:
         _db().op_update("op_tasks", "task_id", task_id, {"llm_calls": int(usage.get("llm_calls") or 0),
-                                                         "total_tokens": int(usage.get("total_tokens") or 0)})
+                                                         "total_tokens": int(usage.get("total_tokens") or 0),
+                                                         "llm_cost": cost, "llm_unpriced_tokens": unpriced})
     except Exception as exc:  # noqa: BLE001
         logger.warning("[Ledger] Không ghi được số token: %s", exc)
 

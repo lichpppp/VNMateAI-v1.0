@@ -25,7 +25,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Union
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional, Tuple, Union
 
 import openai
 
@@ -117,6 +117,35 @@ def model_status(model: str) -> str:
         entry = {}
     st = str((entry.get("status") if isinstance(entry, dict) else "") or "").upper()
     return st if st in MODEL_STATUSES else "UNREGISTERED"
+
+
+def model_price(model: str) -> Optional[Tuple[float, float]]:
+    """(giá / 1 triệu token vào, giá / 1 triệu token ra) khai trong `llm.model_registry`
+    (`price_in_per_1m`, `price_out_per_1m`). Chưa khai -> None: không đoán giá."""
+    try:
+        from mateai.config.loader import settings
+        entry = (getattr(settings.llm, "model_registry", None) or {}).get(str(model or "").strip()) or {}
+        pin, pout = entry.get("price_in_per_1m"), entry.get("price_out_per_1m")
+        if pin is None or pout is None:
+            return None
+        return float(pin), float(pout)
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def estimate_cost(by_model: Dict[str, Dict[str, int]]) -> Tuple[Optional[float], int]:
+    """Chi phí từ token THẬT theo từng model. Trả (tiền của phần có giá — None khi không phần nào
+    có giá, số token thuộc model chưa khai giá). Không quy đổi phần chưa có giá."""
+    cost: Optional[float] = None
+    unpriced = 0
+    for model, u in (by_model or {}).items():
+        pin_out = model_price(model)
+        tokens_in, tokens_out = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+        if pin_out is None:
+            unpriced += tokens_in + tokens_out
+            continue
+        cost = (cost or 0.0) + (tokens_in * pin_out[0] + tokens_out * pin_out[1]) / 1_000_000
+    return (round(cost, 6) if cost is not None else None), unpriced
 
 
 def model_health() -> Dict[str, float]:

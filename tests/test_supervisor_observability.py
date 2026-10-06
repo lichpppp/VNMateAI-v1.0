@@ -56,7 +56,14 @@ def test_supervisor_overview_counts_real_ledger_data():
     d = _client(tasks.router).get("/api/v1/ops/overview?hours=1").json()
     assert d["tasks"]["by_status"].get("COMPLETED", 0) >= 1 and d["tasks"]["by_status"].get("BLOCKED", 0) >= 1
     assert d["actions"]["by_decision"].get("deny", 0) >= 1 and d["actions"]["denial_rate"] is not None
-    assert d["cost"]["total_tokens"] >= 321 and d["cost"]["currency_cost"] is None   # không bịa tiền
+    assert d["cost"]["total_tokens"] >= 321
+    # Không bịa tiền: tác vụ này không có giá (không by_model) -> không góp tiền; tổng tiền (nếu có)
+    # đúng bằng phần đã ghi từ model có giá trong cùng khung giờ.
+    assert ledger.get_task(ok)["llm_cost"] is None
+    from datetime import datetime, timedelta
+    from mateai.infrastructure.database.db_manager import db_manager
+    recorded = db_manager.op_stats((datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"))["llm_cost"]
+    assert d["cost"]["currency_cost"] == (None if recorded is None else round(float(recorded), 4))
     assert "kill_switch" in d["ai_status"] and "policy_version" in d["ai_status"]
     assert _client(tasks.router, "viewer").get("/api/v1/ops/overview").status_code == 403
 

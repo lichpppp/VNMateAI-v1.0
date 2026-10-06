@@ -1074,6 +1074,7 @@ class LLMEngine:
         agent_id_for_log = f"llm_engine:{source_device or 'unknown'}"
         _escalated = [False]
         _usage: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "llm_calls": 0}
+        _usage_by_model: Dict[str, Dict[str, int]] = {}   # cho chi phí: giá khác nhau theo model
         _stop_reason = "MAX_TOOL_ROUNDS reached"
         # Sổ tác vụ (§21): lượt có gọi tool = một tác vụ; mở lúc gọi tool đầu tiên.
         from mateai.application.tasks import ledger as _ledger
@@ -1082,7 +1083,7 @@ class LLMEngine:
 
         def _settle_task() -> Optional[str]:
             if _op_task[0] and _owns_task:
-                _ledger.add_usage(_op_task[0], _usage)
+                _ledger.add_usage(_op_task[0], _usage, by_model=_usage_by_model)
                 return _ledger.settle(_op_task[0])
             return None
 
@@ -1106,8 +1107,11 @@ class LLMEngine:
                 _u = getattr(response, "usage", None)
                 if _u is not None:  # số token THẬT do nhà cung cấp báo; không có thì không đoán
                     _usage["llm_calls"] += 1
+                    _per = _usage_by_model.setdefault(str(used_model), {"prompt_tokens": 0, "completion_tokens": 0})
                     for _k in ("prompt_tokens", "completion_tokens", "total_tokens"):
                         _usage[_k] += int(getattr(_u, _k, 0) or 0)
+                        if _k in _per:
+                            _per[_k] += int(getattr(_u, _k, 0) or 0)
             except Exception as exc:
                 logger.error("[LLMEngine] [CHỐT CHẶN CUỐI CÙNG] Toàn bộ model dự phòng đều thất bại: %s", exc)
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."

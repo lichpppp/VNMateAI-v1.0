@@ -38,6 +38,8 @@ from mateai.infrastructure.directory.domain_sync import DEFAULT_DB_PATH as _DB_P
 
 #: Số đo của health_monitor cũ hơn ngần này giây thì không dùng để báo sự cố.
 HEALTH_DATA_MAX_AGE_S = 90.0
+#: Bản sao lưu mới nhất cũ hơn mức này (giờ) -> sự cố. Lịch 02:00 hằng ngày + 2 giờ dư.
+BACKUP_MAX_AGE_HOURS = 26.0
 
 
 class AutonomousSentinel:
@@ -151,6 +153,40 @@ class AutonomousSentinel:
             }
         return None
 
+    def check_backup_freshness(self, now: Optional[float] = None) -> Optional[Dict[str, Any]]:
+        """Sao lưu tự động có thật sự chạy không: bản mới nhất ở `backups/` và ở từng thư mục
+        `backup.offsite_dirs` phải mới hơn `backup.max_age_hours` (mặc định 26). Chưa từng sao
+        lưu (không có thư mục `backups/`) = chưa bật tính năng, không báo."""
+        from mateai.config.loader import read_raw_config
+        cfg = read_raw_config().get("backup") or {}
+        max_age_h = float(cfg.get("max_age_hours", BACKUP_MAX_AGE_HOURS))
+        now = time.time() if now is None else now
+        local = Path(settings.PROJECT_ROOT) / "backups"
+        if not local.is_dir():
+            return None
+        places = [("máy chủ", local, lambda f: f.is_dir() and (f / "manifest.json").is_file())]
+        for d in cfg.get("offsite_dirs") or []:
+            places.append((f"bản sao {d}", Path(str(d)), lambda f: f.is_file() and f.suffix == ".zip"))
+        stale = []
+        for label, folder, wanted in places:
+            try:
+                ages = [f.stat().st_mtime for f in folder.iterdir()
+                        if wanted(f) and f.name[:8].isdigit()]
+            except OSError:
+                ages = []
+            if not ages:
+                stale.append(f"{label}: không có bản nào")
+            elif (now - max(ages)) / 3600 > max_age_h:
+                stale.append(f"{label}: bản mới nhất {(now - max(ages)) / 3600:.0f} giờ trước")
+        if not stale:
+            return None
+        return {
+            "category": "backup_stale",
+            "title": "Sao lưu tự động không chạy",
+            "message": "; ".join(stale) + f" (ngưỡng {max_age_h:.0f} giờ). Kiểm tra logs/backup.log "
+                       "và tác vụ VNMateAI-Backup.",
+        }
+
     def check_hardware_limits(self) -> Optional[Dict[str, Any]]:
         """RAM / ổ đĩa ở mức nguy cấp -> sự cố. Số đo của health_monitor (worker 3 s)."""
         try:
@@ -205,6 +241,11 @@ class AutonomousSentinel:
         hw_inc = await loop.run_in_executor(None, self.check_hardware_limits)
         if hw_inc:
             incidents.append(hw_inc)
+
+        # 5. Sao lưu tự động còn chạy
+        bk_inc = await loop.run_in_executor(None, self.check_backup_freshness)
+        if bk_inc:
+            incidents.append(bk_inc)
 
         return incidents
 

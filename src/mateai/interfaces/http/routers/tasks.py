@@ -381,7 +381,9 @@ async def ops_overview(
                     "denial_rate": round(stats["steps_by_decision"].get("deny", 0) * 100.0 / steps_total, 1) if steps_total else None},
         "approvals_pending": pending,
         "incidents_open": sum(1 for t in active if t["kind"] == "incident" and t["status"] not in ledger.TERMINAL),
-        "cost": {"llm_calls": stats["llm_calls"], "total_tokens": stats["tokens"], "currency_cost": None},
+        "cost": {"llm_calls": stats["llm_calls"], "total_tokens": stats["tokens"],
+                 "currency_cost": None if stats["llm_cost"] is None else round(float(stats["llm_cost"]), 4),
+                 "currency": "USD", "unpriced_tokens": stats["unpriced_tokens"]},
         "voice": voice,
         "system_health": health,
     }

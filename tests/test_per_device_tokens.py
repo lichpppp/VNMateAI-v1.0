@@ -56,6 +56,9 @@ def test_rotate_and_revoke(store):
 
 
 def test_shared_secret_can_be_switched_off(store, monkeypatch):
+    # Chế độ tương thích (token chung còn nhận) đặt TƯỜNG MINH — không phụ thuộc config.json của máy.
+    monkeypatch.setattr("mateai.config.loader.get_config_section",
+                        lambda name: {"require_per_device_token": False} if name == "security" else {})
     assert ws_auth.authenticate_device(_ws("shared-secret-xyz"), "robot_x") is True
     monkeypatch.setattr("mateai.config.loader.get_config_section",
                         lambda name: {"require_per_device_token": True} if name == "security" else {})

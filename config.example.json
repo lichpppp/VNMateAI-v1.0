@@ -6,7 +6,7 @@
     "router_models": [],
     "specialist_models": []
   },
-  "auto_execute": true,
+  "auto_execute": false,
   "ASR_BACKEND": "local_whisper",
   "WHISPER_MODEL_SIZE": "tiny",
   "TTS_VOICE": "vi-VN-HoaiMyNeural",
@@ -19,6 +19,7 @@
   "LOG_LEVEL": "INFO",
   "AUTO_EXECUTE_UNVERIFIED_CODE": true,
   "security": {
+    "require_per_device_token": true,
     "forbidden_keywords": [
       "rmdir /s",
       "format c:",
