@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
 scripts/eval_llm.py — đánh giá chất lượng chọn tool trên LLM THẬT (router đang cấu hình).
 

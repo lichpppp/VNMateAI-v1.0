@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_dev_fleet_ui.mjs
 // Tab Dev Fleet (web/dev-fleet.js) với DOM giả tối thiểu + API giả: không bịa số liệu, thoát HTML, token không hiện lại,
 // "chờ duyệt" không bị báo thành "đã giao", ẩn form ghi khi không phải admin.

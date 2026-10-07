@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử hồi quy cho các hàm vẽ giao diện của khối Phase 59/60.
 //
 // BUG ĐÃ GẶP: `_esc` trước đây chỉ tồn tại bên trong hai IIFE (`LogViewer`

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử hồi quy cho 6 panel monitor mới của Bảng Điều Khiển (Phase 61).
 //
 // MỤC ĐÍCH: panel đệm chỉ "đúng" khi hàm vẽ nhận đúng shape dữ liệu thật.

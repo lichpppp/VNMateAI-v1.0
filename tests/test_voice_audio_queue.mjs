@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_voice_audio_queue.mjs
 // web/voice-audio-queue.js — bộ phát MP3 dùng chung portal + HUD (realtime P5, D5).
 // Chạy đúng file trong web/ với AudioContext giả — không dựng trình duyệt.

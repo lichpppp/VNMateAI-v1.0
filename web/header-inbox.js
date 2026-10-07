@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * web/header-inbox.js — hai nút trên thanh header:
  *   ✉  "Hộp thư & Chỉ thị điều hành": việc CẦN BẠN QUYẾT — yêu cầu duyệt (HITL) + tác vụ bị leo thang / thất bại.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * web/ui-polish.js — menu trái dạng ngăn kéo trên màn hình hẹp (< 1024px). CSS ở ui-polish.css.
  * Mở bằng nút ☰ ở header; đóng khi bấm nền mờ, bấm một mục menu, nhấn Esc hoặc khi phóng to lại.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_erp_ad_ui.mjs
 // Cấu Trúc Tổ Chức & Quản Trị ERP: nút "Nhập từ AD" (xem trước rồi mới nhập), cột Agent cho thiết bị ERP
 // và máy AD, nhãn không còn khẳng định "SQLite".

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
 scripts/dev_infra.py — hạ tầng chạy thử cục bộ trên Windows khi KHÔNG có Docker (prompt cuối §138).
 

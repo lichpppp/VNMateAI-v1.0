@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Phase 78: Admin được FastAPI phục vụ ở /admin — CÙNG origin với backend.
 // Nên mặc định gọi API bằng đường dẫn TƯƠNG ĐỐI '/api/v1/...': không qua
 // CORS, không cần cấu hình thêm. Đường dẫn tuyệt đối chỉ dùng khi

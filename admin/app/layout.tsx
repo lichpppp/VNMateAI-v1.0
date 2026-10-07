@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 import type { Metadata } from 'next';
 import { Inter, JetBrains_Mono, Orbitron, Rajdhani } from 'next/font/google';
 import './globals.css';

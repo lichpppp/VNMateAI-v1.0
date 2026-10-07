@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """Dev Fleet: lớp HTTP (phân quyền, dịch lỗi) và công cụ AI (đọc luôn là L0, ghi qua cổng, RBAC)."""
 from __future__ import annotations
 

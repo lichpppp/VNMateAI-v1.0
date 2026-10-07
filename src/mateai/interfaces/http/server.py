@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
 mateai/interfaces/http/server.py
 ================================
@@ -59,6 +61,8 @@ app = FastAPI(
         "ESP32 Multi-Node WebSocket audio pipeline, Auth & RBAC Web Portal."
     ),
     version="2.1.0",
+    contact={"name": "Dương Thanh Lịch", "url": "https://github.com/lichpppp/VNMateAI-v1.0", "email": "thanhlich.duong@gmail.com"},
+    license_info={"name": "Apache-2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"},
     docs_url="/docs",
     redoc_url="/redoc",
 )

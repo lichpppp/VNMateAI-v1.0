@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử Phase 62 — UI data source tùy chỉnh (generic connector).
 // Cắt riêng các hàm JS cần kiểm ra khỏi web/app.js rồi import động — tránh
 // kéo cả app (WebSocket, Chart.js, DOM) vào môi trường Node.

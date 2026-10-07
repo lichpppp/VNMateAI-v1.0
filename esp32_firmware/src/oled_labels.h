@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Sinh tự động bởi esp32_firmware/tools/gen_oled_labels.py — KHÔNG sửa tay.
 // Chữ trạng thái tiếng Việt có dấu cho OLED (định dạng Adafruit_GFX::drawBitmap).
 #pragma once

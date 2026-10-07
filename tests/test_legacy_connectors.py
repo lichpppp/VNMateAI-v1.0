@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """Connector cũ (Paperless-ngx) chạy với máy chủ giả đúng hình dạng API thật — trước đây chưa có test nào."""
 from __future__ import annotations
 

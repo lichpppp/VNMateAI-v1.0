@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_sup_attention.mjs
 // Bảng điều khiển → AI Supervisor → "Cần chú ý": danh sách không được kéo dài trang.
 //   1. Khung có chiều cao cố định + cuộn dọc (trước đây 15–20 dòng đẩy cả trang xuống).

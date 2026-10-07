@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử hồi quy Phase 63 — renderPortalMarkdown: bảng Markdown + XSS.
 //
 // `renderPortalMarkdown` đưa thẳng ra innerHTML ở 4 nơi gọi. Trước Phase 63

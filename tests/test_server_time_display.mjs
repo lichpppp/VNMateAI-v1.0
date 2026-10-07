@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_server_time_display.mjs
 // web/server-time.js — mốc thời gian của máy chủ hiển thị theo giờ địa phương.
 //   1. ISO có T, không múi giờ = UTC -> +7 giờ ở Việt Nam (audit hiện sớm 7 giờ là lỗi cũ).

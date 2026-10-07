@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử hồi quy cho khối Phase 59/60 của Trung Tâm Chỉ Huy.
 // Cắt riêng các hàm cần kiểm ra khỏi web/app.js rồi import động — tránh
 // phải kéo cả app (WebSocket, Chart.js, DOM) vào môi trường Node.

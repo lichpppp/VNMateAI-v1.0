@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử hồi quy cho tab "Tích Hợp Hệ Thống Báo Cáo".
 //
 // Phase 59/60 được tách khỏi tab "Trung Tâm Chỉ Huy" sang một tab cấp cao

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_header_inbox.mjs — hộp thư (✉) và chuông (🔔) trên header: dữ liệu thật, chấm đếm chỉ hiện khi có việc,
 // thiếu quyền nói rõ, nút Duyệt chỉ cho admin, thoát HTML, không còn chấm đỏ cố định.
 import { readFileSync } from 'node:fs';

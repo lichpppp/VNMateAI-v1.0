@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
 Phase 81: cảnh báo dòng tiền không được bắn khi CHƯA CÓ DỮ LIỆU.
 

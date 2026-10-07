@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_hud_conversation_loop.mjs
 // Vòng hội thoại HUD: nhận ra "không còn yêu cầu", bỏ qua tiếng vọng của trợ lý,
 // không mở mic khi loa còn đang đọc, chờ 30 giây rồi mới chào và đóng.

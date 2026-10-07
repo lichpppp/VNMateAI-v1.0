@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * fmtServerTime — hiển thị mốc thời gian do máy chủ trả về theo GIỜ ĐỊA PHƯƠNG của người xem.
  *

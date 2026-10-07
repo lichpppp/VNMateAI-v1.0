@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_exec_pillars.mjs
 // Bảng Chỉ Huy C-Level: 6 ô trạng thái lấy từ dữ liệu THẬT của /api/v1/health-dashboard.
 //

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * Tailwind cho HUD (web/hud.html + web/hud.js) — build sẵn thành web/tailwind-hud.css.
  * Theme chép NGUYÊN từ khối `tailwind.config` cũ trong hud.html (trước đây dùng

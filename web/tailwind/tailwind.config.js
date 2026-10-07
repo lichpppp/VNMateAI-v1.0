@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * Tailwind cho Portal (web/index.html + web/app.js) — build sẵn thành web/tailwind.css.
  * Trước đây dùng cdn.tailwindcss.com: trình duyệt tự biên dịch CSS mỗi lần mở trang

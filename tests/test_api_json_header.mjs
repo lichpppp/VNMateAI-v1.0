@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // tests/test_api_json_header.mjs
 // apiFetch phải gửi JSON đúng kiểu. Lỗi cũ: nút "Tôi đã kiểm tra — xác nhận hoàn thành" (và 3 nút khác)
 // gửi body JSON không kèm Content-Type -> trình duyệt đặt text/plain -> máy chủ trả 422 -> tác vụ

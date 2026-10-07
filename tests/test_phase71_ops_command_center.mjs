@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 // Kiểm thử hồi quy cho Phase 71 — bảng điều khiển vận hành của Trung Tâm Chỉ Huy.
 //
 // Cùng cách làm với test_command_center_phase5960.mjs: cắt riêng khối hàm

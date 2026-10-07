@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """Tinh chỉnh giao diện (màu / font / mobile / truy cập): chạy offline, đạt tương phản, menu thu gọn, không nút "submit nhầm"."""
 from __future__ import annotations
 

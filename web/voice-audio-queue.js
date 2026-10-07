@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * VoiceAudioQueue — phát MP3 của câu trả lời thoại bằng Web Audio API, dùng
  * CHUNG cho portal (app.js) và HUD (hud.js).

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
  * web/dev-fleet.js — tab "Dev Fleet": cấu hình kết nối Ubuntu Master + theo dõi / điều khiển cụm Dev.
  * Dùng các hàm chung của app.js (apiFetch, API_BASE, _esc, showToast, apiErrorText).

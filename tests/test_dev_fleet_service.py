@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
 Dev Fleet: dịch vụ điều phối chạy với Ubuntu Master GIẢ theo hợp đồng v1 (tests/fake_master.py).
 Kiểm: chế độ tắt/chỉ đọc, ảnh chụp tươi/cũ, dry-run, giao việc qua cổng chính sách (chờ duyệt / bị chặn / giao trùng),

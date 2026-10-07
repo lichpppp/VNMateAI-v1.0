@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 from core.plugin_manager import export_skill
 
 @export_skill(name="worker_health_check", description="Kiểm tra sức khỏe máy trạm (CPU, RAM, ổ đĩa) bằng số đo thật",

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
 scripts/backup.py — sao lưu / kiểm chứng / khôi phục VN-MateAI (prompt Supervisor §116).
 
