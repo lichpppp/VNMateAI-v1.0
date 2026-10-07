@@ -285,7 +285,7 @@ async def run_startup(app: Any, steps: Optional[List[Step]] = None) -> None:
         logger.info("Startup lifecycle already initialised (dual uvicorn listener) — skipping second run.")
         return
     STATE.started = True
-    logger.info("VN-MateAI © 2026 Dương Thanh Lịch — Apache-2.0 (https://github.com/lichpppp/VNMateAI-v1.0)")
+    logger.info("VN-MateAI © 2026 Dương Thanh Lịch (https://github.com/lichpppp/VNMateAI-v1.0)")
     ctx = StepContext(app=app, loop=asyncio.get_running_loop())
     for step in steps if steps is not None else default_steps():
         t0 = time.perf_counter()

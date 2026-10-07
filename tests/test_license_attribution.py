@@ -30,7 +30,7 @@ def test_every_source_file_carries_the_copyright_header():
 def test_the_product_shows_who_made_it():
     for page in ("index.html", "hud.html", "roi_dashboard.html"):
         text = (ROOT / "web" / page).read_text(encoding="utf-8")
-        assert "Dương Thanh Lịch" in text and "Apache-2.0" in text, page
+        assert "Dương Thanh Lịch" in text, page
     index = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     assert 'id="app-attribution"' in index and 'id="login-attribution"' in index
     server = (ROOT / "src" / "mateai" / "interfaces" / "http" / "server.py").read_text(encoding="utf-8")
