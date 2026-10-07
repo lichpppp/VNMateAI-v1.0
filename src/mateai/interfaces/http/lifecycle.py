@@ -140,6 +140,11 @@ def _hud_telemetry(ctx: StepContext) -> None:
 def _encrypt_secrets(ctx: StepContext) -> None:
     from mateai.config.loader import encrypt_existing_secrets
     encrypt_existing_secrets()                   # khoá còn dạng chữ thường -> mã hoá (một lần)
+    try:
+        from mateai.infrastructure.connectors import custom_registry
+        custom_registry.encrypt_existing()       # khoá nguồn dữ liệu doanh nghiệp (config/data_sources.json)
+    except Exception:  # noqa: BLE001 — không để lỗi tệp khai báo chặn khởi động
+        logger.exception("Không mã hoá được khoá nguồn dữ liệu")
 
 
 def _alert_dispatcher(ctx: StepContext) -> None:

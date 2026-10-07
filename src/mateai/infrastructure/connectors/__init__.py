@@ -58,6 +58,8 @@ CONNECTOR_RISK_LEVELS: dict = {
     "datasource:list": 1,
     "datasource:fetch": 2,
     "datasource:export": 2,
+    # Thao tác can thiệp khai báo trong nguồn dữ liệu: mức thật lấy từ chính khai báo (>= 3).
+    "datasource:action": 3,
 }
 
 __all__ = [

@@ -57,6 +57,9 @@ RBAC_RULES: Dict[str, Any] = {
             "list_available_skills", "reload_all_skills",
             "query_organization_data", "lookup_domain_info",
             "list_online_workstations",
+            # Đọc dữ liệu hạ tầng/ITSM đã khai báo. Thao tác GHI (run_data_source_action)
+            # chỉ admin — không có trong danh sách này, và luôn qua duyệt HITL.
+            "list_data_sources", "fetch_data_source", "prepare_data_source_export",
         ],
         "blocked_prefixes": [
             "create_new_skill",         # Không tự tạo kỹ năng

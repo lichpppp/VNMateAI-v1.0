@@ -133,6 +133,7 @@ async def list_data_sources(category: Optional[str] = None) -> Dict[str, Any]:
     """
     try:
         from mateai.infrastructure.connectors import custom_registry
+        from mateai.infrastructure.connectors.operations import summarise
 
         wanted = (category or "").strip().lower() or None
         sources = custom_registry.list_sources(include_secrets=False)
@@ -153,7 +154,13 @@ async def list_data_sources(category: Optional[str] = None) -> Dict[str, Any]:
                 "enabled": bool(s.get("enabled", True)),
                 "available_reports": s.get("available_paths") or [],
                 "default_report": s.get("default_path") or "/",
+                "kind": s.get("kind") or "rest",
             })
+            full = custom_registry.get_source(s.get("id"), include_secrets=False) or {}
+            if full.get("queries"):
+                items[-1]["queries"] = summarise(full["queries"])      # tên + tham số: AI biết phải truyền gì
+            if full.get("actions"):
+                items[-1]["actions"] = summarise(full["actions"])      # thao tác can thiệp (cần duyệt)
 
         return {
             "success": True,
@@ -198,6 +205,10 @@ async def list_data_sources(category: Optional[str] = None) -> Dict[str, Any]:
                 "type": "integer",
                 "description": f"Số dòng tối đa cần xem. Mặc định {AI_ROW_LIMIT}, tối đa {AI_ROW_LIMIT}.",
             },
+            "args": {
+                "type": "object",
+                "description": "Tham số của truy vấn đã khai báo (xem `queries[].params` trong list_data_sources), ví dụ {\"host\": \"srv01\"}.",
+            },
         },
         "required": ["source_id"],
     },
@@ -206,6 +217,7 @@ async def fetch_data_source(
     source_id: str,
     report: Optional[str] = None,
     limit: int = AI_ROW_LIMIT,
+    args: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Tool: lấy dữ liệu báo cáo từ nguồn tùy chỉnh.
@@ -226,6 +238,8 @@ async def fetch_data_source(
     params: Dict[str, Any] = {"limit": rows_cap}
     if report:
         params["path"] = report
+    if isinstance(args, dict) and args:
+        params["args"] = args
 
     async def _executor() -> Dict[str, Any]:
         from mateai.infrastructure.connectors import fetch_data_source as _fetch
@@ -252,7 +266,7 @@ async def fetch_data_source(
 
     return await _run_with_hitl(
         action_name="data_source_fetch",
-        params={"source_id": source_id, "report": report, "limit": rows_cap},
+        params={"source_id": source_id, "report": report, "limit": rows_cap, "args": args or {}},
         executor=_executor,
         description=(
             f"AI Ly Ly yêu cầu báo cáo '{report or source.get('default_path')}' "
@@ -403,3 +417,68 @@ async def prepare_data_source_export(
         executor=_executor,
         description=f"AI Ly Ly dựng file {fmt.upper()} báo cáo '{report_name}' từ nguồn {title}",
     )
+
+
+@export_skill(
+    name="run_data_source_action",
+    description=(
+        "CAN THIỆP vào hệ thống doanh nghiệp qua một thao tác đã khai báo (ví dụ: tạo/đóng ticket, "
+        "xác nhận cảnh báo, khởi động lại dịch vụ). Chỉ chạy được thao tác có trong `actions` của "
+        "list_data_sources. LUÔN cần người có thẩm quyền duyệt; nếu kết quả có `awaiting_approval` "
+        "thì nói với người dùng cần duyệt phiếu `approval_id` — KHÔNG tự coi là đã thực hiện."
+    ),
+    parameters_schema={
+        "type": "object",
+        "properties": {
+            "source_id": {"type": "string", "description": "Mã nguồn dữ liệu."},
+            "action": {"type": "string", "description": "Tên thao tác đã khai báo."},
+            "params": {"type": "object", "description": "Tham số của thao tác (theo `actions[].params`)."},
+        },
+        "required": ["source_id", "action"],
+    },
+)
+async def run_data_source_action(
+    source_id: str,
+    action: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Tool ghi: mức rủi ro lấy từ khai báo của thao tác (tối thiểu 3 → bắt buộc duyệt)."""
+    from mateai.infrastructure.connectors import custom_registry
+    from mateai.infrastructure.connectors.generic_connector import run_source_action
+
+    source = custom_registry.get_source(source_id, include_secrets=False)
+    if not source:
+        return {"success": False, "error": f"Không có nguồn dữ liệu '{source_id}'",
+                "hint": "Gọi list_data_sources để xem các nguồn đang có."}
+    decl = (source.get("actions") or {}).get(action)
+    if not decl:
+        return {"success": False, "error": f"Nguồn '{source_id}' không có thao tác '{action}'",
+                "available_actions": sorted((source.get("actions") or {}).keys())}
+    risk = max(3, int(decl.get("risk_level") or 3))
+    args = params if isinstance(params, dict) else {}
+
+    async def _executor() -> Dict[str, Any]:
+        result = await run_source_action(source_id, action, args)
+        if not result.success:
+            return {"success": False, "error": result.error}
+        return {"success": True, "source": source.get("title"), "action": action, "result": result.data}
+
+    from mateai.application.security.zero_trust import execute_with_hitl
+
+    envelope = await execute_with_hitl(
+        action_name="data_source_action",
+        params={"source_id": source_id, "action": action, "params": args},
+        executor=_executor,
+        requested_by="AI_Agent",
+        agent_id="VN-MATEAI-CONNECTOR",
+        check_rbac=False,
+        description=f"AI Ly Ly can thiệp '{action}' trên {source.get('title')}: {decl.get('description') or ''}".strip(),
+        risk_level=risk,
+    )
+    if envelope.get("status") == "denied":
+        return {"success": False, "error": envelope.get("message"), "policy_denied": True}
+    if envelope.get("status") == "awaiting_approval":
+        return {"success": False, "awaiting_approval": True, "approval_id": envelope.get("approval_id"),
+                "risk_level": envelope.get("risk_level"),
+                "message": f"{envelope.get('message', 'Cần duyệt.')} Báo người dùng duyệt phiếu trong hàng đợi HITL."}
+    return envelope.get("result") or {"success": False, "error": "Cổng HITL không trả về kết quả"}
