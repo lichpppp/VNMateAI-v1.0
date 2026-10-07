@@ -53,8 +53,7 @@ const DevFleetUI = (() => {
     return `
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
       <div>
-        <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Dev Fleet — Cụm Dev qua Ubuntu Master</h2>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">VN-MateAI quản lý dự án &amp; điều phối · Ubuntu Master quản lý hạ tầng · Mac mini + OpenClaw thực thi.
+        <p class="text-xs text-slate-600 dark:text-slate-300">VN-MateAI quản lý dự án &amp; điều phối · Ubuntu Master quản lý hạ tầng · Mac mini + OpenClaw thực thi.
         Chưa kiểm chứng với Master thật — dùng chế độ "Chỉ xem" trước.</p>
       </div>
       <button type="button" data-df="refresh" class="${BTN} bg-primary-600 hover:bg-primary-700 text-white shrink-0">Làm mới</button>
@@ -148,8 +147,8 @@ const DevFleetUI = (() => {
     $('df-token').value = '';
     $('df-token-note').textContent = c.token_from_env ? 'Token lấy từ biến môi trường VNMATEAI_DEV_FLEET_TOKEN.'
       : (c.has_token ? '•••••••• đã lưu — để trống để giữ nguyên' : 'Chưa có token');
-    $('df-mode').value = c.mode;
-    $('df-mode-hint').textContent = MODE_HINT[c.mode] || '';
+    $('df-mode').value = c.mode || 'disabled';
+    $('df-mode-hint').textContent = MODE_HINT[c.mode || 'disabled'] || '';
     $('df-ca').value = c.ca_bundle || '';
     $('df-tls').checked = !!c.tls_verify;
   }
