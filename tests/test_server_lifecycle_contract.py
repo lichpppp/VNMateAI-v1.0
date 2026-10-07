@@ -33,7 +33,8 @@ NEW_ROUTES = {"/api/v1/health/startup",
               "/api/v1/llm/model-registry", "/api/v1/ops/incidents", "/api/v1/ops/incidents/{task_id}/phase",
               "/api/v1/ops/goals", "/api/v1/security/audit-logs/verify",
               "/api/v1/memory/{doc_id}/verify",   # memory trust §59
-              "/api/erp/import-from-ad"}          # nhập nhân viên + máy tính từ bản sao AD
+              "/api/erp/import-from-ad",          # nhập nhân viên + máy tính từ bản sao AD
+              "/api/v1/enterprise/data-sources/presets"}   # mẫu khai báo hạ tầng (Prometheus, vCenter…)
 
 
 def _rows(app):

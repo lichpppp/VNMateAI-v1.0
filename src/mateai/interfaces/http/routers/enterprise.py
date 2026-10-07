@@ -716,6 +716,19 @@ async def api_data_sources_list(
     return data_sources_overview()
 
 
+@router.get(
+    "/api/v1/enterprise/data-sources/presets",
+    summary="Mẫu khai báo hạ tầng phổ biến (Prometheus, Zabbix, vCenter, GLPI…)",
+    tags=["Enterprise OS Phase 62"],
+)
+async def api_data_sources_presets(
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """Mẫu viết theo tài liệu hãng, `verified=false` cho tới khi người vận hành thử trên hệ thống thật."""
+    from mateai.infrastructure.connectors.presets import catalog
+    return {"presets": catalog()}
+
+
 @router.post(
     "/api/v1/enterprise/data-sources",
     summary="Phase 62: Tạo/cập nhật data source tùy chỉnh",

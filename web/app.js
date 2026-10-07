@@ -14083,8 +14083,52 @@ const CC_AUTH_TYPE_LABELS = {
   bearer: 'Bearer Token',
   basic: 'Basic (user:pass)',
   header: 'Header tuỳ chỉnh',
-  query: 'Tham số trên URL'
+  query: 'Tham số trên URL',
+  oauth2_client: 'OAuth2 (client credentials) — khai báo trong ô nâng cao',
+  login: 'Đăng nhập lấy token (vCenter, GLPI, Veeam…) — khai báo trong ô nâng cao'
 };
+
+/** Các trường khai báo nâng cao nằm trong ô JSON (không có ô riêng trên form). */
+const CC_DS_ADVANCED_KEYS = ['kind', 'connection', 'login', 'oauth2', 'pagination', 'queries', 'actions', 'rows_path',
+  'health_path', 'extra_headers', 'verify_ssl', 'ca_bundle', 'client_cert', 'client_key', 'max_rows'];
+
+let _ccInfraPresets = [];
+async function _ccLoadInfraPresets() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/enterprise/data-sources/presets`, {
+      headers: { 'Authorization': `Bearer ${getAuthToken()}` }
+    });
+    const d = await res.json().catch(() => ({}));
+    _ccInfraPresets = Array.isArray(d?.presets) ? d.presets : [];
+  } catch (_) { _ccInfraPresets = []; }
+  const sel = document.getElementById('cc-ds-preset');
+  if (sel && _ccInfraPresets.length) {
+    sel.innerHTML = '<option value="">— Tự khai báo —</option>' + _ccInfraPresets
+      .map(p => `<option value="${_esc(p.key)}">${_esc(p.group)} · ${_esc(p.label)}</option>`).join('');
+  }
+}
+
+/** Điền form từ mẫu hạ tầng: chỉ còn phải nhập địa chỉ máy chủ + khoá. */
+function applyCcInfraPreset(key) {
+  const p = _ccInfraPresets.find(x => x.key === key);
+  const note = document.getElementById('cc-ds-preset-note');
+  if (!p) { if (note) note.textContent = ''; return; }
+  const d = p.declaration || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+  if (!document.getElementById('cc-ds-id')?.disabled && !document.getElementById('cc-ds-id').value) set('cc-ds-id', p.key);
+  set('cc-ds-title', d.title || p.label);
+  set('cc-ds-auth-type', d.auth_type || 'none');
+  set('cc-ds-category', d.category || 'connector');
+  set('cc-ds-default-path', d.default_path || '/');
+  const base = document.getElementById('cc-ds-base-url');
+  if (base) base.placeholder = p.base_url_hint || '';
+  toggleCcDsAuthFields();
+  if (d.auth_header) set('cc-ds-auth-header-name', d.auth_header);
+  const adv = {};
+  CC_DS_ADVANCED_KEYS.forEach(k => { if (d[k] !== undefined) adv[k] = d[k]; });
+  set('cc-ds-advanced', JSON.stringify(adv, null, 2));
+  if (note) note.textContent = `${p.note || ''} — Mẫu theo tài liệu hãng, CHƯA thử trên hệ thống thật: bấm "Thử kết nối" sau khi lưu.`;
+}
 
 /**
  * Dựng (hoặc lấy lại) modal thêm/sửa nguồn dữ liệu.
@@ -14136,6 +14180,15 @@ function _ccDataSourceModal(existing, category) {
               không cần sửa mã nguồn. MISA, Odoo, SAP, Dynamics, sổ kho nội bộ… đều dùng chung khuôn này.
             </p>
           </div>
+
+          ${isEdit ? '' : `<label class="block">
+            <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">Mẫu hạ tầng có sẵn</span>
+            <select id="cc-ds-preset" onchange="applyCcInfraPreset(this.value)"
+              class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100">
+              <option value="">— Tự khai báo —</option>
+            </select>
+            <span id="cc-ds-preset-note" class="text-[9px] text-amber-600 dark:text-amber-400 mt-1 block"></span>
+          </label>`}
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="block">
@@ -14219,6 +14272,14 @@ function _ccDataSourceModal(existing, category) {
                 class="w-full px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100" />
             </label>
           </div>
+
+          <details class="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2">
+            <summary class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 cursor-pointer">Khai báo nâng cao (JSON): đăng nhập, truy vấn, thao tác, phân trang, TLS, CSDL</summary>
+            <textarea id="cc-ds-advanced" rows="10" spellcheck="false"
+              class="mt-2 w-full px-3 py-2 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-mono"
+              placeholder='{"queries": {"ten truy van": {"method": "GET", "path": "/api/..."}}}'>${_esc(_ccAdvancedFrom(ds))}</textarea>
+            <span class="text-[9px] text-slate-400 mt-1 block">Thao tác ghi (actions) luôn cần người có thẩm quyền duyệt. Khoá không bao giờ nằm trong ô này.</span>
+          </details>
         </div>
 
         <div class="flex items-center justify-between gap-2 px-5 py-3.5 border-t border-slate-200 dark:border-slate-700">
@@ -14241,6 +14302,7 @@ function _ccDataSourceModal(existing, category) {
   document.body.insertAdjacentHTML('beforeend', html);
   document.body.style.overflow = 'hidden';
   toggleCcDsAuthFields();
+  if (!isEdit) _ccLoadInfraPresets();
 
   const first = document.getElementById(isEdit ? 'cc-ds-title' : 'cc-ds-id');
   if (first) first.focus();
@@ -14291,13 +14353,34 @@ function openAddDataSourceModal(category, sourceId) {
   return _ccDataSourceModal(null, category);
 }
 
+/** Nội dung ô nâng cao cho một nguồn đã có (rỗng nếu chỉ dùng khai báo đơn giản). */
+function _ccAdvancedFrom(ds) {
+  const adv = {};
+  CC_DS_ADVANCED_KEYS.forEach(k => {
+    const v = ds?.[k];
+    if (v === undefined || v === null || v === '' || (typeof v === 'object' && !Object.keys(v).length)) return;
+    if (k === 'kind' && v === 'rest') return;
+    if ((k === 'verify_ssl' && v === true) || (k === 'max_rows' && v === 500)) return;
+    adv[k] = v;
+  });
+  return Object.keys(adv).length ? JSON.stringify(adv, null, 2) : '';
+}
+
 /** Gom dữ liệu form thành payload cho API. */
 function _ccDataSourceFormPayload() {
   const val = (id) => document.getElementById(id)?.value?.trim() ?? '';
   const authType = val('cc-ds-auth-type') || 'none';
   const extraName = val('cc-ds-auth-header-name');
 
+  let advanced = {};
+  const rawAdv = document.getElementById('cc-ds-advanced')?.value?.trim();
+  if (rawAdv) {
+    try { advanced = JSON.parse(rawAdv); } catch (e) { throw new Error(`Ô nâng cao không phải JSON hợp lệ: ${e.message}`); }
+    if (!advanced || typeof advanced !== 'object' || Array.isArray(advanced)) throw new Error('Ô nâng cao phải là một đối tượng JSON {…}');
+  }
+
   return {
+    ...advanced,
     id: val('cc-ds-id'),
     title: val('cc-ds-title'),
     description: val('cc-ds-description'),
@@ -14317,7 +14400,8 @@ function _ccDataSourceFormPayload() {
 
 /** Lưu nguồn dữ liệu rồi nạp lại danh sách. */
 async function saveCcDataSource() {
-  const payload = _ccDataSourceFormPayload();
+  let payload;
+  try { payload = _ccDataSourceFormPayload(); } catch (err) { showToast(`✖ ${err.message}`, 'error'); return; }
   const btn = document.getElementById('cc-ds-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Đang lưu…'; }
 
@@ -14613,6 +14697,7 @@ window.toggleCcDsAuthFields = toggleCcDsAuthFields;
 window.renderConnCustomSources = renderConnCustomSources;
 window.toggleCcPresetPicker = toggleCcPresetPicker;
 window.applyCcPreset = applyCcPreset;
+window.applyCcInfraPreset = applyCcInfraPreset;
 window.CC_APP_PRESETS = CC_APP_PRESETS;
 window._ccDataSourceRegistry = _ccDataSourceRegistry;
 window._ccSubTabConfig = _ccSubTabConfig;
