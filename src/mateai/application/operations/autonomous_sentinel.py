@@ -187,6 +187,22 @@ class AutonomousSentinel:
                        "và tác vụ VNMateAI-Backup.",
         }
 
+    def check_main_database(self) -> Optional[Dict[str, Any]]:
+        """CSDL CHÍNH (nghiệp vụ, tài khoản, audit) còn truy cập được không — cùng phép thử `/readyz`.
+        `check_sql_health` chỉ soi CSDL nhân sự (AD): đêm 2026-10-06 PostgreSQL mất kết nối và
+        không có sự cố nào được mở."""
+        from mateai.infrastructure.database.erp_database import erp_db
+        try:
+            erp_db.ping()
+            return None
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "category": "database_down",
+                "title": "CSDL chính không truy cập được",
+                "message": f"Truy vấn kiểm tra thất bại ({type(exc).__name__}). Kiểm tra dịch vụ CSDL "
+                           "(Docker / PostgreSQL) — audit và đăng nhập sẽ lỗi cho tới khi khôi phục.",
+            }
+
     def check_hardware_limits(self) -> Optional[Dict[str, Any]]:
         """RAM / ổ đĩa ở mức nguy cấp -> sự cố. Số đo của health_monitor (worker 3 s)."""
         try:
@@ -236,6 +252,15 @@ class AutonomousSentinel:
         sql_inc = await loop.run_in_executor(None, self.check_sql_health)
         if sql_inc:
             incidents.append(sql_inc)
+
+        # 3b. CSDL chính (tối đa 8 giây: hàng đợi kết nối PostgreSQL có thể chờ lâu khi dịch vụ chết)
+        try:
+            db_inc = await asyncio.wait_for(loop.run_in_executor(None, self.check_main_database), timeout=8.0)
+        except asyncio.TimeoutError:
+            db_inc = {"category": "database_down", "title": "CSDL chính không phản hồi",
+                      "message": "Truy vấn kiểm tra quá 8 giây — CSDL treo hoặc dịch vụ đã dừng."}
+        if db_inc:
+            incidents.append(db_inc)
 
         # 4. Hardware limits check
         hw_inc = await loop.run_in_executor(None, self.check_hardware_limits)

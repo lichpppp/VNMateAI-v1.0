@@ -177,6 +177,34 @@ def _check_db_and_ad() -> Tuple[bool, Dict[str, Any]]:
     return db_ok, ad_data
 
 
+def _check_main_database() -> Dict[str, Any]:
+    """CSDL CHÍNH (nghiệp vụ, tài khoản, audit) — cùng phép thử với `/readyz`, nói rõ backend.
+
+    Trước đây ô "CSDL" của dashboard đo tệp `hr_kpi.db` (CSDL đồng bộ AD) và ghi "SQLite · N KB":
+    sau khi chuyển sang PostgreSQL nó vẫn xanh, kể cả khi CSDL chính hỏng.
+    """
+    from mateai.infrastructure.database.erp_database import erp_db
+    return erp_db.probe()
+
+
+def _format_db_size(size_kb: float) -> str:
+    return f"{size_kb / 1024:.1f} MB" if size_kb >= 1024 else f"{size_kb} KB"
+
+
+def _database_service_entry(main_db: Dict[str, Any]) -> Dict[str, Any]:
+    """Mục `services.database_sqlite` (tên khoá giữ cho sentinel / topology / portal) từ kết quả
+    `_check_main_database`. Báo FAIL khi CSDL CHÍNH hỏng — không phụ thuộc CSDL nhân sự."""
+    label = {"postgresql": "PostgreSQL", "sqlite": "SQLite"}.get(main_db.get("backend"), "CSDL")
+    ok = bool(main_db.get("ok"))
+    return {
+        "status": "OK" if ok else "FAIL",
+        "backend": main_db.get("backend", "unknown"),
+        "size_kb": main_db.get("size_kb", 0.0),
+        "detail": (f"{label} · {_format_db_size(main_db.get('size_kb', 0.0))}" if ok
+                   else f"CSDL chính lỗi: {main_db.get('error', '')}"),
+    }
+
+
 def _get_recent_audit_events(limit: int = 8) -> List[Dict[str, Any]]:
     """Synchronous retrieval of recent audit events for live event log."""
     events: List[Dict[str, Any]] = []
@@ -320,21 +348,14 @@ async def _local_db_worker(interval: float = 10.0) -> None:
     logger.info("[HealthWorker-2] Local DB/AD worker started (interval=%ss).", interval)
     while True:
         try:
-            # File size in KB
-            if _DB_PATH.exists():
-                size_kb = round(_DB_PATH.stat().st_size / 1024, 1)
-            else:
-                size_kb = 0.0
-
             # Execute DB query in worker thread to prevent event-loop latency spikes
             loop = asyncio.get_running_loop()
-            db_ok, ad_data = await loop.run_in_executor(None, _check_db_and_ad)
+            _hr_ok, ad_data = await loop.run_in_executor(None, _check_db_and_ad)
+            main_db = await loop.run_in_executor(None, _check_main_database)
 
-            SYSTEM_HEALTH_CACHE["services"]["database_sqlite"] = {
-                "status": "OK" if db_ok else "FAIL",
-                "size_kb": size_kb,
-                "detail": f"SQLite DB · {size_kb} KB" if db_ok else "Lỗi truy vấn DB",
-            }
+            # Khoá `database_sqlite` giữ tên cũ (sentinel / topology / portal đọc nó) nhưng là CSDL
+            # CHÍNH, kèm `backend`. CSDL nhân sự (AD) được báo riêng ở `active_directory`.
+            SYSTEM_HEALTH_CACHE["services"]["database_sqlite"] = _database_service_entry(main_db)
             SYSTEM_HEALTH_CACHE["services"]["active_directory"] = ad_data
 
             # Fetch recent audit events for realtime log panel

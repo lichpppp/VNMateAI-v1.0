@@ -1851,7 +1851,7 @@
         <div
           class="p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md shadow-sm flex flex-wrap items-center justify-between gap-2">
           <div class="flex items-center gap-2 pl-1">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span id="exec-bar-dot" class="w-2 h-2 rounded-full bg-slate-400"></span>
             <span class="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider font-mono">Bảng
               Chỉ Huy C-Level</span>
             <span class="text-[11px] text-slate-400 dark:text-slate-500 hidden md:inline">| Giám sát toàn vẹn hạ tầng &
@@ -1896,11 +1896,11 @@
               <span
                 class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Trạng
                 Thái Cụm</span>
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span id="exec-p1-dot" class="w-2 h-2 rounded-full bg-slate-400"></span>
             </div>
             <div id="exec-cluster-status-text" class="text-xl font-bold text-emerald-500 tabular-nums tracking-tight">
-              Trực Tuyến</div>
-            <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-1 truncate">Hạ tầng sẵn sàng
+              Đang kiểm tra…</div>
+            <div id="exec-p1-sub" class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mt-1 truncate">—
             </div>
           </div>
 
@@ -1914,8 +1914,8 @@
                 Trạm Worker</span>
               <span class="text-xs">🖥️</span>
             </div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Work Nodes</div>
-            <div class="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-1 truncate">OpenClaw RPA Sẵn Sàng
+            <div id="exec-p2-title" class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Đang kiểm tra…</div>
+            <div id="exec-p2-sub" class="text-[11px] text-blue-600 dark:text-blue-400 font-medium mt-1 truncate">—
             </div>
           </div>
 
@@ -1929,8 +1929,8 @@
                 Gateway</span>
               <span class="text-xs">🌐</span>
             </div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">AI Router</div>
-            <div class="text-[11px] text-cyan-600 dark:text-cyan-400 font-medium mt-1 truncate">Claude · GPT · Gemini
+            <div id="exec-p3-title" class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Đang kiểm tra…</div>
+            <div id="exec-p3-sub" class="text-[11px] text-cyan-600 dark:text-cyan-400 font-medium mt-1 truncate">—
             </div>
           </div>
 
@@ -1944,10 +1944,9 @@
                 Trợ Lý</span>
               <span class="text-xs">🎙️</span>
             </div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Trợ Lý Online
+            <div id="exec-p4-title" class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Đang kiểm tra…
             </div>
-            <div class="text-[11px] text-violet-600 dark:text-violet-400 font-medium mt-1 truncate">Hey Lyly + 3D
-              Cockpit</div>
+            <div id="exec-p4-sub" class="text-[11px] text-violet-600 dark:text-violet-400 font-medium mt-1 truncate">—</div>
           </div>
 
           <!-- Pillar 5: Telegram Bot HITL -->
@@ -1960,25 +1959,24 @@
                 HITL</span>
               <span class="text-xs">📱</span>
             </div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">HITL Active</div>
-            <div class="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1 truncate">Phê duyệt lệnh 2 chiều
+            <div id="exec-p5-title" class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Đang kiểm tra…</div>
+            <div id="exec-p5-sub" class="text-[11px] text-sky-600 dark:text-sky-400 font-medium mt-1 truncate">—
             </div>
           </div>
 
-          <!-- Pillar 6: SQLite WAL & Active Directory -->
+          <!-- Pillar 6: CSDL chính & Active Directory -->
           <div
             class="p-3 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/5 to-transparent dark:bg-slate-900/60 backdrop-blur-sm shadow-sm hover:border-amber-500/60 transition group cursor-pointer"
-            onclick="switchTab('config')" title="Sổ cái SQLite WAL & Đồng bộ người dùng Active Directory">
+            onclick="switchTab('config')" title="CSDL chính & đồng bộ người dùng Active Directory">
             <div class="flex items-center justify-between text-amber-500 mb-1">
               <span
                 class="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-400">Sổ
                 Cái & AD Sync</span>
               <span class="text-xs">🗄️</span>
             </div>
-            <div class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">WAL · Đồng Bộ
+            <div id="exec-p6-title" class="text-xl font-bold text-slate-900 dark:text-white tabular-nums tracking-tight">Đang kiểm tra…
             </div>
-            <div class="text-[11px] text-amber-600 dark:text-amber-400 font-medium mt-1 truncate">Active Directory
-              Zero-Trust</div>
+            <div id="exec-p6-sub" class="text-[11px] text-amber-600 dark:text-amber-400 font-medium mt-1 truncate">—</div>
           </div>
         </div>
       </div>
@@ -7846,7 +7844,7 @@
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
   <script src="/static/server-time.js?v=1"></script>
-  <script src="/static/app.js?v=56.3"></script>
+  <script src="/static/app.js?v=56.4"></script>
 </body>
 
 </html>

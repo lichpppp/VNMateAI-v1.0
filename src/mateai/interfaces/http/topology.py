@@ -81,7 +81,8 @@ def _health_nodes(nodes: List[Dict[str, Any]]) -> None:
     }))
 
     db = _svc(services, "database_sqlite")
-    nodes.append(_node("db", "database", "CSDL SQLite",
+    db_label = {"postgresql": "CSDL PostgreSQL", "sqlite": "CSDL SQLite"}.get(db.get("backend"), "CSDL")
+    nodes.append(_node("db", "database", db_label,
                        {"OK": "ok", "FAIL": "down"}.get(db.get("status"), "unknown"),
                        db.get("detail") or db.get("message") or ""))
 

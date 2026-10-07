@@ -1264,6 +1264,23 @@ class ERPDatabase:
         with self.get_connection() as conn:
             conn.execute("SELECT 1;").fetchone()
 
+    def probe(self) -> Dict[str, Any]:
+        """Số đo cho giám sát: đọc được không, backend nào, dung lượng. Không ném lỗi.
+
+        PostgreSQL: dung lượng cả CSDL; SQLite: dung lượng tệp. Dùng cho ô "CSDL" của dashboard.
+        """
+        try:
+            with self.get_connection() as conn:
+                conn.execute("SELECT 1;").fetchone()
+                if is_pg(conn):
+                    size = conn.execute("SELECT pg_database_size(current_database());").fetchone()[0]
+                    return {"ok": True, "backend": "postgresql", "size_kb": round(int(size) / 1024, 1)}
+            path = self.db_path
+            size_kb = round(path.stat().st_size / 1024, 1) if path.exists() else 0.0
+            return {"ok": True, "backend": "sqlite", "size_kb": size_kb}
+        except Exception as exc:  # pylint: disable=broad-except
+            return {"ok": False, "backend": "unknown", "size_kb": 0.0, "error": f"{type(exc).__name__}: {exc}"[:80]}
+
     def list_employees(self, dept_id: Optional[int] = None, role: Optional[str] = None,
                        limit: int = 100) -> List[Dict[str, Any]]:
         """Danh sách nhân viên (kèm tên phòng ban), lọc theo phòng ban / role."""

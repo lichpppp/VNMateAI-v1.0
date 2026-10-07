@@ -944,8 +944,116 @@ function updateServiceBadge(badgeId, detailId, svc) {
   }
 }
 
+// ─── Bảng Chỉ Huy C-Level: 6 ô trạng thái THẬT ───────────────────────────────
+// Trước đây 6 ô là chữ gõ cứng ("Trực Tuyến", "Trợ Lý Online", "HITL Active"…): robot ngắt, Telegram
+// hay 9Router lỗi vẫn xanh. Giờ lấy từ payload /api/v1/health-dashboard (cùng nguồn các panel khác).
+// Tách `execPillarsModel` (thuần, không đụng DOM — có test Node) khỏi `renderExecutivePillars` (vẽ).
+const EXEC_STALE_MS = 45_000;           // bộ giám sát ghi mỗi 3 s: quá 45 s là dữ liệu cũ
+const EXEC_SERVICE_NAMES = {
+  llm_9router: '9Router', active_directory: 'AD', telegram_gateway: 'Telegram', database_sqlite: 'CSDL',
+};
+
+function execPillarsModel(data, nowMs = Date.now()) {
+  const pending = () => ({ title: 'Đang kiểm tra…', sub: '—', state: 'idle', tip: '' });
+  if (!data) {      // không đọc được máy chủ: chỉ ô cụm báo lỗi, các ô còn lại không đoán
+    const none = { title: '—', sub: '—', state: 'idle', tip: '' };
+    return { bar: 'bad', pillars: [{ title: 'Mất liên lạc', sub: 'Không đọc được trạng thái máy chủ', state: 'bad', tip: '' },
+      none, none, none, none, none] };
+  }
+  const svc = data.services || {};
+  const nodes = data.nodes || {};
+  const counters = data.counters || {};
+  const stale = !data.last_updated || (nowMs - data.last_updated * 1000) > EXEC_STALE_MS;
+
+  // 1. Cụm: tổng hợp từ các dịch vụ; dữ liệu cũ = bộ giám sát nền đã dừng.
+  const bad = Object.entries(EXEC_SERVICE_NAMES).filter(([k]) => svc[k] && svc[k].status === 'FAIL').map(([, v]) => v);
+  const unknown = Object.keys(svc).length === 0;
+  let p1;
+  if (stale) p1 = { title: 'Dữ liệu cũ', sub: 'Bộ giám sát nền không cập nhật', state: 'warn', tip: '' };
+  else if (unknown) p1 = pending();
+  else if (data.status === 'healthy' && bad.length === 0) p1 = { title: 'Trực Tuyến', sub: 'Mọi dịch vụ đang hoạt động', state: 'ok', tip: '' };
+  else p1 = { title: 'Suy Giảm', sub: bad.length ? `Cần chú ý: ${bad.join(', ')}` : 'Có dịch vụ chưa báo OK', state: 'warn', tip: '' };
+
+  // 2. Máy trạm / worker (agent kết nối qua /ws/client)
+  const lan = Number(nodes.active_lan_clients ?? 0);
+  const p2 = lan > 0
+    ? { title: `${lan} Máy Trạm`, sub: 'Đang kết nối, nhận việc được', state: 'ok', tip: '' }
+    : { title: 'Chưa Có Máy Trạm', sub: 'Chưa agent / worker nào kết nối', state: 'idle', tip: '' };
+
+  // 3. 9Router
+  const llm = svc.llm_9router;
+  let p3;
+  if (!llm || llm.status === 'UNKNOWN') p3 = pending();
+  else if (llm.status === 'OK') {
+    const ms = llm.latency_ms ?? llm.latency;
+    p3 = { title: 'Hoạt Động', sub: `${llm.model || 'chưa chọn model'}${ms > 0 ? ` · ${Math.round(ms)} ms` : ''}`, state: 'ok', tip: llm.detail || '' };
+  } else p3 = { title: 'Gián Đoạn', sub: llm.detail || 'Không kết nối được 9Router', state: 'bad', tip: llm.detail || '' };
+
+  // 4. Robot trợ lý (thiết bị âm thanh đang nối WebSocket)
+  const robots = Number(nodes.active_audio_hardware ?? 0);
+  const p4 = robots > 0
+    ? { title: robots === 1 ? 'Robot Online' : `${robots} Robot Online`, sub: 'Đã kết nối, sẵn sàng nghe', state: 'ok', tip: '' }
+    : { title: 'Robot Offline', sub: 'Chưa có robot kết nối', state: 'idle', tip: '' };
+
+  // 5. Telegram + hàng chờ duyệt HITL (duyệt được cả trên portal khi Telegram tắt)
+  const tg = svc.telegram_gateway;
+  const waiting = Number(counters.zt_pending ?? 0);
+  const waitTxt = waiting > 0 ? `${waiting} yêu cầu chờ duyệt` : 'Không có yêu cầu chờ duyệt';
+  let p5;
+  if (!tg || tg.status === 'UNKNOWN') p5 = pending();
+  else if (tg.status === 'OK') p5 = { title: 'Telegram Online', sub: waitTxt, state: waiting > 0 ? 'warn' : 'ok', tip: tg.detail || '' };
+  else if (/Chưa cấu hình/.test(tg.detail || '')) p5 = { title: 'Telegram Chưa Bật', sub: `${tg.detail} · ${waitTxt}`, state: 'idle', tip: tg.detail || '' };
+  else p5 = { title: 'Telegram Gián Đoạn', sub: `${tg.detail || 'Gateway đang dừng'} · ${waitTxt}`, state: 'bad', tip: tg.detail || '' };
+
+  // 6. CSDL chính + đồng bộ AD
+  const db = svc.database_sqlite || svc.database;
+  const ad = svc.active_directory || {};
+  const adTxt = ad.status === 'OK'
+    ? (ad.employees_count > 0 ? `AD ${ad.last_sync}` : 'AD chưa đồng bộ')
+    : (ad.status === 'FAIL' ? 'AD lỗi' : 'AD chưa rõ');
+  let p6;
+  if (!db || db.status === 'UNKNOWN') p6 = pending();
+  else if (db.status === 'OK') p6 = { title: 'CSDL Sẵn Sàng', sub: `${db.detail || 'CSDL'} · ${adTxt}`, state: ad.status === 'FAIL' ? 'warn' : 'ok', tip: `${db.detail || ''} | ${ad.detail || ''}` };
+  else p6 = { title: 'CSDL Lỗi', sub: db.detail || 'Không truy vấn được CSDL chính', state: 'bad', tip: db.detail || '' };
+
+  const pillars = [p1, p2, p3, p4, p5, p6];
+  const worst = pillars.some((p) => p.state === 'bad') ? 'bad' : pillars.some((p) => p.state === 'warn') ? 'warn' : p1.state;
+  return { bar: stale ? 'warn' : worst, pillars };
+}
+
+const EXEC_STATE_COLOR = { ok: '', warn: '#f59e0b', bad: '#f43f5e', idle: '#94a3b8' };
+const EXEC_DOT_COLOR = { ok: '#10b981', warn: '#f59e0b', bad: '#f43f5e', idle: '#94a3b8' };
+
+function renderExecutivePillars(data) {
+  const model = execPillarsModel(data);
+  const ids = [['exec-cluster-status-text', 'exec-p1-sub'], ['exec-p2-title', 'exec-p2-sub'], ['exec-p3-title', 'exec-p3-sub'],
+    ['exec-p4-title', 'exec-p4-sub'], ['exec-p5-title', 'exec-p5-sub'], ['exec-p6-title', 'exec-p6-sub']];
+  model.pillars.forEach((p, i) => {
+    const t = document.getElementById(ids[i][0]);
+    const s = document.getElementById(ids[i][1]);
+    if (t) {
+      t.textContent = p.title;
+      t.style.color = EXEC_STATE_COLOR[p.state] || '';
+      t.title = p.tip || '';
+    }
+    if (s) {
+      s.textContent = p.sub;
+      s.style.color = EXEC_STATE_COLOR[p.state] || '';
+      s.title = p.sub;
+    }
+  });
+  // Chấm trạng thái: nhấp nháy chỉ khi mọi thứ ổn.
+  for (const [id, state] of [['exec-p1-dot', model.pillars[0].state], ['exec-bar-dot', model.bar]]) {
+    const dot = document.getElementById(id);
+    if (!dot) continue;
+    dot.style.backgroundColor = EXEC_DOT_COLOR[state] || EXEC_DOT_COLOR.idle;
+    dot.classList.toggle('animate-pulse', state === 'ok');
+  }
+}
+
 async function fetchAndRenderHealthDashboard() {
   const data = await apiGetHealthDashboard();
+  renderExecutivePillars(data);      // data = null khi máy chủ không trả lời -> ô cụm báo "Mất liên lạc"
   if (!data) return;
 
   // Phase 61: tầng NHANH (2s) — counter rẻ đi kèm payload này, không gọi thêm API
