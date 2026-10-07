@@ -226,6 +226,22 @@ def build_app(state: State, other_origin: str = "") -> FastAPI:
         return {"status": "success", "data": {"resultType": "vector", "result": [
             {"metric": {"__name__": "up", "instance": "srv-1:9100"}, "value": [1700000000, "0" if "== 0" in query else "1"]}]}}
 
+    # ── Paperless-ngx (connector cũ) ─────────────────────────────────────
+    @app.get("/api/")
+    async def paperless_root(authorization: str = Header("")):
+        if authorization != "Token PL-TOKEN":
+            raise HTTPException(401, "Invalid token.")
+        return {"version": "2.11.0"}
+
+    @app.get("/api/documents/")
+    async def paperless_docs(request: Request, authorization: str = Header("")):
+        if authorization != "Token PL-TOKEN":
+            raise HTTPException(401, "Invalid token.")
+        q = request.query_params.get("query", "")
+        docs = [{"id": i, "title": f"Hợp đồng {i}", "correspondent": 3, "document_type": 1, "tags": [], "created": "2026-09-01",
+                 "added": "2026-09-02T08:00:00Z", "content": f"nội dung {q} {i}"} for i in range(1, 4)]
+        return {"count": 3, "results": docs}
+
     # ── thao tác can thiệp ───────────────────────────────────────────────
     @app.post("/api/vms/{vm_id}/restart")
     async def restart(vm_id: str, authorization: str = Header("")):

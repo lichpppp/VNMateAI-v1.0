@@ -34,6 +34,13 @@ from mateai.infrastructure.connectors.base_connector import (
 logger = logging.getLogger(__name__)
 
 
+def _label(value: Any) -> Any:
+    """Paperless-ngx trả khoá ngoại là SỐ ID (hoặc đối tượng khi mở rộng) — lấy tên nếu có, không thì giữ ID."""
+    if isinstance(value, dict):
+        return value.get("name") or value.get("id")
+    return value if value not in ("", None) else None
+
+
 class PaperlessConnector(BaseConnector):
     """
     Adapter kết nối Paperless-ngx qua REST API.
@@ -198,9 +205,9 @@ class PaperlessConnector(BaseConnector):
                 documents.append({
                     "id": doc.get("id"),
                     "title": doc.get("title"),
-                    "correspondent": doc.get("correspondent", {}).get("name") if doc.get("correspondent") else None,
-                    "document_type": doc.get("document_type", {}).get("name") if doc.get("document_type") else None,
-                    "tags": [t.get("name") for t in doc.get("tags", [])],
+                    "correspondent": _label(doc.get("correspondent")),
+                    "document_type": _label(doc.get("document_type")),
+                    "tags": [_label(t) for t in (doc.get("tags") or [])],
                     "created": doc.get("created"),
                     "added": doc.get("added"),
                     "ocr_content_snippet": (doc.get("content", "") or "")[:300],
@@ -244,9 +251,9 @@ class PaperlessConnector(BaseConnector):
                 data={
                     "id": doc.get("id"),
                     "title": doc.get("title"),
-                    "correspondent": doc.get("correspondent", {}).get("name") if doc.get("correspondent") else None,
-                    "document_type": doc.get("document_type", {}).get("name") if doc.get("document_type") else None,
-                    "tags": [t.get("name") for t in doc.get("tags", [])],
+                    "correspondent": _label(doc.get("correspondent")),
+                    "document_type": _label(doc.get("document_type")),
+                    "tags": [_label(t) for t in (doc.get("tags") or [])],
                     "created": doc.get("created"),
                     "added": doc.get("added"),
                     "modified": doc.get("modified"),
