@@ -38,6 +38,10 @@ NEW_ROUTES = {"/api/v1/health/startup",
               "/api/erp/import-from-ad",          # nhập nhân viên + máy tính từ bản sao AD
               "/api/v1/enterprise/data-sources/presets",   # mẫu khai báo hạ tầng (Prometheus, vCenter…)
               # Dev Fleet: điều phối cụm Dev qua Ubuntu Master (docs/integrations/dev-fleet.md)
+              # Xác thực hai lớp TOTP + SSO OIDC (docs/integrations/sso.md, docs/security/mfa.md)
+              '/api/v1/login/mfa', '/api/v1/auth/mfa/status', '/api/v1/auth/mfa/setup', '/api/v1/auth/mfa/enable',
+              '/api/v1/auth/mfa/disable', '/api/v1/users/{user_id}/mfa/reset',
+              '/api/v1/sso/config', '/api/v1/sso/login', '/api/v1/sso/callback', '/api/v1/sso/exchange',
               # Giám sát hạ tầng Prometheus / Grafana (docs/integrations/monitoring.md)
               '/api/v1/monitoring/overview', '/api/v1/monitoring/query', '/api/v1/monitoring/refresh', '/metrics',
               *('/api/v1/dev-fleet/agents',

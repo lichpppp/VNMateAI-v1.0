@@ -918,6 +918,7 @@ function switchTab(tabId) {
     loadErpStructure();
   }
   if (tabId === 'security') {
+    if (typeof MfaCard !== 'undefined') MfaCard.onEnter();
     loadAutonomyControls();
     // Phase 78: nội dung tab "Tài Khoản" đã gộp vào đây (cùng miền kiểm soát
     // truy cập), nên bảng tài khoản nạp kèm.
@@ -7893,6 +7894,22 @@ async function submitEmergencyApproval(approved) {
 let currentUser = null;
 let audioNodesData = [];
 
+/** Hoàn tất đăng nhập (dùng chung cho mật khẩu, bước mã MFA và cài MFA bắt buộc). */
+function completeLogin(res) {
+  localStorage.setItem('vnmateai_token', res.access_token);
+  localStorage.setItem('vnmateai_user', JSON.stringify(res.user));
+  currentUser = res.user;
+
+  hideLoginScreen();
+  applyRolePermissions(currentUser.role, currentUser);
+  showToast(`Xin chào ${currentUser.full_name || currentUser.username}! Đăng nhập thành công.`, 'success');
+  restoreActiveTab();
+  if (getSavedTab() !== 'dashboard') {
+    loadDashboard();
+  }
+  loadAudioNodes();
+}
+
 async function handleLoginSubmit(event) {
   if (event) event.preventDefault();
   const uInput = document.getElementById('login-username');
@@ -7926,18 +7943,11 @@ async function handleLoginSubmit(event) {
   }
 
   if (res && res.status === 'success' && res.access_token) {
-    localStorage.setItem('vnmateai_token', res.access_token);
-    localStorage.setItem('vnmateai_user', JSON.stringify(res.user));
-    currentUser = res.user;
-
-    hideLoginScreen();
-    applyRolePermissions(currentUser.role, currentUser);
-    showToast(`Xin chào ${currentUser.full_name || currentUser.username}! Đăng nhập thành công.`, 'success');
-    restoreActiveTab();
-    if (getSavedTab() !== 'dashboard') {
-      loadDashboard();
-    }
-    loadAudioNodes();
+    completeLogin(res);
+  } else if (res && res.status === 'mfa_required' && res.mfa_token) {
+    LoginMfa.promptCode(res.mfa_token);                    // đúng mật khẩu nhưng CHƯA đăng nhập: cần mã xác thực hai lớp
+  } else if (res && res.status === 'mfa_setup_required' && res.setup_token) {
+    LoginMfa.promptSetup(res.setup_token);                 // vai trò bắt buộc MFA: chỉ được cài MFA
   } else {
     if (errBox && errText) {
       errText.textContent = res.detail || 'Tên đăng nhập hoặc mật khẩu không chính xác.';

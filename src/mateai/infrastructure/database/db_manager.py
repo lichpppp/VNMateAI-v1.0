@@ -86,6 +86,11 @@ class DatabaseManager:
                         cursor.execute("ALTER TABLE users ADD COLUMN department TEXT;")
                     if "clearance_level" not in _ucols:
                         cursor.execute("ALTER TABLE users ADD COLUMN clearance_level INTEGER;")
+                    # Đăng nhập an toàn: MFA (TOTP) + nguồn tài khoản (local | sso). Mã bí mật MFA mã hoá khi lưu.
+                    for _col, _ddl in (("mfa_secret", "TEXT"), ("mfa_enabled", "INTEGER NOT NULL DEFAULT 0"), ("mfa_recovery", "TEXT"),
+                                       ("mfa_last_step", "INTEGER"), ("auth_source", "TEXT")):
+                        if _col not in _ucols:
+                            cursor.execute(f"ALTER TABLE users ADD COLUMN {_col} {_ddl};")
 
                     # 2. Bảng tasks — schema chung, định nghĩa ở mateai.infrastructure.database.erp_database.
                     ensure_tasks_table(cursor)
@@ -423,7 +428,7 @@ class DatabaseManager:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    SELECT id, username, full_name, role, department, clearance_level, created_at, updated_at
+                    SELECT id, username, full_name, role, department, clearance_level, mfa_enabled, auth_source, created_at, updated_at
                     FROM users
                     ORDER BY created_at ASC;
                     """
@@ -440,7 +445,7 @@ class DatabaseManager:
                 cursor.execute(
                     """
                     SELECT id, username, full_name, role, department, clearance_level, password_hash,
-                           created_at, updated_at
+                           mfa_enabled, auth_source, created_at, updated_at
                     FROM users
                     WHERE LOWER(username) = ? OR LOWER(id) = ?;
                     """,
@@ -448,6 +453,26 @@ class DatabaseManager:
                 )
                 row = cursor.fetchone()
                 return dict(row) if row else None
+
+    _SECURITY_COLS = ("mfa_secret", "mfa_enabled", "mfa_recovery", "mfa_last_step", "auth_source")
+
+    def user_security_get(self, user_id: str) -> Dict[str, Any]:
+        """Trạng thái bảo mật của tài khoản (MFA, nguồn đăng nhập). KHÔNG nằm trong bản ghi người dùng trả ra ngoài."""
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute(f"SELECT {', '.join(self._SECURITY_COLS)} FROM users WHERE id = ?;", (user_id,)).fetchone()
+                return dict(row) if row else {}
+
+    def user_security_set(self, user_id: str, **fields: Any) -> None:
+        bad = [k for k in fields if k not in self._SECURITY_COLS]
+        if bad or not fields:
+            raise ValueError(f"Trường không hợp lệ: {bad}")
+        sets = ", ".join(f"{k} = ?" for k in fields)
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(f"UPDATE users SET {sets}, updated_at = ? WHERE id = ?;",
+                             [*fields.values(), datetime.utcnow().isoformat(), user_id])
+                conn.commit()
 
     def create_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Tạo người dùng mới trong SQLite."""

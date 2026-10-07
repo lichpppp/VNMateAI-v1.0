@@ -194,10 +194,16 @@ class AuthManager:
         return jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
     @staticmethod
-    def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
-        """Giải mã và xác thực tính hợp lệ của JWT token."""
+    def decode_access_token(token: str, allow_scopes: Tuple[str, ...] = ()) -> Optional[Dict[str, Any]]:
+        """Giải mã và xác thực tính hợp lệ của JWT token.
+
+        Token CÓ claim `scope` (bước trung gian: `mfa` = đã đúng mật khẩu nhưng chưa nhập mã, `mfa_enroll` = chỉ được cài MFA)
+        KHÔNG phải token truy cập: trả None trừ khi nơi gọi liệt kê đúng scope đó trong `allow_scopes`. Nhờ vậy mọi đường dùng
+        cũ (middleware, dependency, WebSocket) tự từ chối chúng mà không phải sửa từng nơi."""
         try:
             payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+            if payload.get("scope") and payload.get("scope") not in allow_scopes:
+                return None
             return payload
         except jwt.ExpiredSignatureError:
             logger.warning("JWT token đã hết hạn sử dụng.")

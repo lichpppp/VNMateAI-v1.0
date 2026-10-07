@@ -392,6 +392,9 @@ class LLMConfig(BaseModel):
 
 class SecurityConfig(BaseModel):
     """Enterprise Zero-Trust Security Configuration."""
+    #: Vai trò BẮT BUỘC dùng MFA (vd ["admin"]). Rỗng (mặc định) = MFA tuỳ chọn. Người thuộc vai trò này chưa bật MFA
+    #: đăng nhập xong chỉ được vào màn cài MFA (token `mfa_enroll`), chưa dùng được hệ thống.
+    require_mfa_roles: List[str] = Field(default_factory=list)
     #: Giới hạn tần suất (prompt cuối §97) — mỗi người; 0 = tắt. Xem application/security/rate_limit.
     rate_limits: Dict[str, int] = Field(default_factory=lambda: {
         "voice_turns_per_min": 30, "agent_turns_per_min": 40, "ws_voice_sessions_per_user": 5})
@@ -503,6 +506,27 @@ class MonitoringConfig(BaseModel):
     disk_crit: float = 95.0
 
 
+class SsoConfig(BaseModel):
+    """Đăng nhập một lần OpenID Connect (Azure AD / Entra, Keycloak, Okta, Google Workspace…). Mặc định TẮT."""
+    enabled: bool = False
+    display_name: str = "Đăng nhập bằng tài khoản công ty"
+    issuer: str = ""                    # vd https://login.microsoftonline.com/<tenant>/v2.0 · https://keycloak.congty/realms/vn
+    client_id: str = ""
+    client_secret: str = ""             # để trống nếu IdP dùng public client + PKCE
+    redirect_uri: str = ""              # https://<máy chủ>/api/v1/sso/callback — phải trùng khai báo ở IdP
+    scopes: str = "openid profile email"
+    username_claim: str = "email"
+    name_claim: str = "name"
+    groups_claim: str = "groups"
+    #: Nhóm / role của IdP -> vai trò VN-MateAI (admin | manager | viewer). KHÔNG có ánh xạ = vai trò mặc định (không bao giờ tự là admin).
+    role_map: Dict[str, str] = Field(default_factory=dict)
+    default_role: str = "viewer"
+    allowed_email_domains: List[str] = Field(default_factory=list)
+    auto_provision: bool = True
+    verify_ssl: bool = True
+    ca_bundle: str = ""
+
+
 class TelegramConfig(BaseModel):
     """Telegram Gateway and Alerting Configuration (Phase 18)."""
     bot_token: str = Field(default="", description="Telegram Bot API Token from @BotFather.")
@@ -554,6 +578,9 @@ class AppSettings(BaseSettings):
 
     # Giám sát hạ tầng (Prometheus / Grafana)
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
+
+    # Đăng nhập một lần OIDC
+    sso: SsoConfig = Field(default_factory=SsoConfig)
 
     # Dev Fleet: điều phối cụm Dev (Ubuntu Master -> Mac mini/OpenClaw) — mặc định tắt
     dev_fleet: DevFleetConfig = Field(default_factory=DevFleetConfig)
@@ -674,6 +701,13 @@ class AppSettings(BaseSettings):
         env_groq = os.getenv("GROQ_API_KEY", "").strip()
         if env_groq:
             data["GROQ_API_KEY"] = env_groq
+
+        sso_block = data.get("sso")
+        env_sso = os.getenv("VNMATEAI_SSO_CLIENT_SECRET", "").strip()
+        if env_sso:
+            if not isinstance(sso_block, dict):
+                sso_block = data["sso"] = {}
+            sso_block["client_secret"] = env_sso
 
         mon_block = data.get("monitoring")
         env_metrics = os.getenv("VNMATEAI_METRICS_TOKEN", "").strip()

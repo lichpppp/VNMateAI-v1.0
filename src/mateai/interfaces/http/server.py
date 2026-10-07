@@ -137,6 +137,9 @@ async def auth_middleware(request: Request, call_next):
     public_endpoints = (
         "/api/v1/login",
         "/api/v1/login/",
+        "/api/v1/login/mfa",               # bước 2 của đăng nhập MFA (tự kiểm token trung gian + mã)
+        # SSO (OIDC): chạy trước khi đăng nhập; tự kiểm state / nonce / PKCE / chữ ký id_token (application/security/sso.py)
+        "/api/v1/sso/config", "/api/v1/sso/login", "/api/v1/sso/callback", "/api/v1/sso/exchange",
         "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập
         "/api/v1/health-dashboard",        # telemetry HUD chế độ xem
         # Agent máy trạm: route tự kiểm mã đăng ký dùng một lần / khoá thiết bị
@@ -196,7 +199,9 @@ async def auth_middleware(request: Request, call_next):
                 content={"detail": "Yêu cầu xác thực tài khoản (Thiếu Bearer Token)."},
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        payload = auth_manager.decode_access_token(token)
+        # Token trung gian (scope mfa / mfa_enroll) KHÔNG phải token truy cập; riêng 3 đường cài MFA nhận `mfa_enroll`.
+        mfa_enroll_paths = ("/api/v1/auth/mfa/status", "/api/v1/auth/mfa/setup", "/api/v1/auth/mfa/enable")
+        payload = auth_manager.decode_access_token(token, allow_scopes=("mfa_enroll",) if path in mfa_enroll_paths else ())
         if not payload or "sub" not in payload:
             return JSONResponse(
                 status_code=401,
