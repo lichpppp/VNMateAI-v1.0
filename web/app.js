@@ -8258,23 +8258,84 @@ async function loadSupervisorOverview() {
     const vEl = document.getElementById('sup-voice');
     if (vEl) vEl.title = pick ? `nhóm "${pick.name}", ${pick.m.n} lượt, p95 ${fmt(pick.m.p95)}` : 'chưa có lượt thoại';
     set('sup-updated', `Cập nhật ${new Date().toLocaleTimeString('vi-VN')} · chính sách ${d.ai_status.policy_version}`);
-    renderSupervisorAttention(d.tasks.attention || []);
+    renderSupervisorAttention(d.tasks.attention || [], d.tasks.attention_total);
   } catch (err) {
     const box = document.getElementById('sup-attention');
     if (box) box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(err.message)}</div>`;
   }
 }
 
-function renderSupervisorAttention(items) {
+// Danh sách "Cần chú ý": khung cao cố định + cuộn, bộ lọc, thu gọn (nhớ lựa chọn của người xem).
+let _supAttnItems = [];
+let _supAttnTotal = 0;
+let _supAttnFilter = 'all';
+
+/** Thuần (có test Node): đếm theo nhóm và lọc. FAILED = thất bại; còn lại = cần người xác nhận / duyệt. */
+function supAttnView(items, filter) {
+  const list = Array.isArray(items) ? items : [];
+  const failed = list.filter((t) => t.status === 'FAILED');
+  const review = list.filter((t) => t.status !== 'FAILED');
+  const shown = filter === 'failed' ? failed : filter === 'review' ? review : list;
+  return { counts: { all: list.length, review: review.length, failed: failed.length }, shown };
+}
+
+function renderSupervisorAttention(items, total) {
+  _supAttnItems = Array.isArray(items) ? items : [];
+  _supAttnTotal = Math.max(Number(total) || 0, _supAttnItems.length);
+  paintSupervisorAttention();
+}
+
+function setSupAttnFilter(filter) {
+  _supAttnFilter = ['all', 'review', 'failed'].includes(filter) ? filter : 'all';
+  paintSupervisorAttention();
+}
+
+function _supAttnCollapsed() {
+  try { return localStorage.getItem('supAttnCollapsed') === '1'; } catch (e) { return false; }
+}
+
+function toggleSupAttn() {
+  const next = !_supAttnCollapsed();
+  try { localStorage.setItem('supAttnCollapsed', next ? '1' : '0'); } catch (e) { /* trình duyệt chặn lưu: chỉ mất nhớ lựa chọn */ }
+  paintSupervisorAttention();
+}
+
+function paintSupervisorAttention() {
   const box = document.getElementById('sup-attention');
   if (!box) return;
-  if (!items.length) {
+  const v = supAttnView(_supAttnItems, _supAttnFilter);
+  const collapsed = _supAttnCollapsed();
+
+  const cnt = document.getElementById('sup-attn-count');
+  if (cnt) cnt.textContent = String(_supAttnTotal);
+  const note = document.getElementById('sup-attn-note');
+  if (note) note.textContent = _supAttnTotal > _supAttnItems.length ? ` — hiện ${_supAttnItems.length} mục mới nhất` : '';
+  for (const [key, label] of [['all', 'Tất cả'], ['review', 'Cần xác nhận'], ['failed', 'Thất bại']]) {
+    const b = document.getElementById(`sup-attn-f-${key}`);
+    if (!b) continue;
+    b.textContent = `${label} ${v.counts[key]}`;
+    b.style.background = _supAttnFilter === key ? 'rgba(6,182,212,0.18)' : '';
+    b.setAttribute('aria-pressed', String(_supAttnFilter === key));
+  }
+  const tg = document.getElementById('sup-attn-toggle');
+  if (tg) {
+    tg.textContent = collapsed ? 'Mở rộng ▾' : 'Thu gọn ▴';
+    tg.setAttribute('aria-expanded', String(!collapsed));
+  }
+  box.style.display = collapsed ? 'none' : '';
+  if (collapsed) return;
+
+  if (!_supAttnItems.length) {
     box.innerHTML = '<div class="text-slate-500 italic">Không có tác vụ nào cần người xử lý.</div>';
     return;
   }
-  box.innerHTML = items.map(t => `
+  if (!v.shown.length) {
+    box.innerHTML = '<div class="text-slate-500 italic">Không có mục nào trong bộ lọc này.</div>';
+    return;
+  }
+  box.innerHTML = v.shown.map(t => `
     <div class="rounded-xl border border-slate-200 dark:border-white/10">
-      <button type="button" onclick="toggleOpTask('${_esc(t.task_id)}')" class="w-full flex flex-wrap items-center gap-2 px-3 py-2 text-left">
+      <button type="button" onclick="toggleOpTask('${_esc(t.task_id)}')" class="w-full flex flex-wrap items-center gap-2 px-3 py-1.5 text-left">
         <span class="px-2 py-0.5 rounded-full text-[10px] font-bold border ${t.status === 'FAILED' ? 'text-rose-400 border-rose-400/40' : 'text-amber-400 border-amber-400/40'}">${_esc(_OP_STATUS_VI[t.status] || t.status)}</span>
         <span class="text-[10px] text-slate-400">${_esc(t.priority)} · ${_esc(t.kind === 'incident' ? 'sự cố' : 'lượt AI')} · ${_esc(t.agent_id || '')}</span>
         <span class="flex-1 min-w-0 truncate text-slate-700 dark:text-slate-200">${_esc(t.title)}</span>

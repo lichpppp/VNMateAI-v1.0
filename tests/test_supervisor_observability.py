@@ -65,6 +65,9 @@ def test_supervisor_overview_counts_real_ledger_data():
     recorded = db_manager.op_stats((datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S"))["llm_cost"]
     assert d["cost"]["currency_cost"] == (None if recorded is None else round(float(recorded), 4))
     assert "kill_switch" in d["ai_status"] and "policy_version" in d["ai_status"]
+    # Danh sách "Cần chú ý" cắt ở 20 mục mới nhất; tổng số thật đi kèm để giao diện nói rõ phần bị cắt.
+    assert d["tasks"]["attention_total"] >= len(d["tasks"]["attention"])
+    assert len(d["tasks"]["attention"]) <= 20
     assert _client(tasks.router, "viewer").get("/api/v1/ops/overview").status_code == 403
 
 

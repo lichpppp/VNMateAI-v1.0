@@ -350,7 +350,8 @@ async def ops_overview(
     stats = await run_blocking(partial(db_manager.op_stats, since))
     active = await run_blocking(partial(ledger.list_tasks, since=since, limit=500))
     open_states = ("NEW", "ANALYZING", "PLANNED", "WAITING_AUTHORIZATION", "AUTHORIZED", "EXECUTING", "VERIFYING", "ESCALATED", "BLOCKED")
-    attention = [t for t in active if t["status"] in ("ESCALATED", "WAITING_AUTHORIZATION", "FAILED")][:20]
+    attention_all = [t for t in active if t["status"] in ("ESCALATED", "WAITING_AUTHORIZATION", "FAILED")]
+    attention = attention_all[:20]
     by = stats["tasks_by_status"]
     finished = by.get("COMPLETED", 0) + by.get("FAILED", 0) + by.get("BLOCKED", 0)
     steps_total = sum(stats["steps_by_decision"].values())
@@ -375,7 +376,7 @@ async def ops_overview(
         "tasks": {"by_status": by, "by_kind": stats["tasks_by_kind"],
                   "active": sum(1 for t in active if t["status"] in open_states),
                   "success_rate": round(by.get("COMPLETED", 0) * 100.0 / finished, 1) if finished else None,
-                  "attention": attention},
+                  "attention": attention, "attention_total": len(attention_all)},
         "actions": {"total": steps_total, "by_decision": stats["steps_by_decision"], "by_rule": stats["steps_by_rule"],
                     "by_verification": stats["steps_by_verification"],
                     "denial_rate": round(stats["steps_by_decision"].get("deny", 0) * 100.0 / steps_total, 1) if steps_total else None},
