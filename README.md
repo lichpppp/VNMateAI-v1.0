@@ -299,7 +299,6 @@ for f in tests/*.mjs; do node "$f"; done             # test JavaScript (portal /
 └── docs/                   kiến trúc, bảo mật, vận hành, di trú
 ```
 
-Không commit: `config.json`, `deploy/.env`, `deploy/s3.json`, khoá / chứng chỉ (`*.key`, `*.pem`), `*.db`, `backups/`, `secrets.h`.
 
 ---
 
