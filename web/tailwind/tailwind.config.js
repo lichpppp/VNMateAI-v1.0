@@ -7,7 +7,7 @@
  * Cấu hình theme dưới đây chép NGUYÊN từ khối `tailwind.config` cũ trong index.html.
  */
 module.exports = {
-  content: ['../index.html', '../app.js', '../voice-audio-queue.js', '../dev-fleet.js'],
+  content: ['../index.html', '../app.js', '../voice-audio-queue.js', '../dev-fleet.js', '../header-inbox.js'],
   darkMode: 'class',
   theme: {
     extend: {

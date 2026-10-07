@@ -13,7 +13,7 @@
 
   <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/). Trước đây là
        cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở trang, cần Internet. -->
-  <link rel="stylesheet" href="/static/tailwind.css?v=3" />
+  <link rel="stylesheet" href="/static/tailwind.css?v=4" />
   <link rel="stylesheet" href="/static/ui-polish.css?v=2" />
 
   <!-- Instant Theme Script to avoid FOUC -->
@@ -964,27 +964,33 @@
           </svg>
         </button>
 
-        <!-- Mail Icon -->
-        <button aria-label="Hộp thư & Chỉ thị điều hành" type="button"
-          class="w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
-          title="Hộp thư & Chỉ thị điều hành">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-            <polyline points="22,6 12,13 2,6" />
-          </svg>
-        </button>
+        <!-- Hộp thư & chỉ thị điều hành: yêu cầu duyệt + tác vụ cần xử lý (header-inbox.js) -->
+        <div class="relative" id="mail-wrap">
+          <button type="button" id="mail-btn" onclick="HeaderInbox.toggle('mail')" aria-label="Hộp thư & Chỉ thị điều hành"
+            aria-haspopup="dialog" aria-expanded="false"
+            class="relative w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            title="Hộp thư & Chỉ thị điều hành — việc cần bạn quyết định">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+              <polyline points="22,6 12,13 2,6" />
+            </svg>
+            <span id="mail-badge" class="hidden absolute -top-1.5 -right-1.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-[1.1rem] text-center ring-2 ring-white dark:ring-slate-900" aria-live="polite"></span>
+          </button>
+        </div>
 
-        <!-- Notification Bell with red badge -->
-        <button aria-label="Thông báo an ninh & cảnh báo vận hành" type="button"
-          class="relative w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors shadow-sm"
-          title="Thông báo an ninh & cảnh báo vận hành">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.73 21a2 2 0 0 1-3.46 0" />
-          </svg>
-          <span
-            class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse"></span>
-        </button>
+        <!-- Chuông: sự cố đang mở + cảnh báo vận hành (header-inbox.js) -->
+        <div class="relative" id="bell-wrap">
+          <button type="button" id="bell-btn" onclick="HeaderInbox.toggle('bell')" aria-label="Thông báo an ninh & cảnh báo vận hành"
+            aria-haspopup="dialog" aria-expanded="false"
+            class="relative w-9 h-9 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors"
+            title="Thông báo an ninh & cảnh báo vận hành">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+              <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+            </svg>
+            <span id="bell-badge" class="hidden absolute -top-1.5 -right-1.5 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-600 text-white text-[10px] font-bold leading-[1.1rem] text-center ring-2 ring-white dark:ring-slate-900" aria-live="polite"></span>
+          </button>
+        </div>
 
         <!-- Dynamic User Profile Pill & Logout -->
         <div
@@ -7903,8 +7909,9 @@
   <script src="/static/voice-audio-queue.js?v=1"></script>
   <script src="/static/server-time.js?v=1"></script>
   <script src="/static/ui-polish.js?v=1"></script>
+  <script src="/static/header-inbox.js?v=1"></script>
   <script src="/static/dev-fleet.js?v=3"></script>
-  <script src="/static/app.js?v=57.1"></script>
+  <script src="/static/app.js?v=57.2"></script>
 </body>
 
 </html>

@@ -7966,9 +7966,11 @@ function showLoginScreen(errorMsg = '') {
 function hideLoginScreen() {
   const screen = document.getElementById('login-screen');
   if (screen) screen.classList.add('hidden');
+  if (typeof HeaderInbox !== 'undefined') HeaderInbox.start();      // hộp thư + chuông thông báo (dữ liệu thật)
 }
 
 function handleLogout(optionalMessage = '') {
+  if (typeof HeaderInbox !== 'undefined') HeaderInbox.stop();
   localStorage.removeItem('vnmateai_token');
   localStorage.removeItem('vnmateai_user');
   localStorage.removeItem('vnmateai_active_tab');
