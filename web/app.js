@@ -288,6 +288,20 @@ function getStoredUser() {
   }
 }
 
+/**
+ * Thông báo lỗi dễ đọc từ phản hồi của máy chủ: `detail` có thể là chuỗi, đối tượng, hoặc MẢNG lỗi
+ * kiểm tra dữ liệu (422). Trước đây `new Error(data.detail)` với mảng cho ra "[object Object]".
+ */
+function apiErrorText(data, status) {
+  const d = data && data.detail;
+  if (typeof d === 'string' && d) return d;
+  if (Array.isArray(d) && d.length) {
+    return d.map((e) => (e && e.msg ? `${(e.loc || []).slice(1).join('.') || 'dữ liệu'}: ${e.msg}` : String(e))).join('; ');
+  }
+  if (d && typeof d === 'object') return d.message || JSON.stringify(d);
+  return `HTTP ${status}`;
+}
+
 async function apiFetch(url, options = {}) {
   const token = getAuthToken();
   const headers = {
@@ -295,6 +309,12 @@ async function apiFetch(url, options = {}) {
   };
   if (token && !headers['Authorization']) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+  // Mọi API ghi của máy chủ nhận JSON. Gửi chuỗi mà không khai báo kiểu thì trình duyệt tự đặt
+  // `text/plain` và máy chủ trả 422 — nút "Tôi đã kiểm tra — xác nhận hoàn thành" từng chết vì vậy.
+  // Body không phải chuỗi (FormData, Blob…) giữ nguyên để trình duyệt tự đặt kiểu.
+  if (typeof options.body === 'string' && !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')) {
+    headers['Content-Type'] = 'application/json';
   }
 
   try {
@@ -8382,7 +8402,7 @@ async function decideOpTask(taskId, action) {
   try {
     const res = await apiFetch(`${API_BASE}/api/v1/ops/tasks/${encodeURIComponent(taskId)}/${action}`, { method: 'POST', body: JSON.stringify({ note }) });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    if (!res.ok) throw new Error(apiErrorText(data, res.status));
     showToast(action === 'confirm' ? 'Đã xác nhận kết quả' : 'Đã huỷ tác vụ', 'success');
     loadSupervisorOverview();
   } catch (err) {
