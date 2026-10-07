@@ -89,3 +89,64 @@ def test_gateway_pushes_behavior_once_until_changed(monkeypatch):
     assert gw.behavior_allows_gestures("robot_t") is False
     gw._nodes["robot_t"].capabilities = "motor_l298n,natural_behavior,rgb_led"
     assert gw.behavior_allows_gestures("robot_t") is True
+
+
+async def test_real_handshake_pushes_behavior_and_gates_gestures(monkeypatch):
+    """Đi đúng vòng `handle_client` như firmware thật (frame `hello` giao thức XiaoZhi).
+    Lỗi đã gặp 2026-10-06: khung `behavior` chỉ gắn ở nhánh hello cũ — robot v55 không nhận."""
+    import mateai.infrastructure.audio.audio_processor as ap
+    import mateai.interfaces.websocket.xiaozhi_gateway as xg
+    from types import SimpleNamespace
+    from starlette.websockets import WebSocketDisconnect
+
+    class FakeWS:
+        def __init__(self, msgs):
+            self.msgs, self.sent, self.client = list(msgs), [], SimpleNamespace(host="127.0.0.1")
+
+        async def accept(self):
+            return None
+
+        async def receive(self):
+            if self.msgs:
+                return self.msgs.pop(0)
+            raise WebSocketDisconnect(code=1000)
+
+        async def send_text(self, text):
+            self.sent.append(json.loads(text))
+
+        async def send_bytes(self, data):
+            return None
+
+    monkeypatch.setattr(ap, "warm_local_whisper", lambda: True)
+    monkeypatch.setattr("mateai.config.loader.get_config_section",
+                        lambda name: {"wheel_ms": 150} if name == "robot_behavior" else {})
+    for version, feats, gestures in (("55.0", "motor_l298n,natural_behavior,rgb_led", True),
+                                     ("54.0", "motor_l298n,volume_ctrl", False)):
+        gw = xg.XiaozhiGateway()
+        seen = {}
+        orig = gw.behavior_allows_gestures
+
+        async def ui(device_id, state=None, **kw):
+            return True
+        monkeypatch.setattr(gw, "send_ui_payload", ui)
+        hello = {"type": "hello", "version": version, "features": feats, "pairing_code": "123456",
+                 "audio_params": {"format": "pcm", "sample_rate": 16000}}
+
+        async def probe():
+            seen["gestures"] = orig("robot_t")
+            return None
+        ws = FakeWS([{"text": json.dumps(hello)}, {"text": json.dumps({"type": "get_status_probe"})}])
+        monkeypatch.setattr(ws, "receive", (lambda real: (lambda: _wrap(real, probe)))(ws.receive))
+        await gw.handle_client(ws, "robot_t")
+        frames = [m for m in ws.sent if m.get("type") == "behavior"]
+        assert len(frames) == 1 and frames[0]["wheel_ms"] == 150, version
+        assert seen["gestures"] is gestures, version
+        if gw._behavior_task:
+            gw._behavior_task.cancel()
+
+
+async def _wrap(real, probe):
+    msg = await real()
+    if "get_status_probe" in str(msg):
+        await probe()
+    return msg

@@ -368,7 +368,8 @@ class XiaozhiGateway:
         """Chỉ firmware khai báo `natural_behavior` (v55+): cử chỉ chạy trong task riêng. Firmware
         cũ chạy cử chỉ NGAY trong vòng xử lý WebSocket -> âm thanh câu trả lời bị giật."""
         node = self._nodes.get(device_id)
-        if not node or "natural_behavior" not in (node.capabilities or ""):
+        feats = set(getattr(node, "features", None) or []) if node else set()
+        if not node or ("natural_behavior" not in feats and "natural_behavior" not in (node.capabilities or "")):
             return False
         return bool((self._behavior_sent.get(device_id) or {}).get("speech_gestures"))
 
@@ -1148,6 +1149,9 @@ class XiaozhiGateway:
                             "[Xiaozhi] Đã phản hồi 'hello' ACK tới [%s] (format=%s, rate=%d, code=%s)",
                             device_id, fmt, rate, robot_code,
                         )
+                        # Cử động tự nhiên: cấu hình hành vi ngay sau bắt tay (firmware cũ bỏ qua khung lạ).
+                        await self.push_behavior(device_id, force=True)
+                        self._ensure_behavior_loop()
                         continue
 
                     # -------------------------------------------------------
