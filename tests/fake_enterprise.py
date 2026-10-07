@@ -46,6 +46,13 @@ class State:
         self.token_ttl = 3600
         self.logins = 0
         self.other_host_calls = 0
+        # giám sát: tests đổi các danh sách này để mô phỏng Prometheus / Grafana
+        self.prom_alerts: List[Dict[str, Any]] = []
+        self.prom_targets: List[Dict[str, Any]] = []
+        self.prom_vectors: Dict[str, List[Dict[str, Any]]] = {}
+        self.graf_alerts: List[Dict[str, Any]] = []
+        self.graf_rules: List[Dict[str, Any]] = []
+        self.graf_dashboards: List[Dict[str, Any]] = []
 
     def next_id(self) -> int:
         self.n += 1
@@ -223,8 +230,39 @@ def build_app(state: State, other_origin: str = "") -> FastAPI:
             return {"jsonrpc": "2.0", "result": [{"hostid": "10", "host": "srv-1"}], "id": req["id"]}
         return {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found."}, "id": req.get("id")}
 
+    @app.get("/prom/api/v1/alerts")
+    async def prom_alerts():
+        return {"status": "success", "data": {"alerts": state.prom_alerts}}
+
+    @app.get("/prom/api/v1/targets")
+    async def prom_targets():
+        return {"status": "success", "data": {"activeTargets": state.prom_targets, "droppedTargets": []}}
+
+    @app.get("/graf/api/alertmanager/grafana/api/v2/alerts")
+    async def graf_alerts(authorization: str = Header("")):
+        if not bearer(authorization):
+            raise HTTPException(401, "bad token")
+        return state.graf_alerts
+
+    @app.get("/graf/api/prometheus/grafana/api/v1/rules")
+    async def graf_rules(authorization: str = Header("")):
+        if not bearer(authorization):
+            raise HTTPException(401, "bad token")
+        return {"status": "success", "data": {"groups": [{"name": "g", "rules": state.graf_rules}]}}
+
+    @app.get("/graf/api/search")
+    async def graf_search(authorization: str = Header("")):
+        if not bearer(authorization):
+            raise HTTPException(401, "bad token")
+        return state.graf_dashboards
+
     @app.get("/prom/api/v1/query")
     async def prom_query(query: str = ""):
+        for key, vec in state.prom_vectors.items():
+            if key in query:
+                return {"status": "success", "data": {"resultType": "vector", "result": vec}}
+        if state.prom_vectors:
+            return {"status": "success", "data": {"resultType": "vector", "result": []}}
         return {"status": "success", "data": {"resultType": "vector", "result": [
             {"metric": {"__name__": "up", "instance": "srv-1:9100"}, "value": [1700000000, "0" if "== 0" in query else "1"]}]}}
 

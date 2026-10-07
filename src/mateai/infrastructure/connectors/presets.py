@@ -25,7 +25,7 @@ PRESETS: List[Dict[str, Any]] = [
         "note": "Chỉ đọc. Nếu Prometheus đặt sau proxy xác thực, đổi kiểu xác thực tương ứng.",
         "base_url_hint": "http://prometheus.congty.local:9090",
         "declaration": {
-            "title": "Prometheus", "category": "connector", "auth_type": "none",
+            "title": "Prometheus", "category": "connector", "auth_type": "none", "monitor_type": "prometheus",
             "default_path": "/api/v1/alerts", "rows_path": "data.alerts", "health_path": "/-/healthy",
             "queries": {
                 "canh bao": {"description": "Cảnh báo đang bắn", "method": "GET", "path": "/api/v1/alerts", "rows_path": "data.alerts"},
@@ -38,16 +38,20 @@ PRESETS: List[Dict[str, Any]] = [
     },
     {
         "key": "grafana", "label": "Grafana", "group": "Giám sát",
-        "note": "Tạo Service Account token (vai trò Viewer) trong Grafana rồi dán vào ô Khoá.",
+        "note": "Tạo Service Account token (vai trò Viewer) trong Grafana rồi dán vào ô Khoá. Nguồn này cũng được dùng cho màn Giám sát hạ tầng.",
         "base_url_hint": "https://grafana.congty.local",
         "declaration": {
             "title": "Grafana", "category": "connector", "auth_type": "bearer", "default_path": "/api/search",
-            "health_path": "/api/health",
+            "health_path": "/api/health", "monitor_type": "grafana",
             "queries": {
                 "dashboard": {"description": "Tìm dashboard", "method": "GET", "path": "/api/search",
                               "query": {"query": "{tu_khoa}", "type": "dash-db"},
                               "params": {"tu_khoa": {"type": "string", "default": ""}}},
-                "canh bao": {"description": "Quy tắc cảnh báo", "method": "GET", "path": "/api/v1/provisioning/alert-rules"},
+                "canh bao": {"description": "Quy tắc cảnh báo (cấu hình)", "method": "GET", "path": "/api/v1/provisioning/alert-rules"},
+                "canh bao dang bat": {"description": "Cảnh báo Grafana đang bật (Alertmanager nội bộ)", "method": "GET",
+                                      "path": "/api/alertmanager/grafana/api/v2/alerts", "query": {"active": "true", "silenced": "false"}},
+                "quy tac": {"description": "Trạng thái các quy tắc cảnh báo (firing / pending / normal)", "method": "GET",
+                            "path": "/api/prometheus/grafana/api/v1/rules"},
             },
         },
     },

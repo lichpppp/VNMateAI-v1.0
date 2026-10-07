@@ -14,7 +14,7 @@ const HeaderInbox = (() => {
   let openKind = null;
   const state = {
     mail: { pending: null, attention: null, denied: false, error: '' },
-    bell: { incidents: null, alerts: null, denied: false, error: '' },
+    bell: { incidents: null, alerts: null, infra: null, denied: false, error: '' },
   };
 
   const $ = (id) => document.getElementById(id);
@@ -47,7 +47,9 @@ const HeaderInbox = (() => {
     const b = state.bell;
     b.error = ''; b.denied = false;
     try {
-      const [i, n] = await Promise.all([getJson('/api/v1/ops/incidents?limit=50'), getJson('/api/v1/system/notifications')]);
+      const [i, n, m] = await Promise.all([getJson('/api/v1/ops/incidents?limit=50'), getJson('/api/v1/system/notifications'),
+        getJson('/api/v1/monitoring/overview')]);
+      b.infra = m.ok && m.data && m.data.configured ? (m.data.alerts || []).filter((a) => a.state === 'firing') : null;
       if (i.status === 403 || n.status === 403) { b.denied = true; b.incidents = null; b.alerts = null; return; }
       b.incidents = i.ok ? (i.data.incidents || []).filter((t) => !['COMPLETED', 'FAILED', 'CANCELLED'].includes(t.status)) : null;
       b.alerts = n.ok ? (n.data.history || []) : null;
@@ -133,8 +135,15 @@ const HeaderInbox = (() => {
         <span class="min-w-0"><span class="text-slate-800 dark:text-slate-100">${e(a.title)}</span>
           <span class="block text-[11px] text-slate-500 dark:text-slate-400">${e(a.source || '')} · ${e(when(a.time))} · gửi ${e(a.delivered ?? 0)} kênh</span></span>
       </div>`).join('');
+    const infra = (b.infra || []).slice(0, 10).map((a) => `
+      <div class="mx-3 mb-1.5 flex gap-2 text-xs">
+        <span class="shrink-0 font-bold ${a.severity === 'critical' ? SEV.critical : (SEV[a.severity] || SEV.info)}">${e(String(a.severity).toUpperCase())}</span>
+        <span class="min-w-0"><span class="text-slate-800 dark:text-slate-100">${e(a.name)}</span>
+          <span class="block text-[11px] text-slate-500 dark:text-slate-400">${e(a.source)}${a.instance ? ' · ' + e(a.instance) : ''}</span></span>
+      </div>`).join('');
     let body = '';
     if (b.incidents && b.incidents.length) body += section(`Sự cố đang mở (${b.incidents.length})`, inc);
+    if (b.infra && b.infra.length) body += section(`Hạ tầng đang cảnh báo — Prometheus / Grafana (${b.infra.length})`, infra + `<div class="px-4 pb-1">${link('Mở Giám sát hạ tầng →', 'infra')}</div>`);
     if (b.alerts && b.alerts.length) body += section('Cảnh báo đã phát gần đây', alerts);
     if (!body) body = empty('Không có sự cố đang mở và chưa có cảnh báo nào được phát.');
     body += `<div class="px-4 pb-1">${link('Cấu hình kênh cảnh báo →', 'integration')}</div>`;
@@ -190,6 +199,7 @@ const HeaderInbox = (() => {
     const act = t.dataset.hi;
     if (act === 'dashboard') { closeAll(); switchTab('dashboard'); return; }
     if (act === 'integration') { closeAll(); switchTab('system-integration'); return; }
+    if (act === 'infra') { closeAll(); switchTab('infra-monitor'); return; }
     if (act === 'approve' || act === 'reject') {
       t.disabled = true;
       try { await CommandCenter.decide(t.dataset.id, act === 'approve'); } finally { await refresh(); if (openKind) render(openKind); }

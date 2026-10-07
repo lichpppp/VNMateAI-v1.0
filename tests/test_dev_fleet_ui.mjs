@@ -18,7 +18,7 @@ const ok = (c, n) => { if (!c) { console.error(`FAIL ${n}`); process.exit(1); } 
 // tích hợp vào cổng: tab, nav, script, tiêu đề, vòng đời vào / rời
 ok(/id="tab-dev-fleet"/.test(html) && /id="nav-dev-fleet"/.test(html) && /id="dev-fleet-root"/.test(html), 'index.html có tab Dev Fleet');
 ok(/\/static\/dev-fleet\.js/.test(html) && html.indexOf('dev-fleet.js') < html.indexOf('/static/app.js'), 'nạp dev-fleet.js');
-ok(/VALID_TABS = \['dashboard', 'dev-fleet'/.test(app) && /'dev-fleet': 'Dev Fleet/.test(app), 'VALID_TABS + TAB_TITLES');
+ok(/VALID_TABS = \[[^\]]*'dev-fleet'/.test(app) && /'dev-fleet': 'Dev Fleet/.test(app), 'VALID_TABS + TAB_TITLES');
 ok(/DevFleetUI\.onEnter\(\)/.test(app) && /DevFleetUI\.onLeave\(\)/.test(app), 'switchTab gọi onEnter / onLeave');
 
 const elements = new Map();

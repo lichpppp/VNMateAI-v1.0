@@ -117,6 +117,18 @@ ok(/IIS 503/.test(bellPanel.innerHTML) && /web-01/.test(bellPanel.innerHTML) && 
 ok(/Mất kết nối &lt;i&gt;AD/.test(bellPanel.innerHTML) && /Đã khôi phục/.test(bellPanel.innerHTML) && /gửi 2 kênh/.test(bellPanel.innerHTML), 'chuông: cảnh báo thoát HTML, ghi số kênh đã gửi, đánh dấu đã khôi phục');
 ok(el('bell-badge').textContent === '1' && Number(store.vnmateai_bell_seen) > nowSec - 5, 'mở chuông: cảnh báo coi là đã xem, còn lại sự cố đang mở');
 
+// 3b. hạ tầng (Prometheus / Grafana): hiện thành mục riêng, KHÔNG cộng vào số đếm (cảnh báo nặng đã là sự cố)
+routes = { ...base(), '/api/v1/monitoring/overview': { body: { configured: true, alerts: [
+  { source: 'prom-1', name: 'HighCPU <b>x</b>', severity: 'critical', state: 'firing', instance: 'srv-1:9100' },
+  { source: 'prom-1', name: 'DiskLow', severity: 'warning', state: 'pending', instance: 'srv-2:9100' }] } } };
+await HeaderInbox.refresh();
+await HeaderInbox.toggle('bell');
+const infraPanel = el('bell-wrap').children[0];
+ok(/Hạ tầng đang cảnh báo/.test(infraPanel.innerHTML) && /HighCPU &lt;b&gt;x/.test(infraPanel.innerHTML) && !/DiskLow/.test(infraPanel.innerHTML), 'chuông: mục hạ tầng chỉ gồm cảnh báo đang bắn, thoát HTML');
+ok(el('bell-badge').textContent === '1', 'số đếm không cộng đôi cảnh báo hạ tầng');
+await infraPanel.listeners.click({ target: { closest: () => ({ dataset: { hi: 'infra' } }) } });
+ok(calls.some((c) => c[0] === 'tab' && c[1] === 'infra-monitor'), 'liên kết mở tab Giám sát hạ tầng');
+
 // 4. rỗng: không hiện số giả
 routes = {
   ...base(),

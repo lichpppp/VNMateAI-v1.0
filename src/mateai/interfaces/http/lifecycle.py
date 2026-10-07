@@ -209,6 +209,15 @@ def _dev_fleet(ctx: StepContext) -> str:
     return f"chế độ {dev_fleet.mode}"
 
 
+def _infra_monitor(ctx: StepContext) -> str:
+    """Giám sát hạ tầng: chỉ chạy vòng nền khi đã có nguồn Prometheus / Grafana. Không có = không làm gì."""
+    from mateai.application.monitoring import infra_monitor
+    if not infra_monitor.monitor_sources(include_secrets=False):
+        return "chưa có nguồn giám sát"
+    infra_monitor.start_poller()
+    return "đang chạy"
+
+
 def _acoustic_ack(ctx: StepContext) -> None:
     from mateai.application.commands.fast_command_router import STATIC_REPLIES
     from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
@@ -274,6 +283,7 @@ def default_steps() -> List[Step]:
         Step("acoustic_ack_warmup", _acoustic_ack),
         Step("connector_tools", _connector_tools),
         Step("dev_fleet", _dev_fleet),
+        Step("infra_monitor", _infra_monitor),
         Step("computer_use_tool", _computer_use),
         Step("background_workers", _background_workers),
         Step("email_gateway", _email_gateway),
@@ -332,6 +342,7 @@ async def run_shutdown() -> None:
         ("Proactive Manager", "mateai.application.skills.builtin.proactive_manager", "proactive_manager"),
         ("Email Gateway", "mateai.interfaces.email.email_gateway", "email_gateway"),
         ("Dev Fleet", "mateai.application.devfleet.service", "dev_fleet"),
+        ("Infra Monitor", "mateai.application.monitoring.infra_monitor", "infra_monitor_stopper"),
     ):
         try:
             getattr(__import__(mod, fromlist=[attr]), attr).stop()

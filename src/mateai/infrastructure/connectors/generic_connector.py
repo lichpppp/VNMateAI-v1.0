@@ -495,6 +495,19 @@ class GenericConnector(BaseConnector):
                "body": params.get("body") if isinstance(params.get("body"), dict) else None}
         return await self._paged_fetch(req, self.source.get("rows_path") or "", self.source.get("pagination"), limit)
 
+    async def fetch_raw(self, name: str, args: Optional[Dict[str, Any]] = None) -> ConnectorResult:
+        """Chạy một truy vấn ĐẶT TÊN (chỉ đọc) và trả JSON gốc của máy chủ (không làm phẳng thành bảng). Dùng cho giám sát."""
+        queries = self.source.get("queries") or {}
+        if self.kind != "rest" or name not in queries:
+            return self._fail(f"Nguồn này không có truy vấn tên '{name}'. Đã khai báo: {', '.join(queries) or '(chưa có)'}")
+        if not await self.authenticate():
+            return self._fail("Thiếu thông tin kết nối hoặc khoá xác thực")
+        try:
+            req = render_request(queries[name], args)
+        except ValueError as exc:
+            return self._fail(str(exc))
+        return await self._send(req["method"], req["path"], query=req["query"], body=req["body"], body_type=req["body_type"])
+
     async def _run_query(self, name: str, args: Optional[Dict[str, Any]], limit: int) -> ConnectorResult:
         op = (self.source.get("queries") or {})[name]
         try:
@@ -769,6 +782,11 @@ async def fetch_data_source(source_id: str, params: Optional[Dict[str, Any]] = N
         )
 
     return await GenericConnector(source).fetch_data(params or {})
+
+
+async def fetch_raw_query(source: Dict[str, Any], name: str, args: Optional[Dict[str, Any]] = None) -> ConnectorResult:
+    """`GenericConnector(source).fetch_raw` cho nơi gọi chỉ có bản ghi nguồn (đã giải mã khoá)."""
+    return await GenericConnector(source).fetch_raw(name, args)
 
 
 async def run_source_action(source_id: str, action: str, args: Optional[Dict[str, Any]] = None) -> ConnectorResult:

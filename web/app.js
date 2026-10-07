@@ -256,6 +256,7 @@ const TAB_TITLES = {
   logs: 'Nhật Ký Hệ Thống (Real-time Logs)',
   'ai-manager': 'Quản Lý Trợ Lý AI — LLM · Persona · Audio',
   'dev-fleet': 'Dev Fleet — Cụm Master - WorkNode',
+  'infra-monitor': 'Giám Sát Hạ Tầng — Prometheus · Grafana',
 };
 
 // ─── Biểu tượng Kỹ năng SVG ───────────────────────────────────────────────
@@ -747,7 +748,7 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // sau đó 'command-center' cũng gộp vào 'dashboard'.
 // Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices /
 // #command-center sẽ tự rơi về dashboard thay vì mở một tab không có.
-const VALID_TABS = ['dashboard', 'dev-fleet', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
+const VALID_TABS = ['dashboard', 'infra-monitor', 'dev-fleet', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
 
 function getSavedTab() {
   const hash = (window.location.hash || '').replace('#', '').trim();
@@ -856,6 +857,7 @@ function switchTab(tabId) {
   }
   // Dev Fleet: dừng vòng làm mới 10 s khi rời tab.
   if (typeof DevFleetUI !== 'undefined' && tabId !== 'dev-fleet') DevFleetUI.onLeave();
+  if (typeof InfraMonitorUI !== 'undefined' && tabId !== 'infra-monitor') InfraMonitorUI.onLeave();
   // Phase 85: dừng bộ hẹn giờ 10s của danh sách máy trạm khi rời tab Tích Hợp.
   // Bật lại khi quay lại tab và bấm sub-tab Máy Trạm (`switchCcSubTab`).
   if (typeof _devicesPollStop === 'function' && tabId !== 'system-integration') {
@@ -899,6 +901,7 @@ function switchTab(tabId) {
   // (`switchCcSubTab('devices')`). Gọi ở đây nghĩa là mở tab Tích Hợp phải trả
   // thêm một request cho danh sách mà người dùng chưa nhìn tới.
   if (tabId === 'dev-fleet' && typeof DevFleetUI !== 'undefined') DevFleetUI.onEnter();
+  if (tabId === 'infra-monitor' && typeof InfraMonitorUI !== 'undefined') InfraMonitorUI.onEnter();
   if (tabId === 'system-integration') loadSystemIntegration();
   if (tabId === 'ai-manager') { loadAIManagerConfig(); initAISubTabs(); }
   if (tabId === 'skills') loadSkills();

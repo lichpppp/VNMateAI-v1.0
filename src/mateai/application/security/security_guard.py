@@ -64,6 +64,8 @@ RBAC_RULES: Dict[str, Any] = {
             "list_data_sources", "fetch_data_source", "prepare_data_source_export",
             # Dev Fleet: chỉ XEM (create_/cancel_dev_fleet_task không có ở đây = chỉ admin).
             "get_dev_fleet_status", "list_dev_fleet_workers", "get_dev_fleet_task", "get_dev_fleet_briefing",
+            # Giám sát hạ tầng (Prometheus / Grafana): chỉ đọc
+            "get_infra_status", "get_infra_alerts", "query_prometheus", "list_grafana_dashboards",
         ],
         "blocked_prefixes": [
             "create_new_skill",         # Không tự tạo kỹ năng

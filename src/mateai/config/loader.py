@@ -484,6 +484,23 @@ class DevFleetConfig(BaseModel):
     lease_ttl_s: float = Field(default=1800.0, ge=30.0, le=86400.0)
 
 
+class MonitoringConfig(BaseModel):
+    """Giám sát hạ tầng qua Prometheus / Grafana (nguồn dữ liệu có `monitor_type`). Không có nguồn nào thì không làm gì."""
+    enabled: bool = True
+    interval_s: float = Field(default=60.0, ge=10.0, le=3600.0)
+    cache_ttl_s: float = Field(default=20.0, ge=0.0, le=600.0)
+    #: Mức tối thiểu của cảnh báo ngoài hệ thống để mở SỰ CỐ + báo kênh cảnh báo: critical | warning.
+    incident_min_severity: str = "critical"
+    max_incidents_per_cycle: int = Field(default=10, ge=1, le=100)
+    #: Ngưỡng (%) cho CPU / RAM / đĩa suy ra từ node_exporter / windows_exporter.
+    cpu_warn: float = 85.0
+    cpu_crit: float = 95.0
+    memory_warn: float = 90.0
+    memory_crit: float = 95.0
+    disk_warn: float = 85.0
+    disk_crit: float = 95.0
+
+
 class TelegramConfig(BaseModel):
     """Telegram Gateway and Alerting Configuration (Phase 18)."""
     bot_token: str = Field(default="", description="Telegram Bot API Token from @BotFather.")
@@ -532,6 +549,9 @@ class AppSettings(BaseSettings):
 
     # Phase 18: Telegram Gateway
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+
+    # Giám sát hạ tầng (Prometheus / Grafana)
+    monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
 
     # Dev Fleet: điều phối cụm Dev (Ubuntu Master -> Mac mini/OpenClaw) — mặc định tắt
     dev_fleet: DevFleetConfig = Field(default_factory=DevFleetConfig)

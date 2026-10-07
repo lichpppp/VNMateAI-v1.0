@@ -69,6 +69,8 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,48}$")
 #:                  GLPI, Veeam, Zabbix cũ …); token được giữ tới khi hết hạn / bị từ chối rồi tự đăng nhập lại
 #:   oauth2_client  OAuth2 client-credentials (auth_value = "client_id:client_secret")
 AUTH_TYPES = ("none", "bearer", "basic", "header", "query", "oauth2_client", "login")
+#: Loại nguồn giám sát — màn "Giám sát hạ tầng" và công cụ AI chỉ đọc từ nguồn mang nhãn này.
+MONITOR_TYPES = ("", "prometheus", "grafana")
 
 #: Loại nguồn: REST (HTTP) hoặc SQL chỉ-đọc.
 KINDS = ("rest", "sql")
@@ -316,6 +318,10 @@ def _normalise_extensions(record: Dict[str, Any], payload: Dict[str, Any], previ
     def pick(key: str) -> Any:
         return payload[key] if key in payload else (previous or {}).get(key)
 
+    monitor = str(pick("monitor_type") or "").strip().lower()
+    if monitor not in MONITOR_TYPES:
+        raise ValueError(f"monitor_type chỉ nhận: {', '.join(t or '(trống)' for t in MONITOR_TYPES)}")
+    record["monitor_type"] = monitor                 # nguồn này cũng là nguồn GIÁM SÁT (Prometheus / Grafana)
     record["max_rows"] = _coerce_int(pick("max_rows"), 500, 1, 10000)
     record["row_limit"] = min(record["row_limit"], record["max_rows"])
     record["verify_ssl"] = _coerce_bool(pick("verify_ssl"), True)
