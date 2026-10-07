@@ -16,6 +16,13 @@
         "required": [
           "query"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -40,6 +47,13 @@
             "default": "today"
           }
         }
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -53,6 +67,13 @@
       "parameters": {
         "type": "object",
         "properties": {}
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -82,6 +103,13 @@
         "required": [
           "task_description"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -95,6 +123,13 @@
       "parameters": {
         "type": "object",
         "properties": {}
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -116,6 +151,111 @@
         "required": [
           "prompt"
         ]
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_chrome_tabs_info": {
+    "module": "skills.auto_count_chrome_tabs",
+    "attr": "get_chrome_tabs_info",
+    "meta": {
+      "name": "get_chrome_tabs_info",
+      "description": "Đếm số lượng tab và cửa sổ đang mở trên trình duyệt Google Chrome, đồng thời liệt kê tiêu đề của các tab đang hoạt động. Thường dùng khi người dùng nói: 'đếm số tab chrome đang mở', 'kiểm tra chrome có bao nhiêu tab', 'liệt kê các tab chrome', 'xem danh sách tab đang mở trên chrome', 'how many tabs are open in chrome', 'list chrome tabs'. Ví dụ yêu cầu: «Đếm số lượng tab (tabs) hoặc cửa sổ đang mở trên trình duyệt Google Chrome hoặc liệt kê các tab đang hoạt động.».",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "include_tab_titles": {
+            "type": "boolean",
+            "description": "True nếu muốn lấy chi tiết tên tiêu đề của từng tab, False nếu chỉ cần đếm số lượng.",
+            "default": true
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "auto_get_hanoi_weather": {
+    "module": "skills.auto_get_hanoi_weather",
+    "attr": "auto_get_hanoi_weather",
+    "meta": {
+      "name": "auto_get_hanoi_weather",
+      "description": "Lấy dữ liệu thời tiết thực tế tại Hà Nội (nhiệt độ hiện tại, độ ẩm, tình trạng thời tiết) từ API miễn phí Open-Meteo. Trả về kết quả bằng tiếng Việt.\nCác cách người dùng hay nói:\n- \"Thời tiết Hà Nội hôm nay thế nào?\"\n- \"Nhiệt độ ở Hà Nội bây giờ bao nhiêu?\"\n- \"Cho tôi biết thời tiết hiện tại tại Hà Nội\"\n- \"Hà Nội hôm nay có mưa không?\"\n- \"Xem dự báo thời tiết Hà Nội\"\nKeywords: weather Hanoi, temperature Hanoi, Hanoi forecast, current weather, thời tiết, nhiệt độ, độ ẩm Ví dụ yêu cầu: «Lấy dữ liệu thời tiết thực tế tại Hà Nội từ API miễn phí như Open-Meteo hoặc wttr.in, trả về nhiệt độ hiện tại, độ ẩm và tình trạng thời tiết».",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_system_uptime": {
+    "module": "skills.auto_get_server_uptime",
+    "attr": "get_system_uptime",
+    "meta": {
+      "name": "get_system_uptime",
+      "description": "Kiểm tra thời gian hoạt động (uptime) của hệ thống máy tính/máy chủ Windows, cho biết máy đã mở và chạy liên tục được bao lâu kể từ lần khởi động gần nhất. Các cách người dùng hay yêu cầu: 'kiểm tra uptime máy chủ', 'máy tính đã bật được bao lâu rồi', 'xem thời gian hoạt động của máy', 'máy chạy liên tục mấy ngày rồi', 'hệ thống khởi động lúc nào'. Keywords: system uptime, server uptime, boot time, check running time, system running duration. Ví dụ yêu cầu: «Kiểm tra thời gian hoạt động (uptime) của máy chủ hệ thống (sử dụng thư viện psutil hoặc lệnh hệ thống để lấy thời gian máy chủ đã chạy).».",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "auto_play_music": {
+    "module": "skills.auto_play_music",
+    "attr": "auto_play_music",
+    "meta": {
+      "name": "auto_play_music",
+      "description": "Automatically search for a song/music video on YouTube by keyword, find the first matching video, and immediately start playback in the default web browser with autoplay enabled. Returns the song title and URL. Ví dụ yêu cầu: «mở bài hát …, bật nhạc …, phát nhạc / nghe nhạc trên YouTube».",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "song_name": {
+            "type": "string",
+            "description": "The name of the song, artist, or search keyword to find and play on YouTube."
+          }
+        },
+        "required": [
+          "song_name"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -134,6 +274,13 @@
             "description": "Ngày cần tra cứu dạng YYYY-MM-DD (bỏ trống để lấy hôm nay)."
           }
         }
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -153,6 +300,13 @@
             "default": 5
           }
         }
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -172,6 +326,13 @@
             "default": 30
           }
         }
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -203,6 +364,13 @@
         "required": [
           "employee_identifier"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -239,6 +407,13 @@
           "amount",
           "reason"
         ]
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -275,6 +450,13 @@
           "amount",
           "source"
         ]
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -293,6 +475,13 @@
             "description": "Tiêu đề cửa sổ ứng dụng cần chụp (để trống nếu chụp toàn màn hình)"
           }
         }
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -306,6 +495,13 @@
       "parameters": {
         "type": "object",
         "properties": {}
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -337,6 +533,13 @@
         "required": [
           "task_goal"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -346,11 +549,29 @@
     "attr": "test_ping_host",
     "meta": {
       "name": "test_ping_host",
-      "description": "Kiểm tra kết nối mạng ping đến máy chủ",
+      "description": "Ping một địa chỉ IP hoặc tên miền bất kỳ (vd 8.8.8.8, google.com, máy trạm trong LAN) để kiểm tra kết nối mạng: số gói nhận được, tỉ lệ mất gói, độ trễ min/trung bình/max (ms). Dùng cho mọi yêu cầu 'ping …' hoặc 'kiểm tra mạng tới …'.",
       "parameters": {
         "type": "object",
-        "properties": {},
-        "required": []
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "Địa chỉ IP hoặc tên miền cần ping"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Số gói gửi (1–10, mặc định 4)"
+          }
+        },
+        "required": [
+          "host"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -380,6 +601,13 @@
         "required": [
           "source_id"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -399,6 +627,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -436,6 +671,13 @@
         "required": [
           "source_id"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -457,6 +699,13 @@
         "required": [
           "query_string"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -483,6 +732,13 @@
         "required": [
           "message"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -514,6 +770,13 @@
           "subject",
           "content"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -535,6 +798,13 @@
         "required": [
           "question"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -556,6 +826,13 @@
         "required": [
           "query"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -612,6 +889,13 @@
           "ho_ten",
           "doi_thu"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -645,6 +929,13 @@
         "required": [
           "path"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -674,6 +965,13 @@
         "required": [
           "path"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -707,6 +1005,13 @@
         "required": [
           "file_path"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -749,6 +1054,13 @@
           "file_path",
           "content"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -770,6 +1082,13 @@
         "required": [
           "question"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -809,6 +1128,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -835,6 +1161,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -863,6 +1196,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -886,6 +1226,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -912,6 +1259,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -957,6 +1311,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -982,6 +1343,13 @@
         "required": [
           "doc_id"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1003,6 +1371,13 @@
         "required": [
           "invoice_id"
         ]
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1024,6 +1399,13 @@
         "required": [
           "doc_id"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1072,6 +1454,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1126,6 +1515,13 @@
         "required": [
           "query"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1196,6 +1592,13 @@
           "category",
           "severity"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1219,6 +1622,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1228,7 +1638,7 @@
     "attr": "get_tickets",
     "meta": {
       "name": "get_tickets",
-      "description": "Lấy danh sách phiếu ITSM từ hệ thống ERP. Hỗ trợ lọc theo trạng thái, phòng ban, hoặc chỉ xem phiếu do AI tạo.",
+      "description": "Xem danh sách ticket / phiếu ITSM (phiếu hỗ trợ, sự cố) từ hệ thống ERP: ticket đang mở, đang xử lý, đã đóng. Hỗ trợ lọc theo trạng thái, phòng ban, hoặc chỉ xem phiếu do AI tạo.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1253,6 +1663,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1293,6 +1710,13 @@
           "ticket_id",
           "status"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1323,6 +1747,13 @@
           "client_id",
           "message"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1345,6 +1776,13 @@
             "description": "Tháng cần tổng hợp định dạng YYYY-MM hoặc số tháng như '9', '09' (mặc định: tháng hiện tại)."
           }
         }
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1354,7 +1792,7 @@
     "attr": "create_new_skill",
     "meta": {
       "name": "create_new_skill",
-      "description": "Tự động thiết kế, sinh mã nguồn Python, kiểm tra an toàn AST và nạp nóng kỹ năng mới vào hệ thống VN-MateAI.",
+      "description": "Tạo KỸ NĂNG MỚI khi người dùng yêu cầu một VIỆC mà hiện chưa có công cụ nào làm được (vd mở bài hát/phát nhạc, tra cứu một trang web cụ thể, tự động hoá một thao tác), kể cả khi cần DỮ LIỆU TRỰC TUYẾN / THỜI GIAN THỰC chưa có công cụ lấy (giá vàng, tỷ giá, thời tiết, tin tức). Sinh mã Python, kiểm tra an toàn và nạp ngay; sau đó gọi kỹ năng mới để làm tiếp yêu cầu. KHÔNG dùng cho câu hỏi trò chuyện hay câu tự trả lời được bằng kiến thức. intent_description: mô tả đầy đủ việc cần làm, dùng chính lời người dùng.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1370,6 +1808,13 @@
         "required": [
           "intent_description"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1389,6 +1834,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1403,6 +1855,13 @@
         "type": "object",
         "properties": {},
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1428,6 +1887,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1442,6 +1908,13 @@
         "type": "object",
         "properties": {},
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1471,6 +1944,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1491,6 +1971,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1521,6 +2008,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1535,6 +2029,13 @@
         "type": "object",
         "properties": {},
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1561,6 +2062,13 @@
         "required": [
           "url"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1592,6 +2100,13 @@
         "required": [
           "prompt"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1618,6 +2133,13 @@
         "required": [
           "text"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1655,6 +2177,13 @@
         "required": [
           "prompt"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1681,6 +2210,13 @@
         "required": [
           "text"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1722,6 +2258,13 @@
         "required": [
           "url"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1753,6 +2296,13 @@
         "required": [
           "query"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1803,6 +2353,13 @@
           "name",
           "position"
         ]
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1817,6 +2374,13 @@
         "type": "object",
         "properties": {},
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1837,6 +2401,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1846,7 +2417,7 @@
     "attr": "get_system_info",
     "meta": {
       "name": "get_system_info",
-      "description": "Lấy thông tin hệ thống máy tính: CPU usage, RAM, Disk, Uptime, tên máy, OS version, múi giờ, và nhiệt độ CPU (nếu có).",
+      "description": "Lấy thông tin hệ thống máy tính / máy chủ: máy đang dùng bao nhiêu CPU, RAM, ổ đĩa (Disk), thời gian chạy (Uptime), tên máy, OS version, múi giờ, và nhiệt độ CPU (nếu có).",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1857,6 +2428,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1893,6 +2471,13 @@
           }
         },
         "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1922,6 +2507,13 @@
         "required": [
           "target"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1948,6 +2540,13 @@
         "required": [
           "command"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -1984,6 +2583,13 @@
         "required": [
           "pattern"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2005,6 +2611,13 @@
         "required": [
           "text"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2033,6 +2646,13 @@
         "required": [
           "level"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2064,6 +2684,13 @@
         "required": [
           "description"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2077,6 +2704,13 @@
       "parameters": {
         "type": "object",
         "properties": {}
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2105,6 +2739,13 @@
         "required": [
           "animation"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2138,6 +2779,13 @@
         "required": [
           "direction"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2170,6 +2818,13 @@
           "service_name",
           "action"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2211,6 +2866,45 @@
         "required": [
           "query"
         ]
+      },
+      "contract": {
+        "data_classification": "CONFIDENTIAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "thong_ke_lo_xsmb": {
+    "module": "skills.thong_ke_lo_xsmb",
+    "attr": "thong_ke_lo_xsmb",
+    "meta": {
+      "name": "thong_ke_lo_xsmb",
+      "description": "Crawl kết quả XSMB trong 14 ngày gần nhất, bóc tách 2 chữ số cuối (lô tô), thống kê tần suất, lô gan và xuất báo cáo markdown.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "days_count": {
+            "type": "integer",
+            "description": "Số ngày cần thống kê tính từ hôm qua (mặc định là 14).",
+            "default": 14
+          },
+          "output_path": {
+            "type": "string",
+            "description": "Đường dẫn lưu file báo cáo markdown.",
+            "default": "reports/thong_ke_lo_xsmb.md"
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
@@ -2259,6 +2953,39 @@
           "type",
           "context_data"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "list_online_workstations": {
+    "module": "skills.workstation_tools",
+    "attr": "list_online_workstations",
+    "meta": {
+      "name": "list_online_workstations",
+      "description": "Liệt kê các máy trạm / máy tính trong công ty đang kết nối Agent (trực tuyến): mã máy, tên máy, IP, hệ điều hành. Dùng TRƯỚC khi chạy công cụ trên một máy trạm cụ thể, hoặc khi được hỏi 'máy nào đang bật / đang online'. Có thể lọc theo một phần tên máy hoặc IP.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Một phần tên máy hoặc IP để lọc (bỏ trống = tất cả máy đang trực tuyến)."
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
       }
     },
     "enabled": true
