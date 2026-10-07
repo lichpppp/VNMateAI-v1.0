@@ -305,10 +305,10 @@ Không commit: `config.json`, `deploy/.env`, `deploy/s3.json`, khoá / chứng c
 
 ## 📜 Giấy phép
 
-**Apache License 2.0** — © 2026 **Dương Thanh Lịch** (tác giả gốc, thanhlich.duong@gmail.com).
+**AP License 2.0** — © 2026 **Dương Thanh Lịch** (tác giả gốc, thanhlich.duong@gmail.com).
 
 Bạn được tải về, cài, dùng, sửa và phân phối lại (kể cả thương mại). Bắt buộc: **giữ nguyên [`LICENSE`](LICENSE) và [`NOTICE`](NOTICE)** (tên tác giả), giữ các dòng bản quyền trong mã, và ghi rõ tệp nào bạn đã sửa; không dùng tên "VN-MateAI" hay tên tác giả để đặt tên / quảng bá sản phẩm của bạn.
 
 Xem thêm: [`AUTHORS`](AUTHORS) · [`CITATION.cff`](CITATION.cff) · [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) · [Ghi công & chứng minh tác giả](docs/legal/ATTRIBUTION.md).
 
-Các phiên bản đã đăng trước khi đổi sang Apache-2.0 từng ghi giấy phép độc quyền; từ commit đổi giấy phép trở đi, mã được cấp theo Apache-2.0.
+
