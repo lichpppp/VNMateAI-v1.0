@@ -310,6 +310,13 @@ class DatabaseManager:
                             started_at TEXT,
                             finished_at TEXT
                         );
+                        CREATE TABLE IF NOT EXISTS rag_doc_acl (
+                            doc_name TEXT PRIMARY KEY,
+                            classification TEXT NOT NULL,
+                            departments TEXT,
+                            updated_by TEXT,
+                            updated_at TEXT NOT NULL
+                        );
                         CREATE INDEX IF NOT EXISTS idx_pb_runs_pb ON pb_runs(playbook_id);
                         CREATE INDEX IF NOT EXISTS idx_pb_runs_status ON pb_runs(status);
                         CREATE TABLE IF NOT EXISTS voice_traces (
@@ -1094,7 +1101,7 @@ class DatabaseManager:
 
     # Dùng chung cho Dev Fleet và Kịch bản vận hành (pb_*): cùng một bộ hàm CRUD có danh sách bảng cho phép.
     _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id",
-                   "pb_playbooks": "playbook_id", "pb_runs": "run_id"}
+                   "pb_playbooks": "playbook_id", "pb_runs": "run_id", "rag_doc_acl": "doc_name"}
 
     def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
         if table not in self._DEV_TABLES:

@@ -3034,6 +3034,118 @@
     },
     "enabled": true
   },
+  "get_playbook_plan": {
+    "module": "skills.playbook_tools",
+    "attr": "get_playbook_plan",
+    "meta": {
+      "name": "get_playbook_plan",
+      "description": "CHẠY THỬ một kịch bản (không thực thi gì): từng bước sẽ được cho phép / cần duyệt / bị chặn, mức rủi ro, có hoàn tác không. Dùng để báo người dùng trước khi chạy thật.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "playbook_id": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          }
+        },
+        "required": [
+          "playbook_id"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_playbook_run": {
+    "module": "skills.playbook_tools",
+    "attr": "get_playbook_run",
+    "meta": {
+      "name": "get_playbook_run",
+      "description": "Xem một lượt chạy kịch bản: trạng thái, từng bước đã làm / lỗi, kiểm chứng đạt chưa. SUCCEEDED_UNVERIFIED = chưa kiểm chứng, đừng báo là xong.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "run_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "list_playbooks": {
+    "module": "skills.playbook_tools",
+    "attr": "list_playbooks",
+    "meta": {
+      "name": "list_playbooks",
+      "description": "Liệt kê kịch bản vận hành đã được quản trị viên viết (mã, tên, mô tả, tham số). Gọi trước khi chạy để biết đúng mã và tham số.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "run_playbook": {
+    "module": "skills.playbook_tools",
+    "attr": "run_playbook",
+    "meta": {
+      "name": "run_playbook",
+      "description": "CHẠY một kịch bản vận hành (chỉ admin). Mọi bước vẫn qua chính sách. Nếu kết quả có `awaiting_approval` thì CHƯA chạy gì: nói người dùng duyệt phiếu `approval_id`. Nếu `running`, dùng get_playbook_run để xem tiến độ — KHÔNG nói đã xong khi chưa kiểm chứng.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "playbook_id": {
+            "type": "string"
+          },
+          "params": {
+            "type": "object"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Chống chạy trùng khi gọi lại"
+          }
+        },
+        "required": [
+          "playbook_id"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
   "assign_task_intelligently": {
     "module": "skills.proactive_manager",
     "attr": "assign_task_intelligently",

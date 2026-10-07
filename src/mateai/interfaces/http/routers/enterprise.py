@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
@@ -186,8 +186,10 @@ async def api_enterprise_rag_query(
         question = body.get("question", "")
         if not question:
             raise HTTPException(status_code=400, detail="Thiếu tham số: question")
+        from mateai.application.knowledge import rag_acl
         from mateai.application.knowledge.rag_engine import rag_engine
-        result = await run_blocking(rag_engine.answer_policy_question, question=question)  # ChromaDB: ngoài loop
+        with rag_acl.use_reader(current_user.get("username")):   # chỉ trả tài liệu người hỏi được phép xem
+            result = await run_blocking(rag_engine.answer_policy_question, question=question)  # ChromaDB: ngoài loop
         return {
             "status": "success",
             "result": result,
@@ -354,12 +356,56 @@ async def api_enterprise_rag_docs(
     current_user: Dict[str, Any] = Depends(require_roles(["viewer", "manager", "admin"])),
 ) -> Dict[str, Any]:
     """Lấy danh sách tài liệu đã được vector hóa trong ChromaDB."""
+    from mateai.application.knowledge import rag_acl
     from mateai.application.knowledge.rag_engine import rag_engine
     try:
-        docs = rag_engine.list_documents()
+        with rag_acl.use_reader(current_user.get("username")):
+            docs = rag_engine.list_documents()
         return {"status": "success", "total": len(docs), "documents": docs}
     except Exception as e:
         return {"status": "error", "error": str(e)}
+
+
+@router.get(
+    "/api/v1/enterprise/rag/acl",
+    summary="Quyền đọc theo tài liệu của kho tri thức (mức phân loại + phòng ban)",
+    tags=["Enterprise OS Phase 56"],
+)
+async def api_enterprise_rag_acl_list(current_user: Dict[str, Any] = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    from mateai.application.knowledge import rag_acl
+    from mateai.application.knowledge.rag_engine import rag_engine
+    acls = rag_acl.list_acls()
+    with rag_acl.use_reader(current_user.get("username")):
+        names = [d["name"] for d in rag_engine.list_documents()]
+    return {"classifications": list(rag_acl.CLASSIFICATIONS), "default": rag_acl.DEFAULT_CLASSIFICATION,
+            "documents": [acls.get(n) or rag_acl.get_acl(n) for n in names]}
+
+
+@router.put(
+    "/api/v1/enterprise/rag/acl/{doc_name}",
+    summary="Đặt mức phân loại / phòng ban được xem cho một tài liệu",
+    tags=["Enterprise OS Phase 56"],
+)
+async def api_enterprise_rag_acl_set(
+    doc_name: str, body: Dict[str, Any] = Body(...), current_user: Dict[str, Any] = Depends(require_roles(["admin"])),
+) -> Dict[str, Any]:
+    from mateai.application.knowledge import rag_acl
+    try:
+        return rag_acl.set_acl(doc_name, body.get("classification", ""), body.get("departments") or [], str(current_user.get("username") or "admin"))
+    except rag_acl.AclError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.delete(
+    "/api/v1/enterprise/rag/acl/{doc_name}",
+    summary="Đưa tài liệu về quyền mặc định (INTERNAL, mọi phòng ban)",
+    tags=["Enterprise OS Phase 56"],
+)
+async def api_enterprise_rag_acl_reset(doc_name: str, current_user: Dict[str, Any] = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    from mateai.application.knowledge import rag_acl
+    if not rag_acl.reset_acl(doc_name, str(current_user.get("username") or "admin")):
+        raise HTTPException(status_code=404, detail="Tài liệu đang dùng quyền mặc định")
+    return {"status": "success"}
 
 
 @router.post(
@@ -494,8 +540,10 @@ async def api_enterprise_graph_rag(
         question = body.get("question", "")
         if not question:
             return {"status": "error", "error": "Thiếu tham số: question"}
+        from mateai.application.knowledge import rag_acl
         from mateai.application.knowledge.graph_rag import graph_rag
-        result = await run_blocking(graph_rag.hybrid_search, question=question)
+        with rag_acl.use_reader(current_user.get("username")):
+            result = await run_blocking(graph_rag.hybrid_search, question=question)
         return {"status": "success", "result": result}
     except Exception as e:
         return {"status": "error", "error": str(e)}

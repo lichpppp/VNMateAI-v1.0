@@ -375,10 +375,14 @@ class EnterpriseRAGEngine:
         if not (question or "").strip():
             return {"question": question, "total_matches": 0, "matches": [], "filtered_out": 0}
 
+        from mateai.application.knowledge import rag_acl
+        acl = rag_acl.Filter()
+        # Có tài liệu bị hạn chế thì lấy dư, lọc quyền, rồi cắt về top_k — để đoạn bị ẩn không làm hụt kết quả hợp lệ.
+        n_fetch = top_k * 5 if acl.active else top_k
         with self._lock:
             results = self.collection.query(
                 query_texts=[question],
-                n_results=top_k,
+                n_results=max(1, min(n_fetch, max(1, self.collection.count()))),
             )
 
         docs = results.get("documents", [[]])[0]
@@ -389,6 +393,11 @@ class EnterpriseRAGEngine:
         filtered_out = 0
         for i, text in enumerate(docs):
             meta = metas[i] if i < len(metas) else {}
+            if not acl.allows(meta.get("doc_name", "")):
+                acl.hidden += 1               # chỉ đếm — không lộ tên / nội dung
+                continue
+            if len(matches) >= top_k:
+                break
             dist = distances[i] if i < len(distances) else 0.0
             try:
                 # Chroma mặc định cosine: distance = 1 - similarity. Nếu
@@ -426,6 +435,7 @@ class EnterpriseRAGEngine:
             "filtered_out": filtered_out,
             "min_relevance": min_relevance,
             "gate": "lexical_evidence" if require_evidence else "none",
+            "hidden_by_permission": acl.hidden,
         }
 
     def get_searchable_corpus(self) -> List[Dict[str, Any]]:
@@ -444,12 +454,16 @@ class EnterpriseRAGEngine:
             logger.warning("[RAG] Không đọc được corpus cho BM25: %s", exc)
             return []
 
+        from mateai.application.knowledge import rag_acl
+        acl = rag_acl.Filter()
         docs = data.get("documents", []) or []
         metas = data.get("metadatas", []) or []
         out: List[Dict[str, Any]] = []
         for i, content in enumerate(docs):
             meta = metas[i] if i < len(metas) else {}
             if not content:
+                continue
+            if not acl.allows(meta.get("doc_name", "")):
                 continue
             out.append({
                 "content": content,
@@ -464,6 +478,7 @@ class EnterpriseRAGEngine:
         # dùng làm cổng được. Cổng là bằng chứng từ khoá (mặc định bật).
         retrieval = self.query(question, top_k=3)
         matches = retrieval.get("matches", [])
+        hidden = int(retrieval.get("hidden_by_permission") or 0)
 
         if not matches:
             # Trước đây nhánh này gần như không bao giờ chạy vì Chroma luôn trả
@@ -483,6 +498,7 @@ class EnterpriseRAGEngine:
                 "needs_document": True,
                 # Mã hành động cho phía máy (client có thể tự mở khung upload).
                 "suggested_action": "upload_document",
+                "hidden_by_permission": hidden,
                 # Bản tiếng Việt cho người dùng. Trước đây chỉ có mã máy, nên
                 # giao diện hiển thị nguyên chuỗi "upload_document" ra cho C.E.O
                 # đọc — nhìn như lỗi hệ thống.
@@ -517,6 +533,7 @@ class EnterpriseRAGEngine:
             "sources": list(sources),
             "retrieved_chunks": matches,
             "needs_document": False,
+            "hidden_by_permission": hidden,
         }
 
     def list_documents(self) -> List[Dict[str, Any]]:
@@ -524,17 +541,20 @@ class EnterpriseRAGEngine:
         with self._lock:
             data = self.collection.get()
 
+        from mateai.application.knowledge import rag_acl
+        acl = rag_acl.Filter()
         metas = data.get("metadatas", [])
         docs_map: Dict[str, Dict[str, Any]] = {}
         for m in metas:
             name = m.get("doc_name")
-            if name:
+            if name and acl.allows(name):
                 if name not in docs_map:
                     docs_map[name] = {
                         "name": name,
                         "category": m.get("category", "Chung"),
                         "chunks_count": 0,
                         "last_updated": m.get("timestamp", ""),
+                        "classification": acl.classification_of(name),
                     }
                 docs_map[name]["chunks_count"] += 1
 

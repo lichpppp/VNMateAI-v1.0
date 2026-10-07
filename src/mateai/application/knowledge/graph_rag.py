@@ -312,7 +312,13 @@ class EnterpriseGraphRAG:
         matched_edges: List[Dict[str, Any]] = []
         seen = set()
 
+        from mateai.application.knowledge import rag_acl
+        acl = rag_acl.Filter()
+
         for edge in self.edges:
+            # Quan hệ trích từ tài liệu người hỏi không được xem thì không được lộ qua đồ thị.
+            if edge.get("source") and not acl.allows(str(edge["source"])):
+                continue
             edge_text = " ".join([
                 edge["subject"], edge["predicate"], edge["object"],
                 str(edge.get("context", "")),
