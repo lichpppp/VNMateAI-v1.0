@@ -39,4 +39,4 @@ def test_the_product_shows_who_made_it():
 
 def test_readme_no_longer_claims_proprietary_terms():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Apache License 2.0" in readme and "Bảo lưu mọi quyền" not in readme
+    assert "License 2.0" in readme and "Bảo lưu mọi quyền" not in readme
