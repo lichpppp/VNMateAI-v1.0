@@ -141,7 +141,7 @@ export function PluginCard({ plugin, onTestConnection, testing }: PluginCardProp
                 </span>
               ))
             ) : (
-              <span className="text-xs text-slate-500">chưa có tác vụ nào được khai báo</span>
+              <span className="text-xs text-slate-400">chưa có tác vụ nào được khai báo</span>
             )}
           </div>
 

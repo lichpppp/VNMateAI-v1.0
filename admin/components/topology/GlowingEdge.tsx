@@ -122,12 +122,12 @@ export function GlowingEdge({
           className="overflow-visible pointer-events-none"
         >
           <div className="flex flex-col items-center justify-center">
-            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-600/95 text-white shadow-[0_0_18px_#f43f5e] border border-rose-400 animate-bounce">
+            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-rose-600/95 text-white shadow-[0_0_18px_#f43f5e] border border-rose-400 animate-bounce">
               <X className="w-3.5 h-3.5 stroke-[3]" />
               <span>MẤT KẾT NỐI</span>
             </span>
             {data?.label && (
-              <span className="mt-1 px-2 py-0.5 text-[9px] font-mono font-semibold bg-rose-950/95 text-rose-300 border border-rose-500/60 rounded max-w-[170px] truncate shadow">
+              <span className="mt-1 px-2 py-0.5 text-[11px] font-mono font-semibold bg-rose-950/95 text-rose-300 border border-rose-500/60 rounded max-w-[170px] truncate shadow">
                 {data.label}
               </span>
             )}
@@ -145,12 +145,12 @@ export function GlowingEdge({
           className="overflow-visible pointer-events-none"
         >
           <div className="flex flex-col items-center justify-center">
-            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-[0_0_16px_#f97316] animate-bounce">
+            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold bg-gradient-to-r from-amber-500 to-orange-500 text-black shadow-[0_0_16px_#f97316] animate-bounce">
               <span className="w-2 h-2 rounded-full bg-black animate-ping"></span>
               <span>⚡ LIVE FLOW</span>
             </span>
             {data?.label && (
-              <span className="mt-1 px-2 py-0.5 text-[9px] font-mono font-bold bg-slate-950/95 text-amber-300 border border-amber-500/60 rounded max-w-[190px] truncate shadow">
+              <span className="mt-1 px-2 py-0.5 text-[11px] font-mono font-bold bg-slate-950/95 text-amber-300 border border-amber-500/60 rounded max-w-[190px] truncate shadow">
                 {data.label}
               </span>
             )}
@@ -168,8 +168,8 @@ export function GlowingEdge({
           className="overflow-visible pointer-events-auto cursor-pointer"
         >
           <div className="flex items-center justify-center group" title={`Đường truyền: ${data.label} (${data.protocol || 'Real-time'})`}>
-            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-mono font-semibold bg-slate-950/95 text-cyan-300 border border-cyan-500/40 shadow-[0_2px_12px_rgba(0,0,0,0.85)] group-hover:border-cyan-300 group-hover:text-cyan-200 group-hover:shadow-[0_0_12px_rgba(0,242,254,0.4)] transition-all max-w-[185px] truncate">
-              <span className="text-[10px] font-bold text-cyan-400">➔</span>
+            <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-mono font-semibold bg-slate-950/95 text-cyan-300 border border-cyan-500/40 shadow-[0_2px_12px_rgba(0,0,0,0.85)] group-hover:border-cyan-300 group-hover:text-cyan-200 group-hover:shadow-[0_0_12px_rgba(0,242,254,0.4)] transition-all max-w-[185px] truncate">
+              <span className="text-[11px] font-bold text-cyan-400">➔</span>
               <span className="truncate">{data.label}</span>
             </span>
           </div>

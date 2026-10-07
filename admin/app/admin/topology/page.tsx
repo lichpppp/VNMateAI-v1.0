@@ -15,7 +15,7 @@ const LiveTopology = dynamic(() => import('@/components/topology/LiveTopology'),
       <span className="font-orbitron font-bold text-sm tracking-wider text-slate-300">
         ĐANG TẢI SƠ ĐỒ HỆ THỐNG...
       </span>
-      <span className="text-xs font-mono text-slate-500 mt-1">
+      <span className="text-xs font-mono text-slate-400 mt-1">
         Trạng thái thật + sự kiện thời gian thực
       </span>
     </div>

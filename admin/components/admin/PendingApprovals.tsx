@@ -40,7 +40,7 @@ export function PendingApprovals() {
             <p className="text-cyan-300 font-medium">
               {loading ? 'Đang kiểm tra…' : 'Không có yêu cầu nào đang chờ'}
             </p>
-            <p className="text-xs text-slate-500 mt-1.5">
+            <p className="text-xs text-slate-400 mt-1.5">
               Nguồn: <code className="text-cyan-400">/api/v1/enterprise/hitl/pending</code>
             </p>
           </div>
@@ -65,7 +65,7 @@ export function PendingApprovals() {
                   </p>
                 )}
                 {a.created_at != null && (
-                  <p className="text-[11px] text-slate-500 mt-1 font-mono">
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono">
                     {fmt(a.created_at as string)}
                   </p>
                 )}

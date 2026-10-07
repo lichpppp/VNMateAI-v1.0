@@ -16,7 +16,7 @@ const ComputerUseDashboard = dynamic(
         <span className="font-orbitron font-bold text-sm tracking-wider text-slate-300">
           ĐANG KẾT NỐI WORKER CLUSTER...
         </span>
-        <span className="text-xs font-mono text-slate-500 mt-1">
+        <span className="text-xs font-mono text-slate-400 mt-1">
           Khởi tạo môi trường điều khiển GUI & Self-Healing Engine
         </span>
       </div>

@@ -36,7 +36,7 @@ export function AuditLogFeed({ maxLogs = 40 }: { maxLogs?: number }) {
         <CardTitle className="text-cyan-300 flex items-center gap-2">
           <Activity className="h-5 w-5" />
           Nhật ký hoạt động
-          <span className="text-xs font-normal text-slate-500 font-mono">({rows.length})</span>
+          <span className="text-xs font-normal text-slate-400 font-mono">({rows.length})</span>
         </CardTitle>
         <Button variant="ghost" size="sm" onClick={refetch} aria-label="Tải lại nhật ký">
           <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
@@ -44,7 +44,7 @@ export function AuditLogFeed({ maxLogs = 40 }: { maxLogs?: number }) {
       </CardHeader>
       <CardContent className="p-0">
         {rows.length === 0 ? (
-          <div className="p-10 text-center text-slate-500">
+          <div className="p-10 text-center text-slate-400">
             <Inbox className="h-10 w-10 text-slate-700 mx-auto mb-3" />
             <p className="text-sm">
               {loading ? 'Đang tải nhật ký…' : 'Chưa có dòng nhật ký nào.'}
@@ -64,7 +64,7 @@ export function AuditLogFeed({ maxLogs = 40 }: { maxLogs?: number }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap text-[11px]">
                         <span className="font-mono text-cyan-400">{fmtTime(log.timestamp)}</span>
-                        <span className="text-slate-500 font-mono">{log.logger}</span>
+                        <span className="text-slate-400 font-mono">{log.logger}</span>
                         <span className={cn('px-1.5 py-px rounded font-medium', s.cls)}>
                           {log.level}
                         </span>

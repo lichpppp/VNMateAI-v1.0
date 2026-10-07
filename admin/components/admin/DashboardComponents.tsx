@@ -23,7 +23,7 @@ function Meter({
           <Icon className="w-3.5 h-3.5" />
           {label}
         </span>
-        <span className={cn('font-mono text-sm', known ? 'text-cyan-300' : 'text-slate-500 italic')}>
+        <span className={cn('font-mono text-sm', known ? 'text-cyan-300' : 'text-slate-400 italic')}>
           {known ? `${value}${unit}` : 'chờ kết nối'}
         </span>
       </div>
@@ -66,7 +66,7 @@ export function SystemHealth() {
               {formatUptime(hw.uptime_seconds)}
             </span>
           </div>
-          <p className="text-xs text-slate-500 pt-2 border-t border-slate-800">
+          <p className="text-xs text-slate-400 pt-2 border-t border-slate-800">
             Dữ liệu từ <code className="text-cyan-400">/api/v1/system/stats</code> — cùng nguồn
             với bảng điều khiển của portal.
           </p>
@@ -129,10 +129,10 @@ export function DashboardStats() {
                 <div className="flex items-start justify-between">
                   <div className="min-w-0">
                     <p className="text-sm text-slate-400 font-medium">{c.title}</p>
-                    <p className={cn('text-3xl font-bold mt-1', known ? 'text-cyan-300' : 'text-slate-500 italic text-2xl')}>
+                    <p className={cn('text-3xl font-bold mt-1', known ? 'text-cyan-300' : 'text-slate-400 italic text-2xl')}>
                       {known ? c.value : '—'}
                     </p>
-                    {c.sub && <p className="text-xs text-slate-500 mt-1">{c.sub}</p>}
+                    {c.sub && <p className="text-xs text-slate-400 mt-1">{c.sub}</p>}
                   </div>
                   <div className={cn('p-2.5 rounded-lg shrink-0', c.bg)}>
                     <c.icon className={cn('w-5 h-5', c.color)} />
@@ -146,7 +146,7 @@ export function DashboardStats() {
           <CardContent className="p-5 flex flex-col justify-between">
             <div>
               <p className="text-sm text-slate-400 font-medium">Làm mới</p>
-              <p className="text-xs text-slate-500 mt-1">
+              <p className="text-xs text-slate-400 mt-1">
                 Số liệu cập nhật mỗi 15 giây.
               </p>
             </div>

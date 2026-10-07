@@ -22,9 +22,8 @@ export default function RootLayout({
   return (
     <html lang="vi" className={`${inter.variable} ${jetbrains.variable} ${orbitron.variable} ${rajdhani.variable} dark`}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet" />
+        {/* Orbitron / Rajdhani / Share Tech Mono tự lưu (scripts/vendor_web_assets.py) — chạy được khi mạng LAN không ra Internet */}
+        <link rel="stylesheet" href="/static/fonts-hud.css?v=1" />
       </head>
       <body className="min-h-screen bg-vnmate-dark text-vnmate-neon">
         {children}

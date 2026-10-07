@@ -78,3 +78,18 @@ def test_raw_javascript_errors_are_not_shown_to_users():
     app = (WEB / "app.js").read_text(encoding="utf-8")
     assert "function friendlyErrorText" in app
     assert "Không tải được: ${_esc(err.message)}" not in app
+
+
+def test_admin_app_is_offline_safe_and_readable():
+    """Ứng dụng admin (Next.js, /admin/topology…): không gọi Google Fonts, cỡ chữ >= 11px, chữ phụ đủ tương phản."""
+    admin = WEB.parent / "admin"
+    layout = (admin / "app" / "layout.tsx").read_text(encoding="utf-8")
+    assert "fonts.googleapis.com" not in layout and "/static/fonts-hud.css" in layout
+    sources = [p for p in list((admin / "app").rglob("*.tsx")) + list((admin / "components").rglob("*.tsx"))]
+    assert sources
+    for p in sources:
+        text = p.read_text(encoding="utf-8")
+        assert not re.search(r"text-\[(8|9|10)px\]", text), f"{p.name}: chữ nhỏ hơn 11px"
+        assert "text-slate-500" not in text, f"{p.name}: text-slate-500 trên nền tối chỉ đạt ~3:1 (dùng slate-400)"
+    node = (admin / "components" / "topology" / "CyberNode.tsx").read_text(encoding="utf-8")
+    assert "#475569" not in node                      # slate-600 trên nền node: 2,4:1

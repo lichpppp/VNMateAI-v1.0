@@ -33,7 +33,7 @@ export interface CyberNodeData {
 }
 
 const STATUS_DOT: Record<CyberStatus, string> = {
-  ok: '#34d399', degraded: '#f59e0b', down: '#f43f5e', off: '#64748b', unknown: '#94a3b8',
+  ok: '#34d399', degraded: '#f59e0b', down: '#f43f5e', off: '#8b9ab0', unknown: '#a3b1c6',
 };
 
 const OCTAGON =
@@ -44,7 +44,7 @@ export const CyberNode = memo(({ data, selected }: NodeProps<CyberNodeData>) => 
   const warn = data.status === 'degraded';
   const off = data.status === 'off' || data.status === 'unknown';
   const glow = data.glowColor;
-  const color = down ? '#f43f5e' : warn ? '#f59e0b' : off ? '#475569' : data.accent;
+  const color = down ? '#f43f5e' : warn ? '#f59e0b' : off ? '#8b9ab0' : data.accent;
   const border = glow ?? (selected ? '#e2e8f0' : color);
   const Icon = data.icon;
 
@@ -68,7 +68,7 @@ export const CyberNode = memo(({ data, selected }: NodeProps<CyberNodeData>) => 
       )}
       {!!data.runs && !down && (
         <div
-          className="absolute -right-2.5 -top-2.5 z-30 flex h-6 min-w-[24px] items-center justify-center rounded-full border border-slate-950 px-1 text-[10px] font-mono font-bold text-slate-950"
+          className="absolute -right-2.5 -top-2.5 z-30 flex h-6 min-w-[24px] items-center justify-center rounded-full border border-slate-950 px-1 text-[11px] font-mono font-bold text-slate-950"
           style={{ background: data.accent, boxShadow: `0 0 12px ${data.accent}` }}
           title="Số sự kiện trong 10 phút qua"
         >
@@ -91,7 +91,7 @@ export const CyberNode = memo(({ data, selected }: NodeProps<CyberNodeData>) => 
         {/* Huy hiệu + trạng thái */}
         <div className="mb-3 flex items-center justify-between gap-2">
           <span
-            className="truncate rounded border px-2 py-0.5 font-mono text-[10px] font-extrabold uppercase tracking-widest"
+            className="truncate rounded border px-2 py-0.5 font-mono text-[11px] font-extrabold uppercase tracking-widest"
             style={{ color, borderColor: `${color}66`, background: `${color}1a` }}
           >
             {data.badge}
@@ -141,14 +141,14 @@ export const CyberNode = memo(({ data, selected }: NodeProps<CyberNodeData>) => 
           <div className="mt-3.5 grid grid-cols-2 gap-2 border-t pt-3 font-mono text-xs" style={{ borderColor: down ? '#9f123980' : '#1e293b' }}>
             {data.metrics.slice(0, 4).map(([k, v]) => (
               <div key={k} className="min-w-0 rounded-lg border p-2" style={{ borderColor: '#1e293bcc', background: 'rgba(15,23,42,0.8)' }}>
-                <div className="truncate text-[10px] text-slate-400">{k}</div>
+                <div className="truncate text-[11px] text-slate-400">{k}</div>
                 <div className="truncate font-bold" style={{ color: down ? '#fda4af' : color }} title={v}>{v}</div>
               </div>
             ))}
           </div>
         )}
         {data.detail && data.since && (
-          <div className="mt-2 truncate font-mono text-[10px] text-slate-500">{data.since}</div>
+          <div className="mt-2 truncate font-mono text-[11px] text-slate-400">{data.since}</div>
         )}
       </div>
 

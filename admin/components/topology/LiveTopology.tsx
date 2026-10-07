@@ -609,7 +609,7 @@ export default function LiveTopology() {
           </div>
           <div className="flex flex-col">
             <span className="font-orbitron text-xs font-extrabold tracking-wider text-cyan-300">VN-MATEAI</span>
-            <span className="font-mono text-[9px] tracking-tight text-slate-400">TOPOLOGY · GIÁM SÁT THỜI GIAN THỰC</span>
+            <span className="font-mono text-[11px] tracking-tight text-slate-400">TOPOLOGY · GIÁM SÁT THỜI GIAN THỰC</span>
           </div>
         </div>
         <span className={`flex items-center gap-1 rounded-lg border border-slate-800 px-2 py-0.5 font-mono text-xs ${wsState === 'live' ? 'bg-green-900/50 text-green-300' : wsState === 'connecting' ? 'bg-sky-900/50 text-sky-300' : 'bg-red-900/50 text-red-300'}`}>
@@ -617,11 +617,11 @@ export default function LiveTopology() {
           {wsState === 'live' ? 'Trực tiếp' : wsState === 'connecting' ? 'Đang kết nối…' : 'Mất kết nối — hỏi lại mỗi 5 s'}
         </span>
         {lastUpdate > 0 && (
-          <span className={`text-xs ${stale ? 'text-amber-400' : 'text-slate-500'}`}>
+          <span className={`text-xs ${stale ? 'text-amber-400' : 'text-slate-400'}`}>
             cập nhật {Math.round((Date.now() - lastUpdate) / 1000)}s trước{stale ? ' — dữ liệu có thể cũ' : ''}
           </span>
         )}
-        <div className="flex gap-2 text-xs">
+        <div className="flex flex-wrap gap-2 text-xs">
           {(['down', 'degraded', 'ok', 'off', 'unknown'] as Status[]).map((s) => (
             <span key={s} className="flex items-center gap-1 rounded-lg border border-slate-800 bg-slate-900/90 px-2 py-0.5 font-mono">
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: STATUS_COLOR[s] }} />
@@ -629,7 +629,7 @@ export default function LiveTopology() {
             </span>
           ))}
         </div>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex flex-wrap gap-2">
           <button onClick={simulate} className="flex items-center gap-1 rounded-lg bg-gradient-to-r from-orange-600 to-amber-600 px-3 py-1 font-mono text-xs font-bold text-white shadow-[0_0_15px_rgba(249,115,22,0.4)] hover:from-orange-500 hover:to-amber-500" title="Chạy thử hiệu ứng trên trình duyệt này, không gửi lên máy chủ">
             <Play className="h-3 w-3" /> Mô phỏng
           </button>
@@ -685,7 +685,7 @@ export default function LiveTopology() {
           <div className="min-h-0 flex-1 overflow-y-auto p-3 text-xs">
             {tab === 'flow' && (
               flows.length === 0
-                ? <p className="text-slate-500">Chưa có hoạt động nào. Mỗi lượt thoại, tool, phê duyệt hay robot sẽ hiện ở đây ngay khi xảy ra.</p>
+                ? <p className="text-slate-400">Chưa có hoạt động nào. Mỗi lượt thoại, tool, phê duyệt hay robot sẽ hiện ở đây ngay khi xảy ra.</p>
                 : flows.map((g) => <FlowCard key={g.key} events={g.events} onPick={(id) => { setSelected(id); setTab('detail'); }} />)
             )}
 
@@ -697,11 +697,11 @@ export default function LiveTopology() {
                   <button key={n.id} onClick={() => { setSelected(n.id); setTab('detail'); }} className="mb-2 block w-full rounded border p-2 text-left hover:bg-slate-900" style={{ borderColor: STATUS_COLOR[n.status] }}>
                     <div className="flex justify-between font-semibold"><span>{n.label}</span><span style={{ color: STATUS_COLOR[n.status] }}>{STATUS_TEXT[n.status]}</span></div>
                     <div className="text-slate-400">{n.detail || 'không có mô tả'}</div>
-                    <div className="text-slate-500">{fmtSince(n.since)}</div>
+                    <div className="text-slate-400">{fmtSince(n.since)}</div>
                   </button>
                 ))}
                 <h3 className="mb-2 mt-4 font-semibold text-slate-300">Sự kiện lỗi / chờ gần đây</h3>
-                {incidents.errs.length === 0 && <p className="text-slate-500">Không có.</p>}
+                {incidents.errs.length === 0 && <p className="text-slate-400">Không có.</p>}
                 {incidents.errs.map((e) => <EventRow key={e.seq} e={e} />)}
               </>
             )}
@@ -713,9 +713,9 @@ export default function LiveTopology() {
                     <h3 className="text-sm font-semibold">{selNode.label}</h3>
                     <span className="font-semibold" style={{ color: STATUS_COLOR[selNode.status] }}>{STATUS_TEXT[selNode.status]}</span>
                   </div>
-                  <div className="mb-1 font-mono text-slate-500">{selNode.id}</div>
+                  <div className="mb-1 font-mono text-slate-400">{selNode.id}</div>
                   {selNode.detail && <p className="mb-2 text-slate-300">{selNode.detail}</p>}
-                  <p className="mb-3 text-slate-500">{fmtSince(selNode.since)}</p>
+                  <p className="mb-3 text-slate-400">{fmtSince(selNode.since)}</p>
                   {selNode.id in ALERT_CHANNEL_OF && (
                     <button
                       onClick={() => testAlert(ALERT_CHANNEL_OF[selNode.id])}
@@ -727,7 +727,7 @@ export default function LiveTopology() {
                   )}
                   <table className="mb-4 w-full">
                     <tbody>
-                      {Object.entries(selNode.metrics).length === 0 && <tr><td className="text-slate-500">Chưa có số đo.</td></tr>}
+                      {Object.entries(selNode.metrics).length === 0 && <tr><td className="text-slate-400">Chưa có số đo.</td></tr>}
                       {Object.entries(selNode.metrics).map(([k, v]) => (
                         <tr key={k} className="border-b border-slate-800">
                           <td className="py-1 pr-2 text-slate-400">{METRIC_TEXT[k] ?? k}</td>
@@ -737,10 +737,10 @@ export default function LiveTopology() {
                     </tbody>
                   </table>
                   <h4 className="mb-2 font-semibold text-slate-300">Sự kiện liên quan</h4>
-                  {selEvents.length === 0 && <p className="text-slate-500">Chưa có.</p>}
+                  {selEvents.length === 0 && <p className="text-slate-400">Chưa có.</p>}
                   {selEvents.map((e) => <EventRow key={`${e.seq}`} e={e} />)}
                 </>
-              ) : <p className="text-slate-500">Bấm vào một ô trên sơ đồ để xem số đo và sự kiện của nó.</p>
+              ) : <p className="text-slate-400">Bấm vào một ô trên sơ đồ để xem số đo và sự kiện của nó.</p>
             )}
           </div>
         </div>
@@ -753,10 +753,10 @@ function EventRow({ e }: { e: TopoEvent }) {
   const color = EVENT_COLOR[e.status] ?? '#94a3b8';
   return (
     <div className="mb-1 flex gap-2 border-l-2 pl-2" style={{ borderColor: color }}>
-      <span className="shrink-0 font-mono text-slate-500">{e.ts.slice(11, 19)}</span>
+      <span className="shrink-0 font-mono text-slate-400">{e.ts.slice(11, 19)}</span>
       <div className="min-w-0">
         <div>
-          {e.simulated && <span className="mr-1 rounded bg-fuchsia-900 px-1 text-[10px] text-fuchsia-200">MÔ PHỎNG</span>}
+          {e.simulated && <span className="mr-1 rounded bg-fuchsia-900 px-1 text-[11px] text-fuchsia-200">MÔ PHỎNG</span>}
           <span style={{ color }}>{eventText(e)}</span>
           {e.ms !== undefined && <span className="ml-1 font-mono text-slate-400">{Math.round(e.ms)} ms</span>}
         </div>
@@ -780,10 +780,10 @@ function FlowCard({ events, onPick }: { events: TopoEvent[]; onPick: (id: string
     <div className="mb-2 rounded border border-slate-800 bg-slate-900/60 p-2">
       <div className="mb-1 flex items-center justify-between">
         <span className="font-semibold" style={{ color }}>
-          {first.simulated && <span className="mr-1 rounded bg-fuchsia-900 px-1 text-[10px] text-fuchsia-200">MÔ PHỎNG</span>}
+          {first.simulated && <span className="mr-1 rounded bg-fuchsia-900 px-1 text-[11px] text-fuchsia-200">MÔ PHỎNG</span>}
           {title}
         </span>
-        <span className="font-mono text-slate-500">
+        <span className="font-mono text-slate-400">
           {first.ts.slice(11, 19)}{events.length > 1 && last.t > first.t ? ` · ${Math.round((last.t - first.t) * 1000)} ms` : ''}
           {!done && !failed && <span className="ml-1 animate-pulse text-sky-300">●</span>}
         </span>
@@ -793,7 +793,7 @@ function FlowCard({ events, onPick }: { events: TopoEvent[]; onPick: (id: string
           <span className="inline-block h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: EVENT_COLOR[e.status] ?? '#94a3b8' }} />
           <span className="text-slate-300">{e.stage ? STAGE_TEXT[e.stage] ?? e.stage : e.kind}</span>
           {(e.source || e.node) && (
-            <button className="truncate text-slate-500 hover:text-sky-300" onClick={() => onPick((e.target ?? e.node ?? e.source)!)}>
+            <button className="truncate text-slate-400 hover:text-sky-300" onClick={() => onPick((e.target ?? e.node ?? e.source)!)}>
               {e.source && e.target ? `${e.source} → ${e.target}` : e.node}
             </button>
           )}
