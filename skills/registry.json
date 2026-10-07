@@ -596,6 +596,10 @@
           "limit": {
             "type": "integer",
             "description": "Số dòng tối đa cần xem. Mặc định 200, tối đa 200."
+          },
+          "args": {
+            "type": "object",
+            "description": "Tham số của truy vấn đã khai báo (xem `queries[].params` trong list_data_sources), ví dụ {\"host\": \"srv01\"}."
           }
         },
         "required": [
@@ -671,6 +675,269 @@
         "required": [
           "source_id"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "run_data_source_action": {
+    "module": "skills.data_source_tools",
+    "attr": "run_data_source_action",
+    "meta": {
+      "name": "run_data_source_action",
+      "description": "CAN THIỆP vào hệ thống doanh nghiệp qua một thao tác đã khai báo (ví dụ: tạo/đóng ticket, xác nhận cảnh báo, khởi động lại dịch vụ). Chỉ chạy được thao tác có trong `actions` của list_data_sources. LUÔN cần người có thẩm quyền duyệt; nếu kết quả có `awaiting_approval` thì nói với người dùng cần duyệt phiếu `approval_id` — KHÔNG tự coi là đã thực hiện.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "description": "Mã nguồn dữ liệu."
+          },
+          "action": {
+            "type": "string",
+            "description": "Tên thao tác đã khai báo."
+          },
+          "params": {
+            "type": "object",
+            "description": "Tham số của thao tác (theo `actions[].params`)."
+          }
+        },
+        "required": [
+          "source_id",
+          "action"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "cancel_dev_fleet_task": {
+    "module": "skills.dev_fleet_tools",
+    "attr": "cancel_dev_fleet_task",
+    "meta": {
+      "name": "cancel_dev_fleet_task",
+      "description": "Huỷ một tác vụ Dev đang chạy (Master phải xác nhận dừng). Chỉ dùng khi người dùng yêu cầu rõ.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "create_dev_fleet_task": {
+    "module": "skills.dev_fleet_tools",
+    "attr": "create_dev_fleet_task",
+    "meta": {
+      "name": "create_dev_fleet_task",
+      "description": "Giao một tác vụ lập trình cho cụm Dev (qua Ubuntu Master → Mac mini). BẮT BUỘC có mục tiêu cụ thể, tiêu chí chấp nhận và bước kiểm chứng — không nhận 'hãy sửa lỗi này'. Tác vụ rủi ro medium trở lên cần người duyệt: nếu kết quả có `awaiting_approval`, nói người dùng duyệt phiếu `approval_id`, KHÔNG nói là đã giao. Đặt `require_tests`/`require_build`/`require_commit` để tác vụ chỉ được coi là xong khi có bằng chứng.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "objective": {
+            "type": "string",
+            "description": "Mục tiêu cụ thể (≥10 ký tự)"
+          },
+          "acceptance_criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "verification_steps": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "risk": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ]
+          },
+          "rollback": {
+            "type": "string",
+            "description": "Cách khôi phục — bắt buộc từ risk medium"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "required_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "required_platform": {
+            "type": "string"
+          },
+          "worker_id": {
+            "type": "string",
+            "description": "Ép máy cụ thể (tuỳ chọn)"
+          },
+          "require_tests": {
+            "type": "boolean"
+          },
+          "require_build": {
+            "type": "boolean"
+          },
+          "require_commit": {
+            "type": "boolean"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "description": "Chỉ xem máy nào sẽ được chọn, không giao"
+          }
+        },
+        "required": [
+          "title",
+          "objective",
+          "acceptance_criteria",
+          "verification_steps"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_dev_fleet_briefing": {
+    "module": "skills.dev_fleet_tools",
+    "attr": "get_dev_fleet_briefing",
+    "meta": {
+      "name": "get_dev_fleet_briefing",
+      "description": "Báo cáo điều hành cụm Dev: tác vụ treo, máy mất liên lạc, việc chờ duyệt / chưa kiểm chứng, đề xuất. Chỉ đọc.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_dev_fleet_status": {
+    "module": "skills.dev_fleet_tools",
+    "attr": "get_dev_fleet_status",
+    "meta": {
+      "name": "get_dev_fleet_status",
+      "description": "Xem tình trạng cụm Dev (Ubuntu Master, các Mac mini, agent, số tác vụ). Dùng khi hỏi 'cụm dev thế nào', 'Master có khỏe không', 'Mac nào đang rảnh'. Chỉ đọc.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_dev_fleet_task": {
+    "module": "skills.dev_fleet_tools",
+    "attr": "get_dev_fleet_task",
+    "meta": {
+      "name": "get_dev_fleet_task",
+      "description": "Xem một tác vụ Dev: trạng thái, máy đang chạy, các lượt chạy, bằng chứng, đã KIỂM CHỨNG chưa. Nếu `display_status` là COMPLETED_UNVERIFIED thì KHÔNG được nói là đã xong — nói rõ chưa kiểm chứng.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "description": "Mã tác vụ (OP-…)"
+          }
+        },
+        "required": [
+          "task_id"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "list_dev_fleet_workers": {
+    "module": "skills.dev_fleet_tools",
+    "attr": "list_dev_fleet_workers",
+    "meta": {
+      "name": "list_dev_fleet_workers",
+      "description": "Liệt kê các Mac mini / worker do Master báo, kèm trạng thái, độ tươi dữ liệu, capability. Chỉ đọc.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "Lọc theo trạng thái: IDLE, BUSY, OFFLINE… Bỏ trống = tất cả."
+          }
+        },
+        "required": []
       },
       "contract": {
         "data_classification": "INTERNAL",
