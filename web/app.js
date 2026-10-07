@@ -303,6 +303,19 @@ function apiErrorText(data, status) {
   return `HTTP ${status}`;
 }
 
+/**
+ * Lỗi lập trình (TypeError "Cannot read properties of undefined"…) không phải thứ người dùng cần đọc:
+ * hiện câu dễ hiểu, còn chi tiết kỹ thuật đẩy sang console. Lỗi mạng / HTTP đã có chữ tiếng Việt thì giữ nguyên.
+ */
+function friendlyErrorText(err) {
+  const msg = String((err && err.message) || err || '');
+  if (/Cannot read propert|undefined|is not a function|is not defined|is not iterable|Unexpected token|JSON/i.test(msg)) {
+    console.error('[Portal] Lỗi xử lý dữ liệu:', err);
+    return 'Dữ liệu máy chủ trả về chưa đầy đủ hoặc sai định dạng. Hãy bấm Làm mới; nếu vẫn lỗi, báo quản trị viên (chi tiết ở console trình duyệt).';
+  }
+  return msg || 'lỗi không rõ';
+}
+
 async function apiFetch(url, options = {}) {
   const token = getAuthToken();
   const headers = {
@@ -3468,7 +3481,7 @@ async function loadVoiceHistory() {
         `<div class="col-span-2 text-right font-mono ${bad ? 'text-rose-500' : ''}">${bad ? 'LỖI · ' : ''}${Math.round((r.ttl_ms || 0) + stt)} ms</div></div>`;
     }).join('');
   } catch (err) {
-    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(err.message)}</span>`;
+    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(friendlyErrorText(err))}</span>`;
   }
 }
 
@@ -4340,7 +4353,7 @@ async function _renderAgentDialog(newCode) {
   try {
     data = await (await _agentApi('/api/v1/agent/devices')).json();
   } catch (err) {
-    body.innerHTML = `<div class="text-rose-500">Không tải được: ${_esc(err.message)}</div>`;
+    body.innerHTML = `<div class="text-rose-500">Không tải được: ${_esc(friendlyErrorText(err))}</div>`;
     return;
   }
   const pk = data.packages || {};
@@ -5349,7 +5362,7 @@ async function loadAIModelStats() {
         `<td class="font-mono">${ms(r.llm_first_token_ms)}</td><td class="font-mono">${ms(r.ttfa_answer_ms)}</td><td class="font-mono">${ms(r.ttl_ms)}</td></tr>`).join('') +
       `</tbody></table>`;
   } catch (err) {
-    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(err.message)}</span>`;
+    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(friendlyErrorText(err))}</span>`;
   }
 }
 
@@ -5386,7 +5399,7 @@ async function loadConfigHistory() {
       `<div class="mt-1">${_renderCfgChanges(h.changes)}</div>` +
       `<div id="cfg-diff-${h.id}" class="mt-1"></div></div>`).join('');
   } catch (err) {
-    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(err.message)}</span>`;
+    box.innerHTML = `<span class="text-rose-500">Không tải được: ${_esc(friendlyErrorText(err))}</span>`;
   }
 }
 
@@ -8256,10 +8269,12 @@ async function loadSupervisorOverview() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const d = await res.json();
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    const ks = d.ai_status.kill_switch;
+    const ai = d.ai_status || {};                       // máy chủ cũ / thiếu trường: không làm hỏng cả thẻ
+    const ks = !!ai.kill_switch;
+    const nOff = (ai.disabled_agents || []).length;
     const st = document.getElementById('sup-ai-status');
     if (st) {
-      st.textContent = ks ? 'DỪNG KHẨN CẤP — chỉ đọc' : (d.ai_status.disabled_agents.length ? `Đang chạy · tắt ${d.ai_status.disabled_agents.length} tác nhân` : 'Đang chạy');
+      st.textContent = ks ? 'DỪNG KHẨN CẤP — chỉ đọc' : (nOff ? `Đang chạy · tắt ${nOff} tác nhân` : 'Đang chạy');
       st.className = `px-2.5 py-1 rounded-full text-[11px] font-bold border ${ks ? 'bg-rose-500/15 text-rose-500 border-rose-500/40' : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40'}`;
     }
     set('sup-active', d.tasks.active);
@@ -8285,11 +8300,11 @@ async function loadSupervisorOverview() {
     set('sup-voice', pick ? fmt(pick.m.p50) : '—');
     const vEl = document.getElementById('sup-voice');
     if (vEl) vEl.title = pick ? `nhóm "${pick.name}", ${pick.m.n} lượt, p95 ${fmt(pick.m.p95)}` : 'chưa có lượt thoại';
-    set('sup-updated', `Cập nhật ${new Date().toLocaleTimeString('vi-VN')} · chính sách ${d.ai_status.policy_version}`);
+    set('sup-updated', `Cập nhật ${new Date().toLocaleTimeString('vi-VN')} · chính sách ${ai.policy_version || "—"}`);
     renderSupervisorAttention(d.tasks.attention || [], d.tasks.attention_total);
   } catch (err) {
     const box = document.getElementById('sup-attention');
-    if (box) box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(err.message)}</div>`;
+    if (box) box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(friendlyErrorText(err))}</div>`;
   }
 }
 
@@ -8400,7 +8415,7 @@ async function toggleOpTask(taskId) {
       ${canConfirm ? `<div class="pt-2 flex gap-2"><button type="button" onclick="decideOpTask('${_esc(t.task_id)}','confirm')" class="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold">Tôi đã kiểm tra — xác nhận hoàn thành</button>
         <button type="button" onclick="decideOpTask('${_esc(t.task_id)}','cancel')" class="px-2.5 py-1 rounded-lg border border-slate-400/40 text-[11px]">Huỷ tác vụ</button></div>` : ''}`;
   } catch (err) {
-    box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(err.message)}</div>`;
+    box.innerHTML = `<div class="text-rose-400">Không tải được: ${_esc(friendlyErrorText(err))}</div>`;
   }
 }
 
@@ -8445,7 +8460,7 @@ async function loadAutonomyControls() {
     renderAutonomyControls();
   } catch (err) {
     const hint = document.getElementById('autonomy-hint');
-    if (hint) hint.textContent = `Không tải được: ${err.message}`;
+    if (hint) hint.textContent = `Không tải được: ${friendlyErrorText(err)}`;
   }
 }
 
