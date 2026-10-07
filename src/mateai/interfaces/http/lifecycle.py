@@ -198,6 +198,15 @@ def _connectors(ctx: StepContext) -> None:
     )
 
 
+def _dev_fleet(ctx: StepContext) -> str:
+    """Dev Fleet (ngoại vi): chỉ khi module bật + có endpoint mới chạy vòng đồng bộ nền. Tắt = không làm gì."""
+    from mateai.application.devfleet.service import dev_fleet
+    if dev_fleet.mode == "disabled" or not dev_fleet.cfg.endpoint:
+        return "tắt"
+    dev_fleet.start_poller()
+    return f"chế độ {dev_fleet.mode}"
+
+
 def _acoustic_ack(ctx: StepContext) -> None:
     from mateai.application.commands.fast_command_router import STATIC_REPLIES
     from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
@@ -262,6 +271,7 @@ def default_steps() -> List[Step]:
         Step("connectors", _connectors),
         Step("acoustic_ack_warmup", _acoustic_ack),
         Step("connector_tools", _connector_tools),
+        Step("dev_fleet", _dev_fleet),
         Step("computer_use_tool", _computer_use),
         Step("background_workers", _background_workers),
         Step("email_gateway", _email_gateway),
@@ -318,6 +328,7 @@ async def run_shutdown() -> None:
         ("Telegram Gateway", "mateai.interfaces.telegram.telegram_gateway", "telegram_gateway"),
         ("Proactive Manager", "mateai.application.skills.builtin.proactive_manager", "proactive_manager"),
         ("Email Gateway", "mateai.interfaces.email.email_gateway", "email_gateway"),
+        ("Dev Fleet", "mateai.application.devfleet.service", "dev_fleet"),
     ):
         try:
             getattr(__import__(mod, fromlist=[attr]), attr).stop()

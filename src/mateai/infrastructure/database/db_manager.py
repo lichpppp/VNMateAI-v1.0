@@ -226,6 +226,54 @@ class DatabaseManager:
                             verified INTEGER NOT NULL DEFAULT 0
                         );
                         CREATE INDEX IF NOT EXISTS idx_op_evidence_task ON op_evidence(task_id);
+                        CREATE TABLE IF NOT EXISTS dev_projects (
+                            project_id TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            repository TEXT,
+                            goal_id TEXT,
+                            description TEXT,
+                            preferred_workers TEXT,
+                            status TEXT NOT NULL DEFAULT 'ACTIVE',
+                            created_at TEXT NOT NULL,
+                            created_by TEXT
+                        );
+                        CREATE TABLE IF NOT EXISTS dev_runs (
+                            run_id TEXT PRIMARY KEY,
+                            task_id TEXT NOT NULL,
+                            project_id TEXT,
+                            attempt INTEGER NOT NULL DEFAULT 1,
+                            worker_id TEXT,
+                            agent_id TEXT,
+                            master_task_id TEXT,
+                            idempotency_key TEXT NOT NULL UNIQUE,
+                            status TEXT NOT NULL,
+                            dispatched_at TEXT NOT NULL,
+                            last_progress_at TEXT,
+                            finished_at TEXT,
+                            exit_code INTEGER,
+                            spec_json TEXT,
+                            result_json TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_dev_runs_task ON dev_runs(task_id);
+                        CREATE INDEX IF NOT EXISTS idx_dev_runs_status ON dev_runs(status);
+                        CREATE TABLE IF NOT EXISTS dev_leases (
+                            lease_key TEXT PRIMARY KEY,
+                            owner_run_id TEXT NOT NULL,
+                            owner_task_id TEXT NOT NULL,
+                            worker_id TEXT,
+                            acquired_at TEXT NOT NULL,
+                            expires_at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS dev_events (
+                            event_id TEXT PRIMARY KEY,
+                            ts TEXT NOT NULL,
+                            kind TEXT NOT NULL,
+                            task_id TEXT,
+                            run_id TEXT,
+                            worker_id TEXT,
+                            message TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_dev_events_ts ON dev_events(ts);
                         CREATE TABLE IF NOT EXISTS voice_traces (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             created_at TEXT NOT NULL,
@@ -983,6 +1031,105 @@ class DatabaseManager:
         with self._get_connection() as conn:
             return [dict(r) for r in conn.execute(
                 "SELECT * FROM op_task_steps WHERE task_id = ? ORDER BY seq;", (task_id,)).fetchall()]
+
+    # ── Dev Fleet (dev_projects / dev_runs / dev_leases / dev_events) ──
+
+    _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id"}
+
+    def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
+        if table not in self._DEV_TABLES:
+            raise ValueError(table)
+        cols = list(row)
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))});",
+                             [row[c] for c in cols])
+                conn.commit()
+
+    def dev_update(self, table: str, key_value: str, fields: Dict[str, Any]) -> None:
+        if table not in self._DEV_TABLES or not fields:
+            raise ValueError(table)
+        sets = ", ".join(f"{c} = ?" for c in fields)
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute(f"UPDATE {table} SET {sets} WHERE {self._DEV_TABLES[table]} = ?;",
+                             [*fields.values(), key_value])
+                conn.commit()
+
+    def dev_get(self, table: str, key_value: str) -> Optional[Dict[str, Any]]:
+        if table not in self._DEV_TABLES:
+            raise ValueError(table)
+        with self._get_connection() as conn:
+            row = conn.execute(f"SELECT * FROM {table} WHERE {self._DEV_TABLES[table]} = ?;", (key_value,)).fetchone()
+            return dict(row) if row else None
+
+    def dev_list(self, table: str, where: Optional[Dict[str, Any]] = None, order_by: str = "",
+                 limit: int = 200) -> List[Dict[str, Any]]:
+        """`where`: cột = giá trị (AND); giá trị là list/tuple -> IN. `order_by` chỉ nhận tên cột + ASC/DESC."""
+        if table not in self._DEV_TABLES:
+            raise ValueError(table)
+        clauses, params = [], []
+        for col, val in (where or {}).items():
+            if not str(col).replace("_", "").isalnum():
+                raise ValueError(col)
+            if isinstance(val, (list, tuple)):
+                if not val:
+                    return []
+                clauses.append(f"{col} IN ({', '.join('?' * len(val))})")
+                params.extend(val)
+            else:
+                clauses.append(f"{col} = ?")
+                params.append(val)
+        sql = f"SELECT * FROM {table}" + (" WHERE " + " AND ".join(clauses) if clauses else "")
+        if order_by:
+            col, _, direction = order_by.partition(" ")
+            if not col.replace("_", "").isalnum() or direction.upper() not in ("", "ASC", "DESC"):
+                raise ValueError(order_by)
+            sql += f" ORDER BY {col} {direction.upper()}".rstrip()
+        with self._get_connection() as conn:
+            return [dict(r) for r in conn.execute(sql + " LIMIT ?;", [*params, max(1, min(int(limit), 1000))]).fetchall()]
+
+    def dev_lease_acquire(self, key: str, run_id: str, task_id: str, worker_id: str,
+                          ttl_s: float) -> Optional[Dict[str, Any]]:
+        """Thuê khoá (workspace / nhánh / máy). Thành công -> bản ghi thuê; đang bị chủ khác giữ -> None.
+        Cùng task thuê lại = gia hạn. Thuê hết hạn tự được thu hồi."""
+        now = datetime.now()
+        stamp = now.strftime("%Y-%m-%d %H:%M:%S")
+        expires = (now + timedelta(seconds=ttl_s)).strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock:
+            with self._get_connection() as conn:
+                row = conn.execute("SELECT * FROM dev_leases WHERE lease_key = ?;", (key,)).fetchone()
+                if row and row["expires_at"] > stamp and row["owner_task_id"] != task_id:
+                    return None
+                if row:
+                    conn.execute("UPDATE dev_leases SET owner_run_id = ?, owner_task_id = ?, worker_id = ?, "
+                                 "acquired_at = ?, expires_at = ? WHERE lease_key = ?;",
+                                 (run_id, task_id, worker_id, stamp, expires, key))
+                else:
+                    conn.execute("INSERT INTO dev_leases (lease_key, owner_run_id, owner_task_id, worker_id, "
+                                 "acquired_at, expires_at) VALUES (?, ?, ?, ?, ?, ?);",
+                                 (key, run_id, task_id, worker_id, stamp, expires))
+                conn.commit()
+        return {"lease_key": key, "owner_run_id": run_id, "owner_task_id": task_id, "worker_id": worker_id,
+                "acquired_at": stamp, "expires_at": expires}
+
+    def dev_lease_release(self, task_id: str) -> int:
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute("DELETE FROM dev_leases WHERE owner_task_id = ?;", (task_id,))
+                conn.commit()
+                return int(cur.rowcount or 0)
+
+    def dev_leases(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            return [dict(r) for r in conn.execute("SELECT * FROM dev_leases ORDER BY acquired_at;").fetchall()]
+
+    def dev_event_trim(self, keep: int = 2000) -> None:
+        with self._lock:
+            with self._get_connection() as conn:
+                conn.execute("DELETE FROM dev_events WHERE event_id NOT IN "
+                             "(SELECT event_id FROM dev_events ORDER BY ts DESC, event_id DESC LIMIT ?);", (keep,))
+                conn.commit()
 
     # ── Trace thoại bền (trước: chỉ RAM, mất sau mỗi lần khởi động lại) ──
 

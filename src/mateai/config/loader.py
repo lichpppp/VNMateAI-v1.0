@@ -456,6 +456,32 @@ class AutonomyConfig(BaseModel):
     email_auto_reply_domains: List[str] = Field(default_factory=list)
 
 
+class DevFleetConfig(BaseModel):
+    """Module ngoại vi Dev Fleet: VN-MateAI điều phối cụm Dev QUA Ubuntu Master (docs/integrations/dev-fleet.md).
+    Mặc định TẮT — tắt thì mọi chức năng khác của hệ thống không bị ảnh hưởng."""
+    enabled: bool = False
+    #: disabled | read_only | controlled | autonomous. `autonomous` hiện hành xử như `controlled`
+    #: (tự trị có giới hạn là Phase E, chưa làm).
+    mode: str = "read_only"
+    #: Địa chỉ Master Control API (https://master.congty.local:8443). KHÔNG bao giờ trỏ thẳng vào từng Mac.
+    endpoint: str = ""
+    api_token: str = ""
+    tls_verify: bool = True
+    ca_bundle: str = ""
+    timeout_s: float = Field(default=5.0, ge=1.0, le=60.0)
+    #: Quá ngưỡng này kể từ lần thấy gần nhất: ONLINE -> STALE; quá `offline_after_s`: OFFLINE.
+    stale_after_s: float = Field(default=60.0, ge=5.0, le=3600.0)
+    offline_after_s: float = Field(default=180.0, ge=10.0, le=86400.0)
+    #: Bộ nhớ đệm đọc trạng thái (giây) — tránh dồn truy vấn vào Master.
+    cache_ttl_s: float = Field(default=5.0, ge=0.0, le=300.0)
+    #: Worker bị tắt thủ công (kill switch theo máy).
+    disabled_workers: List[str] = Field(default_factory=list)
+    #: Một tác vụ không có tiến triển quá số giây này bị coi là treo.
+    stuck_after_s: float = Field(default=900.0, ge=30.0, le=86400.0)
+    #: Hạn thuê workspace / nhánh (giây); hết hạn mà không gia hạn thì giải phóng.
+    lease_ttl_s: float = Field(default=1800.0, ge=30.0, le=86400.0)
+
+
 class TelegramConfig(BaseModel):
     """Telegram Gateway and Alerting Configuration (Phase 18)."""
     bot_token: str = Field(default="", description="Telegram Bot API Token from @BotFather.")
@@ -504,6 +530,9 @@ class AppSettings(BaseSettings):
 
     # Phase 18: Telegram Gateway
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
+
+    # Dev Fleet: điều phối cụm Dev (Ubuntu Master -> Mac mini/OpenClaw) — mặc định tắt
+    dev_fleet: DevFleetConfig = Field(default_factory=DevFleetConfig)
 
     # Phase 28: Enterprise Reporting & Template Engine
     report_templates: Dict[str, str] = Field(default_factory=dict)
@@ -621,6 +650,12 @@ class AppSettings(BaseSettings):
         env_groq = os.getenv("GROQ_API_KEY", "").strip()
         if env_groq:
             data["GROQ_API_KEY"] = env_groq
+
+        fleet_block = data.get("dev_fleet")
+        if isinstance(fleet_block, dict):
+            env_fleet = os.getenv("VNMATEAI_DEV_FLEET_TOKEN", "").strip()
+            if env_fleet:
+                fleet_block["api_token"] = env_fleet
 
         telegram_block = data.get("telegram")
         if isinstance(telegram_block, dict):

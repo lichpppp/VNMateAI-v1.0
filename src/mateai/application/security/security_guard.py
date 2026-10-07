@@ -60,6 +60,8 @@ RBAC_RULES: Dict[str, Any] = {
             # Đọc dữ liệu hạ tầng/ITSM đã khai báo. Thao tác GHI (run_data_source_action)
             # chỉ admin — không có trong danh sách này, và luôn qua duyệt HITL.
             "list_data_sources", "fetch_data_source", "prepare_data_source_export",
+            # Dev Fleet: chỉ XEM (create_/cancel_dev_fleet_task không có ở đây = chỉ admin).
+            "get_dev_fleet_status", "list_dev_fleet_workers", "get_dev_fleet_task", "get_dev_fleet_briefing",
         ],
         "blocked_prefixes": [
             "create_new_skill",         # Không tự tạo kỹ năng

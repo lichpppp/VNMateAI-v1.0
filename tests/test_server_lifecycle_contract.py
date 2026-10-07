@@ -34,7 +34,26 @@ NEW_ROUTES = {"/api/v1/health/startup",
               "/api/v1/ops/goals", "/api/v1/security/audit-logs/verify",
               "/api/v1/memory/{doc_id}/verify",   # memory trust §59
               "/api/erp/import-from-ad",          # nhập nhân viên + máy tính từ bản sao AD
-              "/api/v1/enterprise/data-sources/presets"}   # mẫu khai báo hạ tầng (Prometheus, vCenter…)
+              "/api/v1/enterprise/data-sources/presets",   # mẫu khai báo hạ tầng (Prometheus, vCenter…)
+              # Dev Fleet: điều phối cụm Dev qua Ubuntu Master (docs/integrations/dev-fleet.md)
+              *('/api/v1/dev-fleet/agents',
+                '/api/v1/dev-fleet/briefing',
+                '/api/v1/dev-fleet/events',
+                '/api/v1/dev-fleet/mode',
+                '/api/v1/dev-fleet/projects',
+                '/api/v1/dev-fleet/projects/{project_id}',
+                '/api/v1/dev-fleet/status',
+                '/api/v1/dev-fleet/sync',
+                '/api/v1/dev-fleet/tasks',
+                '/api/v1/dev-fleet/tasks/plan',
+                '/api/v1/dev-fleet/tasks/{task_id}',
+                '/api/v1/dev-fleet/tasks/{task_id}/cancel',
+                '/api/v1/dev-fleet/tasks/{task_id}/retry',
+                '/api/v1/dev-fleet/workers',
+                '/api/v1/dev-fleet/workers/{worker_id}',
+                '/api/v1/dev-fleet/workers/{worker_id}/disable',
+                '/api/v1/dev-fleet/workers/{worker_id}/git',
+                '/api/v1/dev-fleet/workers/{worker_id}/metrics')}
 
 
 def _rows(app):
