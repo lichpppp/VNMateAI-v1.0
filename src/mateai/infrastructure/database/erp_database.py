@@ -313,6 +313,18 @@ class ERPDatabase:
                     except Exception as _e:
                         logger.warning("Không thể thêm cột role vào employees: %s", _e)
 
+                # Nhập từ AD: cột liên kết với tài khoản AD (sAMAccountName) để chạy lại không nhân đôi
+                # người và không nhầm hai người trùng tên.
+                if "ad_sam" not in emp_cols:
+                    try:
+                        cursor.execute("ALTER TABLE employees ADD COLUMN ad_sam TEXT;")
+                    except Exception as _e:
+                        logger.warning("Không thể thêm cột ad_sam vào employees: %s", _e)
+                try:
+                    cursor.execute("CREATE INDEX IF NOT EXISTS idx_employees_ad_sam ON employees(ad_sam);")
+                except Exception as _e:
+                    logger.warning("Không tạo được chỉ mục ad_sam: %s", _e)
+
                 # 3. Bảng devices (Thiết Bị / Máy Tính)
                 cursor.execute(
                     """
@@ -501,7 +513,7 @@ class ERPDatabase:
 
                     # 1. Nhân viên
                     cursor.execute(
-                        "SELECT id, dept_id, name, position, email, phone FROM employees WHERE dept_id = ? ORDER BY name ASC;",
+                        "SELECT id, dept_id, name, position, email, phone, ad_sam FROM employees WHERE dept_id = ? ORDER BY name ASC;",
                         (d_id,),
                     )
                     dept["employees"] = [dict(r) for r in cursor.fetchall()]
@@ -767,6 +779,213 @@ class ERPDatabase:
                 conn.rollback()
                 logger.error("Lỗi giao dịch khi import dữ liệu ERP (Đã Rollback): %s", exc)
                 raise exc
+            finally:
+                conn.close()
+
+    # ── Nhập từ thư mục (Active Directory) ───────────────────────────────────
+
+    def import_directory(
+        self,
+        employees: List[Dict[str, Any]],
+        computers: List[Dict[str, Any]],
+        *,
+        default_dept: str = "",
+        create_departments: bool = True,
+        apply: bool = False,
+    ) -> Dict[str, Any]:
+        """Nhập nhân viên + máy tính từ bản sao AD vào ERP. Chạy lại nhiều lần an toàn.
+
+        Quy tắc:
+          - nhân viên khớp theo `ad_sam` -> email -> họ tên (chỉ khi KHÔNG mơ hồ); đã có thì chỉ điền
+            chỗ trống (chức vụ / email / SĐT / ad_sam), KHÔNG đổi phòng ban, KHÔNG ghi đè dữ liệu nhập tay;
+          - nhân viên mới nhận quyền thấp nhất `viewer` — không bao giờ nâng quyền từ AD;
+          - phòng ban lấy từ AD (trống thì dùng `default_dept`); thiếu thì tạo mới nếu `create_departments`;
+          - máy tính khớp theo tên máy chuẩn hoá (không phân biệt hoa / thường, hậu tố miền); chủ máy suy
+            từ mô tả của máy trong AD khi trùng đúng tên / tài khoản một nhân viên ERP;
+          - `apply=False`: chạy đúng đường mã thật trong một giao dịch rồi HOÀN TÁC — số liệu xem trước
+            luôn bằng số liệu khi nhập thật.
+        """
+        from mateai.infrastructure.directory.host_names import norm_host
+
+        def bucket() -> Dict[str, int]:
+            return {"created": 0, "updated": 0, "unchanged": 0, "skipped_no_department": 0,
+                    "skipped_department_missing": 0, "skipped_ambiguous": 0, "skipped_invalid": 0}
+
+        stats: Dict[str, Any] = {"departments_created": 0, "employees": bucket(), "devices": bucket()}
+        stats["devices"]["owner_matched"] = 0
+        samples: Dict[str, List[str]] = {}
+        warnings: List[str] = []
+        new_departments: List[str] = []
+
+        def note(kind: str, text: str) -> None:
+            lst = samples.setdefault(kind, [])
+            if len(lst) < 8:
+                lst.append(text)
+
+        with self._lock:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            try:
+                conn.execute("BEGIN TRANSACTION;")
+                dept_ids: Dict[str, int] = {}
+                cursor.execute("SELECT id, name FROM departments;")
+                for r in cursor.fetchall():
+                    dept_ids[str(r["name"]).strip().lower()] = r["id"]
+
+                by_sam: Dict[str, Dict[str, Any]] = {}
+                by_email: Dict[str, List[Dict[str, Any]]] = {}
+                by_name: Dict[str, List[Dict[str, Any]]] = {}
+
+                def index_emp(row: Dict[str, Any]) -> None:
+                    if row.get("ad_sam"):
+                        by_sam[str(row["ad_sam"]).strip().lower()] = row
+                    if row.get("email"):
+                        by_email.setdefault(str(row["email"]).strip().lower(), []).append(row)
+                    by_name.setdefault(str(row["name"]).strip().lower(), []).append(row)
+
+                cursor.execute("SELECT id, dept_id, name, position, email, phone, ad_sam FROM employees;")
+                for r in cursor.fetchall():
+                    index_emp(dict(r))
+
+                def dept_for(name: str) -> Tuple[Optional[int], str]:
+                    """(dept_id, lý do bỏ qua). Tạo phòng ban mới khi được phép."""
+                    name = (name or "").strip() or default_dept.strip()
+                    if not name:
+                        return None, "skipped_no_department"
+                    key = name.lower()
+                    if key in dept_ids:
+                        return dept_ids[key], ""
+                    if not create_departments:
+                        return None, "skipped_department_missing"
+                    cursor.execute("INSERT INTO departments (name, description) VALUES (?, ?);",
+                                   (name, "Nhập từ Active Directory"))
+                    dept_ids[key] = cursor.lastrowid
+                    stats["departments_created"] += 1
+                    new_departments.append(name)
+                    return dept_ids[key], ""
+
+                def pick(rows: List[Dict[str, Any]]) -> Tuple[Optional[Dict[str, Any]], bool]:
+                    """(dòng duy nhất, mơ hồ?)"""
+                    if len(rows) == 1:
+                        return rows[0], False
+                    return None, len(rows) > 1
+
+                # ── Nhân viên ──────────────────────────────────────────────────
+                st = stats["employees"]
+                for e in employees:
+                    sam = str(e.get("sam_account_name") or "").strip()
+                    name = str(e.get("full_name") or sam).strip()
+                    if not name:
+                        st["skipped_invalid"] += 1
+                        continue
+                    email = str(e.get("email") or "").strip()
+                    phone = str(e.get("phone") or "").strip()
+                    title = str(e.get("title") or "").strip()
+                    row = by_sam.get(sam.lower()) if sam else None
+                    ambiguous = False
+                    if row is None and email:
+                        row, ambiguous = pick(by_email.get(email.lower(), []))
+                    if row is None and not ambiguous:
+                        row, ambiguous = pick(by_name.get(name.lower(), []))
+                    if ambiguous:
+                        st["skipped_ambiguous"] += 1
+                        warnings.append(f"Nhân viên '{name}' khớp nhiều người trong ERP — bỏ qua, hãy xử lý tay.")
+                        continue
+                    if row is not None:
+                        upd: Dict[str, str] = {}
+                        if sam and not str(row.get("ad_sam") or "").strip():
+                            upd["ad_sam"] = sam
+                        for col, val in (("position", title), ("email", email), ("phone", phone)):
+                            if val and not str(row.get(col) or "").strip():
+                                upd[col] = val
+                        if upd:
+                            sets = ", ".join(f"{c} = ?" for c in upd)
+                            cursor.execute(f"UPDATE employees SET {sets} WHERE id = ?;", (*upd.values(), row["id"]))
+                            row.update(upd)
+                            index_emp(row)
+                            st["updated"] += 1
+                        else:
+                            st["unchanged"] += 1
+                        continue
+                    dept_id, why = dept_for(str(e.get("department") or ""))
+                    if dept_id is None:
+                        st[why] += 1
+                        note(why, name)
+                        continue
+                    cursor.execute(
+                        "INSERT INTO employees (dept_id, name, position, email, phone, role, ad_sam) "
+                        "VALUES (?, ?, ?, ?, ?, 'viewer', ?);",
+                        (dept_id, name, title, email, phone, sam or None),
+                    )
+                    index_emp({"id": cursor.lastrowid, "dept_id": dept_id, "name": name, "position": title,
+                               "email": email, "phone": phone, "ad_sam": sam})
+                    st["created"] += 1
+                    note("employees_created", name)
+
+                # ── Máy tính ───────────────────────────────────────────────────
+                by_host: Dict[str, Dict[str, Any]] = {}
+                cursor.execute("SELECT id, dept_id, owner_id, hostname, ip_address FROM devices;")
+                for r in cursor.fetchall():
+                    by_host[norm_host(r["hostname"])] = dict(r)
+                st = stats["devices"]
+                for c in computers:
+                    hostname = str(c.get("hostname") or "").strip()
+                    key = norm_host(hostname)
+                    if not key:
+                        st["skipped_invalid"] += 1
+                        continue
+                    ip = str(c.get("ip_address") or "").strip()
+                    hint = str(c.get("assigned_to") or "").strip()
+                    owner: Optional[Dict[str, Any]] = by_sam.get(hint.lower()) if hint else None
+                    if owner is None and hint:
+                        owner, _ = pick(by_name.get(hint.lower(), []))
+                    row = by_host.get(key)
+                    if row is not None:
+                        upd = {}
+                        if ip and not str(row.get("ip_address") or "").strip():
+                            upd["ip_address"] = ip
+                        if owner is not None and not row.get("owner_id"):
+                            upd["owner_id"] = owner["id"]
+                            st["owner_matched"] += 1
+                        if upd:
+                            sets = ", ".join(f"{k} = ?" for k in upd)
+                            cursor.execute(f"UPDATE devices SET {sets} WHERE id = ?;", (*upd.values(), row["id"]))
+                            row.update(upd)
+                            st["updated"] += 1
+                        else:
+                            st["unchanged"] += 1
+                        continue
+                    if owner is not None:
+                        dept_id, why = owner["dept_id"], ""
+                    else:
+                        dept_id, why = dept_for("")
+                    if dept_id is None:
+                        st[why] += 1
+                        note(why.replace("skipped_", "devices_"), hostname)
+                        continue
+                    os_name = str(c.get("os_version") or "")
+                    cursor.execute(
+                        "INSERT INTO devices (dept_id, owner_id, hostname, ip_address, type) VALUES (?, ?, ?, ?, ?);",
+                        (dept_id, owner["id"] if owner else None, hostname, ip,
+                         "Server" if "server" in os_name.lower() else "Workstation"),
+                    )
+                    by_host[key] = {"id": cursor.lastrowid, "dept_id": dept_id, "owner_id": owner["id"] if owner else None,
+                                    "hostname": hostname, "ip_address": ip}
+                    if owner is not None:
+                        st["owner_matched"] += 1
+                    st["created"] += 1
+                    note("devices_created", hostname)
+
+                if apply:
+                    conn.commit()
+                else:
+                    conn.rollback()
+                return {"applied": bool(apply), "stats": stats, "samples": samples, "warnings": warnings[:20],
+                        "new_departments": new_departments}
+            except Exception:
+                conn.rollback()
+                logger.exception("Nhập từ AD vào ERP lỗi (đã hoàn tác)")
+                raise
             finally:
                 conn.close()
 

@@ -2221,7 +2221,7 @@
               <span id="svc-tele-badge" class="svc-badge svc-unknown">⏳ Chờ</span>
             </div>
 
-            <!-- SQLite Database -->
+            <!-- Cơ sở dữ liệu chính (PostgreSQL / SQLite) -->
             <div
               class="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-slate-700/60 bg-slate-50/50 dark:bg-slate-800/30">
               <div class="flex items-center gap-3">
@@ -2234,7 +2234,7 @@
                   </svg>
                 </div>
                 <div>
-                  <div class="text-xs font-bold text-slate-800 dark:text-white">SQLite Database</div>
+                  <div id="svc-db-name" class="text-xs font-bold text-slate-800 dark:text-white">Cơ sở dữ liệu</div>
                   <div id="svc-db-detail" class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Đang kiểm tra...
                   </div>
                 </div>
@@ -5474,7 +5474,7 @@
 
             <p class="text-xs text-slate-500 dark:text-slate-400">
               Trích xuất dữ liệu người dùng và máy tính nội bộ thông qua lệnh PowerShell nguyên bản (Get-ADUser,
-              Get-ADComputer) và lưu vào bộ nhớ đệm SQLite (hr_kpi.db) để AI tra cứu tức thì.
+              Get-ADComputer) và lưu vào bản sao đồng bộ (kho nhân sự `hr`) để AI tra cứu tức thì.
             </p>
 
             <!-- Domain Stats Counters -->
@@ -5504,8 +5504,8 @@
                 <span>Yêu cầu môi trường:</span>
               </div>
               <p class="text-slate-500 dark:text-slate-400 pl-5">
-                Cần cài đặt RSAT (Active Directory Domain Services Tools) trên máy chủ Windows. AI chỉ đọc cache SQLite,
-                an toàn tuyệt đối.
+                Cần cài đặt RSAT (Active Directory Domain Services Tools) trên máy chủ Windows. AI chỉ đọc bản sao đồng bộ này, không
+                ghi ngược lên AD.
               </p>
             </div>
           </div>
@@ -6453,8 +6453,7 @@
               <h3 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <span>Cấu Trúc Tổ Chức & Quản Trị ERP</span>
                 <span
-                  class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">SQLite
-                  Relational Model</span>
+                  class="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-400/30">Mô hình quan hệ</span>
               </h3>
               <p class="text-[11px] text-slate-400">Mô hình dữ liệu có quan hệ: Phòng ban ➔ Nhân sự, Thiết bị mạng, Công
                 việc & Sổ sách tài liệu</p>
@@ -6470,6 +6469,9 @@
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
               </svg>
             </div>
+            <button type="button" id="btn-erp-ad-import" onclick="toggleErpAdImport()"
+              title="Đưa nhân viên và máy tính đã đồng bộ từ Active Directory vào cây tổ chức (xem trước rồi mới nhập)"
+              class="px-2.5 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-semibold transition">⬇ Nhập từ AD</button>
             <button onclick="loadErpStructure()" title="Làm mới cây tổ chức"
               class="p-1.5 rounded-lg border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 hover:text-white transition">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -6477,6 +6479,30 @@
               </svg>
             </button>
           </div>
+        </div>
+
+        <div id="erp-agent-coverage" class="text-[11px] text-slate-400"></div>
+
+        <!-- Nhập từ Active Directory: xem trước rồi mới nhập -->
+        <div id="erp-ad-import-panel" class="hidden p-4 rounded-xl border border-cyan-500/30 bg-cyan-500/5 space-y-3 text-xs">
+          <div class="text-slate-300">
+            Đưa <b>nhân viên</b> và <b>máy tính</b> từ bản sao Active Directory vào cây tổ chức. Chạy lại nhiều lần không nhân đôi;
+            không ghi đè dữ liệu bạn đã nhập tay và không đổi phòng ban của người đã có. Nhân viên mới chỉ có quyền
+            <b>viewer</b>. Chủ máy chỉ được gán khi mô tả của máy trong AD trùng đúng tên hoặc tài khoản một nhân viên.
+          </div>
+          <div class="flex flex-wrap items-end gap-3">
+            <label class="space-y-1"><span class="block text-slate-400">Phòng ban mặc định (cho người / máy AD không có phòng ban)</span>
+              <input id="erp-ad-default-dept" list="erp-ad-dept-list" type="text" class="input-dark text-xs py-1.5 px-3 w-64" placeholder="Bỏ trống = bỏ qua mục không có phòng ban" />
+              <datalist id="erp-ad-dept-list"></datalist></label>
+            <label class="flex items-center gap-1.5"><input id="erp-ad-create-depts" type="checkbox" checked /> Tạo phòng ban mới theo AD</label>
+            <label class="flex items-center gap-1.5"><input id="erp-ad-inc-emp" type="checkbox" checked /> Nhân viên</label>
+            <label class="flex items-center gap-1.5"><input id="erp-ad-inc-dev" type="checkbox" checked /> Máy tính</label>
+            <button type="button" id="btn-erp-ad-preview" onclick="erpAdImportRun(true)"
+              class="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-white/20 font-semibold">Xem trước</button>
+            <button type="button" id="btn-erp-ad-apply" onclick="erpAdImportRun(false)" disabled
+              class="px-3 py-1.5 rounded-lg bg-cyan-600 text-white font-bold disabled:opacity-40 disabled:cursor-not-allowed">Nhập thật</button>
+          </div>
+          <div id="erp-ad-import-result" class="space-y-2"></div>
         </div>
 
         <!-- Import Status Feedback Banner -->
@@ -7615,7 +7641,7 @@
             </svg>
           </div>
           <div>
-            <h3 class="text-base font-bold text-slate-800 dark:text-white">Dữ Liệu Active Directory (SQLite Cache)</h3>
+            <h3 class="text-base font-bold text-slate-800 dark:text-white">Dữ Liệu Active Directory (bản sao đồng bộ)</h3>
             <p class="text-[11px] text-slate-400 font-medium">Bộ nhớ đệm hr_kpi.db phục vụ tra cứu AI tức thì</p>
           </div>
         </div>
@@ -7678,17 +7704,19 @@
               <th class="p-2.5">Hệ Điều Hành</th>
               <th class="p-2.5">Địa Chỉ IPv4</th>
               <th class="p-2.5">Mô Tả / Gán Cho</th>
+              <th class="p-2.5">Agent</th>
               <th class="p-2.5">Đồng Bộ Lúc</th>
             </tr>
           </thead>
           <tbody id="domain-tbody-computers"
             class="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-200">
             <tr>
-              <td colspan="5" class="p-4 text-center text-slate-400">Đang tải dữ liệu...</td>
+              <td colspan="6" class="p-4 text-center text-slate-400">Đang tải dữ liệu...</td>
             </tr>
           </tbody>
         </table>
       </div>
+      <div id="domain-agent-coverage" class="text-[11px] text-slate-400"></div>
 
       <div class="flex items-center justify-between pt-2 text-[11px] text-slate-400">
         <div>💡 AI sẽ tự động đọc cache này khi người dùng tra cứu thông tin nhân sự/máy tính.</div>
@@ -7856,7 +7884,7 @@
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
   <script src="/static/server-time.js?v=1"></script>
-  <script src="/static/app.js?v=56.6"></script>
+  <script src="/static/app.js?v=56.8"></script>
 </body>
 
 </html>

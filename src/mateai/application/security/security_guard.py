@@ -56,6 +56,7 @@ RBAC_RULES: Dict[str, Any] = {
             "open_application", "search_files",
             "list_available_skills", "reload_all_skills",
             "query_organization_data", "lookup_domain_info",
+            "list_online_workstations",
         ],
         "blocked_prefixes": [
             "create_new_skill",         # Không tự tạo kỹ năng
@@ -74,6 +75,7 @@ RBAC_RULES: Dict[str, Any] = {
             "query_organization_data",
             "list_available_skills",
             "lookup_domain_info",
+            "list_online_workstations",
             # Phase 63: đọc báo cáo từ nguồn dữ liệu doanh nghiệp. Cùng loại
             # với query_organization_data — chỉ đọc, không ghi.
             "list_data_sources", "fetch_data_source",

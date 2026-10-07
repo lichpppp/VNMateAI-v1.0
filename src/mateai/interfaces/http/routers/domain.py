@@ -151,6 +151,20 @@ async def list_computers(
     try:
         from mateai.infrastructure.directory.domain_sync import domain_manager
         computers = domain_manager.get_computers(limit=limit)
-        return {"status": "success", "count": len(computers), "data": computers}
+        out: Dict[str, Any] = {"status": "success", "count": len(computers), "data": computers}
+        # Trạng thái Agent từng máy (đã cài / trực tuyến / chưa cài) + tóm tắt trên TOÀN BỘ máy AD.
+        # Lỗi ở đây không được làm mất danh sách máy.
+        try:
+            from mateai.application.devices import worker_enrollment
+            from mateai.application.devices import workstation_directory as wd
+            from mateai.interfaces.websocket.client_orchestrator import orchestrator
+            index = wd.build_index(orchestrator.get_connected_clients(), worker_enrollment.list_devices())
+            for c in computers:
+                c["agent"] = wd.agent_status(c.get("hostname"), index)
+            everyone = domain_manager.get_computers(limit=1_000_000)
+            out["agent_coverage"] = wd.coverage([c.get("hostname") for c in everyone], index)
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).warning("Không tính được trạng thái Agent cho máy AD: %s", exc)
+        return out
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Lỗi truy vấn danh sách máy tính: {exc}")

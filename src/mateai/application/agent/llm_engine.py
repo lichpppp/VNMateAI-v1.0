@@ -1717,7 +1717,7 @@ class LLMEngine:
                 if isinstance(params, dict) and "properties" in params:
                     params["properties"]["target_client"] = {
                         "type": "string",
-                        "description": "Tên máy tính đích trong mạng LAN cần thực thi lệnh (ví dụ: 'master', 'PC-KETOAN-01', 'DESKTOP-ABC'). Mặc định là 'master'.",
+                        "description": "Tên máy tính đích trong mạng LAN cần thực thi lệnh (ví dụ: 'master', 'PC-KETOAN-01', 'DESKTOP-ABC'); không phân biệt hoa/thường. Mặc định là 'master' (máy chủ). Chưa biết máy nào đang online thì gọi `list_online_workstations` trước.",
                     }
                     params["properties"]["target_client_id"] = {
                         "type": "string",

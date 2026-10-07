@@ -1220,7 +1220,11 @@ async function fetchAndRenderHealthDashboard() {
 
     const db = data.services.database_sqlite || data.services.database;
     if (db && !db.detail) {
-      db.detail = `SQLite DB · Dung lượng: ${db.size_kb || 0} KB`;
+      db.detail = `Dung lượng: ${db.size_kb || 0} KB`;
+    }
+    const dbName = document.getElementById('svc-db-name');
+    if (dbName && db) {
+      dbName.textContent = db.backend === 'postgresql' ? 'PostgreSQL' : db.backend === 'sqlite' ? 'SQLite' : 'Cơ sở dữ liệu';
     }
     updateServiceBadge('svc-db-badge', 'svc-db-detail', db);
   }
@@ -8885,6 +8889,104 @@ async function refreshTasksAndErp() {
   showToast('Đã làm mới dữ liệu công việc và cấu trúc tổ chức ERP!', 'info');
 }
 
+// ─── Trạng thái Agent của máy + nhập từ AD (hàm thuần: có test Node) ─────────────
+const AGENT_BADGE = {
+  online: ['Trực tuyến', '#10b981'],
+  offline: ['Đã cài · ngoại tuyến', '#f59e0b'],
+  revoked: ['Đã thu hồi khoá', '#f43f5e'],
+  none: ['Chưa cài', '#94a3b8'],
+};
+
+function agentBadgeHtml(agent) {
+  const st = (agent && agent.status) in AGENT_BADGE ? agent.status : 'none';
+  const [label, color] = AGENT_BADGE[st];
+  const tip = agent && agent.client_id ? `Mã agent: ${agent.client_id}` : 'Không thấy Agent nào khớp tên máy này (chưa cài, hoặc cài với tên khác)';
+  return `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold border whitespace-nowrap" style="color:${color};border-color:${color}66" title="${_esc(tip)}">${label}</span>`;
+}
+
+function agentCoverageText(cov) {
+  if (!cov || !cov.total) return '';
+  return `Agent trên ${cov.total} máy: ${cov.online} trực tuyến · ${cov.offline} đã cài nhưng ngoại tuyến · ${cov.revoked} bị thu hồi · ${cov.none} chưa cài`;
+}
+
+const AD_IMPORT_LABELS = {
+  created: 'Tạo mới', updated: 'Bổ sung chỗ trống', unchanged: 'Không đổi',
+  skipped_no_department: 'Bỏ qua: không có phòng ban', skipped_department_missing: 'Bỏ qua: phòng ban chưa có',
+  skipped_ambiguous: 'Bỏ qua: trùng tên, không rõ ai', skipped_invalid: 'Bỏ qua: thiếu tên',
+};
+
+/** Báo cáo xem trước / kết quả nhập từ AD (HTML). Hàm thuần. */
+function adImportSummaryHtml(res) {
+  if (!res) return '';
+  if (res.empty) return `<div class="text-amber-400">${_esc(res.message || 'Bản sao AD đang trống.')}</div>`;
+  const st = res.stats || {};
+  const row = (title, b) => `<tr class="border-t border-slate-200 dark:border-white/10"><td class="py-1 pr-3 font-semibold">${title}</td>` +
+    Object.keys(AD_IMPORT_LABELS).map((k) => `<td class="py-1 pr-3 tabular-nums ${k.startsWith('skipped') && b[k] ? 'text-amber-400' : ''}">${b[k] || 0}</td>`).join('') + '</tr>';
+  const head = Object.values(AD_IMPORT_LABELS).map((l) => `<th class="pr-3 font-normal text-slate-400">${l}</th>`).join('');
+  const dev = st.devices || {};
+  const samples = Object.entries(res.samples || {}).map(([k, v]) => `<div><span class="text-slate-400">${_esc(k)}:</span> ${v.map(_esc).join(', ')}</div>`).join('');
+  const warns = (res.warnings || []).map((w) => `<li>${_esc(w)}</li>`).join('');
+  return `<div class="font-semibold ${res.applied ? 'text-emerald-400' : 'text-cyan-300'}">${res.applied ? '✅ Đã nhập' : '👁 Xem trước — chưa ghi gì'} ` +
+    `(bản sao AD: ${res.source ? res.source.employees : 0} nhân viên, ${res.source ? res.source.computers : 0} máy)</div>` +
+    `<table class="text-left"><thead><tr><th class="pr-3"></th>${head}</tr></thead><tbody>${row('Nhân viên', st.employees || {})}${row('Máy tính', dev)}</tbody></table>` +
+    `<div>Phòng ban tạo mới: <b>${st.departments_created || 0}</b>${(res.new_departments || []).length ? ` (${res.new_departments.map(_esc).join(', ')})` : ''} · ` +
+    `Máy gán được chủ: <b>${dev.owner_matched || 0}</b></div>` +
+    (samples ? `<div class="text-[11px] space-y-0.5">${samples}</div>` : '') +
+    (warns ? `<ul class="list-disc pl-5 text-amber-400">${warns}</ul>` : '');
+}
+
+let _erpAdPreviewKey = null;
+
+function _erpAdOptions() {
+  return {
+    default_department: (document.getElementById('erp-ad-default-dept')?.value || '').trim(),
+    create_departments: !!document.getElementById('erp-ad-create-depts')?.checked,
+    include_employees: !!document.getElementById('erp-ad-inc-emp')?.checked,
+    include_devices: !!document.getElementById('erp-ad-inc-dev')?.checked,
+  };
+}
+
+function toggleErpAdImport() {
+  const panel = document.getElementById('erp-ad-import-panel');
+  if (!panel) return;
+  panel.classList.toggle('hidden');
+  const list = document.getElementById('erp-ad-dept-list');
+  if (list) list.innerHTML = (g_erp_departments || []).map((d) => `<option value="${_esc(d.name)}"></option>`).join('');
+}
+
+/** dryRun=true: xem trước (không ghi). false: nhập thật — chỉ khi vừa xem trước ĐÚNG các lựa chọn hiện tại. */
+async function erpAdImportRun(dryRun) {
+  const out = document.getElementById('erp-ad-import-result');
+  const apply = document.getElementById('btn-erp-ad-apply');
+  const opts = _erpAdOptions();
+  const key = JSON.stringify(opts);
+  if (!dryRun && key !== _erpAdPreviewKey) {
+    if (out) out.innerHTML = '<div class="text-amber-400">Hãy bấm "Xem trước" với các lựa chọn hiện tại trước khi nhập.</div>';
+    return;
+  }
+  if (out) out.innerHTML = '<div class="text-slate-400">Đang xử lý…</div>';
+  try {
+    const res = await apiFetch(`${API_BASE}/api/erp/import-from-ad`, { method: 'POST', body: JSON.stringify({ ...opts, dry_run: dryRun }) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(apiErrorText(data, res.status));
+    if (out) out.innerHTML = adImportSummaryHtml(data);
+    if (dryRun) {
+      _erpAdPreviewKey = key;
+      const s = data.stats || {};
+      const anything = !data.empty && ((s.employees && (s.employees.created + s.employees.updated)) || (s.devices && (s.devices.created + s.devices.updated)) || s.departments_created);
+      if (apply) apply.disabled = !anything;
+    } else {
+      _erpAdPreviewKey = null;
+      if (apply) apply.disabled = true;
+      showToast('Đã nhập dữ liệu từ Active Directory vào ERP', 'success');
+      loadErpStructure();
+    }
+  } catch (err) {
+    if (out) out.innerHTML = `<div class="text-rose-400">Không thực hiện được: ${_esc(err.message)}</div>`;
+    showToast(err.message || 'Nhập từ AD thất bại', 'error');
+  }
+}
+
 async function loadErpStructure() {
   const container = document.getElementById('erp-departments-container');
   if (!container) return;
@@ -8893,11 +8995,13 @@ async function loadErpStructure() {
     const res = await apiFetch(`${API_BASE}/api/erp/structure`);
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP ${res.status}`);
+      throw new Error(apiErrorText(err, res.status));
     }
     const data = await res.json();
     if (data && data.status === 'success') {
       g_erp_departments = data.departments || [];
+      const covEl = document.getElementById('erp-agent-coverage');
+      if (covEl) covEl.textContent = agentCoverageText(data.agent_coverage);
       // Mặc định mở rộng phòng ban đầu tiên nếu chưa có phòng nào mở
       if (g_erp_departments.length > 0 && g_erp_expanded_depts.size === 0) {
         g_erp_expanded_depts.add(g_erp_departments[0].id);
@@ -9105,6 +9209,7 @@ function renderDeptDevicesTable(devices) {
           <th class="py-2.5 px-3">ĐỊA CHỈ IP</th>
           <th class="py-2.5 px-3">LOẠI THIẾT BỊ</th>
           <th class="py-2.5 px-3">NGƯỜI PHỤ TRÁCH</th>
+          <th class="py-2.5 px-3">AGENT</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-white/5">
@@ -9128,6 +9233,7 @@ function renderDeptDevicesTable(devices) {
               <span>👤</span>
               <span>${escapeHtml(d.owner_name || 'Chưa gán')}</span>
             </td>
+            <td class="py-2 px-3">${agentBadgeHtml(d.agent)}</td>
           </tr>
         `).join('')}
       </tbody>
@@ -10598,8 +10704,8 @@ async function fetchDomainData() {
   const tbodyEmp = document.getElementById('domain-tbody-employees');
   const tbodyComp = document.getElementById('domain-tbody-computers');
 
-  if (tbodyEmp) tbodyEmp.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Đang đọc từ SQLite cache...</td></tr>`;
-  if (tbodyComp) tbodyComp.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">Đang đọc từ SQLite cache...</td></tr>`;
+  if (tbodyEmp) tbodyEmp.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Đang đọc bản sao đồng bộ AD...</td></tr>`;
+  if (tbodyComp) tbodyComp.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-400">Đang đọc bản sao đồng bộ AD...</td></tr>`;
 
   try {
     const [resEmp, resComp] = await Promise.all([
@@ -10619,12 +10725,14 @@ async function fetchDomainData() {
       domainComputersList = dataComp.data || [];
       const mComp = document.getElementById('count-modal-computers');
       if (mComp) mComp.textContent = domainComputersList.length;
+      const covEl = document.getElementById('domain-agent-coverage');
+      if (covEl) covEl.textContent = agentCoverageText(dataComp.agent_coverage);
     }
 
     renderDomainTables();
   } catch (err) {
     if (tbodyEmp) tbodyEmp.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-rose-400">Lỗi tải dữ liệu: ${err.message}</td></tr>`;
-    if (tbodyComp) tbodyComp.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-rose-400">Lỗi tải dữ liệu: ${err.message}</td></tr>`;
+    if (tbodyComp) tbodyComp.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-rose-400">Lỗi tải dữ liệu: ${err.message}</td></tr>`;
   }
 }
 
@@ -10651,7 +10759,7 @@ function renderDomainTables(empFilter = domainEmployeesList, compFilter = domain
 
   if (tbodyComp) {
     if (compFilter.length === 0) {
-      tbodyComp.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-slate-400">Chưa có máy tính nào được đồng bộ từ Active Directory. Hãy nhấn nút "Đồng Bộ AD Ngay".</td></tr>`;
+      tbodyComp.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-slate-400">Chưa có máy tính nào được đồng bộ từ Active Directory. Hãy nhấn nút "Đồng Bộ AD Ngay".</td></tr>`;
     } else {
       tbodyComp.innerHTML = compFilter.map(c => `
         <tr class="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
@@ -10659,6 +10767,7 @@ function renderDomainTables(empFilter = domainEmployeesList, compFilter = domain
           <td class="p-2.5 text-slate-700 dark:text-slate-200">${escapeHtml(c.os_version || '--')}</td>
           <td class="p-2.5 font-mono text-emerald-600 dark:text-emerald-400">${escapeHtml(c.ip_address || '--')}</td>
           <td class="p-2.5 text-slate-600 dark:text-slate-300">${escapeHtml(c.assigned_to || '--')}</td>
+          <td class="p-2.5">${agentBadgeHtml(c.agent)}</td>
           <td class="p-2.5 text-slate-400 text-[10px]">${escapeHtml(c.synced_at || '--')}</td>
         </tr>
       `).join('');

@@ -380,9 +380,20 @@ rồi chạy `python workers\remote_worker_daemon.py`. Thiếu token → bị t�
 Khối `email_gateway`: `enabled`, `username`, `password` (mật khẩu ứng dụng), `imap_host`, `smtp_host`.
 Tự trả lời chỉ bật khi `autonomy.email_auto_reply = true` **và** miền người gửi nằm trong `email_auto_reply_domains`.
 
-### 10.6 Active Directory
-Máy chủ trong domain + RSAT → `ad_sync.enabled = true` (bật trên portal). Đồng bộ dùng `Get-ADUser` / `Get-ADComputer`
-bằng tài khoản chạy ứng dụng — tài khoản đó cần quyền đọc AD.
+### 10.6 Active Directory, ERP và Agent máy trạm
+Ba thứ này **độc lập**, nối với nhau bằng các bước có chủ đích:
+
+1. **Đồng bộ AD** (máy chủ trong domain + RSAT, `ad_sync.enabled = true`): bấm "Đồng Bộ AD Ngay". Nhân viên và máy tính
+   được ghi vào **bản sao AD** (kho `hr`), AI tra cứu bằng `lookup_domain_info`. Đồng bộ **không** tự đổi cây tổ chức ERP.
+2. **Nhập vào ERP** (tab Cấu Trúc Tổ Chức & Quản Trị ERP → **"⬇ Nhập từ AD"**): chọn phòng ban mặc định (cho người / máy AD không
+   có phòng ban), **Xem trước** (không ghi gì, số liệu y hệt khi nhập thật), rồi **Nhập thật**. Chạy lại không nhân đôi; không ghi
+   đè dữ liệu nhập tay; không đổi phòng ban người đã có; nhân viên mới chỉ có quyền `viewer`. Chủ máy chỉ được gán khi mô tả của
+   máy trong AD trùng đúng tên / tài khoản một nhân viên.
+3. **Agent máy trạm**: **không** tự cài từ xa. Cài thủ công (tải gói ở portal, bấm đúp) hoặc đẩy cài im lặng (`--quiet`) bằng
+   GPO / Intune. Cột **Agent** ở bảng thiết bị ERP và bảng máy AD cho biết từng máy: Trực tuyến / Đã cài · ngoại tuyến / Đã thu
+   hồi khoá / Chưa cài (khớp theo tên máy, không phân biệt hoa / thường và hậu tố miền).
+4. **AI chạy công cụ trên máy trạm** qua `target_client` (mã agent = tên máy mặc định). Máy phải đang trực tuyến; AI gọi
+   `list_online_workstations` để biết máy nào đang có mặt. Tên khớp nhiều máy thì báo rõ, không đoán.
 
 ### 10.7 Webhook từ hệ thống khác
 Đặt `VNMATE_WEBHOOK_<NGUỒN>_SECRET` cho từng nguồn; bên gửi ký HMAC bằng khoá đó. Webhook không có chữ ký bị từ chối.

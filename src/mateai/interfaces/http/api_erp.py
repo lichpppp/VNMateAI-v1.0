@@ -7,21 +7,23 @@ Phase 47: ERP Structure & Bulk Data Import Engine.
 Endpoints:
   1. GET  /api/erp/template   -> Xuất file Excel mẫu đa sheet (PhongBan, NhanVien, MayTinh, CongViec, SoSach)
   2. POST /api/erp/import     -> Nhận file upload, validate dữ liệu và import giao dịch (Rollback an toàn)
-  3. GET  /api/erp/structure  -> Lấy cây cấu trúc phòng ban và các thực thể con
+  3. GET  /api/erp/structure  -> Lấy cây cấu trúc phòng ban và các thực thể con (kèm trạng thái Agent của máy)
+  4. POST /api/erp/import-from-ad -> Nhập nhân viên + máy tính từ bản sao Active Directory (xem trước / nhập)
 """
 
 from __future__ import annotations
 
 import io
 import logging
+from functools import partial
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from core.plugin_manager import run_blocking
-from mateai.application.enterprise import erp_import
+from mateai.application.enterprise import ad_import, erp_import
 from mateai.interfaces.http.auth_dependencies import get_current_user, require_roles
 from mateai.infrastructure.database.erp_database import erp_db
 
@@ -105,12 +107,62 @@ async def get_erp_structure(
         who = await run_blocking(security_guard.principal, employee_id=current_user.get("username"))
         visible = scope_rows(tree, who, dept_key="name")
         out = {"status": "success", "count": len(visible), "departments": visible}
+        await run_blocking(partial(_attach_agent_status, visible, out))
         if not who["all_departments"] and not who["department"]:
             out["scope_note"] = "Tài khoản chưa được gán phòng ban — nhờ quản trị gán ở Quản lý người dùng."
         return out
     except Exception as exc:
         logger.error("Lỗi khi lấy cây cấu trúc ERP: %s", exc)
         raise HTTPException(status_code=500, detail=f"Lỗi truy vấn dữ liệu ERP: {exc}")
+
+
+def _attach_agent_status(departments: Any, out: Dict[str, Any]) -> None:
+    """Mỗi thiết bị kèm `agent` {status, label, client_id}: Agent đã cài / trực tuyến chưa. Lỗi ở đây
+    không được làm hỏng cây tổ chức — thiếu thông tin Agent còn hơn mất cả danh sách."""
+    try:
+        from mateai.application.devices import worker_enrollment
+        from mateai.application.devices import workstation_directory as wd
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
+        index = wd.build_index(orchestrator.get_connected_clients(), worker_enrollment.list_devices())
+        names = []
+        for dept in departments:
+            for dev in dept.get("devices", []):
+                dev["agent"] = wd.agent_status(dev.get("hostname"), index)
+                names.append(dev.get("hostname"))
+        out["agent_coverage"] = wd.coverage(names, index)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Không tính được trạng thái Agent cho thiết bị ERP: %s", exc)
+
+
+# ── 3b. NHẬP TỪ ACTIVE DIRECTORY ─────────────────────────────────────────────
+
+class ImportFromADRequest(BaseModel):
+    dry_run: bool = True
+    default_department: str = Field(default="", max_length=120)
+    create_departments: bool = True
+    include_employees: bool = True
+    include_devices: bool = True
+
+
+@router.post("/import-from-ad", summary="Nhập nhân viên + máy tính từ bản sao AD vào ERP (mặc định chỉ xem trước)")
+async def import_from_ad(
+    payload: ImportFromADRequest,
+    current_user: Dict[str, Any] = Depends(require_roles(["manager", "admin"])),
+) -> Dict[str, Any]:
+    """`dry_run=true` (mặc định): chạy thử và HOÀN TÁC, trả số liệu y hệt khi nhập thật. `dry_run=false`:
+    nhập thật, ghi audit. Nhân viên mới luôn nhận quyền `viewer`."""
+    try:
+        res = await run_blocking(
+            ad_import.run, default_department=payload.default_department,
+            create_departments=payload.create_departments, apply=not payload.dry_run,
+            include_employees=payload.include_employees, include_devices=payload.include_devices)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Nhập từ AD lỗi: %s", exc)
+        raise HTTPException(status_code=500, detail=f"Nhập từ AD thất bại (đã hoàn tác): {exc}")
+    if res.get("applied"):
+        _audit(current_user, "erp_import_from_ad", {"stats": res["stats"], "source": res["source"],
+                                                     "default_department": payload.default_department})
+    return {"status": "success", **res}
 
 
 # ── 4. API THÊM / XÓA PHÒNG BAN MỚI (PHASE 47.1) ──────────────────────────────

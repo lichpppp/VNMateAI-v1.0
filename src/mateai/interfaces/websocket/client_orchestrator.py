@@ -118,6 +118,7 @@ class Orchestrator:
 
     async def offer_update(self, client_id: str) -> bool:
         """Agent cũ hơn gói đang phát hành cho đúng loại của nó -> báo "update_available"."""
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session:
             return False
@@ -144,6 +145,7 @@ class Orchestrator:
 
     async def disconnect_client(self, client_id: str, reason: str = "") -> bool:
         """Cắt kết nối một máy trạm (vd vừa bị thu hồi khoá)."""
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session or not session.get("websocket"):
             return False
@@ -154,9 +156,18 @@ class Orchestrator:
         await self.unregister_client(client_id)
         return True
 
+    def resolve_client_id(self, name: str) -> Optional[str]:
+        """Mã agent đang kết nối ứng với tên người dùng / AI nói: khớp đúng mã trước, rồi không phân biệt
+        hoa / thường và hậu tố miền (`pc-kt-01` = `PC-KT-01.corp.local`), theo mã hoặc tên máy. Nhiều
+        máy cùng khớp -> None (không đoán)."""
+        from mateai.application.devices import workstation_directory as wd
+        if name in self._clients:
+            return name
+        return wd.resolve(name, wd.build_index(list(self._clients.values()), []))
+
     def is_client_online(self, client_id: str) -> bool:
         """Check if client is currently connected and online."""
-        return client_id in self._clients
+        return self.resolve_client_id(client_id) is not None
 
     def get_client_ids(self) -> List[str]:
         """Return list of all currently connected client IDs."""
@@ -261,6 +272,7 @@ class Orchestrator:
         Returns:
             Dict containing execution result or error.
         """
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session or not session.get("websocket"):
             return {
@@ -346,6 +358,7 @@ class Orchestrator:
         """
         Deploy and hot-load Python skill code on a remote worker client.
         """
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session or not session.get("websocket"):
             return {
@@ -400,6 +413,7 @@ class Orchestrator:
         Request real-time telemetry / monitoring data from a client agent.
         monitor_type: 'screen' | 'processes' | 'network' | 'peripherals' | 'security'
         """
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session or not session.get("websocket"):
             return {
@@ -456,6 +470,7 @@ class Orchestrator:
         """
         Send a kill process command to target client agent.
         """
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session or not session.get("websocket"):
             return {
@@ -506,12 +521,14 @@ class Orchestrator:
         Thread-safe synchronous bridge for calling execute_on_client
         from background worker threads (such as LLMEngine.ask).
         """
-        if not self.is_client_online(client_id):
-            return {
-                "status": "error",
-                "client_id": client_id,
-                "error": f"Máy trạm '{client_id}' hiện không trực tuyến hoặc chưa kết nối vào mạng LAN.",
-            }
+        resolved = self.resolve_client_id(client_id)
+        if resolved is None:
+            from mateai.application.devices import workstation_directory as wd
+            many = wd.ambiguous(client_id, wd.build_index(list(self._clients.values()), []))
+            why = (f"Tên '{client_id}' khớp nhiều máy ({', '.join(many)}) — hãy nói rõ mã máy."
+                   if many else f"Máy trạm '{client_id}' hiện không trực tuyến hoặc chưa kết nối vào mạng LAN.")
+            return {"status": "error", "client_id": client_id, "error": why}
+        client_id = resolved
 
         # If we have a running event loop stored
         loop = self._loop
@@ -549,6 +566,7 @@ class Orchestrator:
         """
         Phase 32: Dispatch visual overlay command to a target client agent via WebSocket.
         """
+        client_id = self.resolve_client_id(client_id) or client_id
         session = self._clients.get(client_id)
         if not session or not session.get("websocket"):
             return {
