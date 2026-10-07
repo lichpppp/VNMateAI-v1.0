@@ -42,6 +42,45 @@ Công cụ AI (đều chỉ đọc, L0 — dùng được cả khi bật kill sw
 
 API (manager + admin): `GET /api/v1/monitoring/overview`, `POST /api/v1/monitoring/query` (PromQL), `POST /api/v1/monitoring/refresh` (admin: thu thập + đồng bộ sự cố ngay).
 
+## 7. Giám sát lại chính VN-MateAI (`GET /metrics`)
+
+VN-MateAI xuất số đo của chính nó theo định dạng Prometheus để **Prometheus / Grafana của bạn cảnh báo khi hệ thống AI có vấn đề**.
+
+1. Đặt token: biến môi trường `VNMATEAI_METRICS_TOKEN` (khuyên dùng) hoặc `config.json → monitoring.metrics_token` (tự được mã hoá khi lưu). **Chưa đặt token = endpoint tắt (404).**
+2. Thêm vào `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: vn-mateai
+    scheme: https
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /etc/prometheus/vnmateai.token }
+    tls_config: { ca_file: /etc/prometheus/ca-noi-bo.pem }   # hoặc insecure_skip_verify: true cho chứng chỉ tự ký
+    static_configs: [{ targets: ["vnmateai.congty.local:443"] }]
+```
+
+Chuỗi số đo (chỉ có khi đo được — không xuất 0 giả): `vnmateai_up`, `vnmateai_process_uptime_seconds`, `vnmateai_kill_switch`, `vnmateai_tasks_24h{status}`, `vnmateai_tool_actions_24h{decision}`, `vnmateai_approvals_pending`, `vnmateai_incidents_open`, `vnmateai_llm_tokens_24h`, `vnmateai_llm_cost_24h`, `vnmateai_voice_stage_ms{outcome,stage,quantile}`, `vnmateai_host_cpu_percent|ram_percent|disk_percent`, `vnmateai_devfleet_runs{status}`, `vnmateai_infra_*`, `vnmateai_scrape_error{section}`.
+
+Quy tắc cảnh báo gợi ý:
+
+```yaml
+- alert: VNMateAIDown
+  expr: up{job="vn-mateai"} == 0
+  for: 2m
+  labels: { severity: critical }
+- alert: VNMateAIKillSwitchOn
+  expr: vnmateai_kill_switch == 1
+  labels: { severity: warning }
+- alert: VNMateAIApprovalsStuck
+  expr: vnmateai_approvals_pending > 0
+  for: 30m
+  labels: { severity: warning }
+- alert: VNMateAIScrapeSectionError
+  expr: vnmateai_scrape_error == 1
+  for: 5m
+  labels: { severity: warning }
+```
+
 ## 6. Chưa làm
 
 - Chưa thử với Prometheus / Grafana thật (xem trên); chưa hỗ trợ Prometheus qua nhiều cluster liên kết (Thanos / Mimir dùng cùng API nên có thể chạy, chưa kiểm).

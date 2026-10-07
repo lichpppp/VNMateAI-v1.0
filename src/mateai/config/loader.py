@@ -492,6 +492,8 @@ class MonitoringConfig(BaseModel):
     #: Mức tối thiểu của cảnh báo ngoài hệ thống để mở SỰ CỐ + báo kênh cảnh báo: critical | warning.
     incident_min_severity: str = "critical"
     max_incidents_per_cycle: int = Field(default=10, ge=1, le=100)
+    #: Token (Bearer) cho `GET /metrics` — số đo của chính VN-MateAI cho Prometheus. Trống = endpoint TẮT (404).
+    metrics_token: str = ""
     #: Ngưỡng (%) cho CPU / RAM / đĩa suy ra từ node_exporter / windows_exporter.
     cpu_warn: float = 85.0
     cpu_crit: float = 95.0
@@ -672,6 +674,13 @@ class AppSettings(BaseSettings):
         env_groq = os.getenv("GROQ_API_KEY", "").strip()
         if env_groq:
             data["GROQ_API_KEY"] = env_groq
+
+        mon_block = data.get("monitoring")
+        env_metrics = os.getenv("VNMATEAI_METRICS_TOKEN", "").strip()
+        if env_metrics:
+            if not isinstance(mon_block, dict):
+                mon_block = data["monitoring"] = {}
+            mon_block["metrics_token"] = env_metrics
 
         fleet_block = data.get("dev_fleet")
         if isinstance(fleet_block, dict):

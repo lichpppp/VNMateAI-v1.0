@@ -1360,6 +1360,116 @@
     },
     "enabled": true
   },
+  "get_infra_alerts": {
+    "module": "skills.infra_monitor_tools",
+    "attr": "get_infra_alerts",
+    "meta": {
+      "name": "get_infra_alerts",
+      "description": "Danh sách cảnh báo hạ tầng (Prometheus + Grafana), lọc theo mức nghiêm trọng. Chỉ đọc.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "warning",
+              "info"
+            ],
+            "description": "Chỉ lấy mức này trở lên. Bỏ trống = tất cả."
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "get_infra_status": {
+    "module": "skills.infra_monitor_tools",
+    "attr": "get_infra_status",
+    "meta": {
+      "name": "get_infra_status",
+      "description": "Tình trạng hạ tầng theo Prometheus / Grafana của doanh nghiệp: cảnh báo đang bắn, target down, máy đang quá tải (CPU/RAM/đĩa), nguồn nào mất liên lạc. Dùng khi hỏi 'hạ tầng đang thế nào', 'có cảnh báo gì không', 'máy nào quá tải'.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "list_grafana_dashboards": {
+    "module": "skills.infra_monitor_tools",
+    "attr": "list_grafana_dashboards",
+    "meta": {
+      "name": "list_grafana_dashboards",
+      "description": "Liệt kê dashboard Grafana (tên, thư mục, đường dẫn mở) để chỉ cho người dùng xem biểu đồ chi tiết. Chỉ đọc.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "keyword": {
+            "type": "string",
+            "description": "Lọc theo từ khoá trong tên / thư mục. Bỏ trống = tất cả."
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "query_prometheus": {
+    "module": "skills.infra_monitor_tools",
+    "attr": "query_prometheus",
+    "meta": {
+      "name": "query_prometheus",
+      "description": "Chạy MỘT biểu thức PromQL (instant query, chỉ đọc) trên Prometheus của doanh nghiệp, ví dụ 'up == 0' hoặc 'rate(http_requests_total[5m])'. Trả các dòng nhãn + giá trị thật; không đoán số.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "promql": {
+            "type": "string",
+            "description": "Biểu thức PromQL (tối đa 600 ký tự)"
+          },
+          "source_id": {
+            "type": "string",
+            "description": "Mã nguồn Prometheus nếu có nhiều (bỏ trống = nguồn đầu tiên)"
+          }
+        },
+        "required": [
+          "promql"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
   "check_aws_cost": {
     "module": "skills.integration_tools",
     "attr": "check_aws_cost",

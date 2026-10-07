@@ -39,7 +39,7 @@ PREFIX = "enc:v1:"
 #: chuỗi con, vì `security.forbidden_keywords` chứa chữ "key" mà là chính sách.
 SECRET_FIELD_NAMES = frozenset({
     "api_key", "api_keys", "apikey", "api_token", "access_key_id", "secret",
-    "secret_access_key", "client_secret", "private_key", "token", "bot_token", "password",
+    "secret_access_key", "client_secret", "private_key", "token", "bot_token", "password", "metrics_token",
     # Khoá dịch vụ ở khối phẳng, tên viết HOA kiểu cũ.
     "groq_api_key", "direct_api_key",
     # Kênh cảnh báo: URL webhook Teams / Slack chứa chữ ký truy cập.

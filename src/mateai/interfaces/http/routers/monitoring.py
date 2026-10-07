@@ -11,7 +11,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+import hmac
+
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi.responses import PlainTextResponse
 
 from mateai.application.monitoring import infra_monitor as im
 from mateai.interfaces.http.auth_dependencies import require_roles
@@ -35,6 +38,23 @@ async def promql(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = _USER)
                                      limit=int(body.get("limit") or 30))
     except im.MonitorError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/metrics", summary="Số đo của chính VN-MateAI cho Prometheus (Bearer = monitoring.metrics_token)", tags=_TAG,
+            response_class=PlainTextResponse)
+async def metrics(authorization: str = Header("")) -> PlainTextResponse:
+    """Ngoài /api/v1/ (Prometheus không có JWT người dùng) nên tự xác thực bằng token riêng. Chưa đặt token -> 404 (tắt)."""
+    from mateai.application.operations import metrics_export
+    from mateai.config.loader import settings
+    from core.plugin_manager import run_blocking
+    want = (settings.monitoring.metrics_token or "").strip()
+    if not want:
+        raise HTTPException(status_code=404, detail="Not Found")
+    got = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if not got or not hmac.compare_digest(got.encode("utf-8"), want.encode("utf-8")):
+        raise HTTPException(status_code=401, detail="Sai hoặc thiếu token", headers={"WWW-Authenticate": "Bearer"})
+    text = await run_blocking(metrics_export.render)
+    return PlainTextResponse(text, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 
 @router.post("/api/v1/monitoring/refresh", summary="Thu thập ngay + đồng bộ sự cố (không chờ chu kỳ)", tags=_TAG)

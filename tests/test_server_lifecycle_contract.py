@@ -39,7 +39,7 @@ NEW_ROUTES = {"/api/v1/health/startup",
               "/api/v1/enterprise/data-sources/presets",   # mẫu khai báo hạ tầng (Prometheus, vCenter…)
               # Dev Fleet: điều phối cụm Dev qua Ubuntu Master (docs/integrations/dev-fleet.md)
               # Giám sát hạ tầng Prometheus / Grafana (docs/integrations/monitoring.md)
-              '/api/v1/monitoring/overview', '/api/v1/monitoring/query', '/api/v1/monitoring/refresh',
+              '/api/v1/monitoring/overview', '/api/v1/monitoring/query', '/api/v1/monitoring/refresh', '/metrics',
               *('/api/v1/dev-fleet/agents',
                 '/api/v1/dev-fleet/config',
                 '/api/v1/dev-fleet/test-connection',
