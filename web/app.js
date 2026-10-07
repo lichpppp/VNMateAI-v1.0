@@ -253,7 +253,7 @@ const TAB_TITLES = {
   config: 'Cấu Hình Toàn Bộ Hệ Thống',
   logs: 'Nhật Ký Hệ Thống (Real-time Logs)',
   'ai-manager': 'Quản Lý Trợ Lý AI — LLM · Persona · Audio',
-  'dev-fleet': 'Dev Fleet — Cụm Dev qua Ubuntu Master',
+  'dev-fleet': 'Dev Fleet — Cụm Master - WorkNode',
 };
 
 // ─── Biểu tượng Kỹ năng SVG ───────────────────────────────────────────────

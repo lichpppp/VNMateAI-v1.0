@@ -53,8 +53,7 @@ const DevFleetUI = (() => {
     return `
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
       <div>
-        <p class="text-xs text-slate-600 dark:text-slate-300">VN-MateAI quản lý dự án &amp; điều phối · Ubuntu Master quản lý hạ tầng · Mac mini + OpenClaw thực thi.
-        Chưa kiểm chứng với Master thật — dùng chế độ "Chỉ xem" trước.</p>
+        <p class="text-xs text-slate-600 dark:text-slate-300">VN-MateAI quản lý dự án điều phối Master-WorkNode</p>
       </div>
       <button type="button" data-df="refresh" class="${BTN} bg-primary-600 hover:bg-primary-700 text-white shrink-0">Làm mới</button>
     </div>
@@ -62,7 +61,7 @@ const DevFleetUI = (() => {
     <div id="df-status" class="${CARD} text-xs text-slate-500">Đang tải…</div>
 
     <div id="df-config-card" class="${CARD} space-y-3">
-      <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Kết nối Ubuntu Master</h3>
+      <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Kết nối Master - WorkNode</h3>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label class="block"><span class="${LBL}">Địa chỉ Master *</span>
           <input id="df-endpoint" type="url" class="${INPUT} font-mono" placeholder="https://master.congty.local:8443" /></label>

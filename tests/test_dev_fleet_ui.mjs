@@ -69,7 +69,7 @@ const baseRoutes = () => ({
 routes = baseRoutes();
 DevFleetUI.onEnter();
 await flush(); await flush(); await flush();
-ok(/Kết nối Ubuntu Master/.test(root.innerHTML) && /Giao tác vụ mới/.test(root.innerHTML), 'khung giao diện được dựng');
+ok(/Kết nối Master - WorkNode/.test(root.innerHTML) && /Giao tác vụ mới/.test(root.innerHTML), 'khung giao diện được dựng');
 ok(el('df-endpoint').value === 'https://m.local:8443' && el('df-token').value === '', 'nạp endpoint, ô token để trống');
 ok(/đã lưu/.test(el('df-token-note').textContent) && !/TOKEN/.test(JSON.stringify([...elements.values()].map((x) => x.value))), 'chỉ báo "đã lưu", không có giá trị token');
 ok(el('df-mode').value === 'read_only' && /Chỉ xem/.test(el('df-mode-hint').textContent), 'chế độ + gợi ý');
