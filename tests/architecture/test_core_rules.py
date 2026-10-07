@@ -33,7 +33,8 @@ ALLOWED = {
     "RULE-011": {"src/mateai/infrastructure/llm/llm_provider.py", "src/mateai/infrastructure/audio/audio_processor.py"},
     "RULE-012": {"src/mateai/infrastructure/tts/tts_stream_engine.py"},
     "RULE-013": {"src/mateai/config/loader.py"},
-    "RULE-014": {"src/mateai/infrastructure/database/erp_database.py"},
+    # sql_connector: mở CSDL SQLite CỦA KHÁCH (nguồn dữ liệu ngoài, chỉ-đọc) — không phải CSDL của hệ thống.
+    "RULE-014": {"src/mateai/infrastructure/database/erp_database.py", "src/mateai/infrastructure/connectors/sql_connector.py"},
     "RULE-015": set(),
     # Chỉ cổng chính sách được gọi thực thi tool. routers/skills: executor nằm trong
     # execute_with_hitl (policy_engine.authorize) — gọi qua cổng.

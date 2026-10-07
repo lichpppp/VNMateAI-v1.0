@@ -226,6 +226,21 @@ class ConnectorResult:
     metadata: Dict[str, Any] = field(default_factory=dict)  # Metadata bổ sung (pagination, rate_limit_remaining...)
 
 
+def parse_response_body(response: Any) -> Any:
+    """Thân phản hồi -> JSON khi đúng là JSON. Nhận mọi kiểu `*/*json*` (application/json, vnd.api+json,
+    hal+json, json-rpc, text/json…) và cả máy chủ khai sai `text/plain` nhưng thân là JSON. Không phải JSON
+    thì trả chuỗi (không ném lỗi)."""
+    text = response.text
+    ctype = str(response.headers.get("content-type", "")).lower()
+    head = text.lstrip()[:1]
+    if "json" in ctype or head in ("{", "["):
+        try:
+            return response.json()
+        except ValueError:
+            return text
+    return text
+
+
 class BaseConnector(abc.ABC):
     """
     Abstract Base Class cho tất cả Enterprise Connectors.
@@ -354,9 +369,17 @@ class BaseConnector(abc.ABC):
         json_body: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
         timeout: Optional[float] = None,
+        verify: Any = True,
+        cert: Any = None,
+        form_body: Optional[Dict[str, Any]] = None,
+        retries: Optional[int] = None,
     ) -> ConnectorResult:
         """
         Wrapper HTTP request có retry + timeout + circuit-breaker đơn giản.
+
+        `verify`: True (mặc định) | False (bỏ kiểm chứng chứng chỉ — chỉ cho hệ thống nội bộ tự ký, do người
+        quản trị khai báo) | đường dẫn tệp CA (CA nội bộ). `cert`: đường dẫn chứng chỉ máy khách hoặc
+        (chứng chỉ, khoá) cho mTLS. `form_body`: gửi dạng `application/x-www-form-urlencoded`.
 
         Returns ConnectorResult thay vì raise exception để caller dễ handle.
         """
@@ -366,15 +389,18 @@ class BaseConnector(abc.ABC):
         last_error = None
         metadata: Dict[str, Any] = {}
 
-        for attempt in range(self.config.retry_count + 1):
+        # `retries=0` cho thao tác GHI: thử lại một POST bị timeout có thể thực hiện việc đó hai lần.
+        attempts = (self.config.retry_count if retries is None else max(0, retries)) + 1
+        for attempt in range(attempts):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with httpx.AsyncClient(timeout=timeout, verify=verify, cert=cert) as client:
                     t0 = time.monotonic()
                     response = await client.request(
                         method=method.upper(),
                         url=url,
                         headers=headers,
                         json=json_body,
+                        data=form_body,
                         params=params,
                     )
                     latency = (time.monotonic() - t0) * 1000
@@ -382,16 +408,19 @@ class BaseConnector(abc.ABC):
                     if response.is_success:
                         return ConnectorResult(
                             success=True,
-                            data=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
+                            data=parse_response_body(response),
                             latency_ms=latency,
                             source=self.config.name,
-                            metadata={"http_status": response.status_code},
+                            metadata={"http_status": response.status_code,
+                                      "link": response.headers.get("link", ""),
+                                      "headers": {k.lower(): v for k, v in response.headers.items()
+                                                  if k.lower() in ("x-total-count", "x-next-page", "x-total")}},
                         )
                     else:
                         last_error = f"HTTP {response.status_code}: {response.text[:200]}"
                         logger.warning(
                             "[%s] Request failed (attempt %d/%d): %s",
-                            self.config.name, attempt + 1, self.config.retry_count + 1, last_error,
+                            self.config.name, attempt + 1, attempts, last_error,
                         )
                         # 4xx (trừ 429) là lỗi của request, không phải lỗi
                         # tạm thời: token sai, path sai, không đủ quyền — thử
@@ -409,15 +438,21 @@ class BaseConnector(abc.ABC):
 
             except httpx.TimeoutException:
                 last_error = f"Timeout after {timeout}s"
-                logger.warning("[%s] Request timeout (attempt %d/%d)", self.config.name, attempt + 1, self.config.retry_count + 1)
+                logger.warning("[%s] Request timeout (attempt %d/%d)", self.config.name, attempt + 1, attempts)
             except httpx.ConnectError as e:
                 last_error = f"Connection error: {e}"
-                logger.warning("[%s] Connection error (attempt %d/%d): %s", self.config.name, attempt + 1, self.config.retry_count + 1, e)
+                if "CERTIFICATE_VERIFY_FAILED" in str(e) or "certificate verify failed" in str(e).lower():
+                    # Lỗi đặc trưng của hệ thống nội bộ dùng chứng chỉ tự ký / CA nội bộ: nói rõ cách sửa.
+                    last_error = ("Không xác thực được chứng chỉ TLS của máy chủ (chứng chỉ tự ký hoặc CA nội bộ). "
+                                  "Khai báo `ca_bundle` (tệp CA nội bộ) hoặc đặt `verify_ssl` = false cho nguồn này.")
+                    return ConnectorResult(success=False, error=last_error, latency_ms=0.0,
+                                           source=self.config.name, metadata=metadata)
+                logger.warning("[%s] Connection error (attempt %d/%d): %s", self.config.name, attempt + 1, attempts, e)
             except Exception as e:
                 last_error = f"Unexpected error: {e}"
-                logger.error("[%s] Request error (attempt %d/%d): %s", self.config.name, attempt + 1, self.config.retry_count + 1, e, exc_info=True)
+                logger.error("[%s] Request error (attempt %d/%d): %s", self.config.name, attempt + 1, attempts, e, exc_info=True)
 
-            if attempt < self.config.retry_count:
+            if attempt < attempts - 1:
                 await asyncio.sleep(self.config.retry_backoff_seconds ** attempt)
 
         return ConnectorResult(

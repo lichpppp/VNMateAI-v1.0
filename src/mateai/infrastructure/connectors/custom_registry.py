@@ -63,7 +63,20 @@ SECRET_FIELDS = ("auth_value",)
 _ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,48}$")
 
 #: Các kiểu xác thực mà `GenericConnector` hiểu.
-AUTH_TYPES = ("none", "bearer", "basic", "header", "query")
+#:   login          POST/GET tới một đường dẫn đăng nhập, lấy token từ phản hồi, gửi kèm mọi yêu cầu (vCenter,
+#:                  GLPI, Veeam, Zabbix cũ …); token được giữ tới khi hết hạn / bị từ chối rồi tự đăng nhập lại
+#:   oauth2_client  OAuth2 client-credentials (auth_value = "client_id:client_secret")
+AUTH_TYPES = ("none", "bearer", "basic", "header", "query", "oauth2_client", "login")
+
+#: Loại nguồn: REST (HTTP) hoặc SQL chỉ-đọc.
+KINDS = ("rest", "sql")
+SQL_DRIVERS = ("postgresql", "mysql", "mssql", "oracle", "sqlite")
+
+#: Header người quản trị KHÔNG được đặt qua `extra_headers` (xác thực đi qua auth_type).
+_BLOCKED_HEADERS = frozenset({"authorization", "host", "content-length", "transfer-encoding", "connection", "cookie",
+                              "proxy-authorization"})
+_HEADER_NAME_RE = re.compile(r"^[A-Za-z0-9\-]{1,40}$")
+_LOGIN_TEMPLATE_VARS = frozenset({"secret", "user", "password", "basic"})
 
 #: Cấu hình mặc định khi tạo mục mới.
 DEFAULTS: Dict[str, Any] = {
@@ -118,6 +131,54 @@ def _write_raw(data: Dict[str, Any]) -> None:
         os.chmod(STORE_PATH, 0o600)  # chỉ owner đọc/ghi — chứa credential
     except OSError:  # pragma: no cover - filesystem không hỗ trợ
         pass
+
+
+# ── Mã hoá khoá xác thực trên đĩa ────────────────────────────────────────
+
+def _seal(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Bản ghi để GHI xuống đĩa: `auth_value` mã hoá (cùng khoá `certs/config_secret.key` của config.json)."""
+    out = dict(record)
+    val = str(out.get("auth_value") or "")
+    if val:
+        from mateai.config import secret_box
+        if secret_box.enabled():
+            out["auth_value"] = secret_box.encrypt_value(val)
+    return out
+
+
+def _unseal(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Bản ghi đọc từ đĩa -> `auth_value` dạng rõ (giá trị cũ chưa mã hoá vẫn đọc được, chuyển đổi dần)."""
+    out = dict(record)
+    val = out.get("auth_value")
+    if isinstance(val, str) and val:
+        from mateai.config import secret_box
+        out["auth_value"] = secret_box.decrypt_value(val)
+    return out
+
+
+def has_plaintext_secrets() -> bool:
+    """Còn khoá xác thực chưa mã hoá trên đĩa? (dùng cho bước khởi động / chẩn đoán)."""
+    from mateai.config import secret_box
+    return any(isinstance(r.get("auth_value"), str) and r["auth_value"] and not r["auth_value"].startswith(secret_box.PREFIX)
+               for r in _read_raw()["sources"].values())
+
+
+def encrypt_existing() -> int:
+    """Mã hoá mọi khoá xác thực còn ở dạng rõ. Trả số nguồn đã chuyển. Idempotent."""
+    from mateai.config import secret_box
+    if not secret_box.enabled():
+        return 0
+    with _write_lock:
+        data = _read_raw()
+        changed = 0
+        for sid, rec in data["sources"].items():
+            val = rec.get("auth_value")
+            if isinstance(val, str) and val and not val.startswith(secret_box.PREFIX):
+                rec["auth_value"] = secret_box.encrypt_value(val)
+                changed += 1
+        if changed:
+            _write_raw(data)
+    return changed
 
 
 # ── Chuẩn hoá ────────────────────────────────────────────────────────────
@@ -195,7 +256,13 @@ def _normalise_source(source_id: str, payload: Dict[str, Any], previous: Optiona
     if len(title) > 80:
         raise ValueError("Tên hiển thị tối đa 80 ký tự")
 
+    kind = str(payload.get("kind") or (previous or {}).get("kind") or "rest").strip().lower()
+    if kind not in KINDS:
+        raise ValueError(f"Loại nguồn không hợp lệ — chỉ nhận: {', '.join(KINDS)}")
+
     auth_type = str(payload.get("auth_type") or DEFAULTS["auth_type"]).strip().lower()
+    if kind == "sql":
+        auth_type = "none"                              # SQL: mật khẩu nằm ở `auth_value`, đăng nhập do driver lo
     if auth_type not in AUTH_TYPES:
         raise ValueError(f"Kiểu xác thực không hợp lệ — chỉ nhận: {', '.join(AUTH_TYPES)}")
 
@@ -204,7 +271,8 @@ def _normalise_source(source_id: str, payload: Dict[str, Any], previous: Optiona
         "title": title,
         "description": str(payload.get("description") or "").strip()[:160],
         "category": str(payload.get("category") or "custom").strip() or "custom",
-        "base_url": validate_base_url(payload.get("base_url")),
+        "kind": kind,
+        "base_url": validate_base_url(payload.get("base_url")) if kind == "rest" else "",
         "default_path": _normalise_path(payload.get("default_path", "/")),
         "auth_type": auth_type,
         # Ô secret trống = giữ giá trị đang lưu (giống hành vi form connector).
@@ -222,6 +290,7 @@ def _normalise_source(source_id: str, payload: Dict[str, Any], previous: Optiona
 
     if record["method"] not in ("GET", "POST"):
         raise ValueError("method chỉ nhận GET hoặc POST — chỉ đọc dữ liệu báo cáo")
+    _normalise_extensions(record, payload, previous, kind, auth_type)
 
     # paths: tên -> path tương đối, để gọi nhiều báo cáo trên cùng một app
     # (vd. "doanh thu" -> /reports/revenue, "tồn kho" -> /reports/stock).
@@ -237,6 +306,147 @@ def _normalise_source(source_id: str, payload: Dict[str, Any], previous: Optiona
     return record
 
 
+def _normalise_extensions(record: Dict[str, Any], payload: Dict[str, Any], previous: Optional[Dict[str, Any]],
+                          kind: str, auth_type: str) -> None:
+    """TLS, đăng nhập / OAuth2, phân trang, truy vấn, thao tác can thiệp, kết nối SQL. Ném ValueError rõ ràng."""
+    from mateai.infrastructure.connectors import operations as ops
+
+    def pick(key: str) -> Any:
+        return payload[key] if key in payload else (previous or {}).get(key)
+
+    record["max_rows"] = _coerce_int(pick("max_rows"), 500, 1, 10000)
+    record["row_limit"] = min(record["row_limit"], record["max_rows"])
+    record["verify_ssl"] = _coerce_bool(pick("verify_ssl"), True)
+    for key in ("ca_bundle", "client_cert", "client_key"):
+        val = str(pick(key) or "").strip()
+        if len(val) > 260 or any(c in val for c in "\r\n\x00"):
+            raise ValueError(f"{key} không hợp lệ (đường dẫn tệp, tối đa 260 ký tự)")
+        record[key] = val
+    if bool(record["client_cert"]) != bool(record["client_key"]) and record["client_key"]:
+        raise ValueError("client_key cần đi kèm client_cert")
+    rows_path = str(pick("rows_path") or "").strip()
+    if rows_path and not re.match(r"^[A-Za-z0-9_\-\[\]\.]{1,120}$", rows_path):
+        raise ValueError("rows_path không hợp lệ (dạng a.b.c)")
+    record["rows_path"] = rows_path
+    health_path = str(pick("health_path") or "").strip()
+    record["health_path"] = _normalise_path(health_path) if health_path else ""
+
+    headers = pick("extra_headers") or {}
+    if not isinstance(headers, dict) or len(headers) > 10:
+        raise ValueError("extra_headers phải là một đối tượng, tối đa 10 header")
+    clean_headers: Dict[str, str] = {}
+    for k, v in headers.items():
+        name = str(k).strip()
+        if not _HEADER_NAME_RE.match(name) or name.lower() in _BLOCKED_HEADERS:
+            raise ValueError(f"Header '{name}' không được phép (xác thực khai báo qua auth_type, không qua extra_headers)")
+        val = str(v)
+        if len(val) > 200 or any(c in val for c in "\r\n\x00"):
+            raise ValueError(f"Giá trị header '{name}' không hợp lệ")
+        clean_headers[name] = val
+    record["extra_headers"] = clean_headers
+
+    record["pagination"] = ops.normalise_pagination(pick("pagination"))
+
+    if auth_type == "login":
+        record["login"] = _normalise_login(pick("login"))
+    else:
+        record["login"] = None
+    if auth_type == "oauth2_client":
+        record["oauth2"] = _normalise_oauth2(pick("oauth2"))
+    else:
+        record["oauth2"] = None
+
+    if kind == "sql":
+        record["connection"] = _normalise_connection(pick("connection"))
+        record["queries"] = ops.normalise_sql_queries(pick("queries"))
+        record["actions"] = {}
+        record["paths"] = {}
+        record["default_path"] = "/"
+    else:
+        record["connection"] = None
+        record["queries"] = ops.normalise_operations(pick("queries"), writes=False)
+        record["actions"] = ops.normalise_operations(pick("actions"), writes=True)
+        clash = sorted(set(record["queries"]) & set(record["actions"]))
+        if clash:
+            raise ValueError(f"Tên trùng giữa `queries` và `actions`: {', '.join(clash)}")
+
+
+def _normalise_login(raw: Any) -> Dict[str, Any]:
+    from mateai.infrastructure.connectors import operations as ops
+    if not isinstance(raw, dict):
+        raise ValueError("auth_type='login' cần khối `login` {method, path, headers, body, token_path, ...}")
+    method = str(raw.get("method") or "POST").upper()
+    if method not in ("GET", "POST"):
+        raise ValueError("login.method chỉ nhận GET hoặc POST")
+    path = _normalise_path(raw.get("path"))
+    if path == "/":
+        raise ValueError("login.path là bắt buộc (đường dẫn tới điểm đăng nhập)")
+    body_type = str(raw.get("body_type") or "json").lower()
+    if body_type not in ops.BODY_TYPES:
+        raise ValueError("login.body_type chỉ nhận json hoặc form")
+    headers = raw.get("headers") or {}
+    if not isinstance(headers, dict) or len(headers) > 8:
+        raise ValueError("login.headers phải là một đối tượng, tối đa 8 header")
+    for k, v in headers.items():
+        if not _HEADER_NAME_RE.match(str(k)) or len(str(v)) > 200:
+            raise ValueError(f"login.headers['{k}'] không hợp lệ")
+    token_header = str(raw.get("token_header") or "Authorization").strip()
+    if not _HEADER_NAME_RE.match(token_header) or token_header.lower() in _BLOCKED_HEADERS - {"authorization"}:
+        raise ValueError("login.token_header không hợp lệ")
+    token_path = str(raw.get("token_path") or "").strip()
+    if token_path and not re.match(r"^[A-Za-z0-9_\-\[\]\.]{1,120}$", token_path):
+        raise ValueError("login.token_path không hợp lệ (dạng a.b.c; bỏ trống = cả phản hồi là token)")
+    body = raw.get("body")
+    if body is not None and not isinstance(body, (dict, str)):
+        raise ValueError("login.body phải là đối tượng hoặc chuỗi")
+    out = {
+        "method": method, "path": path, "headers": {str(k): str(v) for k, v in headers.items()},
+        "body": body, "body_type": body_type, "token_path": token_path, "token_header": token_header,
+        "token_prefix": str(raw.get("token_prefix") if raw.get("token_prefix") is not None else "Bearer ")[:20],
+        "ttl_seconds": _coerce_int(raw.get("ttl_seconds"), 1500, 60, 86400),
+    }
+    text = json.dumps([out["headers"], out["body"]], ensure_ascii=False)
+    bad = sorted(set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", text)) - _LOGIN_TEMPLATE_VARS)
+    if bad:
+        raise ValueError(f"login: biến không có: {{{', '.join(bad)}}} — chỉ dùng {{secret}}, {{user}}, {{password}}, {{basic}}")
+    return out
+
+
+def _normalise_oauth2(raw: Any) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("auth_type='oauth2_client' cần khối `oauth2` {token_url, scope, client_auth}")
+    token_url = validate_base_url(raw.get("token_url"))
+    client_auth = str(raw.get("client_auth") or "body").lower()
+    if client_auth not in ("body", "basic"):
+        raise ValueError("oauth2.client_auth chỉ nhận body hoặc basic")
+    return {"token_url": token_url, "scope": str(raw.get("scope") or "")[:200],
+            "audience": str(raw.get("audience") or "")[:200], "client_auth": client_auth}
+
+
+def _normalise_connection(raw: Any) -> Dict[str, Any]:
+    if not isinstance(raw, dict):
+        raise ValueError("Nguồn SQL cần khối `connection` {driver, host, port, database, user}")
+    driver = str(raw.get("driver") or "").lower()
+    if driver not in SQL_DRIVERS:
+        raise ValueError(f"connection.driver chỉ nhận: {', '.join(SQL_DRIVERS)}")
+    database = str(raw.get("database") or "").strip()
+    host = str(raw.get("host") or "").strip()
+    if not database:
+        raise ValueError("connection.database là bắt buộc" + (" (đường dẫn tệp SQLite)" if driver == "sqlite" else ""))
+    if driver != "sqlite" and not host:
+        raise ValueError("connection.host là bắt buộc")
+    if any(frag in host for frag in _BLOCKED_URL_FRAGMENTS):
+        raise ValueError("Địa chỉ này là endpoint metadata của cloud provider — bị chặn")
+    for key, val in (("host", host), ("database", database), ("user", str(raw.get("user") or ""))):
+        if len(val) > 260 or any(c in val for c in "\r\n\x00"):
+            raise ValueError(f"connection.{key} không hợp lệ")
+    return {"driver": driver, "host": host, "port": _coerce_int(raw.get("port"), 0, 0, 65535), "database": database,
+            "user": str(raw.get("user") or "").strip(),
+            "ssl": _coerce_bool(raw.get("ssl"), False),
+            "service_name": str(raw.get("service_name") or "")[:120],        # Oracle
+            "odbc_driver": str(raw.get("odbc_driver") or "ODBC Driver 18 for SQL Server")[:80]}   # SQL Server
+
+
 # ── API công khai ────────────────────────────────────────────────────────
 
 def mask_source(source: Dict[str, Any]) -> Dict[str, Any]:
@@ -248,7 +458,8 @@ def mask_source(source: Dict[str, Any]) -> Dict[str, Any]:
     """
     out = {k: v for k, v in source.items() if k not in SECRET_FIELDS}
     out["has_auth"] = bool(source.get("auth_value"))
-    out["available_paths"] = list((source.get("paths") or {}).keys())
+    out["available_paths"] = list((source.get("paths") or {}).keys()) + list((source.get("queries") or {}).keys())
+    out["has_actions"] = bool(source.get("actions"))
     out.pop("paths", None)
     return out
 
@@ -256,7 +467,7 @@ def mask_source(source: Dict[str, Any]) -> Dict[str, Any]:
 def list_sources(include_secrets: bool = False) -> List[Dict[str, Any]]:
     """Danh sách data source tùy chỉnh, sắp theo `title`."""
     sources = _read_raw()["sources"].values()
-    items = [dict(s) for s in sources]
+    items = [_unseal(s) for s in sources] if include_secrets else [dict(s) for s in sources]
     if not include_secrets:
         items = [mask_source(s) for s in items]
     return sorted(items, key=lambda s: str(s.get("title") or s.get("id") or "").lower())
@@ -270,10 +481,9 @@ def get_source(source_id: str, include_secrets: bool = True) -> Optional[Dict[st
     record = _read_raw()["sources"].get(source_id)
     if not record:
         return None
-    record = dict(record)
     if not include_secrets:
-        return mask_source(record)
-    return record
+        return mask_source(dict(record))
+    return _unseal(record)
 
 
 def upsert_source(source_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -286,8 +496,8 @@ def upsert_source(source_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     with _write_lock:
         data = _read_raw()
         previous = data["sources"].get(source_id)
-        record = _normalise_source(source_id, payload, previous)
-        data["sources"][source_id] = record
+        record = _normalise_source(source_id, payload, _unseal(previous) if previous else None)
+        data["sources"][source_id] = _seal(record)
         _write_raw(data)
 
     action = "Cập nhật" if previous else "Thêm"

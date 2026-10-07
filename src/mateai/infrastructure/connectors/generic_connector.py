@@ -33,19 +33,28 @@ Bảo mật
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import hashlib
+import json
 import logging
+import re
+import threading
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
+from mateai.infrastructure.connectors import sql_connector
 from mateai.infrastructure.connectors.base_connector import BaseConnector, ConnectorConfig, ConnectorResult
+from mateai.infrastructure.connectors.operations import extract_path, render_request
 
 logger = logging.getLogger(__name__)
 
 #: Khoá thường gặp chứa mảng bản ghi trong payload JSON. Thứ tự là thứ tự ưu
 #: tiên: khoá nào cụ thể hơn thì kiểm tra trước.
 _ROW_CONTAINER_KEYS: Tuple[str, ...] = (
-    "rows", "items", "records", "results", "data", "list", "entries", "content", "docs",
+    "rows", "items", "records", "results", "result", "data", "list", "entries", "content", "docs", "issues", "values",
 )
 
 #: Khoá thường gặp chứa tổng số bản ghi (phân trang).
@@ -158,13 +167,26 @@ def _columns_of(rows: List[Any], max_cols: int = 12) -> List[str]:
     return columns
 
 
+#: Token đăng nhập / OAuth2 đã lấy: khoá = nguồn + vân tay cấu hình + khoá bí mật (đổi khoá / cấu hình -> đăng nhập lại).
+_TOKEN_CACHE: Dict[str, Tuple[str, float]] = {}
+_TOKEN_LOCK = threading.Lock()
+_TEMPLATE_RE = re.compile(r"\{(secret|user|password|basic)\}")
+
+
+def clear_token_cache(source_id: Optional[str] = None) -> None:
+    with _TOKEN_LOCK:
+        for key in [k for k in _TOKEN_CACHE if source_id is None or k.startswith(f"{source_id}:")]:
+            _TOKEN_CACHE.pop(key, None)
+
+
 class GenericConnector(BaseConnector):
     """
-    Connector động: đọc khai báo từ sổ đăng ký, dựng request, chuẩn hoá kết quả.
+    Connector khai báo: đọc khai báo từ sổ đăng ký, dựng yêu cầu, xác thực, phân trang, chuẩn hoá kết quả.
 
-    Không giữ state giữa các lần gọi ngoài cache token của `BaseConnector` —
-    xác thực kiểu bearer/header/query không có bước bắt tay nên mọi lần gọi đều
-    tự trọn.
+    Hỗ trợ: xác thực none / bearer / basic / header / query / OAuth2 client-credentials / đăng nhập lấy token;
+    TLS tuỳ chọn (CA nội bộ, chứng chỉ tự ký, mTLS); phân trang page / offset / cursor / next_url / Link header;
+    truy vấn đặt tên có tham số (`queries`); thao tác can thiệp đặt tên (`actions`, không thử lại, luôn do tầng
+    gọi đưa qua cổng duyệt); nguồn SQL chỉ-đọc (`kind="sql"`).
     """
 
     def __init__(self, source: Dict[str, Any], connector_config: Optional[ConnectorConfig] = None):
@@ -175,7 +197,7 @@ class GenericConnector(BaseConnector):
         """
         if connector_config is None:
             timeout = float(source.get("timeout_seconds") or 10.0)
-            extra = {k: v for k, v in source.items() if k != "id"}
+            extra = {k: v for k, v in source.items() if k not in ("id", "auth_value")}
             connector_config = ConnectorConfig(
                 name=f"ds:{source.get('id', 'unknown')}",
                 enabled=bool(source.get("enabled", True)),
@@ -184,18 +206,24 @@ class GenericConnector(BaseConnector):
             )
         super().__init__(connector_config)
         self.source: Dict[str, Any] = dict(source)
+        self._secret = str(self.source.get("auth_value") or "").strip()
         self._headers: Dict[str, str] = self._build_headers()
 
-    # ── Chuẩn bị request ──────────────────────────────────────────────
+    # ── Chuẩn bị yêu cầu ───────────────────────────────────────────────
+
+    @property
+    def kind(self) -> str:
+        return str(self.source.get("kind") or "rest")
 
     def _build_headers(self) -> Dict[str, str]:
-        """Dựng header xác thực theo `auth_type` của khai báo."""
+        """Header tĩnh: Accept + header khai báo + xác thực kiểu bearer / basic / header (không cần bắt tay)."""
         headers: Dict[str, str] = {
             "Accept": "application/json",
             "User-Agent": "VN-MateAI/1.0 (data-source)",
         }
+        headers.update({str(k): str(v) for k, v in (self.source.get("extra_headers") or {}).items()})
         auth_type = str(self.source.get("auth_type") or "none").lower()
-        secret = str(self.source.get("auth_value") or "").strip()
+        secret = self._secret
 
         if not secret or auth_type == "none":
             return headers
@@ -215,7 +243,6 @@ class GenericConnector(BaseConnector):
             headers[name] = secret
         elif auth_type == "query":
             pass  # xử lý ở `build_url` vì query string không thuộc header
-
         return headers
 
     def build_url(self, path: Optional[str] = None) -> str:
@@ -228,96 +255,228 @@ class GenericConnector(BaseConnector):
         # auth_type=query: khoá nằm trên URL chứ không trong header.
         if str(self.source.get("auth_type") or "").lower() == "query":
             key = str(self.source.get("auth_query") or "api_key").strip() or "api_key"
-            secret = str(self.source.get("auth_value") or "").strip()
-            if secret:
+            if self._secret:
                 from urllib.parse import quote
-                url = f"{url}{'&' if '?' in url else '?'}{quote(key)}={quote(secret)}"
+                url = f"{url}{'&' if '?' in url else '?'}{quote(key)}={quote(self._secret)}"
 
         return url
+
+    def _same_origin(self, url: str) -> bool:
+        a, b = urlsplit(url), urlsplit(str(self.source.get("base_url") or ""))
+        return (a.scheme, a.netloc.lower()) == (b.scheme, b.netloc.lower())
+
+    def _tls(self) -> Tuple[Any, Any, Optional[str]]:
+        """(verify, cert, lỗi). `verify_ssl=false` -> không kiểm chứng; có `ca_bundle` -> dùng CA nội bộ."""
+        verify: Any = True
+        if not self.source.get("verify_ssl", True):
+            verify = False
+        elif self.source.get("ca_bundle"):
+            ca = str(self.source["ca_bundle"])
+            if not Path(ca).is_file():
+                return True, None, f"Không thấy tệp CA nội bộ (ca_bundle): {ca}"
+            verify = ca
+        cert: Any = None
+        if self.source.get("client_cert"):
+            crt, key = str(self.source["client_cert"]), str(self.source.get("client_key") or "")
+            for f in (crt, key):
+                if f and not Path(f).is_file():
+                    return verify, None, f"Không thấy tệp chứng chỉ máy khách: {f}"
+            cert = (crt, key) if key else crt
+        return verify, cert, None
+
+    def _mask(self, text: str) -> str:
+        text = self._mask_secrets(text or "")
+        if len(self._secret) >= 4:
+            text = text.replace(self._secret, "***MASKED***")
+            for part in self._secret.split(":"):
+                if len(part) >= 6:
+                    text = text.replace(part, "***MASKED***")
+        return text
+
+    def _fail(self, error: str, **meta: Any) -> ConnectorResult:
+        return ConnectorResult(success=False, error=self._mask(error), source=self.config.name, metadata=meta)
+
+    # ── Xác thực có bắt tay (đăng nhập / OAuth2) ───────────────────────
+
+    def _cache_key(self) -> str:
+        fp = hashlib.sha256(json.dumps([self._secret, self.source.get("login"), self.source.get("oauth2")],
+                                       sort_keys=True, default=str).encode("utf-8")).hexdigest()[:16]
+        return f"{self.source.get('id', 'x')}:{fp}"
+
+    def _template_vars(self) -> Dict[str, str]:
+        raw = self._secret
+        user, _, password = raw.partition(":") if ":" in raw else ("", "", raw)
+        basic = base64.b64encode((raw if ":" in raw else raw).encode("utf-8")).decode("ascii")
+        return {"secret": raw, "user": user, "password": password, "basic": basic}
+
+    def _render_tpl(self, node: Any) -> Any:
+        vars_ = self._template_vars()
+        if isinstance(node, str):
+            return _TEMPLATE_RE.sub(lambda m: vars_[m.group(1)], node)
+        if isinstance(node, dict):
+            return {k: self._render_tpl(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [self._render_tpl(v) for v in node]
+        return node
+
+    async def _token(self, force: bool = False) -> Tuple[Optional[str], Optional[ConnectorResult]]:
+        """Token hiện hành cho auth_type login / oauth2_client (lấy mới khi chưa có / hết hạn / `force`)."""
+        key = self._cache_key()
+        if not force:
+            with _TOKEN_LOCK:
+                hit = _TOKEN_CACHE.get(key)
+            if hit and hit[1] > time.monotonic():
+                return hit[0], None
+        verify, cert, tls_err = self._tls()
+        if tls_err:
+            return None, self._fail(tls_err)
+        auth_type = str(self.source.get("auth_type") or "").lower()
+        if auth_type == "oauth2_client":
+            cfg = self.source.get("oauth2") or {}
+            cid, sep, csecret = self._secret.partition(":")
+            if not sep or not cid or not csecret:
+                return None, self._fail("OAuth2: khoá phải có dạng client_id:client_secret")
+            form = {"grant_type": "client_credentials"}
+            headers = {"Accept": "application/json", "User-Agent": "VN-MateAI/1.0 (data-source)"}
+            if cfg.get("client_auth") == "basic":
+                headers["Authorization"] = "Basic " + base64.b64encode(f"{cid}:{csecret}".encode()).decode("ascii")
+            else:
+                form["client_id"], form["client_secret"] = cid, csecret
+            for k in ("scope", "audience"):
+                if cfg.get(k):
+                    form[k] = cfg[k]
+            res = await self._request_with_retry("POST", cfg["token_url"], headers=headers, form_body=form,
+                                                 verify=verify, cert=cert, retries=0)
+            if not res.success:
+                return None, self._fail(f"Lấy token OAuth2 thất bại: {res.error}", **(res.metadata or {}))
+            payload = res.data if isinstance(res.data, dict) else {}
+            token = payload.get("access_token")
+            if not isinstance(token, str) or not token:
+                return None, self._fail("Máy chủ OAuth2 không trả `access_token`")
+            try:
+                ttl = max(30.0, float(payload.get("expires_in", 1500)) - 30.0)
+            except (TypeError, ValueError):
+                ttl = 1500.0
+        else:
+            cfg = self.source.get("login") or {}
+            headers = {"Accept": "application/json", "User-Agent": "VN-MateAI/1.0 (data-source)",
+                       **{k: self._render_tpl(v) for k, v in (cfg.get("headers") or {}).items()}}
+            body = self._render_tpl(cfg.get("body")) if cfg.get("body") is not None else None
+            as_form = cfg.get("body_type") == "form" and isinstance(body, dict)
+            res = await self._request_with_retry(
+                cfg.get("method", "POST"), self.build_url(cfg["path"]), headers=headers,
+                json_body=None if as_form or isinstance(body, str) else body, form_body=body if as_form else None,
+                verify=verify, cert=cert, retries=0)
+            if not res.success:
+                return None, self._fail(f"Đăng nhập thất bại: {res.error}", **(res.metadata or {}))
+            found, node = extract_path(res.data, cfg.get("token_path", ""))
+            token = node.strip().strip('"') if found and isinstance(node, str) else None
+            if not token:
+                return None, self._fail("Đăng nhập được nhưng không tìm thấy token ở `login.token_path` — "
+                                        f"phản hồi có: {_shape(res.data)}")
+            ttl = float(cfg.get("ttl_seconds", 1500))
+        with _TOKEN_LOCK:
+            _TOKEN_CACHE[key] = (token, time.monotonic() + ttl)
+        return token, None
+
+    async def _auth_headers(self, force_token: bool = False) -> Tuple[Dict[str, str], Optional[ConnectorResult]]:
+        headers = dict(self._headers)
+        auth_type = str(self.source.get("auth_type") or "none").lower()
+        if auth_type in ("login", "oauth2_client"):
+            token, err = await self._token(force=force_token)
+            if err:
+                return headers, err
+            if auth_type == "oauth2_client":
+                headers["Authorization"] = f"Bearer {token}"
+            else:
+                cfg = self.source["login"]
+                headers[cfg.get("token_header", "Authorization")] = f"{cfg.get('token_prefix', 'Bearer ')}{token}"
+        return headers, None
 
     # ── BaseConnector interface ────────────────────────────────────────
 
     async def authenticate(self) -> bool:
-        """
-        Kiểm tra khai báo đủ dùng để gọi chưa.
-
-        Không bắt tay với server: với các kiểu xác thực ở trên, chỉ có cách duy
-        nhất biết khoá đúng là gọi thật. Trả False kèm lý do để UI báo ngay
-        mà không tốn một vòng gọi ra ngoài.
-        """
+        """Khai báo đủ dùng để gọi chưa (không bắt tay — chỉ cách gọi thật mới biết khoá đúng)."""
+        if self.kind == "sql":
+            c = self.source.get("connection") or {}
+            return bool(c.get("driver") and c.get("database") and (c.get("driver") == "sqlite" or c.get("host")))
         if not str(self.source.get("base_url") or "").strip():
             return False
-
         auth_type = str(self.source.get("auth_type") or "none").lower()
-        if auth_type != "none" and not str(self.source.get("auth_value") or "").strip():
+        if auth_type != "none" and not self._secret:
+            return False
+        if auth_type == "login" and not self.source.get("login"):
+            return False
+        if auth_type == "oauth2_client" and not self.source.get("oauth2"):
             return False
         return True
 
     async def health_check(self) -> ConnectorResult:
-        """
-        Gọi thật 1 request tới `default_path` để xác nhận app còn sống.
-
-        Cố tình dùng `row_limit=1`: chỉ cần biết endpoint trả về gì, không cần
-        kéo cả bảng chỉ để đặt chấm xanh — nên không làm nặng app của khách.
-        """
+        """Gọi THẬT một yêu cầu: kết nối + xác thực (kể cả đăng nhập / OAuth2) + một lần GET `health_path`
+        (mặc định `default_path`). Khoẻ = máy chủ trả HTTP 2xx — không đòi phản hồi phải là bảng dữ liệu."""
         if not await self.authenticate():
             return ConnectorResult(
                 success=False,
-                error="Thiếu base_url hoặc khoá xác thực",
+                error="Thiếu thông tin kết nối hoặc khoá xác thực",
                 source=self.config.name,
             )
-
         t0 = time.monotonic()
-        result = await self._call("GET", path=None, query=None, body=None, limit=1)
+        if self.kind == "sql":
+            try:
+                ms = await asyncio.to_thread(sql_connector.ping, self.source)
+            except sql_connector.SqlSourceError as exc:
+                return self._fail(str(exc), latency_ms=(time.monotonic() - t0) * 1000)
+            return ConnectorResult(success=True, data={"status": "healthy"}, latency_ms=ms, source=self.config.name,
+                                   metadata={"driver": (self.source.get("connection") or {}).get("driver")})
+        path = self.source.get("health_path") or None
+        result = await self._send("GET", path, query=None, body=None, body_type="json")
         latency = (time.monotonic() - t0) * 1000
-
         if not result.success:
-            return ConnectorResult(
-                success=False,
-                error=result.error,
-                latency_ms=latency,
-                source=self.config.name,
-                metadata={"sample": result.metadata.get("sample")},
-            )
-
-        return ConnectorResult(
-            success=True,
-            data={"status": "healthy"},
-            latency_ms=latency,
-            source=self.config.name,
-            metadata={
-                "http_status": result.metadata.get("http_status"),
-                "rows_returned": (result.data or {}).get("total", 0) if isinstance(result.data, dict) else 0,
-            },
-        )
+            return ConnectorResult(success=False, error=result.error, latency_ms=latency, source=self.config.name,
+                                   metadata=result.metadata)
+        rows = _find_rows(result.data) if not isinstance(result.data, str) else None
+        return ConnectorResult(success=True, data={"status": "healthy"}, latency_ms=latency, source=self.config.name,
+                               metadata={"http_status": result.metadata.get("http_status"),
+                                         "rows_returned": len(rows) if rows is not None else 0})
 
     async def fetch_data(self, params: Optional[Dict[str, Any]] = None) -> ConnectorResult:
         """
-        Kéo dữ liệu báo cáo theo `params`.
-
-        Args:
-            params: tuỳ chọn, các khoá được đọc:
-                - `path`     (str)  ghi đè path — hoặc tên path đã khai báo
-                - `method`   (str)  GET (mặc định) hoặc POST
-                - `query`    (dict) tham số truy vấn
-                - `body`     (dict) body cho POST
-                - `limit`    (int)  giới hạn số bản ghi trả về
+        Kéo dữ liệu theo `params`:
+          - `path`    tên TRUY VẤN đã khai báo (`queries`) | tên path đã khai báo (`paths`) | đường dẫn thô
+          - `args`    tham số đã khai báo của truy vấn đặt tên
+          - `method` / `query` / `body`   chỉ cho đường dẫn thô (giao diện); AI đi qua truy vấn đặt tên
+          - `limit`   số bản ghi tối đa
         """
         params = params or {}
         if not await self.authenticate():
             return ConnectorResult(
                 success=False,
-                error="Thiếu base_url hoặc khoá xác thực",
+                error="Thiếu thông tin kết nối hoặc khoá xác thực",
                 source=self.config.name,
             )
+        limit = _coerce_limit(params.get("limit"), self.source.get("row_limit"),
+                              cap=int(self.source.get("max_rows") or 500))
+        name = str(params.get("path") or params.get("query_name") or "").strip()
+        queries = self.source.get("queries") or {}
+
+        if self.kind == "sql":
+            name = name or (next(iter(queries)) if len(queries) == 1 else "")
+            try:
+                data = await asyncio.wait_for(
+                    asyncio.to_thread(sql_connector.run_query, self.source, name, params.get("args"), limit),
+                    timeout=float(self.source.get("timeout_seconds") or 10.0) + 5.0)
+            except asyncio.TimeoutError:
+                return self._fail("Truy vấn SQL quá thời gian cho phép")
+            except (ValueError, sql_connector.SqlSourceError) as exc:
+                return self._fail(str(exc))
+            return ConnectorResult(success=True, data=data, source=self.config.name, metadata={"query": name})
+
+        if name and name in queries:
+            return await self._run_query(name, params.get("args"), limit)
 
         method = str(params.get("method") or self.source.get("method") or "GET").upper()
         if method not in ("GET", "POST"):
-            return ConnectorResult(
-                success=False,
-                error="method chỉ nhận GET hoặc POST",
-                source=self.config.name,
-            )
+            return self._fail("method chỉ nhận GET hoặc POST")
 
         path = params.get("path")
         # Cho phép gọi bằng TÊN path đã khai báo ("doanh thu") thay vì URL thô,
@@ -325,106 +484,192 @@ class GenericConnector(BaseConnector):
         if path and not str(path).startswith("/"):
             named = (self.source.get("paths") or {}).get(str(path))
             if not named:
-                return ConnectorResult(
-                    success=False,
-                    error=(
-                        f"Không có path nào tên '{path}'. "
-                        f"Đã khai báo: {', '.join((self.source.get('paths') or {}).keys()) or '(chưa có)'}"
-                    ),
-                    source=self.config.name,
-                )
+                declared = list((self.source.get("paths") or {})) + list(queries)
+                return self._fail(f"Không có báo cáo nào tên '{path}'. Đã khai báo: {', '.join(declared) or '(chưa có)'}")
             path = named
 
-        limit = _coerce_limit(params.get("limit"), self.source.get("row_limit"))
+        req = {"method": method, "path": path, "body_type": "json",
+               "query": params.get("query") if isinstance(params.get("query"), dict) else {},
+               "body": params.get("body") if isinstance(params.get("body"), dict) else None}
+        return await self._paged_fetch(req, self.source.get("rows_path") or "", self.source.get("pagination"), limit)
 
-        return await self._call(
-            method=method,
-            path=path,
-            query=params.get("query") if isinstance(params.get("query"), dict) else None,
-            body=params.get("body") if isinstance(params.get("body"), dict) else None,
-            limit=limit,
-        )
+    async def _run_query(self, name: str, args: Optional[Dict[str, Any]], limit: int) -> ConnectorResult:
+        op = (self.source.get("queries") or {})[name]
+        try:
+            req = render_request(op, args)
+        except ValueError as exc:
+            return self._fail(str(exc))
+        return await self._paged_fetch(req, op.get("rows_path") or self.source.get("rows_path") or "",
+                                       op.get("pagination") or self.source.get("pagination"), limit)
+
+    async def run_action(self, name: str, args: Optional[Dict[str, Any]] = None) -> ConnectorResult:
+        """Thực hiện một thao tác can thiệp đã khai báo. KHÔNG thử lại. Tầng gọi chịu trách nhiệm đưa qua cổng duyệt."""
+        if self.kind != "rest":
+            return self._fail("Nguồn này không có thao tác can thiệp")
+        if not await self.authenticate():
+            return self._fail("Thiếu thông tin kết nối hoặc khoá xác thực")
+        actions = self.source.get("actions") or {}
+        op = actions.get(name)
+        if not op:
+            return self._fail(f"Không có thao tác tên '{name}'. Đã khai báo: {', '.join(actions) or '(chưa có)'}")
+        try:
+            req = render_request(op, args)
+        except ValueError as exc:
+            return self._fail(str(exc))
+        result = await self._send(req["method"], req["path"], query=req["query"], body=req["body"],
+                                  body_type=req["body_type"], retries=0)
+        if not result.success:
+            return result
+        return ConnectorResult(
+            success=True, latency_ms=result.latency_ms, source=self.config.name,
+            data={"http_status": result.metadata.get("http_status"), "response": _clip(result.data)},
+            metadata={"action": name, "http_status": result.metadata.get("http_status")})
 
     # ── Nội bộ ─────────────────────────────────────────────────────────
 
-    async def _call(
-        self,
-        method: str,
-        path: Optional[str],
-        query: Optional[Dict[str, Any]],
-        body: Optional[Dict[str, Any]],
-        limit: int,
-    ) -> ConnectorResult:
-        """Gọi HTTP rồi chuẩn hoá kết quả về `{rows, columns, total}`."""
-        url = self.build_url(path)
-
-        if method == "GET" and body:
-            # GET không có body — chuyển tham số sang query để không bị mất.
-            query = {**(query or {}), **body}
-            body = None
-
-        result = await self._request_with_retry(
-            method=method,
-            url=url,
-            headers=self._headers,
-            json_body=body,
-            params=query,
-        )
+    async def _send(self, method: str, path: Optional[str], *, query: Optional[Dict[str, Any]], body: Any,
+                    body_type: str = "json", retries: Optional[int] = None) -> ConnectorResult:
+        """Một yêu cầu HTTP đã xác thực. Token đăng nhập / OAuth2 bị từ chối (401) -> lấy token mới và thử MỘT lần nữa."""
+        verify, cert, tls_err = self._tls()
+        if tls_err:
+            return self._fail(tls_err)
+        if path and str(path).startswith(("http://", "https://")):
+            if not self._same_origin(str(path)):
+                return self._fail("Địa chỉ trang kế tiếp khác máy chủ đã khai báo — bị chặn để không gửi khoá sang nơi khác")
+            url = str(path)
+        else:
+            url = self.build_url(path)
+        if method == "GET" and isinstance(body, dict) and body:
+            query, body = {**(query or {}), **body}, None      # GET không có body — chuyển sang query để không mất
+        for attempt in (0, 1):
+            headers, err = await self._auth_headers(force_token=attempt == 1)
+            if err:
+                return err
+            as_form = body_type == "form" and isinstance(body, dict)
+            result = await self._request_with_retry(
+                method=method, url=url, headers=headers,
+                json_body=None if as_form or isinstance(body, str) else body,
+                form_body=body if as_form else None, params=query or None,
+                verify=verify, cert=cert, retries=retries)
+            token_flow = str(self.source.get("auth_type") or "").lower() in ("login", "oauth2_client")
+            if not result.success and token_flow and attempt == 0 and (result.metadata or {}).get("http_status") == 401:
+                continue
+            break
         if not result.success:
-            # Lỗi từ server ngoài có thể chứa chuỗi lệch khoá bí mật.
-            return ConnectorResult(
-                success=False,
-                error=self._mask_secrets(result.error or "Không xác định"),
-                latency_ms=result.latency_ms,
-                source=self.config.name,
-                # Giữ lại http_status để UI phân biệt "token sai" (401) với
-                # "app chết" (502) — hai lỗi cần hai cách sửa khác nhau.
-                metadata=result.metadata,
-            )
+            return ConnectorResult(success=False, error=self._mask(result.error or "Không xác định"),
+                                   latency_ms=result.latency_ms, source=self.config.name, metadata=result.metadata)
+        return result
 
-        payload = result.data
+    def _rows_from(self, payload: Any, rows_path: str) -> Tuple[Optional[List[Any]], str]:
         if isinstance(payload, str):
-            # Endpoint trả text/plain hoặc HTML: không phải báo cáo.
-            return ConnectorResult(
-                success=False,
-                error="Endpoint không trả JSON — kiểm tra lại path",
-                latency_ms=result.latency_ms,
-                source=self.config.name,
-                metadata={"http_status": result.metadata.get("http_status")},
-            )
-
+            return None, "Endpoint không trả JSON — kiểm tra lại path"
+        if rows_path:
+            found, node = extract_path(payload, rows_path)
+            if not found:
+                said = _extract_error(payload)
+                return None, (f"Không thấy `{rows_path}` trong phản hồi (có: {_shape(payload)})"
+                              + (f"; máy chủ báo: {said}" if said else ""))
+            if isinstance(node, list):
+                return node, ""
+            if isinstance(node, dict):
+                return [node], ""
+            return None, f"`{rows_path}` không phải danh sách bản ghi"
         rows = _find_rows(payload)
         if rows is None:
-            return ConnectorResult(
-                success=False,
-                error=(
-                    f"Không tìm thấy danh sách dữ liệu trong phản hồi. "
-                    f"Phản hồi có khoá: {', '.join(list(payload)[:6]) if isinstance(payload, dict) else type(payload).__name__}"
-                ),
-                latency_ms=result.latency_ms,
-                source=self.config.name,
-                metadata={"http_status": result.metadata.get("http_status")},
-            )
+            said = _extract_error(payload)
+            return None, (f"Không tìm thấy danh sách dữ liệu trong phản hồi. Phản hồi có: {_shape(payload)}"
+                          + (f"; máy chủ báo: {said}" if said else ""))
+        return rows, ""
 
-        total = _find_total(payload, len(rows)) or len(rows)
-        trimmed = rows[:limit]
-
+    async def _paged_fetch(self, req: Dict[str, Any], rows_path: str, pagination: Optional[Dict[str, Any]],
+                           limit: int) -> ConnectorResult:
+        """Gọi (nhiều trang nếu khai báo phân trang) và chuẩn hoá về `{rows, columns, total, returned, truncated}`."""
+        pag = pagination or None
+        collected: List[Any] = []
+        total: Optional[int] = None
+        more = False
+        latency = 0.0
+        last_meta: Dict[str, Any] = {}
+        prev_first: Any = object()
+        cursor: Any = None
+        next_target: Optional[str] = None
+        pages = int(pag["max_pages"]) if pag else 1
+        fetched_raw = 0
+        for page_no in range(pages):
+            query = dict(req.get("query") or {})
+            path = req.get("path")
+            if pag:
+                ptype = pag["type"]
+                if ptype == "page":
+                    query[pag["page_param"]] = pag["start_page"] + page_no
+                    query[pag["size_param"]] = pag["page_size"]
+                elif ptype == "offset":
+                    query[pag["offset_param"]] = pag["start_offset"] + fetched_raw
+                    query[pag["size_param"]] = pag["page_size"]
+                elif ptype == "cursor" and cursor:
+                    query[pag["cursor_param"]] = cursor
+                elif ptype in ("next_url", "link_header") and next_target:
+                    path, query = next_target, {}
+            result = await self._send(req["method"], path, query=query, body=req.get("body"),
+                                      body_type=req.get("body_type", "json"))
+            latency += result.latency_ms or 0.0
+            last_meta = result.metadata or {}
+            if not result.success:
+                if page_no == 0:
+                    return result
+                more = True                       # đã có dữ liệu: trả phần đã lấy, báo còn nữa
+                break
+            rows, why = self._rows_from(result.data, rows_path)
+            if rows is None:
+                if page_no == 0:
+                    return self._fail(why, http_status=last_meta.get("http_status"))
+                break
+            if page_no == 0:
+                total = _find_total(result.data, len(rows)) if isinstance(result.data, dict) else None
+            if pag and rows and page_no > 0 and rows[0] == prev_first:
+                break                              # máy chủ bỏ qua tham số trang: tránh lặp
+            prev_first = rows[0] if rows else prev_first
+            collected.extend(rows)
+            fetched_raw += len(rows)
+            if not pag or len(collected) >= limit + 1:
+                more = bool(pag) and len(collected) > limit
+                break
+            ptype = pag["type"]
+            if ptype in ("page", "offset"):
+                if len(rows) < pag["page_size"] or (total is not None and fetched_raw >= total):
+                    break
+            elif ptype == "cursor":
+                found, nxt = extract_path(result.data, pag["next_path"])
+                cursor = nxt if found and nxt not in (None, "", False) else None
+                if not cursor:
+                    break
+            elif ptype == "next_url":
+                found, nxt = extract_path(result.data, pag["next_path"])
+                next_target = str(nxt) if found and nxt else None
+                if not next_target:
+                    break
+            elif ptype == "link_header":
+                next_target = _link_next(last_meta.get("link", ""))
+                if not next_target:
+                    break
+            if page_no == pages - 1:
+                more = True                        # hết số trang cho phép mà server còn nữa
+        trimmed = collected[:limit]
+        grand = max(total or 0, len(collected)) if (total or not more) else max(len(collected) + 1, total or 0)
         return ConnectorResult(
             success=True,
-            data={
-                "rows": trimmed,
-                "columns": _columns_of(trimmed),
-                "total": total,
-                "returned": len(trimmed),
-                "truncated": total > len(trimmed),
-            },
-            latency_ms=result.latency_ms,
-            source=self.config.name,
-            metadata={
-                "http_status": result.metadata.get("http_status"),
-                "path": path or self.source.get("default_path"),
-            },
+            data={"rows": trimmed, "columns": _columns_of(trimmed), "total": grand, "returned": len(trimmed),
+                  "truncated": grand > len(trimmed) or more},
+            latency_ms=latency, source=self.config.name,
+            metadata={"http_status": last_meta.get("http_status"), "path": req.get("path") or self.source.get("default_path")},
         )
+
+    async def _call(self, method: str, path: Optional[str], query: Optional[Dict[str, Any]],
+                    body: Optional[Dict[str, Any]], limit: int) -> ConnectorResult:
+        """Giữ để tương thích: một lần gọi chuẩn hoá (không phân trang riêng)."""
+        return await self._paged_fetch({"method": method, "path": path, "query": query or {}, "body": body,
+                                        "body_type": "json"}, self.source.get("rows_path") or "",
+                                       self.source.get("pagination"), limit)
 
 
 # ── Hàm cấp module ───────────────────────────────────────────────────────
@@ -441,14 +686,40 @@ def _normalise_join(path: Any) -> str:
     return raw
 
 
-def _coerce_limit(value: Any, fallback: Any) -> int:
+def _coerce_limit(value: Any, fallback: Any, cap: int = 500) -> int:
     """Giới hạn số bản ghi trả về (tránh kéo cả bảng 100k dòng về UI)."""
     raw = value if value is not None else fallback
     try:
         num = int(raw)
     except (TypeError, ValueError):
         num = 50
-    return max(1, min(500, num))
+    return max(1, min(max(1, cap), num))
+
+
+def _shape(payload: Any) -> str:
+    if isinstance(payload, dict):
+        return "khoá " + ", ".join(list(payload)[:6])
+    return type(payload).__name__
+
+
+def _clip(payload: Any, limit: int = 4000) -> Any:
+    """Phản hồi của thao tác can thiệp trả cho AI: cắt gọn, không nuốt cả ngữ cảnh."""
+    try:
+        text = json.dumps(payload, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        text = str(payload)
+    if len(text) <= limit:
+        return payload
+    return {"_truncated": True, "preview": text[:limit]}
+
+
+def _link_next(header: str) -> Optional[str]:
+    """URL của `rel="next"` trong header Link (RFC 5988)."""
+    for part in str(header or "").split(","):
+        m = re.match(r'\s*<([^>]+)>\s*;(.*)', part)
+        if m and re.search(r'rel\s*=\s*"?next"?', m.group(2), re.IGNORECASE):
+            return m.group(1)
+    return None
 
 
 async def probe_data_source(source_id: str) -> ConnectorResult:
@@ -496,3 +767,15 @@ async def fetch_data_source(source_id: str, params: Optional[Dict[str, Any]] = N
         )
 
     return await GenericConnector(source).fetch_data(params or {})
+
+
+async def run_source_action(source_id: str, action: str, args: Optional[Dict[str, Any]] = None) -> ConnectorResult:
+    """Chạy một thao tác can thiệp đã khai báo. Nơi gọi PHẢI đã đưa qua cổng duyệt (`execute_with_hitl`)."""
+    from mateai.infrastructure.connectors import custom_registry
+
+    source = custom_registry.get_source(source_id, include_secrets=True)
+    if not source:
+        return ConnectorResult(success=False, error=f"Không tìm thấy nguồn dữ liệu '{source_id}'", source=f"ds:{source_id}")
+    if not source.get("enabled", True):
+        return ConnectorResult(success=False, error="Nguồn dữ liệu đang bị tắt", source=f"ds:{source_id}")
+    return await GenericConnector(source).run_action(action, args)
