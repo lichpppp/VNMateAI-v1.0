@@ -281,6 +281,37 @@ class DatabaseManager:
                             message TEXT
                         );
                         CREATE INDEX IF NOT EXISTS idx_dev_events_ts ON dev_events(ts);
+                        CREATE TABLE IF NOT EXISTS pb_playbooks (
+                            playbook_id TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            definition_json TEXT NOT NULL,
+                            enabled INTEGER NOT NULL DEFAULT 1,
+                            version INTEGER NOT NULL DEFAULT 1,
+                            created_by TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS pb_runs (
+                            run_id TEXT PRIMARY KEY,
+                            playbook_id TEXT NOT NULL,
+                            task_id TEXT,
+                            status TEXT NOT NULL,
+                            caller TEXT,
+                            agent_id TEXT,
+                            params_json TEXT,
+                            definition_json TEXT,
+                            plan_json TEXT,
+                            plan_hash TEXT,
+                            approval_id TEXT,
+                            idempotency_key TEXT UNIQUE,
+                            results_json TEXT,
+                            error TEXT,
+                            created_at TEXT NOT NULL,
+                            started_at TEXT,
+                            finished_at TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_pb_runs_pb ON pb_runs(playbook_id);
+                        CREATE INDEX IF NOT EXISTS idx_pb_runs_status ON pb_runs(status);
                         CREATE TABLE IF NOT EXISTS voice_traces (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             created_at TEXT NOT NULL,
@@ -1061,7 +1092,9 @@ class DatabaseManager:
 
     # ── Dev Fleet (dev_projects / dev_runs / dev_leases / dev_events) ──
 
-    _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id"}
+    # Dùng chung cho Dev Fleet và Kịch bản vận hành (pb_*): cùng một bộ hàm CRUD có danh sách bảng cho phép.
+    _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id",
+                   "pb_playbooks": "playbook_id", "pb_runs": "run_id"}
 
     def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
         if table not in self._DEV_TABLES:
@@ -1082,6 +1115,15 @@ class DatabaseManager:
                 conn.execute(f"UPDATE {table} SET {sets} WHERE {self._DEV_TABLES[table]} = ?;",
                              [*fields.values(), key_value])
                 conn.commit()
+
+    def dev_delete(self, table: str, key_value: str) -> int:
+        if table not in self._DEV_TABLES:
+            raise ValueError(table)
+        with self._lock:
+            with self._get_connection() as conn:
+                cur = conn.execute(f"DELETE FROM {table} WHERE {self._DEV_TABLES[table]} = ?;", (key_value,))
+                conn.commit()
+                return int(cur.rowcount or 0)
 
     def dev_get(self, table: str, key_value: str) -> Optional[Dict[str, Any]]:
         if table not in self._DEV_TABLES:

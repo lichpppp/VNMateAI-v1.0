@@ -218,6 +218,13 @@ def _infra_monitor(ctx: StepContext) -> str:
     return "đang chạy"
 
 
+def _playbooks(ctx: StepContext) -> str:
+    """Lượt chạy kịch bản đang dở khi máy chủ chết -> INTERRUPTED (không tự chạy lại)."""
+    from mateai.application.playbooks import engine
+    n = engine.recover_interrupted()
+    return f"{n} lượt chạy bị gián đoạn được đánh dấu" if n else "ok"
+
+
 def _acoustic_ack(ctx: StepContext) -> None:
     from mateai.application.commands.fast_command_router import STATIC_REPLIES
     from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
@@ -284,6 +291,7 @@ def default_steps() -> List[Step]:
         Step("connector_tools", _connector_tools),
         Step("dev_fleet", _dev_fleet),
         Step("infra_monitor", _infra_monitor),
+        Step("playbooks", _playbooks),
         Step("computer_use_tool", _computer_use),
         Step("background_workers", _background_workers),
         Step("email_gateway", _email_gateway),

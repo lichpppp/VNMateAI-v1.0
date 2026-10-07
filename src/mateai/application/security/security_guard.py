@@ -66,6 +66,8 @@ RBAC_RULES: Dict[str, Any] = {
             "get_dev_fleet_status", "list_dev_fleet_workers", "get_dev_fleet_task", "get_dev_fleet_briefing",
             # Giám sát hạ tầng (Prometheus / Grafana): chỉ đọc
             "get_infra_status", "get_infra_alerts", "query_prometheus", "list_grafana_dashboards",
+            # Kịch bản vận hành: xem + chạy thử (run_playbook chỉ admin)
+            "list_playbooks", "get_playbook_plan", "get_playbook_run",
         ],
         "blocked_prefixes": [
             "create_new_skill",         # Không tự tạo kỹ năng
