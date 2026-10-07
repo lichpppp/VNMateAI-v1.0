@@ -42,8 +42,9 @@ async def _guard(coro):
         raise HTTPException(status_code=502, detail={"code": exc.kind, "message": str(exc)})
 
 
-async def _async(value):
-    return value
+async def _sync(fn, *args, **kwargs):
+    """Chạy hàm đồng bộ BÊN TRONG `_guard` (để lỗi miền của nó cũng được dịch sang HTTP)."""
+    return fn(*args, **kwargs)
 
 
 @router.get("/api/v1/dev-fleet/status", summary="Tổng quan cụm Dev (Master, worker, tác vụ)", tags=_TAG)
@@ -98,6 +99,22 @@ async def fleet_briefing(user: Dict[str, Any] = _READ) -> Dict[str, Any]:
     return await _guard(dev_fleet.briefing())
 
 
+@router.get("/api/v1/dev-fleet/config", summary="Cấu hình Dev Fleet (token không bao giờ trả về)", tags=_TAG)
+async def fleet_config(user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
+    return dev_fleet.config_view()
+
+
+@router.post("/api/v1/dev-fleet/config", summary="Lưu cấu hình Dev Fleet (token rỗng = giữ nguyên)", tags=_TAG)
+async def fleet_config_save(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
+    from mateai.interfaces.http.secret_masking import _mask_secrets
+    return await _guard(_sync(dev_fleet.save_settings, _actor(user), body, mask=_mask_secrets))
+
+
+@router.post("/api/v1/dev-fleet/test-connection", summary="Thử kết nối thật tới Master bằng giá trị đang nhập", tags=_TAG)
+async def fleet_test_connection(body: Dict[str, Any] = Body(default={}), user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
+    return await _guard(dev_fleet.test_connection(body))
+
+
 @router.post("/api/v1/dev-fleet/mode", summary="Đổi chế độ: disabled | read_only | controlled | autonomous", tags=_TAG)
 async def fleet_mode(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
     from mateai.interfaces.http.secret_masking import _mask_secrets
@@ -114,10 +131,10 @@ async def fleet_projects(user: Dict[str, Any] = _READ) -> Dict[str, Any]:
 
 @router.post("/api/v1/dev-fleet/projects", summary="Tạo dự án Dev", tags=_TAG)
 async def fleet_project_create(body: Dict[str, Any] = Body(...), user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
-    return await _guard(_async(dev_fleet.create_project(
-        str(body.get("name") or ""), repository=str(body.get("repository") or ""), description=str(body.get("description") or ""),
-        preferred_workers=[str(w) for w in (body.get("preferred_workers") or [])], created_by=_actor(user),
-        goal_id=body.get("goal_id") or None)))
+    return await _guard(_sync(
+        dev_fleet.create_project, str(body.get("name") or ""), repository=str(body.get("repository") or ""),
+        description=str(body.get("description") or ""), preferred_workers=[str(w) for w in (body.get("preferred_workers") or [])],
+        created_by=_actor(user), goal_id=body.get("goal_id") or None))
 
 
 @router.get("/api/v1/dev-fleet/projects/{project_id}", summary="Chi tiết dự án + tiến độ", tags=_TAG)

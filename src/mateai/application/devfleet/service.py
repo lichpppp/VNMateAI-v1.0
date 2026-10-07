@@ -756,6 +756,88 @@ class DevFleetService:
         gov.save_config(actor, _apply, f"Dev Fleet: {reason}", mask, audit=False)
         self.reset()
 
+    # ── cấu hình + thử kết nối (màn hình Dev Fleet) ─────────────────────────
+    def config_view(self) -> Dict[str, Any]:
+        """Cấu hình để hiển thị. Token KHÔNG BAO GIỜ trả về — chỉ cờ `has_token`."""
+        import os
+        c = self.cfg
+        return {"enabled": c.enabled, "mode": self.mode, "endpoint": c.endpoint, "has_token": bool(c.api_token),
+                "token_from_env": bool(os.environ.get("VNMATEAI_DEV_FLEET_TOKEN", "").strip()),
+                "tls_verify": c.tls_verify, "ca_bundle": c.ca_bundle, "timeout_s": c.timeout_s,
+                "stale_after_s": c.stale_after_s, "offline_after_s": c.offline_after_s,
+                "disabled_workers": list(c.disabled_workers)}
+
+    @staticmethod
+    def _check_endpoint(endpoint: str) -> str:
+        from urllib.parse import urlsplit
+        text = str(endpoint or "").strip().rstrip("/")
+        parts = urlsplit(text)
+        if parts.scheme not in ("https", "http") or not parts.hostname:
+            raise m.SpecError("Địa chỉ Master phải dạng https://host[:cổng]")
+        if parts.hostname in ("169.254.169.254", "metadata.google.internal") or parts.username or parts.path.strip("/"):
+            raise m.SpecError("Địa chỉ Master không hợp lệ (không kèm tài khoản / đường dẫn; không phải endpoint metadata)")
+        return text
+
+    def save_settings(self, actor: str, values: Dict[str, Any], *, mask: Optional[Callable[[Any], Any]] = None) -> Dict[str, Any]:
+        """Lưu cấu hình có lịch sử. `api_token` rỗng/thiếu = GIỮ token đang lưu. Chế độ khác `disabled` -> bật module."""
+        updates: Dict[str, Any] = {}
+        if "endpoint" in values:
+            updates["endpoint"] = self._check_endpoint(values["endpoint"]) if str(values["endpoint"] or "").strip() else ""
+        token = str(values.get("api_token") or "").strip()
+        if token:
+            updates["api_token"] = token
+        if "tls_verify" in values:
+            updates["tls_verify"] = bool(values["tls_verify"])
+        if "ca_bundle" in values:
+            ca = str(values["ca_bundle"] or "").strip()
+            if len(ca) > 260 or any(ch in ca for ch in "\r\n\x00"):
+                raise m.SpecError("ca_bundle không hợp lệ (đường dẫn tệp, tối đa 260 ký tự)")
+            updates["ca_bundle"] = ca
+        if "timeout_s" in values:
+            try:
+                updates["timeout_s"] = float(values["timeout_s"])
+            except (TypeError, ValueError):
+                raise m.SpecError("timeout_s phải là số")
+        if "mode" in values:
+            mode = str(values["mode"] or "")
+            if mode not in MODES:
+                raise m.SpecError(f"Chế độ phải thuộc {', '.join(MODES)}")
+            updates.update({"mode": mode, "enabled": mode != "disabled"})
+        if not updates:
+            raise m.SpecError("Không có thay đổi nào")
+        if updates.get("enabled") and not (updates.get("endpoint") or self.cfg.endpoint):
+            raise m.SpecError("Cần điền địa chỉ Master trước khi bật module")
+        self._save_config(actor, updates, "cập nhật cấu hình", mask)
+        self._audit(actor, "dev_fleet_config_change", "SUCCESS", {"keys": sorted(k for k in updates if k != "api_token"),
+                                                                  "token_changed": "api_token" in updates})
+        return self.config_view()
+
+    async def test_connection(self, values: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Thử kết nối THẬT tới Master bằng giá trị đang nhập (hoặc đã lưu). Không ghi gì, không cần bật module."""
+        from mateai.infrastructure.connectors.dev_fleet_master import DevFleetMasterClient
+        values = values or {}
+        c = self.cfg
+        try:
+            endpoint = self._check_endpoint(values.get("endpoint") or c.endpoint)
+        except m.SpecError as exc:
+            return {"ok": False, "error": str(exc), "kind": "rejected"}
+        token = str(values.get("api_token") or "").strip() or c.api_token
+        client = DevFleetMasterClient(endpoint, token, tls_verify=bool(values.get("tls_verify", c.tls_verify)),
+                                      ca_bundle=str(values.get("ca_bundle", c.ca_bundle) or ""), timeout_s=c.timeout_s, retries=0)
+        t0 = time.monotonic()
+        try:
+            health = await client.health()
+            workers = await client.list_workers()
+        except FleetError as exc:
+            return {"ok": False, "error": str(exc), "kind": exc.kind}
+        version = str(health.get("api_version") or "")
+        compatible = version.split(".")[0] == m.SUPPORTED_API_MAJOR
+        return {"ok": compatible, "api_version": version or None, "compatible": compatible,
+                "error": None if compatible else f"Master Control API {version or 'không rõ phiên bản'} không tương thích "
+                                                 f"(cần {m.SUPPORTED_API_MAJOR}.x)",
+                "kind": None if compatible else "incompatible", "master": m.normalise_master(health),
+                "workers": len(workers), "latency_ms": round((time.monotonic() - t0) * 1000, 1)}
+
     # ── báo cáo điều hành ───────────────────────────────────────────────────
     async def briefing(self) -> Dict[str, Any]:
         """Toàn bộ số liệu lấy từ dữ liệu thật (Master + sổ tác vụ); không có thì None."""

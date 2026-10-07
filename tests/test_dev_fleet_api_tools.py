@@ -171,3 +171,61 @@ async def test_tool_refuses_vague_requests_and_asks_for_approval_on_risk(fleet, 
 async def test_tool_for_unknown_task_reports_not_found(fleet):
     fleet()
     assert (await tools.get_dev_fleet_task("OP-khong-co"))["success"] is False
+
+
+# ── cấu hình + thử kết nối (màn hình Dev Fleet) ─────────────────────────────
+
+def test_config_view_never_returns_the_token(fleet, master):
+    fleet()
+    body = client().get("/api/v1/dev-fleet/config").json()
+    assert body["has_token"] is True and master.token not in str(body) and body["endpoint"] == master.url
+    assert client("manager").get("/api/v1/dev-fleet/config").status_code == 403
+
+
+def test_save_settings_validates_and_blank_token_keeps_the_saved_one(fleet, monkeypatch):
+    fleet()
+    saved = {}
+    monkeypatch.setattr(dev_fleet, "_save_config", lambda actor, updates, reason, mask: saved.update(updates))
+    c = client()
+    for bad in ({"endpoint": "ftp://x"}, {"endpoint": "https://169.254.169.254"}, {"endpoint": "https://u:p@host"},
+                {"endpoint": "https://host/api"}, {"mode": "bay-bong"}, {"timeout_s": "nhanh"}, {}):
+        assert c.post("/api/v1/dev-fleet/config", json=bad).status_code == 422, bad
+    ok = c.post("/api/v1/dev-fleet/config", json={"endpoint": "https://master.congty.local:8443/", "api_token": "  ",
+                                                  "mode": "read_only", "tls_verify": False})
+    assert ok.status_code == 200
+    assert saved == {"endpoint": "https://master.congty.local:8443", "tls_verify": False, "mode": "read_only", "enabled": True}
+    assert "api_token" not in saved                                   # token trống = giữ nguyên
+    c.post("/api/v1/dev-fleet/config", json={"api_token": "TOKEN-MOI"})
+    assert saved["api_token"] == "TOKEN-MOI"
+
+
+def test_cannot_enable_without_an_endpoint(fleet, monkeypatch):
+    fleet(endpoint="")
+    monkeypatch.setattr(dev_fleet, "_save_config", lambda *a, **k: None)
+    r = client().post("/api/v1/dev-fleet/config", json={"mode": "read_only"})
+    assert r.status_code == 422 and "địa chỉ Master" in r.json()["detail"]
+
+
+def test_connection_test_is_real_and_works_while_the_module_is_off(master):
+    c = client()
+    ok = c.post("/api/v1/dev-fleet/test-connection", json={"endpoint": master.url, "api_token": master.token}).json()
+    assert ok["ok"] and ok["api_version"] == "1.0" and ok["workers"] == 3 and ok["master"]["name"] == "Ubuntu-Master"
+    bad = c.post("/api/v1/dev-fleet/test-connection", json={"endpoint": master.url, "api_token": "SAI"}).json()
+    assert not bad["ok"] and bad["kind"] == "rejected" and "SAI" not in str(bad)
+    assert c.post("/api/v1/dev-fleet/test-connection", json={"endpoint": "https://169.254.169.254"}).json()["ok"] is False
+    dead = c.post("/api/v1/dev-fleet/test-connection", json={"endpoint": "http://127.0.0.1:1", "api_token": "x"}).json()
+    assert not dead["ok"] and dead["kind"] == "unavailable"
+
+
+def test_connection_test_flags_an_incompatible_master(master):
+    master.api_version = "2.0"
+    try:
+        out = client().post("/api/v1/dev-fleet/test-connection", json={"endpoint": master.url, "api_token": master.token}).json()
+    finally:
+        master.api_version = "1.0"
+    assert out["ok"] is False and out["kind"] == "incompatible" and out["compatible"] is False
+
+
+def test_bad_project_name_is_a_422_not_a_500(fleet):
+    fleet()
+    assert client().post("/api/v1/dev-fleet/projects", json={"name": ""}).status_code == 422
