@@ -91,16 +91,11 @@
     #core { transform: translate3d(calc(var(--px) * -10px), calc(var(--py) * -8px), 0); }
     #bg-grid { translate: calc(var(--px) * -26px) calc(var(--py) * -14px); }
 
-    /* nhiễu RGB thoáng qua khi đổi trạng thái */
-    body.glitch #frame { animation: glitch .42s steps(3) 1; }
-    body.glitch #state-pill, body.glitch #subtitle { text-shadow: 2px 0 rgba(255,0,90,.75), -2px 0 rgba(0,230,255,.75); }
-    @keyframes glitch {
-      0% { transform: translate(0); filter: none; }
-      25% { transform: translate(-3px, 1px); filter: drop-shadow(3px 0 rgba(255,0,90,.55)) drop-shadow(-3px 0 rgba(0,230,255,.55)); }
-      50% { transform: translate(3px, -1px); }
-      75% { transform: translate(-1px, 0); filter: drop-shadow(2px 0 rgba(255,0,90,.4)); }
-      100% { transform: translate(0); filter: none; }
-    }
+    /* đổi trạng thái MƯỢT: chữ trạng thái mờ-hiện, phụ đề trượt nhẹ; KHÔNG rung khung (bỏ glitch 2026-10-12) */
+    .state-pill.swap { animation: pillSwap .34s ease-in-out; }
+    @keyframes pillSwap { 45% { opacity: 0; letter-spacing: 3.4px; } 55% { opacity: 0; } }
+    #subtitle.soft { animation: subIn .45s cubic-bezier(.2,.8,.2,1); }
+    @keyframes subIn { from { opacity: 0; transform: translateY(6px); } }
 
     .glass { position: relative; padding: 13px 16px; border-radius: 14px; background: linear-gradient(160deg, rgba(10,40,64,.55), rgba(3,12,24,.55));
       border: 1px solid var(--line); backdrop-filter: blur(10px); box-shadow: 0 0 0 1px rgba(255,255,255,.02) inset, 0 18px 40px rgba(0,0,0,.35); overflow: hidden; }

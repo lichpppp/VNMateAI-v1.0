@@ -125,12 +125,25 @@ def test_layout_modules_and_performance():
     for gone in ("2b. bệ phát ba chiều", "4b. vòng chữ dữ liệu", "ringText", "ringData"):
         assert gone not in JS, gone
     for marker in ("MODULE_LINKS", "ring === 'in'", "function adaptQuality", "function setQuality", "BUCKET", "1b. lưới tổ ong", "7b. tia điện", "--px",
-                   "function scramble", "function glitch"):
+                   "function scramble", "function swapLabel"):
         assert marker in JS, marker
     draw = JS[JS.index("  function draw(now) {"):JS.index("  function hexPath(")]
     assert "createRadialGradient(PX" not in draw                            # không tạo gradient cho từng nơ-ron
     assert draw.count("shadowBlur") == 0                                    # không đổ bóng trong vòng vẽ (chỉ nút đang rê)
     assert "for (let i = 0; i < N; i++) {" in draw                          # toạ độ mọi hạt luôn đúng, chế độ nhẹ chỉ vẽ một nửa
-    scr = JS[JS.index("function scramble"):JS.index("function glitch")]
+    scr = JS[JS.index("function scramble"):JS.index("function scramble") + 900]
     assert "setTimeout" in scr
     assert 'id="perf-chip"' in HTML
+
+
+def test_state_changes_are_smooth_no_shake():
+    # 2026-10-12 người dùng: "chuyển hiệu ứng rung giật màn hình". Nguyên nhân chính: góc quay = t × tốc độ (t = giây từ lúc mở
+    # trang) → đổi trạng thái là góc nhảy hàng nghìn độ trong một khung. Nay góc tích luỹ theo dt; bỏ rung khung (glitch).
+    draw = JS[JS.index("  function draw(now) {"):JS.index("  function hexPath(")]
+    assert not re.search(r"(?<![\w.])t \* (cur\.|0\.22 \* \(0\.5 \+ cur)", draw)     # không còn "t × tốc độ"
+    assert "ang.core += dt * cur.spin" in draw and "const rot = ang.core" in draw and "ctx.rotate(ang.reticle)" in draw
+    assert "glitch" not in JS.replace("(glitch) mỗi lần đổi trạng thái", "") and "body.glitch" not in HTML
+    # màu panel đổi dần theo lõi (không đặt --c ngay khi đổi trạng thái)
+    set_state = JS[JS.index("  function setState(s, opts = {}) {"):JS.index("  function swapLabel(")]
+    assert "setProperty('--c'" not in set_state and "setProperty('--c', cssHue)" in draw
+    assert ".state-pill.swap" in HTML and "#subtitle.soft" in HTML

@@ -42,13 +42,16 @@
   // MỘT đồng hồ cho mọi hiệu ứng: dấu thời gian của requestAnimationFrame. Trộn với performance.now() làm tiến độ âm
   // (hai đồng hồ lệch nhau) → bán kính âm → canvas ném lỗi và mọi lớp vẽ sau đó trong khung bị mất.
   let clockNow = performance.now();
+  // Góc quay tích luỹ theo dt. Trước đây góc = t × tốc độ (t = giây từ lúc mở trang): đổi trạng thái là tốc độ đổi →
+  // góc nhảy cả trăm độ trong vài khung (mở trang càng lâu nhảy càng mạnh) — chính là "rung giật" khi chuyển trạng thái.
+  const ang = { core: 0, reticle: 0, rings: [0, 0, 0] };
+  let cssHue = -1;
 
   function setState(s, opts = {}) {
     if (!STATES[s]) return;
     if (s !== state) shocks.push({ t0: clockNow, hue: STATES[s].hue });
     state = s;
-    document.documentElement.style.setProperty('--c', STATES[s].hue);
-    if ($('state-pill').dataset.t !== STATES[s].label) { scramble($('state-pill'), STATES[s].label); glitch(); }
+    if ($('state-pill').dataset.t !== STATES[s].label) swapLabel($('state-pill'), STATES[s].label);
     document.body.classList.toggle('alert', s === 'alert');
     if (opts.query !== undefined) $('query').textContent = opts.query ? `“${opts.query}”` : '';
     if (s === 'speaking' && opts.text) speak(opts.text, opts.durationMs);
@@ -60,6 +63,13 @@
 
   // chữ chạy ký tự ngẫu nhiên rồi "giải mã" dần từ trái sang phải
   const GLYPHS = '01ABCDEF#%&*<>/\\|=+ΞΣΔ';
+  // Đổi chữ trạng thái: mờ dần rồi hiện chữ mới (CSS .swap). Trước đây chữ nhảy ký tự ngẫu nhiên + cả khung rung
+  // (glitch) mỗi lần đổi trạng thái — người dùng thấy giật màn hình. scramble chỉ còn chạy một lần lúc khởi động.
+  function swapLabel(el, text) {
+    el.dataset.t = text;
+    el.classList.remove('swap'); void el.offsetWidth; el.classList.add('swap');
+    setTimeout(() => { if (el.dataset.t === text) el.textContent = text; }, 160);
+  }
   function scramble(el, text, ms = 520) {
     el.dataset.t = text;
     const start = performance.now();
@@ -73,17 +83,13 @@
     requestAnimationFrame(step);
     setTimeout(() => { if (el.dataset.t === text) el.textContent = text; }, ms + 80);   // chắc chắn hiện chữ đúng khi tab bị giảm khung hình
   }
-  let glitchTimer = null;
-  function glitch() {
-    document.body.classList.remove('glitch'); void document.body.offsetWidth; document.body.classList.add('glitch');
-    clearTimeout(glitchTimer); glitchTimer = setTimeout(() => document.body.classList.remove('glitch'), 420);
-  }
 
   // ── phụ đề kiểu điện ảnh ─────────────────────────────────────────────────
   function subtitle(text, allOn) {
     clearInterval(wordTimer);
     const words = String(text || '').split(/\s+/).filter(Boolean);
-    $('subtitle').innerHTML = `<span class="who on">${esc(aiName.toUpperCase())}</span>` + words.map((w) => `<span${allOn ? ' class="on"' : ''}>${esc(w)} </span>`).join('');
+    const el = $('subtitle'); el.classList.remove('soft'); void el.offsetWidth; el.classList.add('soft');
+    el.innerHTML = `<span class="who on">${esc(aiName.toUpperCase())}</span>` + words.map((w) => `<span${allOn ? ' class="on"' : ''}>${esc(w)} </span>`).join('');
   }
   // durationMs = thời lượng THẬT của đoạn audio (hud.js đo từ trình phát) → chữ sáng dần khớp với tiếng
   function speak(text, durationMs) {
@@ -264,9 +270,13 @@
     const realDt = Math.max(0, Math.min(1, (now - t0) / 1000)), dt = Math.min(0.05, realDt); t0 = now;
     adaptQuality(realDt);
     const tgt = STATES[state];
-    const ease = 1 - Math.exp(-realDt * 9);
+    const ease = 1 - Math.exp(-realDt * 4.5);
     const dh = ((tgt.hue - cur.hue + 540) % 360) - 180; cur.hue = (cur.hue + dh * ease + 360) % 360;
-    for (const k of ['spin', 'ring', 'pull', 'noise', 'pulse', 'lattice']) cur[k] = lerp(cur[k], tgt[k], 1 - Math.exp(-realDt * 4));
+    for (const k of ['spin', 'ring', 'pull', 'noise', 'pulse', 'lattice']) cur[k] = lerp(cur[k], tgt[k], 1 - Math.exp(-realDt * 2.6));
+    ang.core += dt * cur.spin; ang.reticle += dt * 0.22 * (0.5 + cur.ring);
+    for (let i = 0; i < 3; i++) ang.rings[i] += (i % 2 ? -1 : 1) * dt * cur.ring * (0.6 + i * 0.25);
+    // màu panel / chữ đổi DẦN theo lõi (chỉ ghi biến CSS khi lệch ≥ 1°, tránh tính lại style mỗi khung)
+    if (Math.abs(((cur.hue - cssHue + 540) % 360) - 180) >= 1) { cssHue = Math.round(cur.hue); document.documentElement.style.setProperty('--c', cssHue); }
     let real = null;
     if (levelSource) { try { real = levelSource(); } catch (_) { real = null; } }
     const speakingNow = state === 'speaking' && (real != null || now < speakUntil);
@@ -299,12 +309,12 @@
 
     // 1b. lưới tổ ong (chỉ chế độ đẹp): 4 mức sáng, mỗi mức MỘT path
     if (HQ) {
-      const shockR = shocks.map((sk) => (now - sk.t0) / 1100).filter((p) => p >= 0 && p <= 1).map((p) => R * (0.9 + p * 2.4));
+      const shockR = shocks.map((sk) => (now - sk.t0) / 1600).filter((p) => p >= 0 && p <= 1).map((p) => R * (0.9 + (1 - Math.pow(1 - p, 3)) * 2.4));
       for (let g = 0; g < 4; g++) BUCKET[g].length = 0;
       for (const c of hexCells) {
         const wave = Math.max(0, Math.sin(c.d / (R * 0.32) - t * 1.8));
         let al = Math.pow(wave, 6) * 0.11 * (0.6 + cur.lattice);
-        for (const sr of shockR) { const dd = Math.abs(c.d - sr); if (dd < R * 0.25) al += (1 - dd / (R * 0.25)) * 0.35; }
+        for (const sr of shockR) { const dd = Math.abs(c.d - sr); if (dd < R * 0.25) al += (1 - dd / (R * 0.25)) * 0.18; }
         if (al < 0.02) continue;
         BUCKET[Math.min(3, (al * 12) | 0)].push(c);
       }
@@ -389,14 +399,14 @@
 
     // 4. khung ngắm quay (4 cung) — không đổ bóng
     const RS = R * 1.2 * bootS;
-    ctx.save(); ctx.translate(CX, CY); ctx.rotate(t * 0.22 * (0.5 + cur.ring));
+    ctx.save(); ctx.translate(CX, CY); ctx.rotate(ang.reticle);
     ctx.strokeStyle = `hsla(${hue},100%,72%,0.8)`; ctx.lineWidth = 2.2; ctx.beginPath();
     for (let q = 0; q < 4; q++) { const a = q * Math.PI / 2 + Math.PI / 4; ctx.moveTo(Math.cos(a - 0.17) * RS, Math.sin(a - 0.17) * RS); ctx.arc(0, 0, RS, a - 0.17, a + 0.17); }
     ctx.stroke(); ctx.restore();
 
     // 5. vòng quỹ đạo quanh lõi + vệ tinh (không đổ bóng)
     for (let i = 0; i < 3; i++) {
-      const rr = R * (1.03 + i * 0.06) * bootS, sp = (i % 2 ? -1 : 1) * t * cur.ring * (0.6 + i * 0.25), ry = rr * 0.9;
+      const rr = R * (1.03 + i * 0.06) * bootS, sp = ang.rings[i], ry = rr * 0.9;
       ctx.save(); ctx.translate(CX, CY); ctx.rotate(sp);
       ctx.strokeStyle = `hsla(${hue},95%,${60 + i * 6}%,${0.5 - i * 0.12})`; ctx.lineWidth = i === 0 ? 2 : 1.2;
       ctx.setLineDash(i === 1 ? [3, 9] : [R * 0.45, R * 0.18]);
@@ -421,7 +431,7 @@
     }
 
     // 7. quả cầu hạt
-    const rot = t * cur.spin, tilt = 0.42, cr = Math.cos(rot), sr = Math.sin(rot), ct = Math.cos(tilt), st = Math.sin(tilt);
+    const rot = ang.core, tilt = 0.42, cr = Math.cos(rot), sr = Math.sin(rot), ct = Math.cos(tilt), st = Math.sin(tilt);
     const rad = R * (1 - cur.pull * 0.25 * (0.6 + level)) * (1 + level * 0.1 + Math.sin(t * 1.6) * cur.pulse) * bootS;
     // toạ độ chiếu tính cho MỌI hạt (rẻ) để nhánh nơ-ron / synapse luôn đúng chỗ; chế độ nhẹ chỉ VẼ một nửa
     const listening = state === 'listening', step = HQ ? 1 : 2;
@@ -537,11 +547,12 @@
 
     // 8. sóng xung kích
     for (let i = shocks.length - 1; i >= 0; i--) {
-      const s = shocks[i], p = (now - s.t0) / 1100;
+      const s = shocks[i], p = (now - s.t0) / 1600;
       if (p > 1) { shocks.splice(i, 1); continue; }
       if (p < 0) continue;
-      ctx.strokeStyle = `hsla(${s.hue},100%,70%,${(1 - p) * 0.8})`; ctx.lineWidth = 3 * (1 - p) + 0.5;
-      ctx.beginPath(); ctx.arc(CX, CY, R * (0.9 + p * 2.4), 0, Math.PI * 2); ctx.stroke();
+      const e = 1 - Math.pow(1 - p, 3);                 // lan ra êm (ease-out), mờ dần
+      ctx.strokeStyle = `hsla(${s.hue},100%,70%,${(1 - p) * (1 - p) * 0.45})`; ctx.lineWidth = 2 * (1 - p) + 0.5;
+      ctx.beginPath(); ctx.arc(CX, CY, R * (0.9 + e * 2.4), 0, Math.PI * 2); ctx.stroke();
     }
 
     // 9. tia gọi công cụ đi theo sợi thần kinh; tới nơi nút gợn sóng
