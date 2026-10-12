@@ -286,8 +286,14 @@ async def _run_tool_with_policy(
     _verification = verify(fn_name, fn_args, _result, decision.risk, target_client)
     if isinstance(_result, dict):
         _result = {**_result, "verification": {k: _verification[k] for k in ("level", "status", "summary")}}
+    # Dữ liệu cá nhân (SĐT, CCCD, lương, STK…) che TRƯỚC khi AI đọc, theo quyền của người được phục vụ — AI không thể lộ
+    # thứ nó chưa thấy, ở mọi kênh (pii_guard). Sổ tác vụ LUÔN lưu bản đã che: manager đọc được sổ (/api/v1/ops/tasks).
+    from mateai.application.security.pii_guard import guard_result, mask_obj
     ledger.record_step(op_task, tool=fn_name, target=target_client, args=fn_args, decision=decision,
-                       result=_result, verification=_verification)
+                       result=mask_obj(_result)[0], verification=_verification)
+    _result, _pii = guard_result(_result, caller)
+    if _pii:
+        audit_ctx["pii_masked"] = _pii
     security_engine.log_audit(str(caller), fn_name, str(decision.risk), "SUCCESS" if _ok else "FAILED",
                               {**audit_ctx, "verification": _verification["status"]})
     return _done(_result)

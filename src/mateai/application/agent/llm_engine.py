@@ -813,6 +813,29 @@ class LLMEngine:
         spoken: bool = False,
         tool_names: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
+        """Vòng agent (xem `_ask_async_impl`) + lớp che dữ liệu cá nhân ở ĐẦU RA cho người không có quyền xem đầy đủ
+        (lớp chính ở tool_gate). Áp cho mọi kênh chữ: portal, Telegram, cổng agent."""
+        out = await self._ask_async_impl(query, source_device=source_device, history=history, session_id=session_id,
+                                         caller=caller, first_tool_calls=first_tool_calls, spoken=spoken,
+                                         tool_names=tool_names)
+        from mateai.application.security.pii_guard import can_view_pii, mask_text
+        if isinstance(out, dict) and not can_view_pii(caller or source_device):
+            for key in ("reply", "speech_reply", "display_text"):
+                if isinstance(out.get(key), str):
+                    out[key] = mask_text(out[key])[0]
+        return out
+
+    async def _ask_async_impl(
+        self,
+        query: str,
+        source_device: Optional[str] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+        session_id: Optional[str] = None,
+        caller: Optional[str] = None,
+        first_tool_calls: Optional[List[Dict[str, str]]] = None,
+        spoken: bool = False,
+        tool_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
         Async implementation of the full agentic loop.
 

@@ -520,6 +520,11 @@ async def _run_voice_turn(
     pipeline = StreamingTTSWorkerPipeline(voice=_get_tts_voice(), num_workers=2)
     pipeline.start()
 
+    # Lớp che thứ hai (lớp chính ở tool_gate): người không có quyền xem dữ liệu cá nhân → che SĐT / CCCD / STK / lương…
+    # trong từng câu trước khi đọc / hiện / gửi — phòng dữ liệu tới AI theo đường khác công cụ (lịch sử, người dùng nói ra).
+    from mateai.application.security.pii_guard import can_view_pii, mask_text
+    _full_pii = can_view_pii(caller or source_device)
+
     async def _produce() -> None:
         seq = 0
         try:
@@ -541,8 +546,14 @@ async def _run_voice_turn(
                         filler_task.cancel()
                     await sink.on_status("speaking", reasoning=turn.get("reasoning", ""))
                 seq += 1
+                if not _full_pii:
+                    sentence = mask_text(sentence)[0]
                 result.sentences.append(sentence)
                 display = turn.get("display_text") or " ".join(result.sentences)
+                if not _full_pii:
+                    display = mask_text(display)[0]
+                    if turn.get("display_text"):
+                        turn["display_text"] = display
                 await sink.on_sentence(seq, sentence, display)
                 # Câu dài (thường là kết quả vòng agent) được rút gọn khi ĐỌC —
                 # chữ hiển thị vẫn đầy đủ. Trước Phase 3 chỉ ESP32/HUD làm vậy.
