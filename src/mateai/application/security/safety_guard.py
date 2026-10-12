@@ -43,6 +43,8 @@ _EVENT_TO_DB_STATUS: Dict[str, str] = {
     "BLOCKED": "blocked", "REJECTED": "blocked", "USER_REJECTED": "blocked",
     "UNVERIFIED": "blocked",
     "PENDING_CONFIRMATION": "pending",
+    # AI tự từ chối yêu cầu vì pháp luật / đạo đức / quyền riêng tư (ethics/refusals.py)
+    "REFUSED": "blocked",
 }
 
 

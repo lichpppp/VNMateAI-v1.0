@@ -60,6 +60,32 @@ HITL_NOTIFY_RESULT = False
 from mateai.application.security.risk_engine import RISK_LEVEL_MAP  # noqa: E402,F401
 
 
+#: Task phát phiếu lên HUD (asyncio chỉ giữ tham chiếu yếu).
+_HUD_TASKS: set = set()
+
+
+def _announce_on_hud(item: Dict[str, Any]) -> None:
+    """Hiện phiếu duyệt trên HUD cho MỌI kênh (lệnh từ HUD, robot, Telegram, portal, playbook). Trước 2026-10-12 chỉ đường
+    REST /api/v1/voice-command phát gói này — lệnh nói qua kênh WebSocket của HUD và lệnh robot không bao giờ hiện thẻ
+    duyệt, AI chỉ nói "anh nhắn đồng ý". Kèm giải thích (AI muốn làm gì / theo yêu cầu nào / vì sao cần duyệt)."""
+    try:
+        import asyncio
+        from datetime import datetime as _dt
+        from mateai.interfaces.websocket.realtime_hub import broadcast_hud
+        loop = asyncio.get_running_loop()
+    except Exception:  # noqa: BLE001 — gọi ngoài event loop (test, luồng nền): bỏ qua, portal / Telegram vẫn có phiếu
+        return
+    ctx = item.get("context") or {}
+    task = loop.create_task(broadcast_hud({
+        "type": "security_approval_required", "action_id": item.get("id"), "skill": item.get("action_name"),
+        "risk_level": item.get("risk_level"), "requested_by": item.get("requested_by"),
+        "message": item.get("description"), "explanation": ctx.get("explanation"),
+        "timestamp": _dt.utcnow().isoformat(),
+    }))
+    _HUD_TASKS.add(task)
+    task.add_done_callback(_HUD_TASKS.discard)
+
+
 class HumanInTheLoopManager:
     """
     Hàng đợi phê duyệt DUY NHẤT (Human-in-the-Loop).
@@ -278,6 +304,7 @@ class HumanInTheLoopManager:
         # được log ở thread đó chứ không bịa thành thành công ở đây.
         item["telegram_buttons"] = buttons_sent
         item["notified_telegram"] = notified
+        _announce_on_hud(item)
         return item
 
     def get_pending_list(self) -> List[Dict[str, Any]]:

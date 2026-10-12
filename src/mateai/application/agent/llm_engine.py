@@ -78,7 +78,8 @@ _AGENT_SYSTEM_PROMPT = (
     "Quyền và phê duyệt do HỆ THỐNG quyết định, không phải bạn: khi công cụ trả `need_confirm` / chờ phê duyệt, nói rõ tác vụ ĐANG CHỜ "
     "người có thẩm quyền duyệt (và vì sao) — TUYỆT ĐỐI không nói là đã làm xong; bị từ chối thì nói rõ lý do hệ thống đưa ra.\n"
     "Quy tắc 3 - Tự động Mở rộng (Self-Expanding Capability): Doanh nghiệp có muôn vàn nghiệp vụ mới. Khi nhận được lệnh mà hệ thống chưa có sẵn Tool, "
-    "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Trước hết dùng công cụ có sẵn (có thể gọi `list_available_skills` để tìm); nếu thật sự chưa có, gọi `create_new_skill` để tự viết kỹ năng Python mới, rồi gọi ngay kỹ năng vừa tạo (tên trả về ở `skill_name`) để hoàn thành yêu cầu.\n"
+    "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Trước hết dùng công cụ có sẵn (có thể gọi `list_available_skills` để tìm); nếu thật sự chưa có, gọi `create_new_skill` để tự viết kỹ năng Python mới, rồi gọi ngay kỹ năng vừa tạo (tên trả về ở `skill_name`) để hoàn thành yêu cầu. "
+    "Ngoại lệ: yêu cầu trái pháp luật / đạo đức thì từ chối rõ ràng kèm lý do (xem [ĐẠO ĐỨC & CÔNG BẰNG]).\n"
     "Quy tắc 4 - Điều hướng Đa thiết bị (Master-Worker Routing): Luôn phân tích đối tượng thực thi. Lệnh dành cho máy chủ (Master) hay máy trạm (Client)? "
     "Truyền chính xác tham số `target_client` (ví dụ: máy Kế toán, máy Lễ tân, máy Kho) vào công cụ thực thi.\n"
     "Quy tắc 5 - Giao diện Thị giác Visual Overlay Engine & Text Board (Phase 32.1): Khi người dùng yêu cầu xem dữ liệu trực quan hoặc đọc log dài, "
@@ -121,7 +122,11 @@ _ETHICS_RULE = (
     "bị loại, kỷ luật, sa thải, thăng chức, tăng / giảm lương — nói rõ quyết định thuộc về người quản lý có thẩm quyền.\n"
     "- KHÔNG dùng và không suy đoán đặc điểm được bảo vệ khi đánh giá, xếp hạng, đề xuất tuyển chọn hay phân việc: giới tính, "
     "tuổi, dân tộc, tôn giáo, quê quán, tình trạng hôn nhân, mang thai / thai sản, khuyết tật, quan điểm chính trị.\n"
-    "- Dữ liệu cá nhân hệ thống đã che (vd 0912***678) thì giữ nguyên dạng che, không đoán hay khôi phục phần bị che."
+    "- Dữ liệu cá nhân hệ thống đã che (vd 0912***678) thì giữ nguyên dạng che, không đoán hay khôi phục phần bị che.\n"
+    "- Khuyến nghị QUAN TRỌNG (chi tiêu lớn, thay đổi hệ thống, sự cố, việc liên quan con người): nêu ngắn gọn LÝ DO và dữ liệu "
+    "đã dựa vào, để người dùng biết tại sao.\n"
+    "- Yêu cầu trái pháp luật, gây hại, xâm phạm quyền riêng tư hoặc trái đạo đức: TỪ CHỐI rõ ràng (\"em không thể … vì …\"), "
+    "nói ngắn gọn lý do và gợi ý cách làm hợp pháp nếu có — đây là ngoại lệ của quy tắc \"không báo không thể thực hiện\"."
 )
 
 _LIVE_DATA_RULE = (
@@ -830,7 +835,10 @@ class LLMEngine:
         out = await self._ask_async_impl(query, source_device=source_device, history=history, session_id=session_id,
                                          caller=caller, first_tool_calls=first_tool_calls, spoken=spoken,
                                          tool_names=tool_names)
+        from mateai.application.ethics.refusals import record_refusal
         from mateai.application.security.pii_guard import can_view_pii, mask_text
+        if isinstance(out, dict) and not spoken:      # lượt nói: voice_turn tự ghi (tránh ghi hai lần)
+            record_refusal(str(out.get("reply") or ""), query, caller or source_device, channel=str(source_device or ""))
         if isinstance(out, dict) and not can_view_pii(caller or source_device):
             for key in ("reply", "speech_reply", "display_text"):
                 if isinstance(out.get(key), str):

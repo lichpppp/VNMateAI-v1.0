@@ -577,6 +577,8 @@ async def _run_voice_turn(
 
     result.reply_text = " ".join(result.sentences)
     result.display_text = turn.get("display_text") or result.reply_text
+    from mateai.application.ethics.refusals import record_refusal
+    record_refusal(result.reply_text, query, caller or source_device, channel=str(source_device or ""))
     result.reasoning = turn.get("reasoning", "")
     result.used_agent = bool(turn.get("used_agent"))
     result.tool_calls_made = list(turn.get("tool_calls_made") or [])

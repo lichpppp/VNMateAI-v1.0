@@ -208,13 +208,18 @@ async def _run_tool_with_policy(
                 _chat_id = _parts[1]
         # Yêu cầu tự ghi audit (HITL_APPROVAL_REQUEST_*, status pending) và báo
         # Telegram cho người duyệt — không ghi thêm dòng PENDING riêng ở đây.
+        # Giải thích cho người duyệt: AI muốn làm gì, theo yêu cầu nào của ai, vì sao cần duyệt (security/explain.py).
+        from mateai.application.security.explain import explain_approval
+        _explain = explain_approval(fn_name, fn_args, decision.risk, decision.reasons, query=query,
+                                    requested_by=str(caller), target=target_client)
         _req = hitl_manager.request_approval(
             action_name=fn_name,
             params=dict(fn_args),
             requested_by=caller,
-            description=query or f"Tác vụ '{fn_name}' trên [{target_client}]",
+            description=_explain["text"],
             kind=TOOL_KIND,
             context={
+                "explanation": _explain,
                 "target_client": target_client,
                 "query": query,
                 "chat_id": _chat_id,

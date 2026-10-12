@@ -2054,6 +2054,7 @@ function hudOpenMicForFollowup() {
     if (secAlert) {
       secAlert.classList.remove('hidden');
       if (secDesc) {
+        // Giải thích từ máy chủ: AI muốn làm gì / theo yêu cầu nào / vì sao cần duyệt (textContent — không chèn HTML).
         secDesc.textContent = packet.message || `Tác vụ "${packet.skill || 'hệ thống'}" đang chờ phê duyệt từ Quản Trị Viên...`;
       }
     }
