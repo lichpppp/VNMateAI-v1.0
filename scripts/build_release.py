@@ -69,7 +69,8 @@ def _secrets() -> set:
                 found.add(text.splitlines()[1] if text.startswith("-----BEGIN") and len(text.splitlines()) > 1 else text)
         except OSError:
             pass
-    return {s for s in found if not s.startswith("enc:")}
+    # bỏ chuỗi đã mã hoá và ô GIỮ CHỖ còn sót trong config (YOUR_…_HERE) — không phải bí mật thật
+    return {s for s in found if not s.startswith(("enc:", "YOUR_")) and "_HERE" not in s}
 
 
 def scan_for_secrets(out: Path) -> list:
