@@ -159,6 +159,17 @@ async def get_vnmate_hud():
     )
 
 
+@router.get("/hud-next", include_in_schema=True, response_class=HTMLResponse,
+            summary="Bản THỬ giao diện HUD mới (buồng lái AI) — HUD đang dùng vẫn ở /hud")
+async def get_vnmate_hud_next():
+    """Bản thử: chỉ hiển thị (không phát tiếng, không gửi lệnh, không duyệt). Dữ liệu thật khi trình duyệt đã đăng nhập portal."""
+    page = _WEB_DIR / "hud-next.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="web/hud-next.html not found.")
+    return HTMLResponse(_inject_asset_versions(page.read_text(encoding="utf-8")),
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"})
+
+
 @router.get(
     "/roi",
     include_in_schema=True,

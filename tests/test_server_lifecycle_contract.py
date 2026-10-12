@@ -40,6 +40,7 @@ NEW_ROUTES = {"/api/v1/health/startup",
               # Dev Fleet: điều phối cụm Dev qua Ubuntu Master (docs/integrations/dev-fleet.md)
               # Quyền đọc kho tri thức theo tài liệu (docs/security/rag-permissions.md)
               '/api/v1/enterprise/rag/acl', '/api/v1/enterprise/rag/acl/{doc_name}',
+              '/hud-next',   # bản thử giao diện HUD mới
               # Danh bạ Agent: inbound / A2A (docs/integrations/agent-gateway.md)
               '/api/v1/agent-gateway/agents', '/api/v1/agent-gateway/agents/{agent_id}', '/api/v1/agent-gateway/agents/{agent_id}/status',
               '/api/v1/agent-gateway/agents/{agent_id}/token', '/api/v1/agent-gateway/agents/{agent_id}/card',
