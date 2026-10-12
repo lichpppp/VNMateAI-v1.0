@@ -1,21 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 """
-core/worknodes/elastic_grid_manager.py
-======================================
-Hồ Máy Trạm Ngoại Vi Co Giãn (Elastic Standby Worker Grid Manager).
-Nhiệm vụ:
-  1. Quản lý linh hoạt cụm N máy trạm (Mac Mini OpenClaw / Windows / Linux) từ N = 0 đến hàng trăm máy.
-  2. Heartbeat Ping qua POST /api/v1/worknodes/heartbeat (Timeout 15 giây tự động đánh dấu OFFLINE).
-  3. Standby Fallback: Khi 0 Node Online, đưa task vào hàng đợi PENDING_STANDBY và kích hoạt
-     câu trả lời thoại an toàn:
-     "Hệ thống đã tiếp nhận lệnh. Các trạm thực thi giao diện hiện đang ở chế độ chờ, công việc đã được lưu trữ an toàn trong hàng đợi."
-  4. Hỗ trợ phát sóng trạng thái thời gian thực qua WebSocket để cập nhật UI Topology không cần tải lại trang.
+mateai/application/devices/elastic_grid_manager.py
+==================================================
+Sổ trạm TỰ BÁO NHỊP TIM (`workers/remote_worker_daemon.py` → POST /api/v1/worknodes/heartbeat; quá 15 giây → OFFLINE).
+
+CHỈ THEO DÕI. Không giao việc: hàm `dispatch_or_standby` + hàng đợi PENDING_STANDBY cũ chưa từng được gọi ở đâu (rà 2026-10-12), nên
+không trạm nào nhận được việc qua đường này — đã gỡ để giao diện không hứa điều không có. Giao việc cho cụm Mac mini / OpenClaw đi qua
+**Dev Fleet** (Ubuntu Master, docs/integrations/dev-fleet.md); việc trên máy trạm Windows / macOS đi qua **agent máy trạm**
+(`client_agent/`, `target_client` của công cụ). Danh sách trạm này hiện trong tab Dev Fleet.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from datetime import datetime
@@ -98,8 +95,6 @@ class ElasticGridManager:
 
     def __init__(self) -> None:
         self._nodes: Dict[str, WorknodeState] = {}
-        # Hàng đợi tác vụ chờ khi không có node nào online (PENDING_STANDBY)
-        self._standby_queue: List[Dict[str, Any]] = []
 
     def record_heartbeat(
         self,
@@ -126,7 +121,7 @@ class ElasticGridManager:
                 active_tasks=active_tasks,
             )
             self._nodes[node_key] = node
-            logger.info("[ElasticGrid] Trạm mới kết nối: %s (%s) — Sẵn sàng phân bổ việc", node_key, ip)
+            logger.info("[ElasticGrid] Trạm mới gửi nhịp tim: %s (%s)", node_key, ip)
         else:
             node = self._nodes[node_key]
             node.update_heartbeat(
@@ -138,17 +133,12 @@ class ElasticGridManager:
                 active_tasks=active_tasks,
             )
 
-        # Kiểm tra xem có task PENDING_STANDBY nào cần phân bổ lại không
-        dispatched_task = None
-        if self._standby_queue and node.status == "READY":
-            dispatched_task = self._standby_queue.pop(0)
-            logger.info("[ElasticGrid] Đã giải phóng task '%s' từ PENDING_STANDBY sang node %s", dispatched_task.get("task_id"), node_key)
-
+        # `assigned_task` giữ trong phản hồi (luôn None) để daemon cũ không lỗi: đường này không giao việc.
         return {
             "status": "ack",
             "node_id": node_key,
             "grid_online_nodes": self.get_online_count(),
-            "assigned_task": dispatched_task,
+            "assigned_task": None,
         }
 
     def get_online_nodes(self) -> List[Dict[str, Any]]:
@@ -163,52 +153,8 @@ class ElasticGridManager:
         """Đếm số trạm đang online thực tế."""
         return sum(1 for node in self._nodes.values() if node.is_online)
 
-    def dispatch_or_standby(self, task_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Phân phối tác vụ tới 1 node sẵn sàng.
-        Nếu 0 node nào online, tự động chuyển vào PENDING_STANDBY kèm câu trả lời thoại an toàn.
-        """
-        import uuid
-        task_id = f"task_{uuid.uuid4().hex[:8]}"
-        online_ready_nodes = [
-            n for n in self._nodes.values()
-            if n.is_online and n.status == "READY" and task_type in n.capabilities
-        ]
-
-        if not online_ready_nodes:
-            # Không có node nào -> Fallback PENDING_STANDBY
-            task_entry = {
-                "task_id": task_id,
-                "task_type": task_type,
-                "payload": payload,
-                "status": "PENDING_STANDBY",
-                "queued_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            }
-            self._standby_queue.append(task_entry)
-            logger.warning("[ElasticGrid] 0 Node Online — Đã chuyển task %s vào PENDING_STANDBY (Hàng đợi: %d)", task_id, len(self._standby_queue))
-
-            voice_msg = "Hệ thống đã tiếp nhận lệnh. Các trạm thực thi giao diện hiện đang ở chế độ chờ, công việc đã được lưu trữ an toàn trong hàng đợi."
-            return {
-                "status": "pending_standby",
-                "task_id": task_id,
-                "voice_response": voice_msg,
-                "queued_count": len(self._standby_queue),
-            }
-
-        # Chọn node có ít active_tasks nhất
-        selected_node = min(online_ready_nodes, key=lambda n: n.active_tasks)
-        selected_node.active_tasks += 1
-
-        return {
-            "status": "dispatched",
-            "task_id": task_id,
-            "target_node": selected_node.node_id,
-            "target_ip": selected_node.ip,
-            "voice_response": f"Lệnh đã được điều phối tới trạm thực thi {selected_node.node_id}.",
-        }
-
     def get_grid_overview(self) -> Dict[str, Any]:
-        """Tổng quan cụm Standby Grid phục vụ Web Portal & Topology."""
+        """Tổng quan các trạm tự báo nhịp tim (tab Dev Fleet, Topology)."""
         all_nodes = self.get_all_nodes()
         online_count = sum(1 for n in all_nodes if n["is_online"])
         total_cpu = sum(n["cpu_percent"] for n in all_nodes if n["is_online"])
@@ -217,7 +163,6 @@ class ElasticGridManager:
         return {
             "total_registered_nodes": len(all_nodes),
             "online_nodes_count": online_count,
-            "standby_queue_length": len(self._standby_queue),
             "average_cpu_load": avg_cpu,
             "nodes": all_nodes,
         }

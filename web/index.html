@@ -1080,8 +1080,9 @@
               class="px-2 py-0.5 text-[10px] font-mono font-bold rounded-md bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 border border-primary-200 dark:border-primary-700/50">ENTERPRISE</span>
           </div>
           <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Quản trị kết nối dữ liệu doanh nghiệp, cấu hình connectors, webhook sự kiện tự động, và quản lý máy trạm
-            worker trong mạng LAN
+            Hệ thống của doanh nghiệp chỉ có API dữ liệu (REST / SQL / connector có sẵn): kết nối + cấu hình + chạy thử, webhook giám sát,
+            máy trạm (agent cài trên máy người dùng), phòng ban.
+            <span class="block mt-1 text-[11px] text-slate-500 dark:text-slate-400">Ba tab nối ra ngoài: <b>Tích hợp hệ thống</b> = hệ thống chỉ có API dữ liệu (REST / SQL / connector có sẵn), webhook giám sát, máy trạm, phòng ban · <b>Cổng Agent</b> = agent AI / MCP server của doanh nghiệp · <b>Dev Fleet</b> = cụm Mac mini / OpenClaw qua Ubuntu Master.</span>
           </p>
         </div>
         <div class="flex items-center gap-2 shrink-0">
@@ -1187,18 +1188,9 @@
             <button type="button" onclick="switchCcSubTab('departments')" data-cc-subtab="departments"
               class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">🏢
               Phòng Ban</button>
-            <button type="button" onclick="switchCcSubTab('elastic-grid')" data-cc-subtab="elastic-grid"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">⚡
-              Elastic Grid</button>
-            <button type="button" onclick="switchCcSubTab('config')" data-cc-subtab="config"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">⚙️
-              Cấu Hình</button>
             <button type="button" onclick="switchCcSubTab('webhook')" data-cc-subtab="webhook"
               class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">⚡
               Webhook</button>
-            <button type="button" onclick="switchCcSubTab('tools')" data-cc-subtab="tools"
-              class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">🛠️
-              Công Cụ</button>
             <button type="button" onclick="switchCcSubTab('devices')" data-cc-subtab="devices"
               class="px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition">🖥️
               Máy Trạm</button>
@@ -1233,7 +1225,8 @@
         </div>
 
         <!-- ── Sub-tab: CẤU HÌNH ──────────────────────────────────── -->
-        <div id="cc-int-config" class="p-4 hidden">
+        <div id="cc-int-config" class="p-4 hidden border-t border-slate-200 dark:border-slate-700/60">
+          <h4 class="text-xs font-bold text-slate-700 dark:text-slate-200 mb-2">Cấu hình connector có sẵn (AWS, OCI, Paperless, eInvoice…)</h4>
           <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
             <p class="text-[10px] text-slate-400 dark:text-slate-500">
               Ô mật khẩu để trống = giữ nguyên giá trị đã lưu. Cần quyền
@@ -1273,7 +1266,8 @@
         </div>
 
         <!-- ── Sub-tab: CÔNG CỤ TÍCH HỢP ─────────────────────────── -->
-        <div id="cc-int-tools" class="p-4 hidden">
+        <div id="cc-int-tools" class="p-4 hidden border-t border-slate-200 dark:border-slate-700/60">
+          <h4 class="text-xs font-bold text-slate-700 dark:text-slate-200 mb-2">Chạy thử công cụ connector</h4>
           <p class="text-[10px] text-slate-400 dark:text-slate-500 mb-3">
             Gọi trực tiếp các công cụ tích hợp — mỗi lần gọi đều đi qua cổng HITL
             nếu rủi ro ≥ 3.
@@ -1697,77 +1691,6 @@
           </div>
         </div>
 
-        <!-- ── Sub-tab: HỒ MÁY TRẠM NGOẠI VI CO GIÃN (Elastic Grid) ──── -->
-        <div id="cc-int-elastic-grid" class="p-4 hidden space-y-4">
-          <div
-            class="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-700">
-            <div>
-              <h4 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>⚡ Hồ Máy Trạm Ngoại Vi Co Giãn (Standby Worker Grid)</span>
-                <span
-                  class="px-2 py-0.5 text-[9px] font-mono font-bold rounded bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20">ELASTIC
-                  ARCHITECTURE</span>
-              </h4>
-              <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Cụm Mac Mini OpenClaw mở rộng từ N = 0 đến hàng trăm máy, hoạt động ở chế độ chờ (Standby) cắm-rút không
-                làm ảnh hưởng Core Server.
-              </p>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button type="button" onclick="window.open('/admin/topology', '_blank')"
-                class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white shadow-sm transition active:scale-95 flex items-center gap-1.5"
-                title="Mở Sơ đồ Luồng Vận Hành n8n / React Flow Node Graph">
-                <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <circle cx="18" cy="5" r="3" />
-                  <circle cx="6" cy="12" r="3" />
-                  <circle cx="18" cy="19" r="3" />
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                </svg>
-                <span>Bản Đồ Topology (Live Flow)</span>
-              </button>
-              <button type="button" onclick="loadElasticGridManager()"
-                class="px-3 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-                <span>Làm Mới Trạng Thái</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- 4 Card KPI Grid -->
-          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div
-              class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 shadow-sm">
-              <div class="text-[10px] font-bold uppercase text-slate-400 mb-1">Tổng Trạm Đăng Ký</div>
-              <div class="text-2xl font-bold text-slate-800 dark:text-slate-100" id="grid-kpi-total">0</div>
-            </div>
-            <div
-              class="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/5 dark:bg-emerald-950/20 shadow-sm">
-              <div
-                class="text-[10px] font-bold uppercase text-emerald-600 dark:text-emerald-400 mb-1 flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Trạm Online Sẵn Sàng</span>
-              </div>
-              <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" id="grid-kpi-online">0</div>
-            </div>
-            <div class="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/5 dark:bg-amber-950/20 shadow-sm">
-              <div class="text-[10px] font-bold uppercase text-amber-600 dark:text-amber-400 mb-1">Hàng Đợi Chờ
-                (Standby)</div>
-              <div class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="grid-kpi-standby">0</div>
-            </div>
-            <div
-              class="p-3.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 shadow-sm">
-              <div class="text-[10px] font-bold uppercase text-slate-400 mb-1">Tải CPU Trung Bình</div>
-              <div class="text-2xl font-bold text-cyan-600 dark:text-cyan-400" id="grid-kpi-cpu">0.0%</div>
-            </div>
-          </div>
-
-          <!-- Lưới các Worknode Mac Mini -->
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5" id="grid-nodes-list">
-            <div class="col-span-full py-8 text-center text-xs text-slate-400 dark:text-slate-500 italic">
-              Đang kết nối tới trạm điều phối Elastic Grid...
-            </div>
-          </div>
-        </div>
 
       </div>
     </section>
@@ -7967,10 +7890,10 @@
   <script src="/static/infra-monitor.js?v=2"></script>
   <script src="/static/playbooks.js?v=2"></script>
   <script src="/static/llmops.js?v=1"></script>
-  <script src="/static/agent-directory.js?v=1"></script>
-  <script src="/static/agent-gateway.js?v=1"></script>
-  <script src="/static/dev-fleet.js?v=3"></script>
-  <script src="/static/app.js?v=57.8"></script>
+  <script src="/static/agent-directory.js?v=2"></script>
+  <script src="/static/agent-gateway.js?v=2"></script>
+  <script src="/static/dev-fleet.js?v=4"></script>
+  <script src="/static/app.js?v=57.9"></script>
 </body>
 
 </html>

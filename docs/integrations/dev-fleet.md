@@ -15,7 +15,7 @@ Người ─▶ VN-MateAI ──(Master Control API v1, HTTPS + Bearer)──▶
 |---|---|
 | Cấu trúc | `core/` cũ đã chuyển sang `src/mateai/{application,infrastructure,interfaces}`; prompt mô tả `core/…` là bản cũ |
 | OpenClaw / Master / Ansible | Repo **không có** mã tích hợp. Duy nhất: chữ "Mac Mini OpenClaw" trong `application/devices/elastic_grid_manager.py` |
-| Sổ worker sẵn có | `elastic_grid_manager` — worker **tự đẩy heartbeat** (`POST /api/v1/worknodes/heartbeat`), RAM, TTL 15 s, trạng thái READY/OFFLINE. **Khác** mô hình Dev Fleet (Master báo hộ), nên giữ nguyên, không trộn |
+| Sổ worker sẵn có | `elastic_grid_manager` — worker **tự đẩy heartbeat** (`POST /api/v1/worknodes/heartbeat`), RAM, TTL 15 s, trạng thái READY/OFFLINE. **Khác** mô hình Dev Fleet (Master báo hộ), nên giữ nguyên, không trộn. *2026-10-12:* đường này **chưa từng giao việc** (hàm giao việc không được gọi ở đâu) → đã gỡ phần giao việc giả và mục con "Elastic Grid"; danh sách trạm tự báo nhịp tim hiện ở tab Dev Fleet, **chỉ để theo dõi** |
 | Sổ tác vụ | `application/tasks/ledger.py` (`op_tasks`): **một** máy trạng thái NEW…COMPLETED, bằng chứng, cổng COMPLETED chỉ khi kiểm chứng đạt — **tái dùng** |
 | Chính sách | `policy_engine.authorize` + `zero_trust.execute_with_hitl`: kill switch, L0–L5, duyệt, audit — **tái dùng** |
 | Kết nối | `BaseConnector` (timeout, retry, che bí mật) — **tái dùng**; thiếu cầu dao nên thêm cầu dao riêng cho Master |

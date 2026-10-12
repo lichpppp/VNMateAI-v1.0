@@ -99,7 +99,9 @@ if (dash && si) {
   // Phase 81: thêm sub-tab 'Máy Trạm' (khối máy trạm 194 dòng trước đây nằm
   // tràn dưới sub-tab Hệ Thống) -> 5 thành 6 nút.
   const siSubtabs = (siHtml.match(/switchCcSubTab\('/g) || []).length;
-  check('đủ các nút sub-tab trong tab mới', siSubtabs >= 6,
+  // 2026-10-12: gộp 'config' + 'tools' vào 'Kết nối' và gỡ 'Elastic Grid' (chưa từng giao việc) -> còn 5 nút:
+  // Kết nối, Phòng ban, Webhook, Máy trạm, Hệ thống.
+  check('đủ các nút sub-tab trong tab mới', siSubtabs >= 5,
     `thấy ${siSubtabs}/${subtabBtns} toàn trang`);
   check('có nút sub-tab Máy Trạm', siHtml.includes("data-cc-subtab=\"devices\""));
   check('khối máy trạm nằm trong pane cc-int-devices',

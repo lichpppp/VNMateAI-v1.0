@@ -9,9 +9,9 @@ Chạy độc lập trên từng máy Mac Mini (OpenClaw) hoặc máy trạm ngo
 Chức năng:
   1. Tự động tìm kiếm / kết nối về Ubuntu Master Server (Zero-Configuration).
   2. Phát nhịp tim (Heartbeat) định kỳ 5 giây kèm chỉ số tải thực tế CPU/RAM.
-  3. Lắng nghe tác vụ được giao (GUI RPA, OCR, Browser Automation) và thực thi
-     thông qua các driver bản địa (native_os_driver, browser_session_vault).
-  4. Gửi kết quả thực thi callback về Master API.
+  3. (Chưa có) nhận việc qua phản hồi heartbeat: máy chủ hiện KHÔNG giao việc qua đường này (`assigned_task` luôn rỗng) —
+     daemon chỉ để máy chủ THEO DÕI trạm (tab Dev Fleet → Trạm tự báo nhịp tim). Giao việc cho Mac mini / OpenClaw dùng
+     Dev Fleet (Ubuntu Master); việc trên máy trạm dùng agent máy trạm (client_agent/).
 
 Biến môi trường bắt buộc: VNMATE_ENROLLMENT_TOKEN — giá trị `enrollment_token`
 trong config.json của gói /api/v1/download-agent. Thiếu thì Master trả 401.

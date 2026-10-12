@@ -11,6 +11,8 @@ Ba loại:
 - `a2a` — agent ngoài nói giao thức Agent2Agent mà VN-MateAI GIAO VIỆC tới. Đăng ký thành MỘT công cụ `a2a_<id>` (rủi ro mặc định L3 =
   cần duyệt), đi qua cùng cổng chính sách như mọi công cụ.
 - `mcp` — MCP server ở `mcp_gateway` (chỉ hiện trong danh bạ; khai báo ở đó).
+- `devfleet`, `workstations` — chỉ để XEM tổng thể (quản lý ở tab Dev Fleet / Tích hợp → Máy trạm): một chỗ thấy mọi thứ đang làm việc
+  thay doanh nghiệp. Không gọi mạng (trạng thái Master đầy đủ ở tab Dev Fleet).
 
 Tạm dừng (kill switch từng agent): inbound → mọi lời gọi bị từ chối và quyền về thấp nhất ngay; a2a / mcp → gỡ công cụ khỏi AI.
 """
@@ -99,8 +101,33 @@ def list_all() -> List[Dict[str, Any]]:
                     "status": ACTIVE if s.get("enabled") else SUSPENDED, "url": s.get("url") or s.get("command"),
                     "last_seen_at": s.get("discovered_at"), "last_error": s.get("last_error"),
                     "tools": len(s.get("tools") or []), "registered": s.get("registered", 0)})
+    out.extend(_peripheral_rows())
     _attach_stats(out)
     return out
+
+
+def _peripheral_rows() -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    try:
+        from mateai.application.devfleet.service import dev_fleet
+        mode = dev_fleet.mode
+        if mode != "disabled":
+            tasks = dev_fleet._task_counts()
+            rows.append({"agent_id": "dev-fleet", "kind": "devfleet", "name": "Dev Fleet (Ubuntu Master → Mac mini / OpenClaw)",
+                         "status": ACTIVE, "url": dev_fleet.cfg.endpoint or None, "mode": mode, "tasks": tasks.get("total", 0),
+                         "manage_at": "Dev Fleet"})
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[Directory] Không đọc được Dev Fleet: %s", exc)
+    try:
+        from mateai.interfaces.websocket.client_orchestrator import orchestrator
+        clients = orchestrator.get_connected_clients()
+        if clients:
+            rows.append({"agent_id": "may-tram", "kind": "workstations", "name": "Agent máy trạm (client_agent)", "status": ACTIVE,
+                         "online": len(clients), "names": [str(c.get("hostname") or c.get("client_id") or "")[:60] for c in clients][:20],
+                         "manage_at": "Tích hợp hệ thống → Máy trạm"})
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("[Directory] Không đọc được máy trạm: %s", exc)
+    return rows
 
 
 def _attach_stats(items: List[Dict[str, Any]]) -> None:
@@ -138,6 +165,8 @@ def save(agent_id: str, payload: Dict[str, Any], actor: str) -> Dict[str, Any]:
     from mateai.application.agent_gateway import mcp_gateway
     if mcp_gateway.get_server(agent_id):
         raise DirectoryError("Mã này đã dùng cho một MCP server")
+    if agent_id in ("dev-fleet", "may-tram"):
+        raise DirectoryError("Mã này dành cho mục Dev Fleet / máy trạm trong danh bạ")
     row: Dict[str, Any] = {
         "kind": kind,
         "name": str(payload.get("name") or prev.get("name") or agent_id).strip()[:120],

@@ -46,6 +46,8 @@ const list = [
   { agent_id: 'crm-bot', kind: 'inbound', name: 'Bot <i>CRM</i>', owner: 'Phòng KD', status: 'active', role: 'operator', has_token: false, daily_token_limit: 5000, last_seen_at: null },
   { agent_id: 'ke-toan', kind: 'a2a', name: 'Kế toán', status: 'suspended', risk: 3, tool: null, last_error: 'ConnectError <x>', calls: { total: 4, failed: 1 } },
   { agent_id: 'erp', kind: 'mcp', name: 'ERP', status: 'active', tools: 3, registered: 2, calls: { total: 9, failed: 0 } },
+  { agent_id: 'dev-fleet', kind: 'devfleet', name: 'Dev Fleet', status: 'active', mode: 'read_only', tasks: 4, manage_at: 'Dev Fleet' },
+  { agent_id: 'may-tram', kind: 'workstations', name: 'Agent máy trạm', status: 'active', online: 2, names: ['PC-1', 'PC-<b>2</b>'], manage_at: 'Tích hợp hệ thống → Máy trạm' },
 ];
 routes = { 'GET ': { body: { agents: list } } };
 
@@ -56,6 +58,8 @@ ok(t.includes('Gọi vào') && t.includes('A2A') && t.includes('MCP server') && 
 ok(t.includes('TẠM DỪNG') && t.includes('chưa đọc được thẻ agent') && t.includes('1 lỗi') && t.includes('2/3 công cụ'), 'trạng thái, lỗi, số lời gọi');
 ok(t.includes('data-ad="suspend" data-id="crm-bot"') && t.includes('data-ad="resume" data-id="ke-toan"') && !t.includes('data-ad="delete" data-id="erp"'), 'nút đúng theo loại');
 ok(!el('ad-form').classList.contains('hidden'), 'admin thấy form');
+ok(t.includes('chế độ <b>read_only</b>') && t.includes('2 máy online: PC-1, PC-&lt;b&gt;2&lt;/b&gt;'), 'Dev Fleet + máy trạm hiện trong danh bạ, thoát HTML');
+ok(!t.includes('data-id="dev-fleet"') && !t.includes('data-id="may-tram"'), 'Dev Fleet / máy trạm chỉ xem: không có nút ghi');
 
 confirmAnswer = false; calls.length = 0;
 await click('suspend', 'crm-bot');

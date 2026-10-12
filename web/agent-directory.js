@@ -19,7 +19,9 @@ const AgentDirectoryUI = (() => {
     emerald: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30', amber: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
     rose: 'bg-rose-500/15 text-rose-600 border-rose-500/30', sky: 'bg-sky-500/15 text-sky-600 border-sky-500/30', slate: 'bg-slate-500/15 text-slate-500 border-slate-500/30',
   };
-  const KIND = { inbound: ['Gọi vào', 'sky'], a2a: ['A2A — được giao việc', 'emerald'], mcp: ['MCP server', 'slate'] };
+  const KIND = { inbound: ['Gọi vào', 'sky'], a2a: ['A2A — được giao việc', 'emerald'], mcp: ['MCP server', 'slate'],
+    devfleet: ['Dev Fleet', 'amber'], workstations: ['Máy trạm', 'slate'] };
+  const READ_ONLY = ['devfleet', 'workstations'];
   const pill = (map, k) => { const [t, c] = map[k] || [k, 'slate']; return `<span class="px-1.5 py-0.5 rounded border text-[11px] font-bold whitespace-nowrap ${COLOR[c]}">${e(t)}</span>`; };
   const field = (label, input) => `<label class="block"><span class="text-[11px] font-semibold text-slate-600 dark:text-slate-300 mb-1 block">${label}</span>${input}</label>`;
 
@@ -72,9 +74,11 @@ const AgentDirectoryUI = (() => {
       const st = a.status === 'active' ? '<span class="text-emerald-600 font-semibold">hoạt động</span>' : '<span class="text-rose-600 font-semibold">TẠM DỪNG</span>';
       const extra = a.kind === 'inbound' ? `quyền <b>${e(a.role)}</b>${a.has_token ? '' : ' · <span class="text-amber-600">chưa có token</span>'}${a.daily_token_limit ? ` · ${e(a.daily_token_limit)} token/ngày` : ''}`
         : a.kind === 'a2a' ? `${a.tool ? `công cụ <span class="font-mono">${e(a.tool)}</span>` : '<span class="text-amber-600">chưa đọc được thẻ agent</span>'} · rủi ro L${e(a.risk)}`
-          : `${e(a.registered)}/${e(a.tools)} công cụ`;
+          : a.kind === 'devfleet' ? `chế độ <b>${e(a.mode)}</b> · ${e(a.tasks)} tác vụ · quản lý ở tab <b>${e(a.manage_at)}</b>`
+            : a.kind === 'workstations' ? `${e(a.online)} máy online${(a.names || []).length ? `: ${e(a.names.slice(0, 5).join(', '))}${a.names.length > 5 ? '…' : ''}` : ''} · quản lý ở <b>${e(a.manage_at)}</b>`
+              : `${e(a.registered)}/${e(a.tools)} công cụ`;
       const calls = a.calls ? `${e(a.calls.total)} lượt${a.calls.failed ? `, <span class="text-rose-600">${e(a.calls.failed)} lỗi</span>` : ''}` : '—';
-      const actions = !canWrite ? '' : [
+      const actions = (!canWrite || READ_ONLY.includes(a.kind)) ? '' : [
         `<button type="button" data-ad="${a.status === 'active' ? 'suspend' : 'resume'}" data-id="${e(a.agent_id)}" class="${BTN} ${a.status === 'active' ? 'border border-rose-300 text-rose-600' : 'bg-emerald-600 text-white'}">${a.status === 'active' ? 'Tạm dừng' : 'Kích hoạt'}</button>`,
         a.kind === 'inbound' ? `<button type="button" data-ad="token" data-id="${e(a.agent_id)}" class="${BTN} border border-slate-300 dark:border-slate-600">${a.has_token ? 'Xoay token' : 'Cấp token'}</button>` : '',
         a.kind === 'a2a' ? `<button type="button" data-ad="card" data-id="${e(a.agent_id)}" class="${BTN} border border-slate-300 dark:border-slate-600">Đọc lại thẻ</button>` : '',

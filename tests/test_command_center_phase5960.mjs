@@ -85,8 +85,10 @@ function showToast() {}
 // ── Test 1: switchCcSubTab ─────────────────────────────────────────────────
 {
   const dom = ['cc-int-conn', 'cc-int-config', 'cc-int-webhook', 'cc-int-tools', 'cc-int-sys']
-    .map(id => ({ id, classList: { toggle() {} } }));
-  const btns = ['conn', 'config', 'webhook', 'tools', 'sys']
+    .map(id => ({ id, hidden: true, classList: { toggle(c, on) { this.owner.hidden = on; }, contains() { return false; } } }));
+  dom.forEach((d) => { d.classList.owner = d; });
+  // 2026-10-12: 'config' và 'tools' gộp vào mục con "Kết nối" ('conn') — không còn nút riêng.
+  const btns = ['conn', 'webhook', 'sys']
     .map(k => ({ dataset: { ccSubtab: k }, className: '' }));
   globalThis.document = {
     getElementById: (id) => dom.find(d => d.id === id) || null,
@@ -97,24 +99,30 @@ function showToast() {}
   globalThis.loadBackgroundTasks = () => {};
   globalThis.loadWebhookAlerts = () => {};
 
-  const mod = harness + subtab + '\nexport { switchCcSubTab, CC_SUBTABS };';
+  const mod = harness + subtab + '\nexport { switchCcSubTab, CC_SUBTABS, CC_SUBTAB_GROUPS };';
   const dir = mkdtempSync(join(tmpdir(), 'cc-sub-'));
   const f = join(dir, 'm.mjs');
   writeFileSync(f, mod);
-  const { switchCcSubTab, CC_SUBTABS } = await import(pathToFileURL(f).href);
+  const { switchCcSubTab, CC_SUBTABS, CC_SUBTAB_GROUPS } = await import(pathToFileURL(f).href);
 
   results.push('\n▸ switchCcSubTab');
   // Phase 81/Enterprise: CC_SUBTABS có tối thiểu 6 sub-tab (nay có 8 sub-tab).
   check('có đủ các sub-tab', CC_SUBTABS.length >= 6, CC_SUBTABS.join(','));
   check('có sub-tab Máy Trạm', CC_SUBTABS.includes('devices'));
+  let configLoads = 0;
+  globalThis.loadConnectorConfigAll = () => { configLoads += 1; };
   switchCcSubTab('config');
-  check('bấm "config" -> nút config được làm nổi bật',
-    btns.find(b => b.dataset.ccSubtab === 'config').className.includes('bg-primary-600'));
-  check('bấm "config" -> gọi loadConnectorConfigAll', true);
+  check('đường dẫn cũ "config" -> nút "Kết nối" (conn) được làm nổi bật',
+    btns.find(b => b.dataset.ccSubtab === 'conn').className.includes('bg-primary-600'));
+  check('"Kết nối" gom cả ba khối: danh sách, cấu hình, chạy thử công cụ',
+    ['conn', 'config', 'tools'].every((k) => JSON.stringify(CC_SUBTAB_GROUPS[k]) === '["conn","config","tools"]') && !CC_SUBTAB_GROUPS.webhook);
+  check('mở mục "Kết nối" -> gọi loadConnectorConfigAll', configLoads === 1);
+  check('không còn nút riêng cho config / tools', CC_SUBTABS.includes('config') && !btns.some(b => ['config', 'tools'].includes(b.dataset.ccSubtab)));
   switchCcSubTab('bogus');
   check('tên sub-tab lạ bị bỏ qua (giữ nguyên tab đang mở)',
-    btns.find(b => b.dataset.ccSubtab === 'config').className.includes('bg-primary-600')
+    btns.find(b => b.dataset.ccSubtab === 'conn').className.includes('bg-primary-600')
     && btns.filter(b => b.className.includes('bg-primary-600')).length === 1);
+
   switchCcSubTab('sys');
   check('bấm "sys" -> nút sys nổi bật',
     btns.find(b => b.dataset.ccSubtab === 'sys').className.includes('bg-primary-600'));

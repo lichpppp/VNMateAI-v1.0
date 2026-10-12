@@ -55,7 +55,8 @@ const DevFleetUI = (() => {
     return `
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200 dark:border-slate-800">
       <div>
-        <p class="text-xs text-slate-600 dark:text-slate-300">VN-MateAI quản lý dự án điều phối Master-WorkNode</p>
+        <p class="text-xs text-slate-600 dark:text-slate-300">Giao việc phát triển cho cụm Mac mini / OpenClaw qua Ubuntu Master (lập lịch, duyệt, kiểm chứng).
+          Agent AI / MCP server khác của doanh nghiệp: tab <b>Cổng Agent</b>; hệ thống chỉ có API dữ liệu: tab <b>Tích hợp hệ thống</b>.</p>
       </div>
       <button type="button" data-df="refresh" class="${BTN} bg-primary-600 hover:bg-primary-700 text-white shrink-0">Làm mới</button>
     </div>
@@ -92,6 +93,10 @@ const DevFleetUI = (() => {
       <div class="${CARD}"><h3 class="text-sm font-bold mb-2 text-slate-800 dark:text-slate-100">Cần chú ý</h3><div id="df-brief" class="text-xs"></div>
         <h3 class="text-sm font-bold mt-4 mb-2 text-slate-800 dark:text-slate-100">Agent</h3><div id="df-agents" class="overflow-x-auto"></div></div>
     </div>
+    <div class="${CARD}"><h3 class="text-sm font-bold mb-1 text-slate-800 dark:text-slate-100">Trạm tự báo nhịp tim</h3>
+      <p class="text-[11px] text-slate-500 mb-2">Máy chạy <span class="font-mono">workers/remote_worker_daemon.py</span> tự gửi nhịp tim về máy chủ (không qua Master). <b>Chỉ theo dõi</b> —
+        giao việc cho Mac mini / OpenClaw đi qua Master ở trên; việc trên máy trạm dùng agent máy trạm (tab Tích hợp → Máy trạm).</p>
+      <div id="df-heartbeat" class="overflow-x-auto"></div></div>
 
     <div class="${CARD}"><h3 class="text-sm font-bold mb-2 text-slate-800 dark:text-slate-100">Tác vụ Dev</h3><div id="df-tasks" class="overflow-x-auto"></div></div>
 
@@ -252,8 +257,23 @@ const DevFleetUI = (() => {
       || '<span class="text-slate-400">Chưa có hoạt động.</span>';
   }
 
+  async function loadHeartbeat() {
+    const res = await apiFetch(`${API_BASE}/api/v1/worknodes/status`);
+    const data = await res.json().catch(() => ({}));
+    const box = $('df-heartbeat');
+    if (!res.ok) { box.innerHTML = `<p class="text-rose-600 text-[11px]">${e(apiErrorText(data, res.status))}</p>`; return; }
+    const nodes = ((data.grid || {}).nodes) || [];
+    box.innerHTML = nodes.length
+      ? `<table class="w-full text-xs"><thead><tr class="text-left text-slate-500 dark:text-slate-400"><th class="py-1 pr-3">Trạm</th><th class="pr-3">IP</th><th class="pr-3">Trạng thái</th><th class="pr-3">CPU / RAM</th><th class="pr-3">Năng lực</th><th>Nhịp tim cuối</th></tr></thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-slate-700/50">${nodes.map((n) => `<tr><td class="py-1 pr-3 font-mono">${e(n.node_id)}</td><td class="pr-3 font-mono">${e(n.ip)}</td>
+        <td class="pr-3 ${n.is_online ? 'text-emerald-600' : 'text-slate-500'}">${n.is_online ? e(n.status) : 'OFFLINE'}</td><td class="pr-3">${e(n.cpu_percent)}% / ${e(n.ram_percent)}%</td>
+        <td class="pr-3 text-[11px]">${e((n.capabilities || []).join(', '))}</td><td>${e(n.last_heartbeat_ago_sec)} s trước</td></tr>`).join('')}</tbody></table>`
+      : '<p class="text-xs text-slate-500 dark:text-slate-400">Chưa có trạm nào gửi nhịp tim.</p>';
+  }
+
   async function refresh() {
     if (!built) return;
+    loadHeartbeat().catch(() => {});
     const st = await api('/status');
     if (st.status === 403 || st.status === 401) { $('df-status').textContent = 'Bạn không có quyền xem Dev Fleet (cần vai trò manager hoặc admin).'; return; }
     if (!st.ok) { $('df-status').textContent = `Không tải được: ${fail(st)}`; return; }

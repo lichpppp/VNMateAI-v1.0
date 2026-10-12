@@ -251,3 +251,28 @@ def test_admin_api_permissions(monkeypatch):
     assert a.post(base + "/khong-co/status", json={"status": "suspended"}).status_code == 404
     assert a.get(base + "/bot").json()["has_token"] is True
     assert a.delete(base + "/bot").status_code == 200 and a.delete(base + "/bot").status_code == 404
+
+
+def test_directory_shows_dev_fleet_and_workstations_read_only(monkeypatch):
+    from mateai.application.devfleet.service import dev_fleet, DevFleetService
+    from mateai.interfaces.websocket.client_orchestrator import orchestrator
+    monkeypatch.setattr(DevFleetService, "mode", property(lambda self: "read_only"))
+    monkeypatch.setattr(dev_fleet, "_task_counts", lambda: {"total": 4})
+    monkeypatch.setattr(orchestrator, "get_connected_clients", lambda: [{"client_id": "c1", "hostname": "PC-KETOAN-01"}])
+    rows = {a["agent_id"]: a for a in d.list_all()}
+    assert rows["dev-fleet"]["kind"] == "devfleet" and rows["dev-fleet"]["mode"] == "read_only" and rows["dev-fleet"]["tasks"] == 4
+    assert rows["may-tram"]["online"] == 1 and rows["may-tram"]["names"] == ["PC-KETOAN-01"]
+    for reserved in ("dev-fleet", "may-tram"):
+        with pytest.raises(d.DirectoryError):
+            d.save(reserved, {"kind": "inbound"}, "admin")
+    with pytest.raises(d.DirectoryError):
+        d.set_status("dev-fleet", d.SUSPENDED, "admin")                                       # quản lý ở tab Dev Fleet
+
+
+def test_heartbeat_grid_only_monitors_and_never_hands_out_work():
+    from mateai.application.devices.elastic_grid_manager import ElasticGridManager
+    g = ElasticGridManager()
+    ack = g.record_heartbeat("mac-1", ip="10.0.0.5", cpu_percent=12.5)
+    assert ack["assigned_task"] is None and ack["grid_online_nodes"] == 1
+    assert not hasattr(g, "dispatch_or_standby") and "standby_queue_length" not in g.get_grid_overview()
+    assert g.get_grid_overview()["nodes"][0]["node_id"] == "mac-1"

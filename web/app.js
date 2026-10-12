@@ -13058,13 +13058,16 @@ function _ccSetStatus(el, ok, okText, idleText) {
 // Phase 81: thêm 'devices' — khối máy trạm 194 dòng trước đây nằm tràn dưới
 // sub-tab "Hệ Thống", kéo dài màn hình Tích Hợp bằng nội dung không liên quan.
 // Nay là sub-tab riêng và chỉ nạp dữ liệu khi bấm vào.
-const CC_SUBTABS = ['conn', 'departments', 'elastic-grid', 'config', 'webhook', 'tools', 'sys', 'devices'];
+const CC_SUBTABS = ['conn', 'departments', 'config', 'webhook', 'tools', 'sys', 'devices'];
+// 2026-10-12: ba mục cùng nói về connector (danh sách + sức khoẻ, cấu hình khoá, chạy thử công cụ) gộp thành MỘT mục con
+// "Kết nối": mở 'conn' / 'config' / 'tools' đều hiện cả ba khối, nút sáng là 'conn' (đường dẫn cũ vẫn dùng được).
+const CC_SUBTAB_GROUPS = { conn: ['conn', 'config', 'tools'], config: ['conn', 'config', 'tools'], tools: ['conn', 'config', 'tools'] };
+const CC_SUBTAB_BUTTON = { config: 'conn', tools: 'conn' };
 // Tên hiển thị của sub-tab cốt lõi (dùng cho ô phụ `cc-int-header-sub`).
 // Sub-tab mở rộng lấy tên từ `_ccSubTabConfig[id].title`.
 const CC_SUBTAB_LABELS = {
-  conn: 'Kết nối ngoại vi',
+  conn: 'Kết nối ngoại vi (danh sách, cấu hình, chạy thử)',
   departments: 'Quản trị phòng ban (No-Code)',
-  'elastic-grid': 'Hồ máy trạm (Elastic Grid)',
   config: 'Cấu hình kết nối',
   webhook: 'Webhook',
   tools: 'Công cụ',
@@ -13598,7 +13601,7 @@ function renderEmptyDataSourceTab(subTabId) {
  * (`loadCcDataSourceTab`) thay vì vá từng nơi gọi — sau này thêm nơi gọi thứ ba
  * thì vẫn an toàn.
  */
-const CC_HANDWRITTEN_SUBTABS = ['config', 'webhook', 'tools', 'sys', 'devices', 'departments', 'elastic-grid'];
+const CC_HANDWRITTEN_SUBTABS = ['config', 'webhook', 'tools', 'sys', 'devices', 'departments'];
 
 async function loadCcDataSourceTab(subTabId) {
   // Chặn trước mọi thứ: không vẽ nguồn dữ liệu lên pane viết tay (xem
@@ -14754,8 +14757,10 @@ function switchCcSubTab(name) {
   if (!CC_SUBTABS.includes(name) && !_ccSubTabExtensions.includes(name)) return;
 
   // Cập nhật button active state.
+  const _btnName = CC_SUBTAB_BUTTON[name] || name;
+  const _shown = CC_SUBTAB_GROUPS[name] || [name];
   document.querySelectorAll('[data-cc-subtab]').forEach((b) => {
-    const on = b.dataset.ccSubtab === name;
+    const on = b.dataset.ccSubtab === _btnName;
     b.className = on
       ? 'px-3 py-1.5 text-[11px] font-semibold rounded-lg bg-primary-600 text-white shadow-sm transition'
       : 'px-3 py-1.5 text-[11px] font-medium rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700/60 transition';
@@ -14764,7 +14769,7 @@ function switchCcSubTab(name) {
   // Hide/show sub-tab panes (cả CC_SUBTABS lẫn extensions).
   [...CC_SUBTABS, ..._ccSubTabExtensions].forEach((k) => {
     const pane = _ccGet('cc-int-' + k);
-    if (pane) pane.classList.toggle('hidden', k !== name);
+    if (pane) pane.classList.toggle('hidden', !_shown.includes(k));
   });
 
   // Phase 85: hiện tên sub-tab đang mở cạnh tiêu đề chung.
@@ -14778,7 +14783,7 @@ function switchCcSubTab(name) {
   const _ccSubLabel = _ccGet('cc-int-header-sub');
   if (_ccSubLabel) {
     const _cfg = _ccSubTabConfig[name];
-    _ccSubLabel.textContent = (_cfg && _cfg.title) || (CC_SUBTAB_LABELS[name] || name);
+    _ccSubLabel.textContent = (_cfg && _cfg.title && !CC_SUBTAB_GROUPS[name]) ? _cfg.title : (CC_SUBTAB_LABELS[_btnName] || name);
   }
 
   // Bộ hẹn giờ làm mới danh sách máy trạm chỉ chạy khi sub-tab đang mở.
@@ -14799,6 +14804,8 @@ function switchCcSubTab(name) {
   const isExtension = _ccSubTabExtensions.includes(name);
   const cfg2 = _ccSubTabConfig[name];
 
+  if (_shown.includes('config') && typeof loadConnectorConfigAll === 'function') loadConnectorConfigAll();
+  if (_shown.includes('conn') && name !== 'conn' && _ccSubTabConfig.conn && _ccSubTabConfig.conn.loadFn) _ccSubTabConfig.conn.loadFn();
   if (isExtension && cfg2 && cfg2.loadFn) {
     // Gọi loadFn để tạo/populate pane cho extension tab.
     cfg2.loadFn();
@@ -14807,15 +14814,7 @@ function switchCcSubTab(name) {
     // 'conn' KHÔNG ở đây: nó thuộc `_ccSubTabExtensions` nên đã đi nhánh
     // `loadFn` = `loadCcDataSourceTab`, và hàm đó gọi `renderConnectionCards()`.
     // Thêm lệnh ở đây sẽ là code chết — không chạy mà nhìn tưởng có chạy.
-    if (name === 'config') loadConnectorConfigAll();
     if (name === 'departments') loadEnterpriseDepartments();
-    if (name === 'elastic-grid') {
-      loadElasticGridManager();
-      if (_elasticGridTimer) clearInterval(_elasticGridTimer);
-      _elasticGridTimer = setInterval(loadElasticGridManager, 5000);
-    } else {
-      if (_elasticGridTimer) { clearInterval(_elasticGridTimer); _elasticGridTimer = null; }
-    }
     if (name === 'devices') loadDevices();
     if (name === 'sys') { loadPluginRegistryStats(); loadBackgroundTasks(); }
     if (name === 'webhook') loadWebhookAlerts();
@@ -15620,15 +15619,13 @@ if (typeof window !== 'undefined') {
   window.syncDeptDataNow = syncDeptDataNow;
   window.triggerEnterpriseCrossReport = triggerEnterpriseCrossReport;
   window.playCurrentVoiceSummary = playCurrentVoiceSummary;
-  window.loadElasticGridManager = loadElasticGridManager;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ── ENTERPRISE EVOLUTION: PHÒNG BAN & ELASTIC STANDBY GRID ────────────────
+// ── ENTERPRISE EVOLUTION: PHÒNG BAN ────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════
 
 let _currentVoiceSummaryText = '';
-let _elasticGridTimer = null;
 
 async function loadEnterpriseDepartments() {
   const container = document.getElementById('departments-list-grid');
@@ -15810,89 +15807,4 @@ function playCurrentVoiceSummary() {
   }
 }
 
-async function loadElasticGridManager() {
-  const totalEl = document.getElementById('grid-kpi-total');
-  const onlineEl = document.getElementById('grid-kpi-online');
-  const standbyEl = document.getElementById('grid-kpi-standby');
-  const cpuEl = document.getElementById('grid-kpi-cpu');
-  const listEl = document.getElementById('grid-nodes-list');
-
-  try {
-    const res = await apiFetch('/api/v1/worknodes/status');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const grid = data.grid || {};
-
-    if (totalEl) totalEl.textContent = grid.total_registered_nodes || 0;
-    if (onlineEl) onlineEl.textContent = grid.online_nodes_count || 0;
-    if (standbyEl) standbyEl.textContent = grid.standby_queue_length || 0;
-    if (cpuEl) cpuEl.textContent = `${grid.average_cpu_load || 0}%`;
-
-    const nodes = grid.nodes || [];
-    if (!listEl) return;
-
-    if (nodes.length === 0) {
-      listEl.innerHTML = `
-        <div class="col-span-full p-6 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-center space-y-2">
-          <div class="text-2xl">🍏</div>
-          <p class="text-xs text-slate-500 dark:text-slate-400">
-            Chưa có máy trạm Mac Mini nào gửi nhịp tim heartbeat.<br/>
-            Khởi động <code class="font-mono text-cyan-600 dark:text-cyan-400">workers/remote_worker_daemon.py</code> trên máy Mac Mini (đặt biến môi trường <code class="font-mono">VNMATE_ENROLLMENT_TOKEN</code> = <code class="font-mono">enrollment_token</code> trong config.json của gói tải agent) để node tự động hiển thị Online.
-          </p>
-        </div>`;
-      return;
-    }
-
-    listEl.innerHTML = nodes.map(n => {
-      const isOnline = n.is_online;
-      const statusBg = isOnline
-        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-        : 'bg-slate-500/10 text-slate-500 border-slate-500/30';
-      const pulseDot = isOnline
-        ? '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>'
-        : '<span class="w-2 h-2 rounded-full bg-slate-400"></span>';
-
-      return `
-        <div class="rounded-xl border ${isOnline ? 'border-emerald-500/30' : 'border-slate-200 dark:border-slate-700'} bg-white dark:bg-slate-800/80 p-4 shadow-sm space-y-3">
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex items-center gap-2.5">
-              <div class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-sm font-bold">🍏</div>
-              <div>
-                <h5 class="text-xs font-bold text-slate-900 dark:text-white font-mono">${escapeHtml(n.node_id)}</h5>
-                <span class="text-[10px] text-slate-400 font-mono">${escapeHtml(n.ip)}</span>
-              </div>
-            </div>
-            <span class="px-2 py-0.5 text-[9px] font-mono font-bold rounded border flex items-center gap-1.5 ${statusBg}">
-              ${pulseDot}
-              <span>${n.status}</span>
-            </span>
-          </div>
-
-          <div class="grid grid-cols-2 gap-2 text-[11px] py-1">
-            <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60">
-              <span class="text-[10px] text-slate-400 block">Tải CPU:</span>
-              <span class="font-mono font-bold text-slate-800 dark:text-slate-100">${n.cpu_percent}%</span>
-            </div>
-            <div class="p-2 rounded-lg bg-slate-50 dark:bg-slate-900/60">
-              <span class="text-[10px] text-slate-400 block">Tải RAM:</span>
-              <span class="font-mono font-bold text-slate-800 dark:text-slate-100">${n.ram_percent}%</span>
-            </div>
-          </div>
-
-          <div class="text-[10px] text-slate-500 dark:text-slate-400">
-            <span class="font-medium text-slate-700 dark:text-slate-300">Năng lực:</span>
-            <span class="font-mono text-cyan-600 dark:text-cyan-400">${(n.capabilities || []).join(', ')}</span>
-          </div>
-
-          <div class="flex items-center justify-between text-[10px] text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-700/60">
-            <span>Tác vụ đang chạy: <b>${n.active_tasks}</b></span>
-            <span>Ping: ${n.last_heartbeat_ago_sec}s trước</span>
-          </div>
-        </div>
-      `;
-    }).join('');
-  } catch (err) {
-    console.error('[ElasticGrid] Lỗi tải danh sách trạm:', err);
-  }
-}
 
