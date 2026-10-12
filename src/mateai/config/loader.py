@@ -506,6 +506,14 @@ class MonitoringConfig(BaseModel):
     disk_crit: float = 95.0
 
 
+class AgentGatewayConfig(BaseModel):
+    """Cổng nối agent / MCP server có sẵn của doanh nghiệp (docs/integrations/agent-gateway.md)."""
+    #: Cho phép MCP server kiểu stdio (máy chủ CHẠY một chương trình cục bộ). Mặc định tắt: bật khi thật sự cần.
+    allow_stdio: bool = False
+    #: Số công cụ tối đa nhận từ một MCP server (mỗi công cụ là một mục trong danh mục đưa cho model).
+    max_tools_per_server: int = Field(default=64, ge=1, le=500)
+
+
 class LlmOpsConfig(BaseModel):
     """Ngân sách dùng AI (token / tiền). 0 = không giới hạn. Mặc định chỉ CẢNH BÁO, chưa chặn."""
     #: off: không theo dõi hạn mức | warn: cảnh báo khi gần / vượt | block: từ chối lượt AI mới khi đã vượt
@@ -601,6 +609,9 @@ class AppSettings(BaseSettings):
 
     # Ngân sách AI + đánh giá chất lượng
     llmops: LlmOpsConfig = Field(default_factory=LlmOpsConfig)
+
+    # Cổng agent (MCP server ngoài)
+    agent_gateway: AgentGatewayConfig = Field(default_factory=AgentGatewayConfig)
 
     # Dev Fleet: điều phối cụm Dev (Ubuntu Master -> Mac mini/OpenClaw) — mặc định tắt
     dev_fleet: DevFleetConfig = Field(default_factory=DevFleetConfig)

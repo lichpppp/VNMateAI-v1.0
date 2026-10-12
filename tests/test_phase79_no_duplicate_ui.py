@@ -353,8 +353,8 @@ section("Số tab đã giảm và không còn tab rỗng")
 
 tabs = re.findall(r'<section[^>]*id="tab-([a-z0-9-]+)"', HTML)
 check(
-    "còn 12 tab (từ 12; Dev Fleet, Giám sát hạ tầng và Kịch bản là tab ngoại vi thêm sau)",
-    len(tabs) == 12 and "dev-fleet" in tabs and "infra-monitor" in tabs and "playbooks" in tabs,
+    "còn 13 tab (từ 12; Dev Fleet, Giám sát hạ tầng, Kịch bản và Cổng Agent là tab ngoại vi thêm sau)",
+    len(tabs) == 13 and "dev-fleet" in tabs and "infra-monitor" in tabs and "playbooks" in tabs and "agent-gateway" in tabs,
     f"hiện có {len(tabs)}: {tabs}",
 )
 navs = re.findall(r'id="nav-([a-z0-9-]+)"', HTML)

@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
         },
         "required": [],
     },
+    needs_desktop=True,  # mở cửa sổ / phát trên máy chủ: cần phiên đăng nhập có màn hình
 )
 def capture_screen_base64(quality: int = 65, max_width: int = 1280) -> Dict[str, Any]:
     """Capture screen, compress to in-memory JPEG, return Base64."""

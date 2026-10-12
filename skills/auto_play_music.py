@@ -148,7 +148,8 @@ def _open_in_browser(url: str) -> bool:
             }
         },
         "required": ["song_name"]
-    }
+    },
+    needs_desktop=True,  # mở cửa sổ / phát trên máy chủ: cần phiên đăng nhập có màn hình
 )
 def auto_play_music(song_name: str) -> Dict[str, Any]:
     """

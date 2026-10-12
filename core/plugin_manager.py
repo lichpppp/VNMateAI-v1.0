@@ -90,6 +90,7 @@ def export_skill(
     output_schema: Optional[Dict[str, Any]] = None,
     data_scope: Optional[str] = None,
     verification_required: Optional[bool] = None,
+    needs_desktop: Optional[bool] = None,
 ) -> Callable:
     """
     Decorator that marks a function as an exportable skill tool.
@@ -124,9 +125,12 @@ def export_skill(
         "output_schema": output_schema,
         "data_scope": data_scope,
         "verification_required": verification_required,
+        "needs_desktop": needs_desktop,
     }
 
     def decorator(func: Callable) -> Callable:
+        if contract["needs_desktop"] is None:
+            contract["needs_desktop"] = _uses_desktop(func)
         _DECORATOR_STAGING[func] = {
             "name": name,
             "description": description,
@@ -142,6 +146,18 @@ def export_skill(
         return func
 
     return decorator
+
+
+#: Mã gọi tới màn hình / phiên đăng nhập (mở trình duyệt, ứng dụng, chuột-bàn phím, chụp màn hình, clipboard).
+_DESKTOP_CALLS = re.compile(r"webbrowser\.|pyautogui|pynput|os\.startfile|ImageGrab|pyperclip|win32clipboard|win32gui|mss|Start-Process")
+
+
+def _uses_desktop(func: Callable) -> bool:
+    """Skill không khai `needs_desktop` (vd skill AI tự sinh): suy ra từ mã của chính hàm."""
+    try:
+        return bool(_DESKTOP_CALLS.search(inspect.getsource(func)))
+    except (OSError, TypeError):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +207,8 @@ class PluginManager:
         self._registry_json_path: Path = self._skills_dir / "registry.json"
         #: Tệp trong skills/ bị từ chối nạp vì có lệnh cấp module (tên tệp -> vi phạm).
         self.rejected_modules: Dict[str, List[str]] = {}
+        #: Kỹ năng ĐỘNG (không có tệp, vd công cụ của MCP server ngoài): giữ qua load_plugins(), không ghi registry.json.
+        self._dynamic: Dict[str, Dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -266,9 +284,14 @@ class PluginManager:
                         traceback.format_exc(),
                     )
 
+            self._persist_registry_of(new_registry)
+            for name, entry in self._dynamic.items():
+                if name in new_registry:
+                    logger.warning("Kỹ năng động '%s' trùng tên kỹ năng có tệp — giữ kỹ năng có tệp.", name)
+                    continue
+                new_registry[name] = entry
             self._registry = new_registry
             self.rejected_modules = rejected
-            self._persist_registry()
 
         # Phase 8: Dynamic Skill Loading — cập nhật chỉ mục bộ định tuyến kỹ năng động
         try:
@@ -283,6 +306,43 @@ class PluginManager:
             len(skill_files),
         )
         return loaded_count
+
+    def register_dynamic_skill(self, name: str, func: Callable, description: str, parameters: Dict[str, Any],
+                               *, source: str, contract: Optional[Dict[str, Any]] = None) -> bool:
+        """Thêm kỹ năng không có tệp (vd công cụ MCP). Trả False nếu trùng kỹ năng có tệp (không ghi đè)."""
+        self._ensure_loaded()
+        entry = {"func": func, "module": f"dynamic:{source}", "attr": name, "enabled": True, "dynamic": True, "source": source,
+                 "meta": {"name": name, "description": description, "parameters": parameters,
+                          "contract": {"data_classification": "INTERNAL", "reversible": None, "output_schema": None,
+                                       "data_scope": None, "verification_required": None, "needs_desktop": False, **(contract or {})}}}
+        with self._lock:
+            existing = self._registry.get(name)
+            if existing is not None and not existing.get("dynamic"):
+                return False
+            self._dynamic[name] = entry
+            self._registry[name] = entry
+        self._rebuild_router()
+        return True
+
+    def unregister_dynamic_skills(self, source: str) -> int:
+        """Gỡ mọi kỹ năng động của một nguồn. Trả số kỹ năng đã gỡ."""
+        with self._lock:
+            names = [n for n, e in self._dynamic.items() if e.get("source") == source]
+            for n in names:
+                self._dynamic.pop(n, None)
+                if (self._registry.get(n) or {}).get("dynamic"):
+                    self._registry.pop(n, None)
+        if names:
+            self._rebuild_router()
+        return len(names)
+
+    @staticmethod
+    def _rebuild_router() -> None:
+        try:
+            from mateai.application.skills.skill_router import dynamic_skill_router
+            dynamic_skill_router.rebuild_index()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("[PluginManager] Không cập nhật được chỉ mục bộ định tuyến: %s", exc)
 
     def _ensure_loaded(self) -> None:
         """Lazily load plugins if the registry is empty."""
@@ -547,6 +607,9 @@ def {name}(**kwargs) -> dict:
 
     def _persist_registry(self) -> None:
         """Write the current registry metadata (no callables) to registry.json."""
+        self._persist_registry_of(self._registry)
+
+    def _persist_registry_of(self, registry: Dict[str, Dict[str, Any]]) -> None:
         serialisable: Dict[str, Any] = {
             skill_name: {
                 "module": entry["module"],
@@ -554,7 +617,8 @@ def {name}(**kwargs) -> dict:
                 "meta": entry["meta"],
                 "enabled": entry.get("enabled", True),
             }
-            for skill_name, entry in self._registry.items()
+            for skill_name, entry in registry.items()
+            if not entry.get("dynamic")          # kỹ năng động không có tệp — không ghi
         }
         try:
             self._registry_json_path.write_text(

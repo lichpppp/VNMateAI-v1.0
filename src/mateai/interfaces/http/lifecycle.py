@@ -249,6 +249,27 @@ def _computer_use(ctx: StepContext) -> str:
     return f"{register_computer_use_tool().get('registered', 0)} tool"
 
 
+def _mcp_gateway(ctx: StepContext) -> str:
+    """Công cụ MCP đã lưu đăng ký ngay (AI thấy từ lượt đầu); kết nối lại + đồng bộ danh sách chạy nền."""
+    from mateai.application.agent_gateway import mcp_gateway
+    n = mcp_gateway.register_all_from_cache()
+    servers = len(mcp_gateway.list_servers())
+    if not servers:
+        return "chưa có MCP server"
+    spawn(mcp_gateway.refresh_all(), "mcp-refresh")
+    return f"{servers} server, {n} công cụ (đang đồng bộ lại)"
+
+
+def _desktop_session(ctx: StepContext) -> str:
+    """Báo sớm khi máy chủ chạy ở phiên nền: tool cần màn hình (mở trình duyệt, ứng dụng…) sẽ bị từ chối rõ ràng."""
+    from mateai.infrastructure.desktop_session import status
+    st = status(refresh=True)
+    if not st.get("interactive"):
+        logger.warning("[Desktop] %s — tool cần màn hình trên máy chủ sẽ bị từ chối; chạy bằng Start.bat trong phiên đăng nhập.", st.get("reason"))
+        return f"KHÔNG có màn hình: {st.get('reason')}"
+    return f"có màn hình ({st.get('reason')})"
+
+
 def _background_workers(ctx: StepContext) -> None:
     from mateai.application.operations.background_workers import background_worker_manager
     spawn(background_worker_manager.start(), "background-workers")
@@ -295,6 +316,8 @@ def default_steps() -> List[Step]:
         Step("infra_monitor", _infra_monitor),
         Step("playbooks", _playbooks),
         Step("computer_use_tool", _computer_use),
+        Step("desktop_session", _desktop_session),
+        Step("mcp_gateway", _mcp_gateway),
         Step("background_workers", _background_workers),
         Step("email_gateway", _email_gateway),
     ]

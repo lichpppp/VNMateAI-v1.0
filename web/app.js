@@ -258,6 +258,7 @@ const TAB_TITLES = {
   'dev-fleet': 'Dev Fleet — Cụm Master - WorkNode',
   'infra-monitor': 'Giám Sát Hạ Tầng — Prometheus · Grafana',
   'playbooks': 'Kịch Bản Vận Hành — chạy thử, duyệt, hoàn tác, kiểm chứng',
+  'agent-gateway': 'Cổng Agent — nối MCP server / agent có sẵn của doanh nghiệp',
 };
 
 // ─── Biểu tượng Kỹ năng SVG ───────────────────────────────────────────────
@@ -749,7 +750,7 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // sau đó 'command-center' cũng gộp vào 'dashboard'.
 // Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices /
 // #command-center sẽ tự rơi về dashboard thay vì mở một tab không có.
-const VALID_TABS = ['dashboard', 'infra-monitor', 'playbooks', 'dev-fleet', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
+const VALID_TABS = ['dashboard', 'infra-monitor', 'playbooks', 'agent-gateway', 'dev-fleet', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
 
 function getSavedTab() {
   const hash = (window.location.hash || '').replace('#', '').trim();
@@ -906,6 +907,7 @@ function switchTab(tabId) {
   if (tabId === 'dev-fleet' && typeof DevFleetUI !== 'undefined') DevFleetUI.onEnter();
   if (tabId === 'infra-monitor' && typeof InfraMonitorUI !== 'undefined') InfraMonitorUI.onEnter();
   if (tabId === 'playbooks' && typeof PlaybooksUI !== 'undefined') PlaybooksUI.onEnter();
+  if (tabId === 'agent-gateway' && typeof AgentGatewayUI !== 'undefined') AgentGatewayUI.onEnter();
   if (tabId === 'system-integration') loadSystemIntegration();
   if (tabId === 'ai-manager') { loadAIManagerConfig(); initAISubTabs(); }
   if (tabId === 'skills') loadSkills();

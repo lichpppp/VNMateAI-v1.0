@@ -47,6 +47,12 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - [ ] **Webhook giờ bị TỪ CHỐI nếu chưa có chữ ký** (2026-10-02). Khi tích hợp hệ thống gửi webhook, đặt `VNMATE_WEBHOOK_<NGUỒN>_SECRET` (`PAPERLESS`, `EINVOICE`, `CUSTOM`, `OCI`; AWS SNS dùng chứng chỉ ký). Chỉ khi cài đặt thử mới tạm bật `"security": {"allow_unsigned_webhooks": true}`.
 - [ ] Xoá trong nhóm Telegram tin cảnh báo thử "smoke" (2026-10-02 19:44) — do kiểm tra webhook trước khi chặn.
 
+## Thay đổi cần biết (2026-10-12)
+
+- **Tác vụ cần màn hình trên máy chủ** (mở trình duyệt / YouTube / ứng dụng, phát nhạc, chụp màn hình, clipboard) bị **từ chối rõ ràng** khi máy chủ chạy ở phiên nền (Windows Session 0, tác vụ đặt lịch không đăng nhập). Trước đây chúng báo "thành công" mà không cửa sổ nào hiện (sự cố 2026-10-08: AI tạo 39 kỹ năng gần giống nhau). Muốn mở cửa sổ trên máy chủ: chạy bằng `Start.bat` trong phiên Windows đang đăng nhập. Trạng thái hiện ở bước khởi động `desktop_session`.
+- **Tạo kỹ năng mới** (`create_new_skill`): tối đa 3 lần / 10 phút cho mỗi người / thiết bị.
+- **Cổng Agent** (tab mới): nối MCP server có sẵn của doanh nghiệp — xem `docs/integrations/agent-gateway.md`.
+
 ## Thay đổi cần biết (2026-10-03)
 
 - **Chỉ admin duyệt được tác vụ rủi ro cao** (portal, HUD, panel HITL, Telegram, câu "đồng ý"). Manager không còn duyệt được. Danh sách chờ duyệt và nhật ký audit cũng chỉ admin xem.

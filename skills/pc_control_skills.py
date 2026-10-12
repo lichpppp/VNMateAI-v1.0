@@ -351,6 +351,7 @@ def kill_process(name: str = "", pid: int = 0, force: bool = False) -> Dict[str,
         },
         "required": ["target"],
     },
+    needs_desktop=True,  # mở cửa sổ / phát trên máy chủ: cần phiên đăng nhập có màn hình
 )
 def open_application(target: str, args: Optional[List[str]] = None) -> Dict[str, Any]:
     """Open an application, file, or URL using the OS default handler."""

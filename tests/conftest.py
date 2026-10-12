@@ -66,6 +66,7 @@ _PROTECTED_FILES = [
     ROOT / "users.json",
     ROOT / "skills" / "registry.json",
     ROOT / "config" / "data_sources.json",
+    ROOT / "config" / "mcp_servers.json",
 ]
 
 #: Nhãn cho các file script (không gắn được decorator vào file script).

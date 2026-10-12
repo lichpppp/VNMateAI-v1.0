@@ -14,11 +14,37 @@ Cho phép Trợ lý AI và người dùng:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+import threading
+import time
+from collections import deque
+from typing import Any, Deque, Dict, Optional
 
 from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)
+
+#: Mỗi danh tính tạo tối đa CREATE_LIMIT kỹ năng trong CREATE_WINDOW_S giây. Sự cố 2026-10-08: cửa sổ không hiện (máy chủ ở phiên
+#: nền), AI tưởng thiếu kỹ năng và gọi create_new_skill 39 lần trong 30 phút, sinh nhiều kỹ năng gần giống nhau.
+CREATE_LIMIT = 3
+CREATE_WINDOW_S = 600
+_recent: Dict[str, Deque[float]] = {}
+_recent_lock = threading.Lock()
+
+
+def _creation_slot(principal: str) -> Optional[str]:
+    """None = được tạo (đã ghi nhận lượt); chuỗi = lý do từ chối."""
+    now = time.monotonic()
+    with _recent_lock:
+        q = _recent.setdefault(principal, deque())
+        while q and now - q[0] > CREATE_WINDOW_S:
+            q.popleft()
+        if len(q) >= CREATE_LIMIT:
+            wait = int(CREATE_WINDOW_S - (now - q[0])) + 1
+            return (f"Đã tạo {len(q)} kỹ năng trong {CREATE_WINDOW_S // 60} phút — dừng tạo thêm (thử lại sau {wait} s). "
+                    "Nếu kỹ năng có sẵn đã chạy mà kết quả không như mong muốn, hãy báo người dùng lý do cụ thể "
+                    "(lỗi trả về, máy chủ không có màn hình…) thay vì tạo kỹ năng mới gần giống.")
+        q.append(now)
+    return None
 
 
 @export_skill(
@@ -53,6 +79,11 @@ def create_new_skill(intent_description: str, skill_name: Optional[str] = None) 
     Toàn bộ quy trình ở `meta_architect.create_skill` (một nơi duy nhất).
     `skill_name` trả về là TÊN CÔNG CỤ đã đăng ký (lấy từ mã đã nạp).
     """
+    from mateai.application.security.security_guard import CURRENT_PRINCIPAL
+    refused = _creation_slot(str(CURRENT_PRINCIPAL.get() or "unknown"))
+    if refused:
+        logger.warning("[MetaSkills] Từ chối create_new_skill: %s", refused)
+        return {"status": "error", "code": "SKILL_CREATION_RATE_LIMITED", "message": refused}
     from mateai.application.skills.meta_architect import meta_architect
     return meta_architect.create_skill(intent_description, skill_name=skill_name)
 

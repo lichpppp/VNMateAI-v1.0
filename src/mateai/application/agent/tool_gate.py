@@ -33,6 +33,32 @@ TOOL_KIND = "tool"
 
 _LOCAL_TARGETS = ("master", "local", "server", "chính", "cục bộ")
 
+#: Tool của Plugin Registry (không qua `@export_skill`) cần màn hình khi chạy trên máy chủ.
+_DESKTOP_REGISTRY_TOOLS = frozenset({"tool_execute_gui_task"})
+
+
+def _desktop_problem(fn_name: str) -> Optional[Dict[str, Any]]:
+    """Tool cần màn hình (`needs_desktop`) mà máy chủ chạy ở phiên nền -> kết quả lỗi rõ ràng; None = chạy được.
+
+    Không chặn thì tool vẫn báo "thành công" nhưng không ai thấy cửa sổ, và AI tự tạo kỹ năng mới liên tục (sự cố 2026-10-08).
+    """
+    try:
+        from core.plugin_manager import plugin_manager
+        needs = fn_name in _DESKTOP_REGISTRY_TOOLS or bool((plugin_manager.get_tool_contract(fn_name) or {}).get("needs_desktop"))
+        if not needs:
+            return None
+        from mateai.infrastructure.desktop_session import status
+        st = status()
+    except Exception:  # noqa: BLE001 — không kiểm được thì không chặn
+        return None
+    if st.get("interactive"):
+        return None
+    msg = (f"Không chạy '{fn_name}' trên máy chủ: {st.get('reason')}. Đây KHÔNG phải do thiếu kỹ năng — đừng tạo kỹ năng mới. "
+           "Hãy nói với người dùng: chạy VN-MateAI trong phiên Windows đang đăng nhập (Start.bat) để mở được cửa sổ trên máy chủ, "
+           "hoặc chọn một máy trạm đang online (list_online_workstations rồi gọi lại với target_client).")
+    return {"status": "error", "success": False, "code": "DESKTOP_UNAVAILABLE", "error": msg, "message": msg,
+            "desktop": {k: st.get(k) for k in ("session_id", "console_session_id", "reason")}}
+
 
 def _topo(kind: str, **kw: Any) -> None:
     try:
@@ -213,7 +239,16 @@ async def _run_tool_with_policy(
     if decision.rule == "delegated":
         security_engine.log_audit(str(caller), fn_name, str(decision.risk), "APPROVAL_REMEMBERED", audit_ctx)
 
-    if target_client.lower() in ("master", "local", "server", "chính", "cục bộ"):
+    if target_client.lower() in _LOCAL_TARGETS:
+        _desk = _desktop_problem(fn_name)
+        if _desk:
+            logger.warning("[Desktop] Từ chối %s: %s", fn_name, _desk["desktop"].get("reason"))
+            ledger.record_step(op_task, tool=fn_name, target=target_client, args=fn_args, decision=decision, result=_desk,
+                               verification={"level": "NONE", "status": "failed", "checks": [_desk["error"]]})
+            security_engine.log_audit(str(caller), fn_name, str(decision.risk), "FAILED", {**audit_ctx, "reason": "DESKTOP_UNAVAILABLE"})
+            return _done(_desk)
+
+    if target_client.lower() in _LOCAL_TARGETS:
         _plugin_registry = None
         if registry_names is None:
             try:

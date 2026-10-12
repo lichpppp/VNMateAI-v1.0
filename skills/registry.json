@@ -22,7 +22,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -53,7 +54,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -73,7 +75,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -109,7 +112,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -129,7 +133,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -157,7 +162,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -184,7 +190,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -211,7 +218,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -233,7 +241,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -254,7 +263,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -284,7 +294,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": true
       }
     },
     "enabled": true
@@ -312,7 +323,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": true
       }
     },
     "enabled": true
@@ -337,7 +349,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -363,7 +376,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -389,7 +403,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -427,7 +442,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -470,7 +486,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -513,7 +530,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -538,7 +556,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -558,7 +577,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -596,7 +616,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -628,7 +649,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -668,7 +690,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -694,7 +717,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -738,7 +762,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -775,7 +800,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -802,7 +828,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -905,7 +932,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -926,7 +954,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -947,7 +976,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -975,7 +1005,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1001,7 +1032,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1029,7 +1061,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1062,7 +1095,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1100,7 +1134,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1128,7 +1163,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1156,7 +1192,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1219,7 +1256,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1259,7 +1297,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1295,7 +1334,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1335,7 +1375,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1384,7 +1425,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1412,7 +1454,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1443,7 +1486,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1464,7 +1508,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1490,7 +1535,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1522,7 +1568,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1568,7 +1615,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1601,7 +1649,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1636,7 +1685,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1666,7 +1716,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1699,7 +1750,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1751,7 +1803,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1783,7 +1836,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1811,7 +1865,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1839,7 +1894,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1894,7 +1950,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -1955,7 +2012,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2032,7 +2090,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2062,7 +2121,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2103,7 +2163,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2150,7 +2211,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2187,7 +2249,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2216,7 +2279,88 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
+      }
+    },
+    "enabled": true
+  },
+  "get_ai_budget_status": {
+    "module": "skills.llmops_tools",
+    "attr": "get_ai_budget_status",
+    "meta": {
+      "name": "get_ai_budget_status",
+      "description": "Xem ngân sách AI: chế độ (off / warn / block), hạn mức token / chi phí theo ngày, tháng, người và mức đã dùng. Cách hỏi: 'còn bao nhiêu hạn mức AI', 'ngân sách AI hôm nay', 'sao AI báo hết hạn mức'.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null,
+        "needs_desktop": false
+      }
+    },
+    "enabled": true
+  },
+  "get_ai_eval_results": {
+    "module": "skills.llmops_tools",
+    "attr": "get_ai_eval_results",
+    "meta": {
+      "name": "get_ai_eval_results",
+      "description": "Xem kết quả các lần chạy bộ đánh giá chất lượng AI: tỉ lệ đạt, so với lần trước, ca nào bị TỤT (đạt → hỏng). Truyền run_id để xem chi tiết một lần chạy. Đạt nghĩa là thỏa các điều kiện quản trị viên đã viết, không chứng minh gì thêm.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "set_id": {
+            "type": "string",
+            "description": "Lọc theo bộ kiểm"
+          },
+          "run_id": {
+            "type": "string",
+            "description": "Chi tiết một lần chạy"
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null,
+        "needs_desktop": false
+      }
+    },
+    "enabled": true
+  },
+  "get_ai_usage": {
+    "module": "skills.llmops_tools",
+    "attr": "get_ai_usage",
+    "meta": {
+      "name": "get_ai_usage",
+      "description": "Xem mức dùng AI thật (token, số lượt, chi phí theo giá đã khai) trong N ngày gần nhất, theo model và theo người. Cách hỏi: 'tháng này dùng AI hết bao nhiêu', 'tốn bao nhiêu token', 'ai dùng AI nhiều nhất', 'chi phí AI'. Nếu có token chưa khai giá thì phải nói rõ phần đó chưa quy ra tiền.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "integer",
+            "description": "Số ngày gần nhất (1–365), mặc định 30"
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2248,7 +2392,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2274,7 +2419,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2295,7 +2441,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2327,7 +2474,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": true
       }
     },
     "enabled": true
@@ -2348,7 +2496,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2384,7 +2533,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2411,7 +2561,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2448,7 +2599,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2469,7 +2621,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2502,7 +2655,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2540,7 +2694,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2573,7 +2728,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2617,7 +2773,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2650,7 +2807,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2698,7 +2856,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2736,7 +2895,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2793,7 +2953,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2814,7 +2975,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": true
       }
     },
     "enabled": true
@@ -2841,7 +3003,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2868,7 +3031,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2911,7 +3075,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -2947,7 +3112,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": true
       }
     },
     "enabled": true
@@ -2980,7 +3146,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3023,7 +3190,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3051,7 +3219,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": true
       }
     },
     "enabled": true
@@ -3086,7 +3255,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3116,7 +3286,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3143,7 +3314,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3164,7 +3336,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3198,7 +3371,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3236,7 +3410,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3256,7 +3431,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3291,7 +3467,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3331,7 +3508,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3370,7 +3548,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3418,7 +3597,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3450,7 +3630,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3505,7 +3686,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
@@ -3531,7 +3713,8 @@
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
-        "verification_required": null
+        "verification_required": null,
+        "needs_desktop": false
       }
     },
     "enabled": true
