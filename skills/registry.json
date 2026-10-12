@@ -3081,6 +3081,51 @@
     },
     "enabled": true
   },
+  "media_control": {
+    "module": "skills.pc_control_skills",
+    "attr": "media_control",
+    "meta": {
+      "name": "media_control",
+      "description": "Điều khiển trình phát nhạc / video đang mở trên máy chủ bằng phím media của hệ điều hành (YouTube trên Chrome, Spotify, VLC…): phát tiếp / tạm dừng, bài tiếp theo, bài trước, dừng, tắt / bật tiếng, tăng / giảm âm lượng. Người dùng thường nói: 'phát tiếp nhạc', 'tạm dừng video', 'bật lại bài hát đang dừng', 'chuyển bài', 'bài tiếp theo', 'tắt tiếng'. English: play pause media, resume youtube, next track, previous track, mute.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "mute",
+              "next",
+              "play_pause",
+              "previous",
+              "stop",
+              "volume_down",
+              "volume_up"
+            ],
+            "description": "play_pause (phát tiếp / tạm dừng), next, previous, stop, mute, volume_up, volume_down."
+          },
+          "times": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "default": 1,
+            "description": "Số lần nhấn (vd tăng âm lượng 3 nấc)."
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null,
+        "needs_desktop": true
+      }
+    },
+    "enabled": true
+  },
   "open_application": {
     "module": "skills.pc_control_skills",
     "attr": "open_application",
