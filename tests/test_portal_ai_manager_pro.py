@@ -20,7 +20,7 @@ def test_subtabs_cover_every_card():
     tab = HTML[HTML.index('id="tab-ai-manager"'):HTML.index('id="tab-skills"')]
     subs = set(re.findall(r'data-ai-sub="([a-z]+)"', tab))
     buttons = set(re.findall(r'data-ai-subtab="([a-z]+)"', tab))
-    assert subs == {"brain", "persona", "audio", "templates", "ops"}
+    assert subs == {"brain", "persona", "audio", "templates", "ops", "llmops"}   # llmops: Chi phí & Đánh giá (web/llmops.js)
     assert buttons == subs | {"all"}
     assert 'id="ai-col-left"' in tab and 'id="ai-col-right"' in tab
     for fn in ("showAISubTab", "runAIPreview", "loadAIModelStats", "loadConfigHistory",

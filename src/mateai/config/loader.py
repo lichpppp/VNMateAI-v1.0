@@ -506,6 +506,23 @@ class MonitoringConfig(BaseModel):
     disk_crit: float = 95.0
 
 
+class LlmOpsConfig(BaseModel):
+    """Ngân sách dùng AI (token / tiền). 0 = không giới hạn. Mặc định chỉ CẢNH BÁO, chưa chặn."""
+    #: off: không theo dõi hạn mức | warn: cảnh báo khi gần / vượt | block: từ chối lượt AI mới khi đã vượt
+    budget_mode: str = "warn"
+    daily_token_limit: int = Field(default=0, ge=0)
+    user_daily_token_limit: int = Field(default=0, ge=0)
+    #: Tiền chỉ tính cho model ĐÃ khai giá trong llm.model_registry (không đoán giá).
+    daily_cost_limit: float = Field(default=0.0, ge=0.0)
+    monthly_cost_limit: float = Field(default=0.0, ge=0.0)
+    #: Tỉ lệ dùng bắt đầu cảnh báo (0.8 = 80 %).
+    warn_ratio: float = Field(default=0.8, gt=0.0, le=1.0)
+    #: Số lượt tối đa trong một lần chạy bộ đánh giá.
+    eval_max_cases: int = Field(default=50, ge=1, le=500)
+    #: Xin token ở cuối stream giọng nói (`stream_options.include_usage`). Tắt nếu router / model từ chối tham số này.
+    stream_usage: bool = True
+
+
 class SsoConfig(BaseModel):
     """Đăng nhập một lần OpenID Connect (Azure AD / Entra, Keycloak, Okta, Google Workspace…). Mặc định TẮT."""
     enabled: bool = False
@@ -581,6 +598,9 @@ class AppSettings(BaseSettings):
 
     # Đăng nhập một lần OIDC
     sso: SsoConfig = Field(default_factory=SsoConfig)
+
+    # Ngân sách AI + đánh giá chất lượng
+    llmops: LlmOpsConfig = Field(default_factory=LlmOpsConfig)
 
     # Dev Fleet: điều phối cụm Dev (Ubuntu Master -> Mac mini/OpenClaw) — mặc định tắt
     dev_fleet: DevFleetConfig = Field(default_factory=DevFleetConfig)

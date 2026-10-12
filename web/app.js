@@ -860,6 +860,7 @@ function switchTab(tabId) {
   if (typeof DevFleetUI !== 'undefined' && tabId !== 'dev-fleet') DevFleetUI.onLeave();
   if (typeof InfraMonitorUI !== 'undefined' && tabId !== 'infra-monitor') InfraMonitorUI.onLeave();
   if (typeof PlaybooksUI !== 'undefined' && tabId !== 'playbooks') PlaybooksUI.onLeave();
+  if (typeof LlmOpsUI !== 'undefined' && tabId !== 'ai-manager') LlmOpsUI.onLeave();
   // Phase 85: dừng bộ hẹn giờ 10s của danh sách máy trạm khi rời tab Tích Hợp.
   // Bật lại khi quay lại tab và bấm sub-tab Máy Trạm (`switchCcSubTab`).
   if (typeof _devicesPollStop === 'function' && tabId !== 'system-integration') {
@@ -5302,6 +5303,7 @@ function showAISubTab(name) {
   });
   try { localStorage.setItem('vnmate_ai_subtab', name); } catch (_) { /* chế độ riêng tư */ }
   if (name === 'ops' || all) { loadAIModelStats(); loadConfigHistory(); }
+  if (typeof LlmOpsUI !== 'undefined') { if (name === 'llmops' || all) LlmOpsUI.onEnter(); else LlmOpsUI.onLeave(); }
 }
 
 function initAISubTabs() {

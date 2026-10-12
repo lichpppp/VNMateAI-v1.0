@@ -317,6 +317,42 @@ class DatabaseManager:
                             updated_by TEXT,
                             updated_at TEXT NOT NULL
                         );
+                        CREATE TABLE IF NOT EXISTS llm_usage (
+                            usage_id TEXT PRIMARY KEY,
+                            ts TEXT NOT NULL,
+                            day TEXT NOT NULL,
+                            principal TEXT,
+                            model TEXT,
+                            prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                            completion_tokens INTEGER NOT NULL DEFAULT 0,
+                            total_tokens INTEGER NOT NULL DEFAULT 0,
+                            cost REAL,
+                            task_id TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_llm_usage_day ON llm_usage(day);
+                        CREATE TABLE IF NOT EXISTS ai_eval_sets (
+                            set_id TEXT PRIMARY KEY,
+                            name TEXT NOT NULL,
+                            cases_json TEXT NOT NULL,
+                            created_by TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS ai_eval_runs (
+                            run_id TEXT PRIMARY KEY,
+                            set_id TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            actor TEXT,
+                            models TEXT,
+                            passed INTEGER NOT NULL DEFAULT 0,
+                            total INTEGER NOT NULL DEFAULT 0,
+                            total_tokens INTEGER NOT NULL DEFAULT 0,
+                            results_json TEXT,
+                            error TEXT,
+                            created_at TEXT NOT NULL,
+                            finished_at TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_ai_eval_runs_set ON ai_eval_runs(set_id);
                         CREATE INDEX IF NOT EXISTS idx_pb_runs_pb ON pb_runs(playbook_id);
                         CREATE INDEX IF NOT EXISTS idx_pb_runs_status ON pb_runs(status);
                         CREATE TABLE IF NOT EXISTS voice_traces (
@@ -1101,7 +1137,8 @@ class DatabaseManager:
 
     # Dùng chung cho Dev Fleet và Kịch bản vận hành (pb_*): cùng một bộ hàm CRUD có danh sách bảng cho phép.
     _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id",
-                   "pb_playbooks": "playbook_id", "pb_runs": "run_id", "rag_doc_acl": "doc_name"}
+                   "pb_playbooks": "playbook_id", "pb_runs": "run_id", "rag_doc_acl": "doc_name",
+                   "llm_usage": "usage_id", "ai_eval_sets": "set_id", "ai_eval_runs": "run_id"}
 
     def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
         if table not in self._DEV_TABLES:
@@ -1122,6 +1159,35 @@ class DatabaseManager:
                 conn.execute(f"UPDATE {table} SET {sets} WHERE {self._DEV_TABLES[table]} = ?;",
                              [*fields.values(), key_value])
                 conn.commit()
+
+    def llm_usage_sum(self, since_day: str, principal: Optional[str] = None) -> Dict[str, Any]:
+        """Tổng token / tiền / số lượt từ `since_day` (YYYY-MM-DD, gồm cả ngày đó). Tiền chỉ cộng dòng đã có giá."""
+        sql = ("SELECT COALESCE(SUM(total_tokens), 0) AS tokens, COALESCE(SUM(cost), 0) AS cost, COUNT(*) AS calls, "
+               "COALESCE(SUM(CASE WHEN cost IS NULL THEN total_tokens ELSE 0 END), 0) AS unpriced_tokens FROM llm_usage WHERE day >= ?")
+        params: List[Any] = [since_day]
+        if principal is not None:
+            sql += " AND principal = ?"
+            params.append(principal)
+        with self._get_connection() as conn:
+            row = conn.execute(sql + ";", params).fetchone()
+        r = dict(row)
+        return {"tokens": int(r["tokens"] or 0), "cost": float(r["cost"] or 0.0), "calls": int(r["calls"] or 0),
+                "unpriced_tokens": int(r["unpriced_tokens"] or 0)}
+
+    def llm_usage_group(self, since_day: str, group_by: str, limit: int = 100) -> List[Dict[str, Any]]:
+        """Gộp theo day | model | principal (chỉ ba cột này)."""
+        if group_by not in ("day", "model", "principal"):
+            raise ValueError(group_by)
+        order = "day ASC" if group_by == "day" else "tokens DESC"
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT {group_by} AS key, COALESCE(SUM(total_tokens), 0) AS tokens, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "
+                f"COALESCE(SUM(completion_tokens), 0) AS completion_tokens, COALESCE(SUM(cost), 0) AS cost, COUNT(*) AS calls, "
+                f"COALESCE(SUM(CASE WHEN cost IS NULL THEN total_tokens ELSE 0 END), 0) AS unpriced_tokens "
+                f"FROM llm_usage WHERE day >= ? GROUP BY {group_by} ORDER BY {order} LIMIT ?;", (since_day, int(limit))).fetchall()
+        return [{"key": r["key"], "tokens": int(r["tokens"] or 0), "prompt_tokens": int(r["prompt_tokens"] or 0),
+                 "completion_tokens": int(r["completion_tokens"] or 0), "cost": float(r["cost"] or 0.0), "calls": int(r["calls"] or 0),
+                 "unpriced_tokens": int(r["unpriced_tokens"] or 0)} for r in map(dict, rows)]
 
     def dev_delete(self, table: str, key_value: str) -> int:
         if table not in self._DEV_TABLES:

@@ -15,7 +15,7 @@
 
   <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/). Trước đây là
        cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở trang, cần Internet. -->
-  <link rel="stylesheet" href="/static/tailwind.css?v=8" />
+  <link rel="stylesheet" href="/static/tailwind.css?v=9" />
   <link rel="stylesheet" href="/static/ui-polish.css?v=3" />
 
   <!-- Instant Theme Script to avoid FOUC -->
@@ -3184,6 +3184,7 @@
         <button type="button" data-ai-subtab="audio" onclick="showAISubTab('audio')" class="ai-subtab px-3 py-2 rounded-lg">🎙️ Âm thanh</button>
         <button type="button" data-ai-subtab="templates" onclick="showAISubTab('templates')" class="ai-subtab px-3 py-2 rounded-lg">📄 Mẫu báo cáo</button>
         <button type="button" data-ai-subtab="ops" onclick="showAISubTab('ops')" class="ai-subtab px-3 py-2 rounded-lg">📈 Giám sát & Lịch sử</button>
+        <button type="button" data-ai-subtab="llmops" onclick="showAISubTab('llmops')" class="ai-subtab px-3 py-2 rounded-lg">💰 Chi phí & Đánh giá</button>
         <button type="button" data-ai-subtab="all" onclick="showAISubTab('all')" class="ai-subtab px-3 py-2 rounded-lg ml-auto text-slate-400">Xem tất cả</button>
       </div>
 
@@ -4194,6 +4195,9 @@
           </div>
         </div>
       </div>
+
+      <!-- CARD: MỨC DÙNG AI, NGÂN SÁCH, ĐÁNH GIÁ CHẤT LƯỢNG (web/llmops.js, docs/ai/llmops.md) -->
+      <div data-ai-sub="llmops" id="llmops-root" class="space-y-4"></div>
 
       <!-- CARD: GIÁM SÁT HIỆU NĂNG & LỊCH SỬ CẤU HÌNH -->
       <div data-ai-sub="ops" class="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -7948,8 +7952,9 @@
   <script src="/static/auth-sso.js?v=1"></script>
   <script src="/static/infra-monitor.js?v=2"></script>
   <script src="/static/playbooks.js?v=1"></script>
+  <script src="/static/llmops.js?v=1"></script>
   <script src="/static/dev-fleet.js?v=3"></script>
-  <script src="/static/app.js?v=57.5"></script>
+  <script src="/static/app.js?v=57.6"></script>
 </body>
 
 </html>

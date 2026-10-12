@@ -48,6 +48,26 @@ class LLMStreamChunk:
     role: str = "assistant"
     reasoning: Optional[str] = None
     ttft_ms: Optional[int] = None
+    #: Token thật của cả lần stream (chunk cuối, khi nhà cung cấp hỗ trợ `stream_options.include_usage`).
+    usage: Optional[Dict[str, int]] = None
+
+
+def _stream_usage_option(kwargs_api: Dict[str, Any]) -> None:
+    """Xin nhà cung cấp báo token ở cuối stream (chuẩn OpenAI). Tắt bằng `llmops.stream_usage` nếu router từ chối tham số này."""
+    try:
+        from mateai.config.loader import settings
+        if settings.llmops.stream_usage:
+            kwargs_api["stream_options"] = {"include_usage": True}
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _chunk_usage(chunk: Any) -> Optional[Dict[str, int]]:
+    u = getattr(chunk, "usage", None)
+    if not u:
+        return None
+    pin, pout = int(getattr(u, "prompt_tokens", 0) or 0), int(getattr(u, "completion_tokens", 0) or 0)
+    return {"prompt_tokens": pin, "completion_tokens": pout} if (pin or pout) else None
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +264,7 @@ class DirectLLMProvider(BaseLLMProvider):
             "temperature": temperature,
             "stream": True,
         }
+        _stream_usage_option(kwargs_api)
         if tools:
             kwargs_api["tools"] = tools
             kwargs_api["tool_choice"] = "auto"
@@ -258,8 +279,11 @@ class DirectLLMProvider(BaseLLMProvider):
         )
 
         async for chunk in stream:
+            usage = _chunk_usage(chunk)
             choice = chunk.choices[0] if chunk.choices else None
             if not choice:
+                if usage:
+                    yield LLMStreamChunk(model=self.model, usage=usage)
                 continue
 
             delta = choice.delta
@@ -289,6 +313,7 @@ class DirectLLMProvider(BaseLLMProvider):
                 model=self.model,
                 reasoning=reasoning,
                 ttft_ms=ttft,
+                usage=usage,
             )
 
     async def complete(
@@ -385,6 +410,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 "stream": True,
                 "extra_body": {"thinking": {"budget_tokens": 0}},
             }
+            _stream_usage_option(kwargs_api)
             if tools:
                 kwargs_api["tools"] = tools
                 kwargs_api["tool_choice"] = "auto"
@@ -429,8 +455,11 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 yield c
 
         async for chunk in _chunks():
+            usage = _chunk_usage(chunk)
             choice = chunk.choices[0] if chunk.choices else None
             if not choice:
+                if usage:
+                    yield LLMStreamChunk(model=used_model, usage=usage)
                 continue
 
             delta = choice.delta
@@ -460,6 +489,7 @@ class NineRouterLLMProvider(BaseLLMProvider):
                 model=used_model,
                 reasoning=reasoning,
                 ttft_ms=ttft,
+                usage=usage,
             )
 
     @staticmethod

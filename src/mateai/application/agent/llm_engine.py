@@ -497,15 +497,19 @@ def _accumulate_tool_calls(acc: Dict[int, Dict[str, str]], deltas: List[Dict[str
         entry["arguments"] += d.get("arguments") or ""
 
 
-async def _finish_streamed_tool_calls(stream: Any, acc: Dict[int, Dict[str, str]]) -> Optional[List[Dict[str, str]]]:
+async def _finish_streamed_tool_calls(stream: Any, acc: Dict[int, Dict[str, str]],
+                                      usage_out: Optional[Dict[str, int]] = None) -> Optional[List[Dict[str, str]]]:
     """Đọc nốt stream để có ĐỦ tham số các lời gọi tool rồi đóng stream.
 
     Trả None (vòng agent tự hỏi model) khi stream lỗi / quá hạn, hoặc lời gọi
-    nào thiếu tên hay tham số không phải JSON object.
+    nào thiếu tên hay tham số không phải JSON object. `usage_out` nhận token
+    nhà cung cấp báo ở chunk cuối (nếu có) để tính vào mức dùng AI.
     """
     async def _drain() -> None:
         async for chunk in stream:
             _accumulate_tool_calls(acc, chunk.tool_calls)
+            if usage_out is not None and getattr(chunk, "usage", None):
+                usage_out.update(chunk.usage)
 
     calls: Optional[List[Dict[str, str]]] = None
     try:
@@ -841,6 +845,12 @@ class LLMEngine:
             return {"reply": _msg, "speech_reply": _msg, "tool_calls_made": [], "success": False,
                     "error": "rate_limited", "retry_after_s": round(_wait, 1)}
 
+        # Ngân sách AI (docs/ai/llmops.md): chế độ `block` + đã vượt hạn mức -> không gọi model.
+        from mateai.application.llmops import usage as _llm_usage
+        _blocked = _llm_usage.check(caller or source_device or session_id)
+        if _blocked:
+            return {"reply": _blocked, "speech_reply": _blocked, "tool_calls_made": [], "success": False, "error": "budget_exceeded"}
+
         raw_tools = plugin_manager.get_all_tools()
 
         # Phase 60/6: Plugin Registry KHÔNG còn là danh mục tool thứ hai. Tool nào
@@ -1114,6 +1124,8 @@ class LLMEngine:
                         _usage[_k] += int(getattr(_u, _k, 0) or 0)
                         if _k in _per:
                             _per[_k] += int(getattr(_u, _k, 0) or 0)
+                    _llm_usage.record(caller or source_device or session_id, str(used_model),
+                                      int(getattr(_u, "prompt_tokens", 0) or 0), int(getattr(_u, "completion_tokens", 0) or 0), _op_task[0])
             except Exception as exc:
                 logger.error("[LLMEngine] [CHỐT CHẶN CUỐI CÙNG] Toàn bộ model dự phòng đều thất bại: %s", exc)
                 fallback_msg = "Dạ, hệ thống xử lý ngôn ngữ hiện đang quá tải hoặc hết hạn mức. Anh vui lòng thử lại sau ít phút nhé."
@@ -1435,6 +1447,18 @@ class LLMEngine:
             history = _mm_hist.get_history(_session)
         sanitized_query = security_engine.mask_sensitive_data(query)
 
+        # Ngân sách AI (docs/ai/llmops.md): cùng cổng như ask_async — lượt trò chuyện giọng nói cũng không gọi model khi đã vượt (`block`).
+        from mateai.application.llmops import usage as _llm_usage
+        _principal = caller or source_device or _session
+        _blocked = _llm_usage.check(_principal)
+        if _blocked:
+            self.last_voice_display_text = _blocked
+            turn["display_text"] = _blocked
+            turn["error"] = "budget_exceeded"
+            yield sanitise_for_tts(_blocked)
+            return
+        stream_usage: Dict[str, int] = {}
+
         # Phase 45: Use shared connection pool for streaming (eliminates TLS handshake)
         await self._ensure_shared_client()
         # Phase 94: Phân loại ý định qua Bộ Não Kiểm Soát (Supervisor) — dùng lại
@@ -1547,6 +1571,8 @@ class LLMEngine:
                 # Phase 87: nuốt phần suy nghĩ vào bộ đệm riêng. Cố tình KHÔNG
                 # gộp vào chữ trả lời: đó là câu sẽ đọc to và hiện trên HUD.
                 reasoning_buffer += chunk.reasoning or ""
+                if getattr(chunk, "usage", None):
+                    stream_usage.update(chunk.usage)
                 if chunk.model and "model" not in turn:
                     turn["model"] = chunk.model          # model THỰC TẾ (sau khi chuyển dự phòng)
                 if (chunk.content or chunk.tool_calls) and "llm_first_token_at" not in turn:
@@ -1641,6 +1667,9 @@ class LLMEngine:
                     _publish_reasoning()
                     yield clean
 
+        if not has_tool_calls:
+            self._record_stream_usage(_principal, turn, stream_usage)
+
         # Save streamed conversation to MemoryManager
         # Trước Phase 3 đoạn này dùng `text_buffer` — chỉ còn phần dư sau câu
         # cuối — nên câu trả lời kết thúc bằng dấu câu KHÔNG được lưu lịch sử và
@@ -1660,7 +1689,8 @@ class LLMEngine:
             self.last_voice_reasoning = ""
             turn["used_agent"] = True
             turn["agent_start_at"] = time.perf_counter()
-            first_calls = await _finish_streamed_tool_calls(_stream, streamed_calls)
+            first_calls = await _finish_streamed_tool_calls(_stream, streamed_calls, stream_usage)
+            self._record_stream_usage(_principal, turn, stream_usage)
             # Tool vòng agent được thấy: các tool đã đưa cho lần stream + tool model
             # vừa chọn. Trước đây mỗi vòng gửi cả 82 tool (~74k ký tự schema).
             offered = [(t.get("function") or {}).get("name") for t in raw_tools]
@@ -1706,6 +1736,16 @@ class LLMEngine:
                 self.last_voice_display_text = fallback_msg
                 turn["display_text"] = fallback_msg
                 yield fallback_msg
+
+    @staticmethod
+    def _record_stream_usage(principal: Optional[str], turn: Dict[str, Any], stream_usage: Dict[str, int]) -> None:
+        """Token của lần stream giọng nói (nhà cung cấp báo ở chunk cuối). Không báo thì không ghi — không đoán."""
+        if not stream_usage:
+            return
+        turn["usage"] = dict(stream_usage)
+        from mateai.application.llmops import usage as _llm_usage
+        _llm_usage.record(principal, str(turn.get("model") or turn.get("model_requested") or "unknown"),
+                          stream_usage.get("prompt_tokens", 0), stream_usage.get("completion_tokens", 0))
 
     @staticmethod
     def _enrich_tools_with_target_client(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

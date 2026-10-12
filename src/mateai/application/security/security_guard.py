@@ -68,6 +68,8 @@ RBAC_RULES: Dict[str, Any] = {
             "get_infra_status", "get_infra_alerts", "query_prometheus", "list_grafana_dashboards",
             # Kịch bản vận hành: xem + chạy thử (run_playbook chỉ admin)
             "list_playbooks", "get_playbook_plan", "get_playbook_run",
+            # Mức dùng AI / ngân sách / kết quả đánh giá: chỉ đọc
+            "get_ai_usage", "get_ai_budget_status", "get_ai_eval_results",
         ],
         "blocked_prefixes": [
             "create_new_skill",         # Không tự tạo kỹ năng
@@ -176,6 +178,17 @@ CLEARANCE_FOR_CLASSIFICATION: Dict[str, int] = {"PUBLIC": 0, "INTERNAL": 1, "CON
 #: Người (danh tính máy chủ đã xác thực) mà lượt hiện tại đang phục vụ — `tool_gate` đặt
 #: trước khi chạy tool, để skill đọc dữ liệu tự lọc theo phòng ban / cấp bảo mật.
 CURRENT_PRINCIPAL: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("current_principal", default=None)
+
+
+def _how_to_grant(employee_id: Optional[str]) -> str:
+    """Câu hướng dẫn cấp quyền đúng chỗ, theo loại danh tính (robot token riêng / robot token chung / tài khoản)."""
+    eid = str(employee_id or "").strip()
+    if eid.lower().startswith(DEVICE_PRINCIPAL_PREFIX):
+        dev = eid[len(DEVICE_PRINCIPAL_PREFIX):]
+        return (f"Quản trị viên đặt quyền cho thiết bị '{dev}' ở Web Portal → Bảo mật → Thiết bị "
+                f"(PUT /api/v1/security/devices/{dev}/role).")
+    return ("Nếu đây là robot: nó đang dùng token CHUNG nên chỉ có quyền xem — cấp token riêng ở Web Portal → Bảo mật → Thiết bị, "
+            "nạp vào robot rồi đặt quyền cho thiết bị. Nếu là HUD / portal: đăng nhập bằng tài khoản có quyền cao hơn.")
 
 
 def required_clearance(tool_name: str) -> int:
@@ -459,7 +472,7 @@ class SecurityGuard:
         reason = (
             f"🚫 Lỗi Bảo mật: Tài khoản [{employee_id or 'unknown'}] với vai trò [{role}] "
             f"không có quyền thực thi tác vụ '{tool_name}'. "
-            f"Vui lòng liên hệ quản trị viên để được cấp quyền."
+            f"{_how_to_grant(employee_id)}"
         )
         logger.warning("[RBAC] NOT-IN-WHITELIST | tool=%s | role=%s | employee=%s", tool_name, role, employee_id)
         return False, reason

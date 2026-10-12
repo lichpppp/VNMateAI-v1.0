@@ -222,6 +222,8 @@ def _playbooks(ctx: StepContext) -> str:
     """Lượt chạy kịch bản đang dở khi máy chủ chết -> INTERRUPTED (không tự chạy lại)."""
     from mateai.application.playbooks import engine
     n = engine.recover_interrupted()
+    from mateai.application.llmops import evaluation
+    n += evaluation.recover_interrupted()
     return f"{n} lượt chạy bị gián đoạn được đánh dấu" if n else "ok"
 
 
