@@ -262,6 +262,12 @@ def _mcp_gateway(ctx: StepContext) -> str:
     return f"{servers} MCP server, {n} công cụ MCP; {a2a} agent A2A"
 
 
+def _backup_catchup(ctx: StepContext) -> str:
+    """Sao lưu chạy bù khi bản mới nhất cũ hơn ngưỡng (tác vụ đặt lịch 02:00 có thể lỡ khi Docker / máy tắt)."""
+    from mateai.application.operations import backup_catchup
+    return backup_catchup.start()
+
+
 def _desktop_session(ctx: StepContext) -> str:
     """Báo sớm khi máy chủ chạy ở phiên nền: tool cần màn hình (mở trình duyệt, ứng dụng…) sẽ bị từ chối rõ ràng."""
     from mateai.infrastructure.desktop_session import status
@@ -320,6 +326,7 @@ def default_steps() -> List[Step]:
         Step("computer_use_tool", _computer_use),
         Step("desktop_session", _desktop_session),
         Step("mcp_gateway", _mcp_gateway),
+        Step("backup_catchup", _backup_catchup),
         Step("background_workers", _background_workers),
         Step("email_gateway", _email_gateway),
     ]

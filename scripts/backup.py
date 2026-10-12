@@ -10,6 +10,12 @@ scripts/backup.py — sao lưu / kiểm chứng / khôi phục VN-MateAI (prompt
   python scripts/backup.py push backups/<dir>     # đẩy một bản đã có
   python scripts/backup.py list-remote            # bản sao lưu trên object storage
   python scripts/backup.py pull backups/<tên>.zip # tải về + giải nén vào backups/ rồi `verify`
+  python scripts/backup.py create --push --ensure-infra   # (tác vụ đặt lịch) PostgreSQL chưa chạy thì tự bật Docker + hạ tầng trước
+
+Sự cố 2026-10-09 → 12: tác vụ 02:00 chạy lúc Docker Desktop chưa bật → PostgreSQL không kết nối được → không có bản nào suốt
+85 giờ, mỗi lần hỏng còn để lại một thư mục rỗng. Nay: `--ensure-infra` tự bật hạ tầng; bản đang làm nằm ở `backups/.partial-*`
+và chỉ đổi tên thành bản thật khi ĐẠT kiểm chứng; hỏng thì xoá phần dở và gửi cảnh báo ngay (không đợi sentinel 26 giờ);
+khoá `backups/.backup.lock` ngăn tác vụ đặt lịch và máy chủ (chạy bù) sao lưu cùng lúc.
 
 "Có file backup" chưa đủ: `create` tự chạy `verify` ngay sau khi chép, và `restore`
 chỉ ghi đè khi bản sao lưu kiểm chứng đạt.
@@ -23,9 +29,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import time
 from datetime import datetime
@@ -91,10 +99,51 @@ def _pg_target(root: Path, rel: str):
     return url, pg_compat.schema_for(root / rel)
 
 
+LOCK_STALE_S = 2 * 3600
+
+
+class BackupLocked(RuntimeError):
+    pass
+
+
+def _lock(root: Path) -> Path:
+    """Khoá loại trừ (tạo tệp độc quyền). Khoá cũ quá 2 giờ (tiến trình chết giữa chừng) bị gỡ."""
+    lock = root / "backups" / ".backup.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if lock.exists() and time.time() - lock.stat().st_mtime > LOCK_STALE_S:
+            lock.unlink()
+        fd = os.open(str(lock), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise BackupLocked(f"Đang có một lần sao lưu khác chạy ({lock})") from None
+    with os.fdopen(fd, "w") as f:
+        f.write(f"{os.getpid()} {datetime.now().isoformat(timespec='seconds')}")
+    return lock
+
+
 def create(root: Path = ROOT, out_dir: Path | None = None) -> Path:
+    """Tạo + kiểm chứng. Mặc định ghi vào `backups/.partial-<thời điểm>` rồi mới đổi tên — không bao giờ để lại bản dở."""
+    if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=False)
+        return _create_into(root, out_dir)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    dest = out_dir or (root / "backups" / stamp)
-    dest.mkdir(parents=True, exist_ok=False)
+    final = root / "backups" / stamp
+    work = root / "backups" / f".partial-{stamp}"
+    lock = _lock(root)
+    try:
+        work.mkdir(parents=True, exist_ok=False)
+        try:
+            _create_into(root, work)
+        except BaseException:
+            shutil.rmtree(work, ignore_errors=True)
+            raise
+        work.rename(final)
+        return final
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def _create_into(root: Path, dest: Path) -> Path:
     t0 = time.perf_counter()
     manifest: Dict[str, Any] = {"created_at": datetime.now().isoformat(timespec="seconds"), "items": {}}
     for rel, kind in ITEMS:
@@ -299,11 +348,89 @@ def _report_replicas(path: Path) -> int:
     return rc
 
 
+# ── hạ tầng: PostgreSQL phải chạy trước khi sao lưu ─────────────────────────
+
+def _pg_reachable(url: str, timeout: int = 3) -> bool:
+    try:
+        import psycopg
+        with psycopg.connect(url, connect_timeout=timeout):
+            return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _run(cmd: List[str], timeout: float) -> bool:
+    try:
+        return subprocess.run(cmd, cwd=ROOT, capture_output=True, timeout=timeout).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _docker_desktop_exe() -> Path | None:
+    cands = []
+    docker = shutil.which("docker")
+    if docker:
+        cands.append(Path(docker).resolve().parents[2] / "Docker Desktop.exe")      # …/resources/bin/docker.exe
+    for base in (os.environ.get("LOCALAPPDATA", ""), os.environ.get("ProgramFiles", "")):
+        if base:
+            cands += [Path(base) / "Programs" / "DockerDesktop" / "Docker Desktop.exe", Path(base) / "Docker" / "Docker" / "Docker Desktop.exe"]
+    return next((c for c in cands if c.is_file()), None)
+
+
+def ensure_infra(wait_engine_s: float = 240, wait_db_s: float = 180) -> str:
+    """CSDL chạy trên PostgreSQL mà chưa kết nối được → bật Docker Desktop (Windows) + `docker compose up -d` hạ tầng, chờ CSDL.
+    Trả mô tả việc đã làm; ném RuntimeError nói rõ bước hỏng."""
+    target = _pg_target(ROOT, "vnmateai.db")
+    if target is None:
+        return "CSDL dùng SQLite — không cần hạ tầng"
+    url = target[0]
+    if _pg_reachable(url):
+        return "PostgreSQL đã sẵn sàng"
+    steps = []
+    if not _run(["docker", "info"], 20):
+        exe = _docker_desktop_exe() if sys.platform == "win32" else None
+        if exe is None:
+            raise RuntimeError("PostgreSQL không kết nối được và Docker không chạy (không tìm thấy Docker Desktop để tự bật)")
+        subprocess.Popen([str(exe)], cwd=str(exe.parent), close_fds=True)
+        steps.append("đã bật Docker Desktop")
+        deadline = time.monotonic() + wait_engine_s
+        while not _run(["docker", "info"], 20):
+            if time.monotonic() > deadline:
+                raise RuntimeError(f"Docker Desktop không sẵn sàng sau {wait_engine_s:.0f} giây")
+            time.sleep(5)
+    compose = ["docker", "compose", "-f", str(ROOT / "deploy" / "docker-compose.infra.yml")]
+    if (ROOT / "deploy" / ".env").is_file():
+        compose += ["--env-file", str(ROOT / "deploy" / ".env")]
+    if not _run(compose + ["up", "-d"], 300):
+        raise RuntimeError("`docker compose up -d` hạ tầng thất bại")
+    steps.append("đã bật hạ tầng (docker compose up -d)")
+    deadline = time.monotonic() + wait_db_s
+    while not _pg_reachable(url):
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"PostgreSQL vẫn không kết nối được sau {wait_db_s:.0f} giây ({'; '.join(steps)})")
+        time.sleep(3)
+    return "; ".join(steps) + "; PostgreSQL sẵn sàng"
+
+
+def _notify_failure(reason: str) -> None:
+    """Cảnh báo NGAY qua các kênh cảnh báo (Telegram…) — không đợi sentinel phát hiện sau 26 giờ. Lỗi gửi chỉ in ra."""
+    try:
+        sys.path.insert(0, str(ROOT / "src"))
+        import asyncio
+        from mateai.application.operations import alert_dispatcher
+        asyncio.run(alert_dispatcher.dispatch("Sao lưu tự động THẤT BẠI", f"{reason[:500]} — xem logs/backup.log.",
+                                              severity="critical", category="backup_failed", force=True))
+    except Exception as exc:  # noqa: BLE001
+        print(f"(không gửi được cảnh báo: {type(exc).__name__}: {exc})")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Sao lưu / kiểm chứng / khôi phục VN-MateAI")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("create")
     c.add_argument("--push", action="store_true", help="đẩy bản nén lên object storage sau khi kiểm chứng")
+    c.add_argument("--ensure-infra", action="store_true", help="PostgreSQL chưa chạy thì tự bật Docker + hạ tầng trước")
+    c.add_argument("--no-alert", action="store_true", help="hỏng thì không gửi cảnh báo")
     rp = sub.add_parser("replicate", help="chép một bản sao lưu sang backup.offsite_dirs")
     rp.add_argument("path")
     p = sub.add_parser("push")
@@ -318,12 +445,32 @@ def main() -> int:
     r.add_argument("--yes", action="store_true", help="xác nhận đã DỪNG máy chủ và muốn ghi đè")
     args = ap.parse_args()
     if args.cmd == "create":
-        dest = create()
+        print(f"── {datetime.now().isoformat(timespec='seconds')} sao lưu bắt đầu")
+        try:
+            if args.ensure_infra:
+                print(f"Hạ tầng: {ensure_infra()}")
+            dest = create()
+        except BackupLocked as exc:
+            print(f"BỎ QUA: {exc}")
+            return 0
+        except Exception as exc:  # noqa: BLE001
+            print(f"THẤT BẠI: {type(exc).__name__}: {exc}")
+            if not args.no_alert:
+                _notify_failure(f"{type(exc).__name__}: {exc}")
+            return 1
         m = json.loads((dest / "manifest.json").read_text(encoding="utf-8"))
         print(f"OK {dest} ({m['duration_s']} s) — đã kiểm chứng. Thư mục chứa BÍ MẬT, cất ở nơi an toàn.")
         if args.push:
-            print(f"Đã đẩy lên object storage: {push(dest)} (bucket phải PRIVATE — bản sao lưu chứa bí mật).")
-        return _report_replicas(dest)
+            try:
+                print(f"Đã đẩy lên object storage: {push(dest)} (bucket phải PRIVATE — bản sao lưu chứa bí mật).")
+            except Exception as exc:  # noqa: BLE001 — bản trên máy + bản sao ổ khác vẫn có; báo nhưng không bỏ việc chép
+                print(f"ĐẨY LÊN OBJECT STORAGE LỖI: {type(exc).__name__}: {exc}")
+                if not args.no_alert:
+                    _notify_failure(f"Đã tạo {dest.name} nhưng đẩy lên object storage lỗi: {exc}")
+        rc = _report_replicas(dest)
+        if rc and not args.no_alert:
+            _notify_failure(f"Đã tạo {dest.name} nhưng chép sang ổ / thư mục dự phòng (backup.offsite_dirs) lỗi")
+        return rc
     if args.cmd == "replicate":
         return _report_replicas(Path(args.path))
     if args.cmd == "push":

@@ -52,6 +52,8 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 - **Tác vụ cần màn hình trên máy chủ** (mở trình duyệt / YouTube / ứng dụng, phát nhạc, chụp màn hình, clipboard) bị **từ chối rõ ràng** khi máy chủ chạy ở phiên nền (Windows Session 0, tác vụ đặt lịch không đăng nhập). Trước đây chúng báo "thành công" mà không cửa sổ nào hiện (sự cố 2026-10-08: AI tạo 39 kỹ năng gần giống nhau). Muốn mở cửa sổ trên máy chủ: chạy bằng `Start.bat` trong phiên Windows đang đăng nhập. Trạng thái hiện ở bước khởi động `desktop_session`.
 - **Tạo kỹ năng mới** (`create_new_skill`): tối đa 3 lần / 10 phút cho mỗi người / thiết bị.
 - **Cổng Agent** (tab mới): nối MCP server có sẵn của doanh nghiệp — xem `docs/integrations/agent-gateway.md`.
+- **Sao lưu** (sự cố 09–12/10: 85 giờ không có bản nào vì tác vụ 02:00 chạy khi Docker/PostgreSQL chưa lên): tác vụ nay chạy `create --push --ensure-infra` (tự bật Docker Desktop + hạ tầng, chờ CSDL), thử lại 3 lần cách 30 phút; hỏng thì **cảnh báo ngay** (category `backup_failed`); không còn để lại thư mục dở; máy chủ đang chạy mà bản mới nhất cũ hơn 26 giờ thì **tự chạy bù** (`backup.auto_catch_up`, mặc định bật). Vẫn nên chạy lệnh S4U ở mục Hạ tầng để tác vụ chạy cả khi chưa đăng nhập — khi đó Docker Desktop chưa chắc tự bật được (cần phiên đăng nhập), nên bật *Start Docker Desktop when you sign in*.
+- **Gọn tab:** *Tích hợp hệ thống* gộp Kết nối + Cấu hình + Công cụ thành một mục *Kết nối*; gỡ mục *Elastic Grid* (chưa từng giao việc — trạm tự báo nhịp tim nay hiện ở tab Dev Fleet, chỉ theo dõi); Danh bạ Agent hiện cả Dev Fleet và máy trạm.
 
 ## Thay đổi cần biết (2026-10-03)
 
