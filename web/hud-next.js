@@ -100,7 +100,7 @@
     W = window.innerWidth; H = window.innerHeight;
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    CX = W / 2; CY = H * 0.455; R = Math.min(W, H) * 0.205;
+    CX = W / 2; CY = H * 0.455; R = Math.min(H * 0.27, W * 0.17);   // màn rộng: lõi to theo chiều cao, chặn theo chiều ngang
     buildHex();
     const c = $('center') && $('center').getBoundingClientRect();
     CENTER_HALF = c && c.width ? c.width / 2 : W * 0.25;
@@ -197,7 +197,11 @@
   let nodes = [];
   function setNodes(list) {
     const keep = new Map(nodes.map((n) => [n.id, n]));
-    const make = (n, i, total, ring) => ({ ...n, ring, a0: (i / total) * Math.PI * 2 + (ring === 'out' ? Math.PI / total : 0),
+    const outAngle = (i, total) => {                    // agent ngoài: chia đều hai cung trái / phải, tránh đỉnh và đáy
+      const side = i % 2, idx = i >> 1, m = Math.ceil((total - side) / 2) || 1;
+      return (side ? Math.PI : 0) + (m === 1 ? 0 : -0.85 + (1.7 * idx) / (m - 1));
+    };
+    const make = (n, i, total, ring) => ({ ...n, ring, a0: ring === 'out' ? outAngle(i, total) : (i / total) * Math.PI * 2,
       glow: (keep.get(n.id) || {}).glow || 0, ph: Math.random() * 6.28, nextNerve: 0, info: n.info || (keep.get(n.id) || {}).info });
     const agents = list.map((n) => ({ ...n, icon: KIND_ICON[n.kind] || '•' }));
     nodes = [...FIXED.map((n, i) => make(n, i, FIXED.length, 'in')), ...agents.map((n, i) => make(n, i, Math.max(agents.length, 1), 'out'))];
@@ -314,17 +318,17 @@
     // 3. hai quỹ đạo: TRONG = module hệ thống, NGOÀI = agent của doanh nghiệp
     // quỹ đạo trong ngay ngoài mép lõi (mép quả cầu nhìn thấy ≈ 0,85R); quỹ đạo ngoài dẹt, gọn giữa thanh tiêu đề và phụ đề
     const A1 = Math.min(R * 1.5, CENTER_HALF * 0.62), B1 = R * 0.98;
-    const A2 = Math.max(A1 + 70, Math.min(R * 2.42, CENTER_HALF - 36)), B2 = Math.max(B1 + 34, Math.min(R * 1.4, CY - 130, H - CY - 240));
+    const A2 = Math.max(A1 + 70, Math.min(R * 2.42, CENTER_HALF - 36)), B2 = Math.min(R * 1.35, CY - 110);
     nodes.forEach((n) => {
-      const inner = n.ring === 'in', a = n.a0 + t * (inner ? -0.045 : 0.06);
+      const inner = n.ring === 'in', a = inner ? n.a0 - t * 0.045 : n.a0 + Math.sin(t * 0.15 + n.ph) * 0.1;   // module quay; agent lắc nhẹ tại chỗ
       n.x = CX + Math.cos(a) * (inner ? A1 : A2) * bootS; n.y = CY + Math.sin(a) * (inner ? B1 : B2) * bootS;
       n.z = Math.sin(a); n.glow = Math.max(0, (n.glow || 0) - dt * 0.7);
     });
     ctx.lineWidth = 1;
     ctx.strokeStyle = `hsla(${hue},90%,60%,0.10)`;
     ctx.beginPath(); ctx.ellipse(CX, CY, A1 * bootS + 0.1, B1 * bootS + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([4, 10]);
-    ctx.beginPath(); ctx.ellipse(CX, CY, A2 * bootS + 0.1, B2 * bootS + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([4, 10]);                          // quỹ đạo ngoài chỉ vẽ hai cung có agent
+    for (const c of [0, Math.PI]) { ctx.beginPath(); ctx.ellipse(CX, CY, A2 * bootS + 0.1, B2 * bootS + 0.1, 0, c - 1.0, c + 1.0); ctx.stroke(); }
     ctx.setLineDash([]);
     nodes.forEach((n) => { if (n.z < 0) drawNode(n); });
 
@@ -400,7 +404,7 @@
       const bars = HQ ? 120 : 72, base = R * 1.02;
       ctx.strokeStyle = `hsla(${hue},100%,70%,0.85)`; ctx.lineWidth = 2; ctx.beginPath();
       for (let i = 0; i < bars; i++) {
-        const a = (i / bars) * Math.PI * 2, amp = level * R * 0.3 * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.37 + t * 7) * Math.cos(i * 0.11 - t * 3)));
+        const a = (i / bars) * Math.PI * 2, amp = level * R * 0.22 * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.37 + t * 7) * Math.cos(i * 0.11 - t * 3)));
         if (amp < 0.6) continue;
         const ca = Math.cos(a), sa = Math.sin(a), x1 = CX + ca * base, y1 = CY + sa * base;
         ctx.moveTo(x1, y1); ctx.lineTo(x1 + ca * amp, y1 + sa * amp);
