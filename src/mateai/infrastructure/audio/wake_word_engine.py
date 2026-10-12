@@ -221,6 +221,36 @@ def find_wake_command(transcript: str) -> Optional[str]:
     return None
 
 
+#: Âm tiết nghe GẦN GIỐNG tên khi nói xa / giọng nữ (đo 2026-10-12, model tiny): "Ly Ly ơi" → "Mình đi ở", "Ninh Ly ơi";
+#: "Hey Ly Ly" → "Hãy nhìn đi"; "Ê Ly Ly" → "Em đi đi". Chỉ dùng để quyết định CÓ KIỂM LẠI bằng model lớn hơn hay không.
+_NEAR_NAME = re.compile(r"^(?:l|n|m|nh|d)(?:i|y|inh|ynh|e|ee|ia)$")
+
+
+def sounds_like_name(transcript: str) -> bool:
+    """Đoạn ngắn có âm tiết gần giống tên trợ lý (l/n/m/nh/đ + i/y…) — đáng kiểm lại bằng model chính xác hơn."""
+    words = [re.sub(r"[^a-z0-9]", "", _fold(w)) for w in str(transcript or "").split()]
+    words = [w for w in words if w]
+    if not words or len(words) > 8:
+        return False
+    return any(_NEAR_NAME.match(w) for w in words)
+
+
+async def detect_wake(pcm16: bytes) -> "tuple[Optional[str], str, str]":
+    """
+    Đoạn âm thanh có GỌI TÊN trợ lý không — dùng chung robot (Xiaozhi) và HUD. Nhận dạng OFFLINE (âm thanh phòng không
+    rời máy chủ). Hai bước: model nhanh (tiny, ~0,3 s); nếu chưa thấy tên mà đoạn nghe GẦN GIỐNG tên → model chính xác hơn
+    (small, ~2 s) kiểm lại. Trả (lệnh | None, câu nghe được, bước: "fast" | "verify").
+    """
+    from mateai.infrastructure.audio.audio_processor import audio_engine
+    heard = await audio_engine.transcribe_wake_clip(pcm16)
+    command = find_wake_command(heard)
+    if command is not None or not sounds_like_name(heard):
+        return command, heard, "fast"
+    heard2 = await audio_engine.transcribe_wake_clip(pcm16, verify=True)
+    command2 = find_wake_command(heard2)
+    return command2, heard2 or heard, "verify"
+
+
 def _load_dynamic_patterns() -> tuple[list[str], list[str]]:
     """Load trained patterns from wake_word_patterns.json if exists."""
     try:

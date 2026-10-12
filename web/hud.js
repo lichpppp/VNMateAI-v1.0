@@ -1557,6 +1557,147 @@ function hudOpenMicForFollowup() {
   }
 
   // ---------------------------------------------------------------------------
+  // 11.0. GỌI TÊN "LY LY ƠI" — nghe chờ gọi tên, nhận dạng OFFLINE ở máy chủ (2026-10-12)
+  //
+  //   Trình duyệt KHÔNG nhận dạng: chỉ tìm đoạn CÓ TIẾNG NÓI (đo năng lượng, ngưỡng tự theo ồn nền) rồi gửi đoạn đó
+  //   (PCM16 16 kHz) về máy chủ qua /ws/hud — máy chủ nhận dạng offline như robot, âm thanh phòng không ra ngoài.
+  //   Gọi tên → mở mic nghe lệnh như bấm MIC; gọi tên kèm lệnh ("Ly Ly ơi, mấy giờ rồi") → chạy lệnh luôn.
+  //   Tạm ngưng khi Ly Ly đang nói (tránh nghe chính mình) và khi mic đang nghe lệnh. Lọc vọng của trình duyệt bật sẵn.
+  // ---------------------------------------------------------------------------
+  const WAKE_KEY = 'hud_wake_listen';
+  const WAKE_RATE = 16000, WAKE_FRAME = 320;                 // khung 20 ms
+  const WAKE_MIN_S = 0.4, WAKE_MAX_S = 5.0, WAKE_HANG_S = 0.5, WAKE_PREROLL_S = 0.3;
+  let hudWakeOn = (() => { try { return localStorage.getItem(WAKE_KEY) !== '0'; } catch (_) { return true; } })();
+  let wakeStream = null, wakeCtx = null, wakeNode = null, wakeSrc = null;
+  let wakeNoise = 0.004, wakeSpeech = false, wakeHang = 0, wakeVoiced = 0, wakeBuf = [], wakePre = [];
+  let wakeFrame = new Float32Array(WAKE_FRAME), wakeFrameLen = 0, wakeLastSent = 0;
+
+  function hudWakeBtn(state, label) {
+    const b = document.getElementById('hud-wake-btn');
+    if (!b) return;
+    b.dataset.state = state;
+    b.textContent = label;
+  }
+
+  /** Có đang được phép nghe gọi tên không (không nghe khi Ly Ly nói / mic đang nghe lệnh / chưa đăng nhập). */
+  function hudWakePaused() {
+    return !hudWakeOn || !currentAuth.authenticated || isHudListening || hudIsSpeaking() || hudAwaitingReply
+      || !(hudSocket && hudSocket.readyState === WebSocket.OPEN);
+  }
+
+  function _wakeReset() { wakeSpeech = false; wakeHang = 0; wakeVoiced = 0; wakeBuf = []; }
+
+  /** Gửi đoạn có tiếng nói về máy chủ (base64 PCM16). */
+  function _wakeSend(chunks) {
+    const n = chunks.reduce((s, c) => s + c.length, 0);
+    if (n < WAKE_MIN_S * WAKE_RATE) return;
+    const pcm = new Int16Array(n);
+    let o = 0;
+    for (const c of chunks) { for (let i = 0; i < c.length; i++) pcm[o++] = Math.max(-1, Math.min(1, c[i])) * 32767; }
+    const bytes = new Uint8Array(pcm.buffer);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    wakeLastSent = Date.now();
+    hudSendControl({ action: 'wake_clip', pcm16: btoa(bin) });
+  }
+
+  /** Một khung 20 ms (16 kHz): cập nhật ồn nền, cắt đoạn có tiếng nói. */
+  function _wakeFrame(f) {
+    let e = 0;
+    for (let i = 0; i < f.length; i++) e += f[i] * f[i];
+    const rms = Math.sqrt(e / f.length);
+    const on = rms > Math.max(wakeNoise * 3, 0.008);
+    if (!wakeSpeech) {
+      wakeNoise = wakeNoise * 0.98 + Math.min(rms, wakeNoise * 4) * 0.02;   // chỉ học ồn khi không có tiếng nói
+      wakePre.push(f);
+      if (wakePre.length > WAKE_PREROLL_S * 50) wakePre.shift();
+      if (on) { wakeSpeech = true; wakeBuf = wakePre.slice(); wakePre = []; wakeHang = 0; wakeVoiced = 1; }
+      return;
+    }
+    wakeBuf.push(f);
+    if (on) { wakeVoiced++; wakeHang = 0; } else { wakeHang++; }
+    const dur = wakeBuf.length / 50;
+    if (wakeHang >= WAKE_HANG_S * 50 || dur >= WAKE_MAX_S) {
+      const chunks = wakeBuf;
+      const enough = wakeVoiced >= 8;                                       // ≥ 160 ms có tiếng — bỏ tiếng gõ / cạch
+      _wakeReset();
+      if (enough && !hudWakePaused()) _wakeSend(chunks);
+    }
+  }
+
+  /** Mẫu âm thanh từ mic (tần số của AudioContext) → 16 kHz → khung 20 ms. */
+  function _wakeSamples(input, rate) {
+    if (hudWakePaused()) { if (wakeSpeech || wakeBuf.length) _wakeReset(); return; }
+    const ratio = rate / WAKE_RATE;
+    for (let p = 0; p + ratio <= input.length; p += ratio) {
+      let s = 0, k = 0;
+      for (let j = Math.floor(p); j < Math.floor(p + ratio); j++) { s += input[j]; k++; }
+      wakeFrame[wakeFrameLen++] = k ? s / k : 0;
+      if (wakeFrameLen === WAKE_FRAME) { _wakeFrame(wakeFrame); wakeFrame = new Float32Array(WAKE_FRAME); wakeFrameLen = 0; }
+    }
+  }
+
+  async function hudWakeStart() {
+    if (wakeStream || !hudWakeOn) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      hudWakeBtn('blocked', '👂 Gọi tên: trình duyệt không hỗ trợ');
+      return;
+    }
+    try {
+      wakeStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 },
+      });
+      const AC = window.AudioContext || window.webkitAudioContext;
+      wakeCtx = new AC();
+      wakeSrc = wakeCtx.createMediaStreamSource(wakeStream);
+      wakeNode = wakeCtx.createScriptProcessor(4096, 1, 1);
+      wakeNode.onaudioprocess = (ev) => _wakeSamples(ev.inputBuffer.getChannelData(0), wakeCtx.sampleRate);
+      wakeSrc.connect(wakeNode);
+      wakeNode.connect(wakeCtx.destination);                               // cần nối ra để onaudioprocess chạy (đầu ra im lặng)
+      if (wakeCtx.state === 'suspended') wakeCtx.resume().catch(() => {});
+      hudWakeBtn('on', `👂 Gọi "${currentAiName} ơi"`);
+      appendSystemLog(`Đang nghe chờ gọi tên "${currentAiName} ơi" (nhận dạng offline ở máy chủ).`, 'VOICE');
+    } catch (err) {
+      hudWakeStop();
+      const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+      hudWakeBtn('blocked', denied ? '👂 Gọi tên: cần cấp quyền micro' : '👂 Gọi tên: không mở được micro');
+      appendSystemLog(`Không mở được micro để nghe gọi tên: ${err && err.message ? err.message : err}`, 'WARNING');
+    }
+  }
+
+  function hudWakeStop() {
+    try { if (wakeNode) { wakeNode.onaudioprocess = null; wakeNode.disconnect(); } } catch (_) { /* bỏ qua */ }
+    try { if (wakeSrc) wakeSrc.disconnect(); } catch (_) { /* bỏ qua */ }
+    try { if (wakeStream) wakeStream.getTracks().forEach((t) => t.stop()); } catch (_) { /* bỏ qua */ }
+    try { if (wakeCtx) wakeCtx.close(); } catch (_) { /* bỏ qua */ }
+    wakeStream = wakeCtx = wakeNode = wakeSrc = null;
+    _wakeReset(); wakePre = [];
+  }
+
+  function toggleHudWake() {
+    playCyberChime('click');
+    hudWakeOn = !hudWakeOn;
+    try { localStorage.setItem(WAKE_KEY, hudWakeOn ? '1' : '0'); } catch (_) { /* bỏ qua */ }
+    if (hudWakeOn) { hudWakeBtn('off', '👂 Đang mở micro…'); hudWakeStart(); }
+    else { hudWakeStop(); hudWakeBtn('off', '👂 Gọi tên: tắt'); appendSystemLog('Đã tắt nghe gọi tên.', 'VOICE'); }
+  }
+  window.toggleHudWake = toggleHudWake;
+
+  /** Máy chủ báo vừa nghe gọi tên: chỉ gọi tên → mở mic nghe lệnh; kèm lệnh → chạy lệnh luôn. */
+  function handleWakeDetected(packet) {
+    if (isHudListening || hudIsSpeaking()) return;
+    const command = String(packet.command || '').trim();
+    appendSystemLog(`Nghe gọi tên${command ? ` kèm lệnh: "${command}"` : ''} (${packet.ms || '?'} ms).`, 'VOICE');
+    if (command) {
+      playCyberChime('wake');
+      viz('transcript', command);
+      sendHudVoiceCommand(command);
+    } else {
+      toggleHudMic();                                                     // như bấm MIC: chuông, dừng lời đang nói, mở nghe lệnh
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // 11.1. HOLOGRAPHIC QUICK COMMAND BAR & TERMINAL HANDLERS
   // ---------------------------------------------------------------------------
   const cmdBarEl = document.getElementById('hud-cmd-bar');
@@ -2154,6 +2295,8 @@ function hudOpenMicForFollowup() {
             };
             renderAuthStatus();
             appendSystemLog(packet.message || `${currentAiName} Cybernetic Core Online.`, 'SYS');
+            if (currentAuth.authenticated && hudWakeOn) hudWakeStart();
+            else if (!currentAuth.authenticated) hudWakeBtn('blocked', '👂 Gọi tên: cần đăng nhập');
           } else if (type === 'assistant_name_updated') {
             if (packet.assistant_name) {
               updateAssistantName(packet.assistant_name);
@@ -2230,6 +2373,8 @@ function hudOpenMicForFollowup() {
             appendSystemLog(packet.message || 'HUD chưa xác thực.', 'SYS');
           } else if (type === 'system_log') {
             appendSystemLog(packet.message || 'Log received', packet.level || 'INFO');
+          } else if (type === 'wake_detected') {
+            handleWakeDetected(packet);
           }
         } catch (_) {}
       };

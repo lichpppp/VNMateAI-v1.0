@@ -855,11 +855,11 @@ class XiaozhiGateway:
         Gọi tên kèm lệnh ("Ly Ly ơi, mấy giờ rồi") -> nhận dạng lại bằng bộ nhận
         dạng chính (chính xác hơn model nhỏ) rồi chạy lệnh luôn.
         """
-        from mateai.infrastructure.audio.wake_word_engine import find_wake_command
+        from mateai.infrastructure.audio.wake_word_engine import detect_wake, find_wake_command
         try:
             t0 = time.perf_counter()
-            heard = await audio_engine.transcribe_wake_clip(clip)
-            command = find_wake_command(heard)
+            # Hai bước (tiny → small khi nghe gần giống tên) — chung với HUD. Đo 2026-10-12: 24 → 29/32 câu gọi.
+            command, heard, _stage = await detect_wake(clip)
             elapsed_ms = round((time.perf_counter() - t0) * 1000)
             level = _clip_level(clip)
             if command is None:

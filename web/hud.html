@@ -79,6 +79,8 @@
       border-radius: 8px; padding: 5px 10px; cursor: pointer; transition: all .2s; white-space: nowrap; }
     .hbtn:hover { border-color: var(--accent); color: #fff; box-shadow: 0 0 14px var(--accent-soft); }
     #hud-sound-btn[data-state="off"] { color: var(--bad); border-color: rgba(255,77,109,.5); }
+    #hud-wake-btn[data-state="on"] { color: var(--ok); border-color: rgba(52,245,164,.5); box-shadow: 0 0 12px rgba(52,245,164,.18); }
+    #hud-wake-btn[data-state="blocked"] { color: var(--warn); border-color: rgba(255,181,71,.5); }
     #clock { font-family: var(--tech); font-size: 22px; letter-spacing: 2px; color: #fff; text-shadow: 0 0 14px var(--accent); }
     #clock small { display: block; font-family: var(--vn); font-size: 10.5px; letter-spacing: .5px; color: var(--dim); text-align: right; }
 
@@ -348,6 +350,8 @@
       <span class="chip" title="Kết nối thời gian thực tới máy chủ (/ws/hud)"><i class="dot" id="hud-conn-dot"></i><span id="hud-conn-text" class="is-waiting">chờ kết nối</span></span>
       <span class="chip" title="Vai trò của phiên đăng nhập đang nối tới HUD (máy chủ xác thực JWT)">
         <span id="hud-permission-badge" class="is-waiting">QUYỀN: chờ kết nối</span> · <span id="hud-security-status" class="is-waiting">chờ kết nối</span></span>
+      <button type="button" class="hbtn" id="hud-wake-btn" data-state="off" onclick="toggleHudWake()"
+        title="Nghe chờ gọi tên trợ lý (vd &quot;Ly Ly ơi&quot;). Nhận dạng offline ở máy chủ — âm thanh phòng không ra ngoài.">👂 Gọi tên</button>
       <button type="button" class="hbtn" id="hud-sound-btn" data-state="on" onclick="toggleHudAudio()" title="Bật / tắt tiếng Ly Ly trên HUD">🔊 Âm thanh: bật</button>
       <button type="button" class="hbtn" onclick="toggleFullscreen()" title="Toàn màn hình (phím F)">⛶</button>
       <div id="clock">--:--:--<small>—</small></div>

@@ -288,6 +288,7 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                 "timestamp": datetime.utcnow().isoformat(),
             }, ensure_ascii=False))
 
+        wake_state = {"busy": False}
         while True:
             raw_text = await websocket.receive_text()
             try:
@@ -327,6 +328,16 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
                         })
                     _spawn(hud_voice.process_command(
                         cmd_query, caller=str(ws_user.get("username") or "anonymous")))
+            elif action == "wake_clip":
+                # Gọi tên trợ lý trên HUD: trình duyệt chỉ gửi đoạn CÓ TIẾNG NÓI (0,3–6 s, PCM16 16 kHz, base64); nhận dạng
+                # OFFLINE ở máy chủ (âm thanh phòng không ra ngoài). Chỉ phiên đã đăng nhập; mỗi kết nối một đoạn một lúc.
+                if ws_user is None or wake_state["busy"]:
+                    continue
+                pcm = _decode_wake_clip(data.get("pcm16"))
+                if pcm is None:
+                    continue
+                wake_state["busy"] = True
+                _spawn(_hud_wake(websocket, pcm, wake_state))
             elif action == "end_conversation":
                 # HUD báo: chờ 30s không nghe phản hồi ("timeout") hoặc admin nói
                 # không còn yêu cầu ("user_done"). Chỉ phiên đã đăng nhập.
@@ -369,6 +380,53 @@ async def websocket_hud_endpoint(websocket: WebSocket) -> None:
     finally:
         active_hud_websockets.discard(websocket)
         logger.info("VN-MateAI HUD disconnected (%d remaining).", len(active_hud_websockets))
+
+
+#: Đoạn gọi tên từ HUD: 0,3–6 s PCM16 mono 16 kHz.
+HUD_WAKE_MIN_BYTES = 9600
+HUD_WAKE_MAX_BYTES = 192000
+
+
+def _decode_wake_clip(b64: Any) -> Optional[bytes]:
+    """base64 → PCM16; sai định dạng / ngoài 0,3–6 s → None (bỏ qua, không báo lỗi — HUD gửi liên tục)."""
+    import base64
+    import binascii
+    if not isinstance(b64, str) or len(b64) > HUD_WAKE_MAX_BYTES * 2:
+        return None
+    try:
+        pcm = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if not (HUD_WAKE_MIN_BYTES <= len(pcm) <= HUD_WAKE_MAX_BYTES) or len(pcm) % 2:
+        return None
+    return pcm
+
+
+async def _hud_wake(websocket: WebSocket, pcm: bytes, wake_state: Dict[str, Any]) -> None:
+    """Đoạn HUD gửi có gọi tên không. Có → báo RIÊNG HUD đó: chỉ gọi tên (HUD mở mic nghe lệnh) hoặc kèm lệnh (HUD chạy
+    lệnh). Phần lệnh nhận dạng lại bằng bộ nhận dạng chính (model nhỏ nghe sai lệnh: "mấy giờ rồi" → "máy giá đôi")."""
+    from mateai.infrastructure.audio.wake_word_engine import detect_wake, find_wake_command
+    try:
+        t0 = time.perf_counter()
+        command, heard, stage = await detect_wake(pcm)
+        if command is None:
+            logger.debug("[HUD/Wake] đoạn %.1f s không gọi tên (%s, %d ms)", len(pcm) / 32000, stage,
+                         (time.perf_counter() - t0) * 1000)
+            return
+        if command:
+            from mateai.infrastructure.audio.audio_processor import audio_engine
+            from mateai.interfaces.websocket.xiaozhi_gateway import _pcm16_to_wav
+            full = await audio_engine.transcribe_audio(_pcm16_to_wav(pcm))
+            again = find_wake_command(full)
+            command = again if again is not None else command
+        ms = round((time.perf_counter() - t0) * 1000)
+        logger.info("[HUD/Wake] gọi tên sau %d ms (%s)%s", ms, stage, f" kèm lệnh: '{command[:60]}'" if command else "")
+        await websocket.send_text(json.dumps({"type": "wake_detected", "command": command, "ms": ms,
+                                              "timestamp": datetime.utcnow().isoformat()}, ensure_ascii=False))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[HUD/Wake] lỗi xử lý đoạn gọi tên: %s", exc)
+    finally:
+        wake_state["busy"] = False
 
 
 async def _hud_confirm(websocket: WebSocket, approved: bool, user: Dict[str, Any],

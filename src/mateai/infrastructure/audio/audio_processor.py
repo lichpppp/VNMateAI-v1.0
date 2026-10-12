@@ -62,6 +62,31 @@ _local_whisper_model = None
 _local_whisper_lock = threading.Lock()
 #: Một đoạn câu gọi được nhận dạng một lúc — giới hạn CPU khi nhiều người nói gần robot.
 _wake_clip_lock = threading.Lock()
+#: Model kiểm lại câu gọi (bước 2 của detect_wake): chỉ chạy với đoạn NGHE GẦN GIỐNG tên. Đo 2026-10-12 (giọng tổng hợp,
+#: nói xa + ồn): tiny 23/32 câu gọi, 330 ms; small 27/32 nhưng 1,9 s — dùng làm bước kiểm lại, không thay tiny.
+_wake_verify_model = None
+_wake_verify_lock = threading.Lock()
+
+
+def _get_wake_verify_model():
+    """faster-whisper cho bước kiểm lại câu gọi (mặc định "small"; WAKE_VERIFY_MODEL="off" để tắt). Nạp lần đầu dùng."""
+    global _wake_verify_model
+    size = str(getattr(settings, "WAKE_VERIFY_MODEL", "small") or "small").strip()
+    if size.lower() in ("off", "none", "false", "0"):
+        return None
+    if _wake_verify_model is not None:
+        return _wake_verify_model
+    with _wake_verify_lock:
+        if _wake_verify_model is None:
+            try:
+                from faster_whisper import WhisperModel  # type: ignore[import]
+                t0 = time.monotonic()
+                _wake_verify_model = WhisperModel(size, device="cpu", compute_type="int8")
+                logger.info("[WakeVerify] Đã nạp model '%s' trong %.1fs.", size, time.monotonic() - t0)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[WakeVerify] Không nạp được model '%s': %s — chỉ dùng bước nhanh.", size, exc)
+                _wake_verify_model = False
+    return _wake_verify_model or None
 
 
 def _get_local_whisper():
@@ -389,7 +414,7 @@ class AudioEngine:
             logger.error("ASR transcription failed [backend=%s]: %s", backend, exc)
             return ""
 
-    async def transcribe_wake_clip(self, pcm16: bytes) -> str:
+    async def transcribe_wake_clip(self, pcm16: bytes, verify: bool = False) -> str:
         """
         Nhận dạng đoạn âm thanh ngắn để tìm câu gọi tên trợ lý — CHỈ offline
         (faster-whisper cục bộ, không bao giờ chuyển sang dịch vụ đám mây: âm
@@ -409,7 +434,7 @@ class AudioEngine:
 
         def _run() -> str:
             with _wake_clip_lock:
-                return _transcribe(_get_local_whisper())
+                return _transcribe(_get_wake_verify_model() if verify else _get_local_whisper())
 
         def _transcribe(model) -> str:
             if model is None:
