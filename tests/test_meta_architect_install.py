@@ -188,3 +188,91 @@ def test_create_new_skill_tool_and_auto_path_share_one_flow(env, monkeypatch):
 def test_risk_level_matches_words_not_substrings(tool, level):
     from mateai.application.security.zero_trust import hitl_manager
     assert hitl_manager.get_risk_level(tool) == level
+
+
+# ── 2026-10-12: "tạo kỹ năng mới thì AI báo phải chờ" ────────────────────────────────────────────────────────────────
+# Nguyên nhân: mã sinh ra hỏng (bộ nạp từ chối `if`/`try` cấp module, an ninh cấm ctypes…) → lỗi về agent → AI gọi
+# create_new_skill lại; mỗi lần hỏng vẫn tốn một lượt hạn mức 3 / 10 phút → "thử lại sau … s", chưa kỹ năng nào được cài.
+
+@pytest.mark.parametrize("top", ['import sys\nif sys.platform == "win32":\n    import winreg\n',
+                                 "try:\n    import winreg\nexcept ImportError:\n    winreg = None\n    print('thiếu')\n"])
+def test_structure_check_uses_the_same_rule_as_the_loader(env, top):
+    from pathlib import Path
+    from core.plugin_manager import top_level_side_effects
+    code = _skill(top=top)
+    res = ma.meta_architect.install_skill(code, "auto_platform")
+    p = env[1] / "probe.py"
+    p.write_text(code, encoding="utf-8")
+    assert top_level_side_effects(Path(p))                       # bộ nạp từ chối …
+    assert res["status"] == "error" and res["retryable"] and "chạy lệnh ngay khi nạp" in res["message"]   # … thì ở đây cũng vậy
+    assert not (env[1] / "auto_platform.py").exists()
+
+
+def test_broken_code_is_repaired_within_one_call(env, monkeypatch):
+    calls = []
+
+    def synth(intent_description, failed_context=None):
+        calls.append(dict(failed_context or {}))
+        return _skill("phat_tiep_video", extra="import ctypes") if len(calls) == 1 else _skill("phat_tiep_video")
+    monkeypatch.setattr(ma.meta_architect, "synthesize_skill", synth)
+    res = ma.meta_architect.create_skill("phát tiếp video đang dừng")
+    assert res["status"] == "success" and res["skill_name"] == "phat_tiep_video" and res["attempts"] == 2
+    assert "ctypes" in calls[1]["loi_lan_truoc"] and "import ctypes" in calls[1]["ma_lan_truoc_bi_tu_choi"]
+
+
+def test_gives_up_after_max_attempts_and_tells_the_agent_not_to_retry(env, monkeypatch):
+    monkeypatch.setattr(ma.meta_architect, "synthesize_skill", lambda **k: _skill("x_tool_bad", extra="import ctypes"))
+    res = ma.meta_architect.create_skill("việc gì đó")
+    assert res["status"] == "error" and res["attempts"] == ma.MAX_SYNTH_ATTEMPTS
+    assert "Đừng gọi create_new_skill lại" in res["message"]
+
+
+def test_failed_attempts_do_not_use_up_the_creation_quota(monkeypatch):
+    import importlib
+    ms = importlib.import_module("skills.meta_skills")
+    from mateai.application.security.security_guard import CURRENT_PRINCIPAL
+    outcomes = iter([{"status": "error", "message": "hỏng"}] * 4 + [{"status": "success", "skill_name": f"k{i}"} for i in range(4)])
+
+    class Fake:
+        def create_skill(self, desc, skill_name=None):
+            return next(outcomes)
+    monkeypatch.setattr(ma, "meta_architect", Fake())
+    monkeypatch.setattr(ms, "_recent", {})
+    monkeypatch.setattr(ms, "_failed", {})
+    tok = CURRENT_PRINCIPAL.set("admin")
+    try:
+        outs = [ms.create_new_skill(f"việc {i}") for i in range(8)]
+    finally:
+        CURRENT_PRINCIPAL.reset(tok)
+    # 4 lần hỏng KHÔNG chặn 3 kỹ năng thành công kế tiếp; tới kỹ năng thứ 4 mới chạm hạn mức
+    assert [o["status"] for o in outs] == ["error"] * 4 + ["success"] * 3 + ["error"]
+    assert outs[-1]["code"] == "SKILL_CREATION_RATE_LIMITED"
+
+
+def test_failure_quota_stops_endless_retry_loops(monkeypatch):
+    import importlib
+    ms = importlib.import_module("skills.meta_skills")
+    from mateai.application.security.security_guard import CURRENT_PRINCIPAL
+
+    class Fake:
+        def create_skill(self, desc, skill_name=None):
+            return {"status": "error", "message": "hỏng"}
+    monkeypatch.setattr(ma, "meta_architect", Fake())
+    monkeypatch.setattr(ms, "_recent", {})
+    monkeypatch.setattr(ms, "_failed", {})
+    tok = CURRENT_PRINCIPAL.set("device:robot-a")
+    try:
+        outs = [ms.create_new_skill("việc") for _ in range(ms.FAIL_LIMIT + 1)]
+    finally:
+        CURRENT_PRINCIPAL.reset(tok)
+    assert outs[-1]["code"] == "SKILL_CREATION_RATE_LIMITED" and "thất bại" in outs[-1]["message"]
+
+
+def test_media_keys_are_a_builtin_skill_not_generated_code():
+    from pathlib import Path
+    from core.plugin_manager import top_level_side_effects
+    src = Path("skills/pc_control_skills.py").read_text(encoding="utf-8")
+    assert 'name="media_control"' in src and "needs_desktop=True" in src
+    assert not top_level_side_effects(Path("skills/pc_control_skills.py"))
+    prompt = ma._CODE_GEN_SYSTEM_PROMPT
+    assert "ctypes" in prompt and "CẤP MODULE" in prompt and "media_control" in prompt

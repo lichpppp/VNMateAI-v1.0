@@ -59,6 +59,15 @@ _CODE_GEN_SYSTEM_PROMPT = textwrap.dedent("""\
        Trợ lý chọn kỹ năng theo mô tả này — mô tả chỉ bằng tiếng Anh thì câu hỏi tiếng
        Việt sẽ không bao giờ tìm thấy kỹ năng.
 
+    LUẬT AN NINH — mã vi phạm bị TỪ CHỐI, không được cài:
+    10. CẤM import: ctypes, importlib, marshal, pickle. CẤM gọi: eval, exec, compile, __import__,
+        globals, locals, os.system, os.popen, os.spawn*, os.exec*, os.kill, shutil.rmtree,
+        và mọi lời gọi có shell=True. Cần chạy chương trình thì dùng subprocess.run([...danh sách...]).
+    11. CẤP MODULE (ngoài hàm) CHỈ được có: import, hằng số / biến gán, def, class. KHÔNG có if, try,
+        for, while, with hay lời gọi hàm ở cấp module — import tuỳ chọn / theo hệ điều hành đặt BÊN TRONG hàm.
+    12. Phím media (phát / tạm dừng / bài tiếp), âm lượng, mở ứng dụng đã có công cụ sẵn (media_control,
+        set_system_volume, open_application) — không viết lại.
+
     PLATFORM: Windows 10/11 x64, Python 3.10+
 """)
 
@@ -187,15 +196,31 @@ class MetaArchitect:
 
         stem = skill_file_stem(skill_name or desc)
         logger.info("MetaArchitect: tạo kỹ năng mới '%s' (yêu cầu: %s)", stem, desc[:80])
-        try:
-            code_str = self.synthesize_skill(
-                intent_description=desc,
-                failed_context={**(failed_context or {}), "target_name": stem},
-            )
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("MetaArchitect: sinh mã thất bại: %s", exc)
-            return {"status": "error", "message": f"Không sinh được mã kỹ năng: {exc}"}
-        return self.install_skill(code_str, stem, intent_description=desc)
+        # Mã hỏng (cú pháp, lệnh cấp module, import bị cấm, không nạp được) → gửi lỗi cho model viết lại NGAY trong lần gọi
+        # này. Trước 2026-10-12 lỗi trả thẳng về agent: AI gọi create_new_skill lại với tên khác, mỗi lần tốn một lượt
+        # hạn mức → hết 3 lượt / 10 phút → người dùng nghe "phải chờ" mà kỹ năng chưa bao giờ được cài.
+        import time as _time
+        t0, context, result = _time.monotonic(), {**(failed_context or {}), "target_name": stem}, None
+        for attempt in range(1, MAX_SYNTH_ATTEMPTS + 1):
+            try:
+                code_str = self.synthesize_skill(intent_description=desc, failed_context=context)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.error("MetaArchitect: sinh mã thất bại: %s", exc)
+                return {"status": "error", "message": f"Không sinh được mã kỹ năng: {exc}", "attempts": attempt}
+            result = self.install_skill(code_str, stem, intent_description=desc)
+            result["attempts"] = attempt
+            if result.get("status") != "error" or not result.get("retryable"):
+                return result
+            logger.warning("MetaArchitect: lần %d — mã kỹ năng '%s' hỏng (%s), cho model sửa lại.",
+                           attempt, stem, result.get("message"))
+            if _time.monotonic() - t0 > SYNTH_BUDGET_S:
+                break
+            context = {"target_name": stem, "loi_lan_truoc": result.get("message"),
+                       "ma_lan_truoc_bi_tu_choi": code_str[:2500], "yeu_cau_sua": "Viết lại TOÀN BỘ module, sửa đúng lỗi trên."}
+        result = dict(result or {})
+        result["message"] = (f"{result.get('message', 'Không tạo được kỹ năng')} (đã thử {result.get('attempts', 1)} lần). "
+                             "Đừng gọi create_new_skill lại cho cùng việc — báo người dùng lý do này.")
+        return result
 
     def install_skill(
         self,
@@ -220,18 +245,18 @@ class MetaArchitect:
         problem = _structure_problem(content)
         if problem:
             logger.error("MetaArchitect: mã kỹ năng '%s' không hợp lệ: %s", stem, problem)
-            return {"status": "error", "message": f"Mã kỹ năng không hợp lệ: {problem}"}
+            return {"status": "error", "retryable": True, "message": f"Mã kỹ năng không hợp lệ: {problem}"}
         names = exported_skill_names(content)
 
         taken = sorted(set(names) & set(plugin_manager.get_skill_names()))
         if taken:
-            return {"status": "error",
-                    "message": f"Tên kỹ năng trùng công cụ đã có: {', '.join(taken)} — không ghi đè công cụ có sẵn."}
+            return {"status": "error", "retryable": True,
+                    "message": f"Tên kỹ năng trùng công cụ đã có: {', '.join(taken)} — đặt tên khác, không ghi đè công cụ có sẵn."}
 
         is_safe, sec_reason = security_engine.inspect_generated_code(content)
         if not is_safe:
             logger.error("MetaArchitect: mã kỹ năng '%s' bị từ chối: %s", stem, sec_reason)
-            return {"status": "error", "message": f"Mã kỹ năng bị từ chối khi kiểm tra an ninh: {sec_reason}"}
+            return {"status": "error", "retryable": True, "message": f"Mã kỹ năng bị từ chối khi kiểm tra an ninh: {sec_reason}"}
 
         skills_dir: Path = settings.SKILLS_DIR  # type: ignore[assignment]
         if not _auto_install_enabled():
@@ -265,7 +290,9 @@ class MetaArchitect:
         modules = plugin_manager.get_skill_modules()
         missing = [n for n in names if modules.get(n) != module_name]
         if missing:
-            reason = _import_error(module_name) or "module không đăng ký được kỹ năng"
+            rejected = (getattr(plugin_manager, "rejected_modules", None) or {}).get(target.name)
+            reason = (f"bộ nạp từ chối — lệnh chạy ở cấp module: {'; '.join(rejected[:2])}" if rejected
+                      else _import_error(module_name) or "module không đăng ký được kỹ năng")
             logger.error("MetaArchitect: nạp '%s' thất bại (%s) — gỡ tệp.", module_name, reason)
             try:
                 target.unlink()
@@ -273,7 +300,7 @@ class MetaArchitect:
                 pass
             sys.modules.pop(module_name, None)
             plugin_manager.load_plugins()
-            return {"status": "error", "message": f"Kỹ năng sinh ra không nạp được: {reason}"}
+            return {"status": "error", "retryable": True, "message": f"Kỹ năng sinh ra không nạp được: {reason}"}
 
         return {
             "status": "success",
@@ -369,6 +396,9 @@ class MetaArchitect:
 
 #: Tên công cụ hợp lệ: snake_case ASCII — model gọi tool theo tên này.
 _SKILL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
+#: Số lần cho model viết lại mã trong MỘT lần tạo kỹ năng, và trần thời gian (agent cho mỗi lượt tối đa 180 s).
+MAX_SYNTH_ATTEMPTS = 3
+SYNTH_BUDGET_S = 90.0
 #: Mã chờ duyệt (khi không bật auto_execute) — plugin_manager chỉ nạp skills/*.py.
 PENDING_DIR_NAME = "pending"
 #: Câu lệnh cấp module chạy NGAY khi nạp (mỗi lần nạp lại kỹ năng lại chạy).
@@ -423,11 +453,14 @@ def _structure_problem(content: str) -> Optional[str]:
     bad = [n for n in names if not _SKILL_NAME_RE.match(n)]
     if bad:
         return f"tên công cụ không hợp lệ (cần snake_case ASCII): {', '.join(bad)}"
+    # CÙNG luật với bộ nạp (core.plugin_manager._is_safe_top_level). Trước 2026-10-12 hai nơi lệch nhau: ở đây cho qua
+    # `if sys.platform…` / `try` cấp module, bộ nạp từ chối → tệp bị gỡ, AI chỉ nhận "không nạp được" rồi tạo lại.
+    from core.plugin_manager import _is_safe_top_level
     for node in tree.body:
-        if isinstance(node, ast.Expr) and not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)):
-            return f"dòng {node.lineno} chạy lệnh ngay khi nạp kỹ năng (chỉ được khai báo hàm / hằng)"
-        if isinstance(node, _RUNS_AT_IMPORT):
-            return f"dòng {node.lineno} chạy vòng lặp / khối with ngay khi nạp kỹ năng"
+        if not _is_safe_top_level(node):
+            snippet = ast.unparse(node).splitlines()[0][:60]
+            return (f"dòng {node.lineno} chạy lệnh ngay khi nạp kỹ năng ({type(node).__name__}: {snippet}) — cấp module "
+                    "chỉ được import / hằng / def / class; vòng lặp, if, try, with, lời gọi hàm phải đặt trong hàm")
     return None
 
 

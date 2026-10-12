@@ -377,6 +377,74 @@ def open_application(target: str, args: Optional[List[str]] = None) -> Dict[str,
 
 
 # ---------------------------------------------------------------------------
+# Skill 4b: Media keys (phát / tạm dừng / bài tiếp / âm lượng)
+# ---------------------------------------------------------------------------
+
+#: Mã phím ảo Windows cho các phím media.
+_MEDIA_VK = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "stop": 0xB2,
+             "mute": 0xAD, "volume_down": 0xAE, "volume_up": 0xAF}
+#: Lệnh playerctl / amixer tương ứng trên Linux.
+_MEDIA_LINUX = {"play_pause": ["playerctl", "play-pause"], "next": ["playerctl", "next"],
+                "previous": ["playerctl", "previous"], "stop": ["playerctl", "stop"],
+                "mute": ["amixer", "-q", "set", "Master", "toggle"],
+                "volume_down": ["amixer", "-q", "set", "Master", "5%-"], "volume_up": ["amixer", "-q", "set", "Master", "5%+"]}
+
+
+@export_skill(
+    name="media_control",
+    description=(
+        "Điều khiển trình phát nhạc / video đang mở trên máy chủ bằng phím media của hệ điều hành "
+        "(YouTube trên Chrome, Spotify, VLC…): phát tiếp / tạm dừng, bài tiếp theo, bài trước, dừng, "
+        "tắt / bật tiếng, tăng / giảm âm lượng. Người dùng thường nói: 'phát tiếp nhạc', 'tạm dừng video', "
+        "'bật lại bài hát đang dừng', 'chuyển bài', 'bài tiếp theo', 'tắt tiếng'. "
+        "English: play pause media, resume youtube, next track, previous track, mute."
+    ),
+    parameters_schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": sorted(_MEDIA_VK),
+                "description": "play_pause (phát tiếp / tạm dừng), next, previous, stop, mute, volume_up, volume_down.",
+            },
+            "times": {"type": "integer", "minimum": 1, "maximum": 10, "default": 1,
+                      "description": "Số lần nhấn (vd tăng âm lượng 3 nấc)."},
+        },
+        "required": ["action"],
+    },
+    needs_desktop=True,  # phím media đi tới phiên đăng nhập có màn hình; máy chủ chạy nền thì không có tác dụng
+)
+def media_control(action: str, times: int = 1) -> Dict[str, Any]:
+    """
+    Nhấn phím media. Mã đã duyệt sẵn — trước 2026-10-12 trợ lý tự viết kỹ năng này bằng ctypes, luôn bị kiểm toán an
+    ninh mã tự sinh từ chối (cấm ctypes), rồi tạo lại liên tục tới khi hết hạn mức tạo kỹ năng.
+    """
+    action = str(action or "").strip().lower()
+    if action not in _MEDIA_VK:
+        raise ValueError(f"action không hợp lệ: {action!r} (chỉ {', '.join(sorted(_MEDIA_VK))})")
+    times = max(1, min(10, int(times or 1)))
+    if _IS_WINDOWS:
+        import ctypes  # mã lõi đã duyệt (kỹ năng tự sinh không được dùng ctypes)
+        user32 = ctypes.windll.user32
+        vk, extended, keyup = _MEDIA_VK[action], 0x0001, 0x0002
+        for _ in range(times):
+            user32.keybd_event(vk, 0, extended, 0)
+            user32.keybd_event(vk, 0, extended | keyup, 0)
+            time.sleep(0.05)
+        return {"action": action, "times": times, "platform": "windows"}
+    if platform.system() == "Linux":
+        cmd = _MEDIA_LINUX[action]
+        if not shutil.which(cmd[0]):
+            raise RuntimeError(f"Thiếu '{cmd[0]}' trên máy chủ Linux (cài playerctl / alsa-utils).")
+        for _ in range(times):
+            result = _run(cmd, timeout=5)
+            if not result["success"]:
+                raise RuntimeError(result["stderr"] or f"{cmd[0]} lỗi")
+        return {"action": action, "times": times, "platform": "linux"}
+    raise RuntimeError("media_control hiện hỗ trợ Windows và Linux.")
+
+
+# ---------------------------------------------------------------------------
 # Skill 5: Search Files
 # ---------------------------------------------------------------------------
 

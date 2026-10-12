@@ -23,28 +23,52 @@ from core.plugin_manager import export_skill
 
 logger = logging.getLogger(__name__)
 
-#: Mỗi danh tính tạo tối đa CREATE_LIMIT kỹ năng trong CREATE_WINDOW_S giây. Sự cố 2026-10-08: cửa sổ không hiện (máy chủ ở phiên
-#: nền), AI tưởng thiếu kỹ năng và gọi create_new_skill 39 lần trong 30 phút, sinh nhiều kỹ năng gần giống nhau.
+#: Mỗi danh tính CÀI THÀNH CÔNG tối đa CREATE_LIMIT kỹ năng mới trong CREATE_WINDOW_S giây. Sự cố 2026-10-08: cửa sổ không hiện
+#: (máy chủ ở phiên nền), AI tưởng thiếu kỹ năng và gọi create_new_skill 39 lần trong 30 phút, sinh nhiều kỹ năng gần giống nhau.
+#: 2026-10-12: trước đây cả lần THẤT BẠI cũng tính — mã bị từ chối 3 lần là hết lượt, người dùng nghe "phải chờ" dù chưa có kỹ
+#: năng nào được cài. Nay thất bại có hạn mức riêng (FAIL_LIMIT, chống vòng lặp), và MetaArchitect tự sửa mã trong một lần gọi.
 CREATE_LIMIT = 3
+FAIL_LIMIT = 6
 CREATE_WINDOW_S = 600
 _recent: Dict[str, Deque[float]] = {}
+_failed: Dict[str, Deque[float]] = {}
 _recent_lock = threading.Lock()
 
 
+def _trim(q: Deque[float], now: float) -> Deque[float]:
+    while q and now - q[0] > CREATE_WINDOW_S:
+        q.popleft()
+    return q
+
+
 def _creation_slot(principal: str) -> Optional[str]:
-    """None = được tạo (đã ghi nhận lượt); chuỗi = lý do từ chối."""
+    """None = được thử tạo; chuỗi = lý do từ chối."""
     now = time.monotonic()
     with _recent_lock:
-        q = _recent.setdefault(principal, deque())
-        while q and now - q[0] > CREATE_WINDOW_S:
-            q.popleft()
-        if len(q) >= CREATE_LIMIT:
-            wait = int(CREATE_WINDOW_S - (now - q[0])) + 1
-            return (f"Đã tạo {len(q)} kỹ năng trong {CREATE_WINDOW_S // 60} phút — dừng tạo thêm (thử lại sau {wait} s). "
+        ok = _trim(_recent.setdefault(principal, deque()), now)
+        bad = _trim(_failed.setdefault(principal, deque()), now)
+        if len(ok) >= CREATE_LIMIT:
+            wait = int(CREATE_WINDOW_S - (now - ok[0])) + 1
+            return (f"Đã tạo {len(ok)} kỹ năng mới trong {CREATE_WINDOW_S // 60} phút — dừng tạo thêm (thử lại sau {wait} s). "
                     "Nếu kỹ năng có sẵn đã chạy mà kết quả không như mong muốn, hãy báo người dùng lý do cụ thể "
                     "(lỗi trả về, máy chủ không có màn hình…) thay vì tạo kỹ năng mới gần giống.")
-        q.append(now)
+        if len(bad) >= FAIL_LIMIT:
+            wait = int(CREATE_WINDOW_S - (now - bad[0])) + 1
+            return (f"Đã tạo kỹ năng thất bại {len(bad)} lần trong {CREATE_WINDOW_S // 60} phút — dừng (thử lại sau {wait} s). "
+                    "Báo người dùng lỗi cụ thể của lần tạo gần nhất thay vì thử lại.")
     return None
+
+
+def _record(principal: str, result: Dict[str, Any]) -> None:
+    """Chỉ kỹ năng MỚI cài thành công tính vào CREATE_LIMIT; lỗi tính vào FAIL_LIMIT; "đã có sẵn" / chờ duyệt không tính."""
+    status = (result or {}).get("status")
+    if status == "success" and (result or {}).get("already_exists"):
+        return
+    with _recent_lock:
+        if status == "success":
+            _recent.setdefault(principal, deque()).append(time.monotonic())
+        elif status == "error":
+            _failed.setdefault(principal, deque()).append(time.monotonic())
 
 
 @export_skill(
@@ -80,12 +104,15 @@ def create_new_skill(intent_description: str, skill_name: Optional[str] = None) 
     `skill_name` trả về là TÊN CÔNG CỤ đã đăng ký (lấy từ mã đã nạp).
     """
     from mateai.application.security.security_guard import CURRENT_PRINCIPAL
-    refused = _creation_slot(str(CURRENT_PRINCIPAL.get() or "unknown"))
+    principal = str(CURRENT_PRINCIPAL.get() or "unknown")
+    refused = _creation_slot(principal)
     if refused:
         logger.warning("[MetaSkills] Từ chối create_new_skill: %s", refused)
         return {"status": "error", "code": "SKILL_CREATION_RATE_LIMITED", "message": refused}
     from mateai.application.skills.meta_architect import meta_architect
-    return meta_architect.create_skill(intent_description, skill_name=skill_name)
+    result = meta_architect.create_skill(intent_description, skill_name=skill_name)
+    _record(principal, result)
+    return result
 
 
 @export_skill(

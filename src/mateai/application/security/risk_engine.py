@@ -44,6 +44,8 @@ RISK_LEVEL_MAP: Dict[str, int] = {
     # TẠO kỹ năng là cài mã Python mới vào tiến trình máy chủ (đã qua kiểm toán
     # AST) — cần duyệt khi lệnh không đến từ kênh tin cậy.
     "list_available_skills": 1,
+    # Phím media / âm lượng trên máy chủ: không đọc / ghi dữ liệu.
+    "media_control": 1,
     "reload_all_skills": 2,
     "create_new_skill": 4,
     # Tải mã kỹ năng từ URL rồi cài: mã từ bên ngoài, không qua MetaArchitect.
