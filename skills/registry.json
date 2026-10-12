@@ -162,6 +162,33 @@
     },
     "enabled": true
   },
+  "get_cpu_and_ram_usage": {
+    "module": "skills.auto_check_cpu_ram_performance",
+    "attr": "get_cpu_and_ram_usage",
+    "meta": {
+      "name": "get_cpu_and_ram_usage",
+      "description": "Lấy thông tin chi tiết về phần trăm sử dụng CPU và dung lượng RAM hiện tại của hệ thống (tổng dung lượng, đã dùng, còn trống, phần trăm sử dụng). Các cách người dùng thường yêu cầu: 'kiểm tra tình trạng CPU và RAM', 'xem máy tính đang dùng bao nhiêu RAM', 'kiểm tra hiệu năng máy tính', 'CPU đang chạy bao nhiêu phần trăm', 'xem mức sử dụng tài nguyên hệ thống'. Từ khoá: check CPU usage, RAM usage, system performance, memory stats, monitor system. Ví dụ yêu cầu: «Lấy thông tin phần trăm sử dụng CPU và dung lượng RAM hiện tại (tổng dung lượng, đã dùng, còn trống, phần trăm sử dụng) bằng psutil.».",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "interval_seconds": {
+            "type": "number",
+            "description": "Khoảng thời gian (giây) để đo phần trăm CPU. Mặc định là 0.5 giây.",
+            "default": 0.5
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
   "get_chrome_tabs_info": {
     "module": "skills.auto_count_chrome_tabs",
     "attr": "get_chrome_tabs_info",
@@ -220,6 +247,36 @@
       "parameters": {
         "type": "object",
         "properties": {},
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null
+      }
+    },
+    "enabled": true
+  },
+  "open_youtube": {
+    "module": "skills.auto_open_youtube",
+    "attr": "open_youtube",
+    "meta": {
+      "name": "open_youtube",
+      "description": "Mở trang chủ YouTube, thực hiện tìm kiếm video hoặc mở một đường dẫn video YouTube cụ thể trên trình duyệt web mặc định của Windows. Cách người dùng hay yêu cầu: 'mở youtube', 'bật youtube', 'tìm kiếm youtube nhạc trẻ', 'mở bài hát trên youtube', 'phát nhạc trên YouTube'. English keywords: open youtube, search youtube, play youtube video, browse youtube. Ví dụ yêu cầu: «Mở trình duyệt web truy cập trang YouTube (https://www.youtube.com) hoặc mở video/tìm kiếm trên YouTube trực tiếp trên máy tính.».",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Từ khóa tìm kiếm hoặc tên video/bài hát muốn tìm trên YouTube. Để trống nếu chỉ muốn vào trang chủ."
+          },
+          "url": {
+            "type": "string",
+            "description": "Đường dẫn YouTube cụ thể nếu có (ví dụ: https://www.youtube.com/watch?v=...)."
+          }
+        },
         "required": []
       },
       "contract": {
