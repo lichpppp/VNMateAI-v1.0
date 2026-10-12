@@ -57,6 +57,7 @@
     .chip { font-family: var(--mono); font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; color: var(--dim); }
     .chip.live { color: var(--ok); border-color: rgba(52,245,164,.45); }
     .chip.demo { color: var(--warn); border-color: rgba(255,181,71,.45); }
+    #perf-chip { display: none; color: var(--dim); } #perf-chip.on { display: inline-block; }
     #clock { font-family: var(--tech); font-size: 22px; letter-spacing: 2px; color: #fff; text-shadow: 0 0 14px var(--accent); }
     #clock small { display: block; font-family: var(--vn); font-size: 10.5px; letter-spacing: .5px; color: var(--dim); text-align: right; }
     header a { color: var(--dim); font-size: 12px; text-decoration: none; border-bottom: 1px dotted var(--dim); }
@@ -229,6 +230,7 @@
       <div class="brand"><div class="orb"></div><div><b>Ly Ly</b><small>NEURAL COMMAND</small></div></div>
       <div class="state-pill" id="state-pill">STANDBY</div>
       <div class="spacer"></div>
+      <span class="chip" id="perf-chip" title="Máy đang chậm: tự giảm hiệu ứng để mượt hơn"></span>
       <span class="chip" id="mode-chip">…</span>
       <a href="/hud" title="Mở HUD đang dùng">HUD hiện tại</a>
       <div id="clock">--:--:--<small>—</small></div>
@@ -294,6 +296,6 @@
     </footer>
   </div>
 
-  <script src="/static/hud-next.js?v=6"></script>
+  <script src="/static/hud-next.js?v=10"></script>
 </body>
 </html>

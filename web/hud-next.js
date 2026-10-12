@@ -96,11 +96,11 @@
   const cv = $('core'), ctx = cv.getContext('2d');
   let W = 0, H = 0, DPR = 1, CX = 0, CY = 0, R = 0;
   function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 1.5);
+    DPR = Math.min(window.devicePixelRatio || 1, quality === 1 ? 1.25 : 1);
     W = window.innerWidth; H = window.innerHeight;
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    CX = W / 2; CY = H * 0.44; R = Math.min(W, H) * 0.185;
+    CX = W / 2; CY = H * 0.455; R = Math.min(W, H) * 0.205;
     buildHex();
     const c = $('center') && $('center').getBoundingClientRect();
     CENTER_HALF = c && c.width ? c.width / 2 : W * 0.25;
@@ -144,7 +144,7 @@
   let hexCells = [];
   function buildHex() {
     hexCells = [];
-    const sz = R * 0.15, w = sz * Math.sqrt(3), h = sz * 1.5, lim = R * 3.3;
+    const sz = R * 0.17, w = sz * Math.sqrt(3), h = sz * 1.5, lim = R * 3.0;
     for (let row = -30; row <= 30; row++) {
       for (let col = -40; col <= 40; col++) {
         const x = CX + col * w + (row & 1 ? w / 2 : 0), y = CY + row * h, d = Math.hypot(x - CX, (y - CY) * 1.35);
@@ -152,28 +152,56 @@
       }
     }
   }
-  let ringText = 'VN-MATEAI ◆ NEURAL CORE ◆ ';                 // vòng chữ quay quanh lõi — cập nhật từ số liệu thật
   const bolts = [];                                         // tia điện (khi nói / sự cố)
+
+  // Tối ưu: gom nét vẽ cùng màu vào nhóm, mỗi nhóm đặt màu + stroke MỘT lần (thay vì hàng nghìn lần mỗi khung)
+  const BUCKET = Array.from({ length: 12 }, () => []);
+  const HEX_COS = [0, 1, 2, 3, 4, 5].map((k) => Math.cos(Math.PI / 3 * k)), HEX_SIN = [0, 1, 2, 3, 4, 5].map((k) => Math.sin(Math.PI / 3 * k));
+  // Tự hạ chất lượng khi máy yếu: FPS < 42 suốt 1,5 s → chế độ nhẹ (nửa số hạt / nhánh, tắt lưới tổ ong, độ phân giải thấp hơn);
+  // FPS > 57 suốt 6 s → trở lại. ?lite ép chế độ nhẹ.
+  let quality = new URLSearchParams(location.search).has('lite') ? 0 : 1, fpsAvg = 60, slowFor = 0, fastFor = 0;
+  function adaptQuality(realDt) {
+    if (!realDt) return;
+    fpsAvg = lerp(fpsAvg, 1 / realDt, 0.05);
+    if (quality === 1) { slowFor = fpsAvg < 42 ? slowFor + realDt : 0; if (slowFor > 1.5) setQuality(0); }
+    else if (!new URLSearchParams(location.search).has('lite')) { fastFor = fpsAvg > 57 ? fastFor + realDt : 0; if (fastFor > 6) setQuality(1); }
+  }
+  function setQuality(q) {
+    quality = q; slowFor = fastFor = 0; resize();
+    const chip = $('perf-chip'); if (chip) { chip.textContent = q ? '' : 'Chế độ nhẹ'; chip.classList.toggle('on', !q); }
+  }
 
   // sao bay sâu phía sau
   const stars = Array.from({ length: 240 }, () => ({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2, z: Math.random() }));
 
   // chòm sao agent
+  // Module của chính VN-MateAI — quỹ đạo TRONG. Agent / hệ thống ngoài — quỹ đạo NGOÀI.
   const FIXED = [
-    { id: 'core-server', label: 'Máy chủ', kind: 'core', icon: 'S', info: ['Công cụ chạy ngay trên máy chủ VN-MateAI'] },
     { id: 'llm', label: 'Mô hình AI', kind: 'core', icon: 'AI', info: ['Bộ não ngôn ngữ — mỗi lượt hội thoại đi qua đây'] },
+    { id: 'rag', label: 'Kho tri thức', kind: 'core', icon: 'K', info: ['Tài liệu nội bộ (RAG), phân quyền theo phòng ban'] },
+    { id: 'core-server', label: 'Máy chủ', kind: 'core', icon: 'S', info: ['Công cụ chạy ngay trên máy chủ VN-MateAI'] },
+    { id: 'monitor', label: 'Giám sát', kind: 'core', icon: 'G', info: ['Prometheus / Grafana: cảnh báo, sự cố hạ tầng'] },
+    { id: 'playbooks', label: 'Kịch bản', kind: 'core', icon: 'P', info: ['Kịch bản vận hành: tự chạy theo lịch / cảnh báo / webhook'] },
     { id: 'hitl', label: 'Phê duyệt', kind: 'core', icon: '✓', info: ['Hàng đợi duyệt: tác vụ rủi ro cao chờ người có thẩm quyền'] },
+    { id: 'telegram', label: 'Telegram', kind: 'core', icon: 'T', info: ['Kênh cảnh báo + duyệt từ điện thoại'] },
     { id: 'robot', label: 'Robot', kind: 'core', icon: 'R', info: ['Robot ESP32 / Xiaozhi nói chuyện trực tiếp với Ly Ly'] },
   ];
+  // các module liên quan nối với nhau (luồng thật của hệ thống)
+  const MODULE_LINKS = [['monitor', 'playbooks'], ['playbooks', 'hitl'], ['hitl', 'telegram'], ['monitor', 'telegram'],
+    ['llm', 'rag'], ['llm', 'core-server'], ['robot', 'llm'], ['core-server', 'monitor']];
+  const byId = new Map();
+  const linkPulses = []; let nextLinkPulse = 0;
   const KIND_ICON = { mcp: 'M', a2a: 'A', inbound: 'I', devfleet: 'D', workstations: 'W' };
   const KIND_HUE = { core: 190, mcp: 200, a2a: 150, inbound: 215, devfleet: 38, workstations: 170 };
   const KIND_NAME = { core: 'Thành phần lõi', mcp: 'MCP server', a2a: 'Agent A2A (được giao việc)', inbound: 'Agent gọi vào', devfleet: 'Dev Fleet', workstations: 'Máy trạm' };
   let nodes = [];
   function setNodes(list) {
-    const all = [...FIXED, ...list.map((n) => ({ ...n, icon: KIND_ICON[n.kind] || '•' }))];
     const keep = new Map(nodes.map((n) => [n.id, n]));
-    nodes = all.map((n, i) => ({ ...n, a0: (i / all.length) * Math.PI * 2, glow: (keep.get(n.id) || {}).glow || 0,
-      ph: Math.random() * 6.28, nextNerve: 0 }));
+    const make = (n, i, total, ring) => ({ ...n, ring, a0: (i / total) * Math.PI * 2 + (ring === 'out' ? Math.PI / total : 0),
+      glow: (keep.get(n.id) || {}).glow || 0, ph: Math.random() * 6.28, nextNerve: 0, info: n.info || (keep.get(n.id) || {}).info });
+    const agents = list.map((n) => ({ ...n, icon: KIND_ICON[n.kind] || '•' }));
+    nodes = [...FIXED.map((n, i) => make(n, i, FIXED.length, 'in')), ...agents.map((n, i) => make(n, i, Math.max(agents.length, 1), 'out'))];
+    byId.clear(); nodes.forEach((n) => byId.set(n.id, n));
   }
 
   const beams = [], frags = [], ripples = [];
@@ -226,6 +254,7 @@
     clockNow = now;
     if (BOOT === null) { BOOT = NOINTRO ? now - 1e6 : now; t0 = now; if (!NOINTRO) shocks.push({ t0: now + 300, hue: 190 }); }
     const realDt = Math.max(0, Math.min(1, (now - t0) / 1000)), dt = Math.min(0.05, realDt); t0 = now;
+    adaptQuality(realDt);
     const tgt = STATES[state];
     const ease = 1 - Math.exp(-realDt * 9);
     const dh = ((tgt.hue - cur.hue + 540) % 360) - 180; cur.hue = (cur.hue + dh * ease + 360) % 360;
@@ -237,249 +266,243 @@
     if (state === 'speaking' && now > speakUntil + 900 && Date.now() - lastManual > 400) setState('idle');
 
     const boot = clamp01((now - BOOT) / 1500), bootS = easeOutBack(boot);
-    const hue = cur.hue, t = now / 1000;
+    const hue = Math.round(cur.hue), t = now / 1000, HQ = quality === 1;
     ctx.clearRect(0, 0, W, H);
 
-    // 1. sao bay sâu
-    ctx.fillStyle = `hsla(${hue},80%,80%,1)`;
-    for (const s of stars) {
+    // 1. sao bay sâu — 4 nhóm độ sáng, mỗi nhóm một lần đặt màu
+    const starN = HQ ? stars.length : stars.length >> 1;
+    for (let g = 0; g < 4; g++) BUCKET[g].length = 0;
+    for (let i = 0; i < starN; i++) {
+      const s = stars[i];
       s.z -= dt * (0.035 + cur.spin * 0.03); if (s.z <= 0.02) { s.z = 1; s.x = (Math.random() - 0.5) * 2; s.y = (Math.random() - 0.5) * 2; }
       const k = 0.5 / s.z, x = CX + s.x * k * W * 0.5, y = CY + s.y * k * H * 0.5;
       if (x < 0 || x > W || y < 0 || y > H) continue;
-      ctx.globalAlpha = (1 - s.z) * 0.7; const sz = (1 - s.z) * 2.2; ctx.fillRect(x, y, sz, sz);
+      BUCKET[Math.min(3, ((1 - s.z) * 4) | 0)].push(x, y);
     }
-    ctx.globalAlpha = 1;
-
-    // 1b. lưới tổ ong: sóng năng lượng lan từ lõi; sóng xung kích làm từng ô loé lên
-    const shockR = shocks.map((sk) => ((now - sk.t0) / 1100)).filter((p) => p >= 0 && p <= 1).map((p) => R * (0.9 + p * 2.4));
-    ctx.lineWidth = 1;
-    for (const c of hexCells) {
-      const wave = Math.max(0, Math.sin(c.d / (R * 0.32) - t * 1.8));
-      let al = 0.025 + Math.pow(wave, 6) * 0.11 * (0.6 + cur.lattice);
-      for (const sr of shockR) { const dd = Math.abs(c.d - sr); if (dd < R * 0.25) al += (1 - dd / (R * 0.25)) * 0.35; }
-      if (al < 0.03) continue;
-      ctx.strokeStyle = `hsla(${hue},100%,65%,${al})`;
-      ctx.beginPath();
-      for (let k = 0; k < 6; k++) { const a = Math.PI / 3 * k; ctx.lineTo(c.x + Math.cos(a) * c.sz, c.y + Math.sin(a) * c.sz); }
-      ctx.closePath(); ctx.stroke();
+    for (let g = 0; g < 4; g++) {
+      const b = BUCKET[g]; if (!b.length) continue;
+      ctx.fillStyle = `hsla(${hue},80%,80%,${0.12 + g * 0.17})`; const sz = 0.6 + g * 0.5;
+      for (let j = 0; j < b.length; j += 2) ctx.fillRect(b[j], b[j + 1], sz, sz);
     }
 
-    // 2. quầng sáng nền (bloom)
-    const breathe = (1 + Math.sin(t * 1.6) * cur.pulse + level * 0.18) * bootS;
-    let g = ctx.createRadialGradient(CX, CY, 0, CX, CY, R * 3.2 * breathe + 1);
-    g.addColorStop(0, `hsla(${hue},95%,62%,0.30)`); g.addColorStop(0.3, `hsla(${hue},95%,50%,0.10)`); g.addColorStop(1, 'transparent');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-
-    // 2b. bệ phát ba chiều dưới lõi: đĩa sáng, vòng quay, chùm sáng hắt lên và các lát quét chạy lên
-    const PY0 = CY + R * 1.42, PRX = R * 1.05 * bootS, PRY = R * 0.2 * bootS;
-    ctx.globalCompositeOperation = 'lighter';
-    const cone = ctx.createLinearGradient(0, PY0, 0, CY);
-    cone.addColorStop(0, `hsla(${hue},100%,65%,0.20)`); cone.addColorStop(1, `hsla(${hue},100%,65%,0)`);
-    ctx.fillStyle = cone; ctx.beginPath();
-    ctx.moveTo(CX - PRX, PY0); ctx.lineTo(CX - R * 0.55, CY + R * 0.2); ctx.lineTo(CX + R * 0.55, CY + R * 0.2); ctx.lineTo(CX + PRX, PY0);
-    ctx.closePath(); ctx.fill();
-    for (let k = 0; k < 4; k++) {                                   // lát quét chạy lên
-      const q = ((t * 0.55 + k / 4) % 1), y = lerp(PY0, CY + R * 0.25, q), rx = lerp(PRX, R * 0.55, q);
-      ctx.strokeStyle = `hsla(${hue},100%,75%,${(1 - q) * 0.35})`; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.ellipse(CX, y, rx + 0.1, rx * 0.19 + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
-    }
-    const disc = ctx.createRadialGradient(CX, PY0, 0, CX, PY0, PRX + 0.1);
-    disc.addColorStop(0, `hsla(${hue},100%,80%,0.55)`); disc.addColorStop(0.5, `hsla(${hue},100%,60%,0.16)`); disc.addColorStop(1, 'transparent');
-    ctx.fillStyle = disc; ctx.beginPath(); ctx.ellipse(CX, PY0, PRX + 0.1, PRY + 0.1, 0, 0, Math.PI * 2); ctx.fill();
-    for (let k = 0; k < 3; k++) {
-      ctx.save(); ctx.translate(CX, PY0); ctx.scale(1, PRY / Math.max(PRX, 0.1)); ctx.rotate(t * (k % 2 ? -0.6 : 0.4) * (1 + k * 0.3));
-      ctx.strokeStyle = `hsla(${hue},100%,${70 + k * 8}%,${0.65 - k * 0.15})`; ctx.lineWidth = 2.4 - k * 0.6;
-      ctx.setLineDash([PRX * 0.25, PRX * 0.08 + k * 6]);
-      ctx.beginPath(); ctx.arc(0, 0, PRX * (1 - k * 0.22) + 0.1, 0, Math.PI * 2); ctx.stroke();
-      ctx.restore();
-    }
-    ctx.setLineDash([]);
-    ctx.globalCompositeOperation = 'source-over';
-
-    // 3. chòm sao (nửa sau)
-    const orbA = Math.min(R * 2.4, CENTER_HALF - 40), orbB = Math.min(R * 1.0, orbA * 0.42);
-    nodes.forEach((n) => {
-      const a = n.a0 + t * 0.06;
-      n.x = CX + Math.cos(a) * orbA * bootS; n.y = CY + Math.sin(a) * orbB * bootS; n.z = Math.sin(a); n.glow = Math.max(0, (n.glow || 0) - dt * 0.7);
-    });
-    ctx.strokeStyle = `hsla(${hue},90%,60%,0.12)`; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.ellipse(CX, CY, orbA * bootS + 0.1, orbB * bootS + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
-    nodes.filter((n) => n.z < 0).forEach(drawNode);
-
-    // 3b. sợi thần kinh lõi → từng agent (+ nối các agent kề nhau); xung tín hiệu chạy dọc sợi
-    ctx.globalCompositeOperation = 'lighter';
-    nodes.forEach((n, i) => {
-      const m = nodes[(i + 1) % nodes.length];
-      if (nodes.length > 2) {
-        ctx.strokeStyle = `hsla(${hue},80%,65%,0.07)`; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.quadraticCurveTo((n.x + m.x) / 2, (n.y + m.y) / 2 + (n.y + m.y > 2 * CY ? 18 : -18), m.x, m.y); ctx.stroke();
+    // 1b. lưới tổ ong (chỉ chế độ đẹp): 4 mức sáng, mỗi mức MỘT path
+    if (HQ) {
+      const shockR = shocks.map((sk) => (now - sk.t0) / 1100).filter((p) => p >= 0 && p <= 1).map((p) => R * (0.9 + p * 2.4));
+      for (let g = 0; g < 4; g++) BUCKET[g].length = 0;
+      for (const c of hexCells) {
+        const wave = Math.max(0, Math.sin(c.d / (R * 0.32) - t * 1.8));
+        let al = Math.pow(wave, 6) * 0.11 * (0.6 + cur.lattice);
+        for (const sr of shockR) { const dd = Math.abs(c.d - sr); if (dd < R * 0.25) al += (1 - dd / (R * 0.25)) * 0.35; }
+        if (al < 0.02) continue;
+        BUCKET[Math.min(3, (al * 12) | 0)].push(c);
       }
-      const c = nerveCurve(n, t), hot = n === hovered ? 1 : n.glow;
-      const nh = KIND_HUE[n.kind] ?? 190;
-      // hai lớp: quầng rộng mờ + lõi mảnh sáng — đủ thấy trên nền tối mà vẫn thanh
-      const path = () => { ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]); };
-      const glow = ctx.createLinearGradient(c[0], c[1], c[6], c[7]);
-      glow.addColorStop(0, `hsla(${hue},100%,60%,${0.16 + hot * 0.3})`); glow.addColorStop(1, `hsla(${nh},100%,60%,${0.10 + hot * 0.3})`);
-      ctx.strokeStyle = glow; ctx.lineWidth = 6 + hot * 6; path(); ctx.stroke();
-      const core = ctx.createLinearGradient(c[0], c[1], c[6], c[7]);
-      core.addColorStop(0, `hsla(${hue},100%,80%,${0.75 + hot * 0.25})`); core.addColorStop(1, `hsla(${nh},100%,72%,${0.45 + hot * 0.55})`);
-      ctx.strokeStyle = core; ctx.lineWidth = 1.3 + hot * 1.4; path(); ctx.stroke();
-      if (now > n.nextNerve) {                         // xung đều đặn: lõi "hỏi thăm" agent và agent "trả lời"
-        nerves.push({ n, t0: now, dur: 1500 + Math.random() * 900, back: Math.random() < 0.45 });
+      ctx.lineWidth = 1;
+      for (let g = 0; g < 4; g++) {
+        const b = BUCKET[g]; if (!b.length) continue;
+        ctx.strokeStyle = `hsla(${hue},100%,65%,${0.04 + g * 0.09})`; ctx.beginPath();
+        for (const c of b) { ctx.moveTo(c.x + c.sz, c.y); for (let k = 1; k <= 6; k++) ctx.lineTo(c.x + HEX_COS[k % 6] * c.sz, c.y + HEX_SIN[k % 6] * c.sz); }
+        ctx.stroke();
+      }
+    }
+
+    // 2. quầng sáng nền
+    const breathe = (1 + Math.sin(t * 1.6) * cur.pulse + level * 0.18) * bootS;
+    const g0 = ctx.createRadialGradient(CX, CY, 0, CX, CY, R * 3.1 * breathe + 1);
+    g0.addColorStop(0, `hsla(${hue},95%,62%,0.30)`); g0.addColorStop(0.3, `hsla(${hue},95%,50%,0.10)`); g0.addColorStop(1, 'transparent');
+    ctx.fillStyle = g0; ctx.fillRect(0, 0, W, H);
+
+    // 3. hai quỹ đạo: TRONG = module hệ thống, NGOÀI = agent của doanh nghiệp
+    // quỹ đạo trong ngay ngoài mép lõi (mép quả cầu nhìn thấy ≈ 0,85R); quỹ đạo ngoài dẹt, gọn giữa thanh tiêu đề và phụ đề
+    const A1 = Math.min(R * 1.5, CENTER_HALF * 0.62), B1 = R * 0.98;
+    const A2 = Math.max(A1 + 70, Math.min(R * 2.42, CENTER_HALF - 36)), B2 = Math.max(B1 + 34, Math.min(R * 1.4, CY - 130, H - CY - 240));
+    nodes.forEach((n) => {
+      const inner = n.ring === 'in', a = n.a0 + t * (inner ? -0.045 : 0.06);
+      n.x = CX + Math.cos(a) * (inner ? A1 : A2) * bootS; n.y = CY + Math.sin(a) * (inner ? B1 : B2) * bootS;
+      n.z = Math.sin(a); n.glow = Math.max(0, (n.glow || 0) - dt * 0.7);
+    });
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = `hsla(${hue},90%,60%,0.10)`;
+    ctx.beginPath(); ctx.ellipse(CX, CY, A1 * bootS + 0.1, B1 * bootS + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([4, 10]);
+    ctx.beginPath(); ctx.ellipse(CX, CY, A2 * bootS + 0.1, B2 * bootS + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    nodes.forEach((n) => { if (n.z < 0) drawNode(n); });
+
+    // 3b. kết nối: lõi → mọi nút (sợi thần kinh) + module ↔ module liên quan; xung chạy dọc sợi
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [ia, ib] of MODULE_LINKS) {
+      const a = byId.get(ia), b = byId.get(ib); if (!a || !b) continue;
+      const mx = (a.x + b.x) / 2 + (CX - (a.x + b.x) / 2) * 0.25, my = (a.y + b.y) / 2 + (CY - (a.y + b.y) / 2) * 0.25;
+      const hot = Math.max(a === hovered || b === hovered ? 1 : 0, a.glow, b.glow);
+      ctx.strokeStyle = `hsla(${hue},100%,72%,${0.16 + hot * 0.5})`; ctx.lineWidth = 1 + hot;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.quadraticCurveTo(mx, my, b.x, b.y); ctx.stroke();
+    }
+    for (const n of nodes) {
+      const c = nerveCurve(n, t), hot = n === hovered ? 1 : n.glow, nh = KIND_HUE[n.kind] ?? 190;
+      ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]);
+      if (HQ) { ctx.strokeStyle = `hsla(${(hue + nh) >> 1},100%,60%,${0.13 + hot * 0.3})`; ctx.lineWidth = 6 + hot * 6; ctx.stroke(); }
+      ctx.strokeStyle = `hsla(${(hue + nh) >> 1},100%,76%,${(n.ring === 'in' ? 0.6 : 0.5) + hot * 0.4})`; ctx.lineWidth = 1.2 + hot * 1.4; ctx.stroke();
+      if (now > n.nextNerve) {
+        nerves.push({ n, t0: now, dur: 1400 + Math.random() * 900, back: Math.random() < 0.45 });
         n.nextNerve = now + 1800 + Math.random() * (state === 'thinking' ? 1200 : 4200);
       }
-    });
+    }
+    if (now > nextLinkPulse && MODULE_LINKS.length) {
+      const [ia, ib] = MODULE_LINKS[(Math.random() * MODULE_LINKS.length) | 0];
+      if (byId.get(ia) && byId.get(ib)) linkPulses.push({ a: byId.get(ia), b: byId.get(ib), t0: now, dur: 1100 });
+      nextLinkPulse = now + 700 + Math.random() * 1600;
+    }
+    ctx.fillStyle = `hsl(${hue},100%,86%)`;
     for (let i = nerves.length - 1; i >= 0; i--) {
       const p = nerves[i], q = (now - p.t0) / p.dur;
       if (q > 1) { nerves.splice(i, 1); continue; }
       if (q < 0) continue;
       const c = nerveCurve(p.n, t);
-      for (let k = 0; k < 6; k++) {
-        const u = p.back ? 1 - (q - k * 0.022) : q - k * 0.022; if (u < 0 || u > 1) continue;
-        const [x, y] = bez(c, u); ctx.fillStyle = `hsla(${hue},100%,${80 - k * 6}%,${(1 - k / 6) * 0.9})`;
-        ctx.beginPath(); ctx.arc(x, y, Math.max(0.4, 2.6 - k * 0.35), 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath();
+      for (let k = 0; k < 5; k++) {
+        const u = p.back ? 1 - (q - k * 0.025) : q - k * 0.025; if (u < 0 || u > 1) continue;
+        const [x, y] = bez(c, u), r = 2.6 - k * 0.45; ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, Math.PI * 2);
       }
+      ctx.fill();
+    }
+    for (let i = linkPulses.length - 1; i >= 0; i--) {
+      const p = linkPulses[i], q = (now - p.t0) / p.dur;
+      if (q > 1) { linkPulses.splice(i, 1); continue; }
+      if (q < 0) continue;
+      const mx = (p.a.x + p.b.x) / 2 + (CX - (p.a.x + p.b.x) / 2) * 0.25, my = (p.a.y + p.b.y) / 2 + (CY - (p.a.y + p.b.y) / 2) * 0.25, v = 1 - q;
+      const x = v * v * p.a.x + 2 * v * q * mx + q * q * p.b.x, y = v * v * p.a.y + 2 * v * q * my + q * q * p.b.y;
+      ctx.beginPath(); ctx.arc(x, y, 2.4, 0, Math.PI * 2); ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    // 4. thước độ quay + khung ngắm
-    const RS = R * 1.86 * bootS;
-    ctx.save(); ctx.translate(CX, CY); ctx.rotate(-t * 0.05);
-    ctx.strokeStyle = `hsla(${hue},90%,70%,0.35)`; ctx.fillStyle = `hsla(${hue},90%,75%,0.55)`;
-    ctx.font = `${Math.max(9, R * 0.06)}px 'Share Tech Mono', monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    for (let d = 0; d < 360; d += 5) {
-      const a = d * Math.PI / 180, long = d % 30 === 0, r1 = RS, r2 = RS + (long ? 9 : 4);
-      ctx.lineWidth = long ? 1.4 : 0.8; ctx.beginPath(); ctx.moveTo(Math.cos(a) * r1, Math.sin(a) * r1 * 0.98); ctx.lineTo(Math.cos(a) * r2, Math.sin(a) * r2 * 0.98); ctx.stroke();
-      if (long && d % 90 === 0) ctx.fillText(String(d).padStart(3, '0') + '°', Math.cos(a) * (RS + 22), Math.sin(a) * (RS + 22));
-    }
-    ctx.restore();
+    // 4. khung ngắm quay (4 cung) — không đổ bóng
+    const RS = R * 1.2 * bootS;
     ctx.save(); ctx.translate(CX, CY); ctx.rotate(t * 0.22 * (0.5 + cur.ring));
-    ctx.strokeStyle = `hsla(${hue},100%,70%,0.85)`; ctx.lineWidth = 2.4; ctx.shadowColor = `hsl(${hue},100%,60%)`; ctx.shadowBlur = 12;
-    for (let q = 0; q < 4; q++) {
-      const a = q * Math.PI / 2 + Math.PI / 4;
-      ctx.beginPath(); ctx.arc(0, 0, RS * 1.09, a - 0.17, a + 0.17); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(Math.cos(a) * RS * 1.14, Math.sin(a) * RS * 1.14); ctx.lineTo(Math.cos(a) * RS * 1.2, Math.sin(a) * RS * 1.2); ctx.stroke();
-    }
-    ctx.restore(); ctx.shadowBlur = 0;
+    ctx.strokeStyle = `hsla(${hue},100%,72%,0.8)`; ctx.lineWidth = 2.2; ctx.beginPath();
+    for (let q = 0; q < 4; q++) { const a = q * Math.PI / 2 + Math.PI / 4; ctx.moveTo(Math.cos(a - 0.17) * RS, Math.sin(a - 0.17) * RS); ctx.arc(0, 0, RS, a - 0.17, a + 0.17); }
+    ctx.stroke(); ctx.restore();
 
-    // 4b. vòng chữ dữ liệu (số liệu thật) quay chậm quanh lõi
-    {
-      const rr = R * 1.64 * bootS, txt = ringText.repeat(Math.max(1, Math.ceil((2 * Math.PI * rr) / (ringText.length * 7.4))));
-      const n = txt.length, a0 = -t * 0.08;
-      ctx.font = `${Math.max(10, R * 0.062)}px 'Share Tech Mono', monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      for (let i = 0; i < n; i++) {
-        const a = a0 + (i / n) * Math.PI * 2, x = CX + Math.cos(a) * rr, y = CY + Math.sin(a) * rr * 0.98;
-        const front = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(a + Math.PI / 2));
-        ctx.save(); ctx.translate(x, y); ctx.rotate(a + Math.PI / 2);
-        ctx.fillStyle = `hsla(${hue},100%,78%,${0.22 + front * 0.5})`; ctx.fillText(txt[i], 0, 0); ctx.restore();
-      }
-      ctx.textBaseline = 'alphabetic';
-    }
-
-    // 5. vòng quỹ đạo + vệ tinh
+    // 5. vòng quỹ đạo quanh lõi + vệ tinh (không đổ bóng)
     for (let i = 0; i < 3; i++) {
-      const rr = R * (1.32 + i * 0.2) * bootS, sp = (i % 2 ? -1 : 1) * t * cur.ring * (0.6 + i * 0.25), ry = rr * 0.86;
+      const rr = R * (1.03 + i * 0.06) * bootS, sp = (i % 2 ? -1 : 1) * t * cur.ring * (0.6 + i * 0.25), ry = rr * 0.9;
       ctx.save(); ctx.translate(CX, CY); ctx.rotate(sp);
-      ctx.strokeStyle = `hsla(${hue},95%,${60 + i * 6}%,${0.55 - i * 0.13})`; ctx.lineWidth = i === 0 ? 2 : 1.2;
+      ctx.strokeStyle = `hsla(${hue},95%,${60 + i * 6}%,${0.5 - i * 0.12})`; ctx.lineWidth = i === 0 ? 2 : 1.2;
       ctx.setLineDash(i === 1 ? [3, 9] : [R * 0.45, R * 0.18]);
       ctx.beginPath(); ctx.ellipse(0, 0, rr + 0.1, ry + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.setLineDash([]);
       const sa = t * (1.2 + i * 0.5) * (i % 2 ? -1 : 1);
-      ctx.fillStyle = '#fff'; ctx.shadowColor = `hsl(${hue},100%,65%)`; ctx.shadowBlur = 14;
-      ctx.beginPath(); ctx.arc(Math.cos(sa) * rr, Math.sin(sa) * ry, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(Math.cos(sa) * rr, Math.sin(sa) * ry, 2.4, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
-    // 6. sóng âm tròn
-    const bars = 120, base = R * 1.12;
-    for (let i = 0; i < bars; i++) {
-      const a = (i / bars) * Math.PI * 2;
-      const amp = level * R * 0.42 * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.37 + t * 7) * Math.cos(i * 0.11 - t * 3)));
-      if (amp < 0.6) continue;
-      const x1 = CX + Math.cos(a) * base, y1 = CY + Math.sin(a) * base;
-      ctx.strokeStyle = `hsla(${hue + Math.sin(i) * 12},100%,${62 + amp / R * 30}%,0.85)`; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1 + Math.cos(a) * amp, y1 + Math.sin(a) * amp); ctx.stroke();
+    // 6. sóng âm tròn — MỘT path
+    if (level > 0.02) {
+      const bars = HQ ? 120 : 72, base = R * 1.02;
+      ctx.strokeStyle = `hsla(${hue},100%,70%,0.85)`; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i < bars; i++) {
+        const a = (i / bars) * Math.PI * 2, amp = level * R * 0.3 * (0.35 + 0.65 * Math.abs(Math.sin(i * 0.37 + t * 7) * Math.cos(i * 0.11 - t * 3)));
+        if (amp < 0.6) continue;
+        const ca = Math.cos(a), sa = Math.sin(a), x1 = CX + ca * base, y1 = CY + sa * base;
+        ctx.moveTo(x1, y1); ctx.lineTo(x1 + ca * amp, y1 + sa * amp);
+      }
+      ctx.stroke();
     }
 
-    // 7. quả cầu hạt (tính toạ độ chiếu, dùng lại cho mạng nơ-ron)
+    // 7. quả cầu hạt
     const rot = t * cur.spin, tilt = 0.42, cr = Math.cos(rot), sr = Math.sin(rot), ct = Math.cos(tilt), st = Math.sin(tilt);
     const rad = R * (1 - cur.pull * 0.25 * (0.6 + level)) * (1 + level * 0.1 + Math.sin(t * 1.6) * cur.pulse) * bootS;
+    // toạ độ chiếu tính cho MỌI hạt (rẻ) để nhánh nơ-ron / synapse luôn đúng chỗ; chế độ nhẹ chỉ VẼ một nửa
+    const listening = state === 'listening', step = HQ ? 1 : 2;
     for (let i = 0; i < N; i++) {
       const p = pts[i];
-      const wob = 1 + cur.noise * Math.sin(p.s * 40 + t * 3 + p.y * 6) + (state === 'listening' ? -level * 0.12 * p.s : 0);
+      const wob = 1 + cur.noise * Math.sin(p.s * 40 + t * 3 + p.y * 6) + (listening ? -level * 0.12 * p.s : 0);
       let x = p.x * cr - p.z * sr, z = p.x * sr + p.z * cr, y = p.y;
       const y2 = y * ct - z * st; z = y * st + z * ct; y = y2;
       const persp = 1 / (1.9 - z * 0.6);
       PX[i] = CX + x * rad * wob * persp * 1.3; PY[i] = CY + y * rad * wob * persp * 1.3; PD[i] = (z + 1) / 2;
     }
     ctx.globalCompositeOperation = 'lighter';
-    // mạng nơ-ron: nhánh mặt trước sáng theo độ sâu; gần con trỏ thì bừng sáng
+    // mạng nơ-ron: 5 mức sáng, mỗi mức MỘT path
     const mNear = mouse.on && Math.hypot(mouse.x - CX, mouse.y - CY) < R * 1.6;
-    ctx.lineWidth = 0.9;
-    for (const [a, b, ph] of links) {
+    for (let g = 0; g < 5; g++) BUCKET[g].length = 0;
+    for (let li = 0; li < links.length; li += step) {
+      const [a, b, ph] = links[li];
       const d = Math.min(PD[a], PD[b]); if (d < 0.42) continue;
-      const pulse = 0.5 + 0.5 * Math.sin(t * 3 + ph * 20);
-      let al = (d - 0.42) * (0.25 + cur.lattice * 0.9) * (0.45 + pulse * 0.55);
+      let al = (d - 0.42) * (0.25 + cur.lattice * 0.9) * (0.7 + 0.3 * Math.sin(t * 3 + ph * 20));
       if (mNear) { const md = Math.hypot((PX[a] + PX[b]) / 2 - mouse.x, (PY[a] + PY[b]) / 2 - mouse.y); if (md < 90) al += (1 - md / 90) * 0.9; }
-      ctx.strokeStyle = `hsla(${hue + ph * 30},100%,74%,${Math.min(1, al)})`;
-      ctx.beginPath(); ctx.moveTo(PX[a], PY[a]); ctx.lineTo(PX[b], PY[b]); ctx.stroke();
+      if (al < 0.03) continue;
+      BUCKET[Math.min(4, (al * 6) | 0)].push(a, b);
     }
-    // nơ-ron bắn ngẫu nhiên (khi suy nghĩ dày đặc) + gần con trỏ
+    ctx.lineWidth = 0.9;
+    for (let g = 0; g < 5; g++) {
+      const bk = BUCKET[g]; if (!bk.length) continue;
+      ctx.strokeStyle = `hsla(${hue},100%,74%,${0.08 + g * 0.18})`; ctx.beginPath();
+      for (let j = 0; j < bk.length; j += 2) { ctx.moveTo(PX[bk[j]], PY[bk[j]]); ctx.lineTo(PX[bk[j + 1]], PY[bk[j + 1]]); }
+      ctx.stroke();
+    }
+    // nơ-ron bắn + lan truyền
     const rate = { idle: 2, listening: 4, thinking: 16, speaking: 6, alert: 9 }[state] || 2;
-    for (let k = 0; k < rate * dt * 3; k++) { const i = (Math.random() * N) | 0; if (PD[i] > 0.55) fireNeuron(i, 0.8); }
+    for (let k = 0; k < rate * dt * (HQ ? 3 : 1.5); k++) { const i = ((Math.random() * N) | 0) & (HQ ? ~0 : ~1); if (PD[i] > 0.55) fireNeuron(i, 0.8); }
     if (mNear && Math.random() < 0.6) {
       let best = -1, bd = 70 * 70;
-      for (let k = 0; k < 120; k++) { const i = (Math.random() * N) | 0; const dd = (PX[i] - mouse.x) ** 2 + (PY[i] - mouse.y) ** 2; if (dd < bd && PD[i] > 0.5) { bd = dd; best = i; } }
+      for (let k = 0; k < 100; k++) { const i = ((Math.random() * N) | 0) & (HQ ? ~0 : ~1); const dd = (PX[i] - mouse.x) ** 2 + (PY[i] - mouse.y) ** 2; if (dd < bd && PD[i] > 0.5) { bd = dd; best = i; } }
       if (best >= 0) fireNeuron(best, 1.2);
     }
+    const synCap = HQ ? 320 : 120;
+    if (synapses.length > synCap) synapses.splice(0, synapses.length - synCap);
+    for (let g = 0; g < 3; g++) BUCKET[g].length = 0;
     for (let i = synapses.length - 1; i >= 0; i--) {
       const sp = synapses[i], q = (now - sp.t0) / sp.dur;
       if (q > 1) { synapses.splice(i, 1); continue; }
       if (q < 0) continue;
       const [a, b] = links[sp.li], from = sp.from === a ? a : b, to = from === a ? b : a;
-      const x = lerp(PX[from], PX[to], q), y = lerp(PY[from], PY[to], q);
-      ctx.strokeStyle = `hsla(${hue},100%,85%,${(1 - q) * 0.9})`; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(PX[from], PY[from]); ctx.lineTo(x, y); ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.fillRect(x - 1.3, y - 1.3, 2.6, 2.6);
-      if (q > 0.96 && !sp.chained && Math.random() < 0.35 && synapses.length < 400) { sp.chained = true; fireNeuron(to, 0.6); }   // lan truyền
+      BUCKET[Math.min(2, ((1 - q) * 3) | 0)].push(PX[from], PY[from], lerp(PX[from], PX[to], q), lerp(PY[from], PY[to], q));
+      if (q > 0.96 && !sp.chained && Math.random() < 0.35) { sp.chained = true; fireNeuron(to, 0.6); }
     }
+    ctx.lineWidth = 1.6;
+    for (let g = 0; g < 3; g++) {
+      const bk = BUCKET[g]; if (!bk.length) continue;
+      ctx.strokeStyle = `hsla(${hue},100%,85%,${0.3 + g * 0.3})`; ctx.beginPath();
+      for (let j = 0; j < bk.length; j += 4) { ctx.moveTo(bk[j], bk[j + 1]); ctx.lineTo(bk[j + 2], bk[j + 3]); }
+      ctx.stroke();
+      ctx.fillStyle = '#fff'; for (let j = 0; j < bk.length; j += 4) ctx.fillRect(bk[j + 2] - 1.2, bk[j + 3] - 1.2, 2.4, 2.4);
+    }
+    // nơ-ron loé: 2 vòng tròn đồng tâm (không tạo gradient mỗi lần)
     for (let i = fires.length - 1; i >= 0; i--) {
       const f = fires[i], q = (now - f.t0) / 520;
       if (q > 1) { fires.splice(i, 1); continue; }
       if (q < 0) continue;
-      const r = 3 + q * 9 * f.s, gx = ctx.createRadialGradient(PX[f.i], PY[f.i], 0, PX[f.i], PY[f.i], r);
-      gx.addColorStop(0, `hsla(${hue},100%,92%,${(1 - q) * 0.95})`); gx.addColorStop(1, 'transparent');
-      ctx.fillStyle = gx; ctx.beginPath(); ctx.arc(PX[f.i], PY[f.i], r, 0, Math.PI * 2); ctx.fill();
+      const r = 2.5 + q * 8 * f.s;
+      ctx.fillStyle = `hsla(${hue},100%,80%,${(1 - q) * 0.22})`; ctx.beginPath(); ctx.arc(PX[f.i], PY[f.i], r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = `hsla(${hue},100%,95%,${(1 - q) * 0.8})`; ctx.beginPath(); ctx.arc(PX[f.i], PY[f.i], r * 0.35, 0, Math.PI * 2); ctx.fill();
     }
-    // tia plasma từ con trỏ tới các nơ-ron gần nhất
     if (mNear) {
       const near = [];
-      for (let k = 0; k < 260; k++) { const i = (Math.random() * N) | 0; const dd = Math.hypot(PX[i] - mouse.x, PY[i] - mouse.y); if (dd < 110 && PD[i] > 0.5) near.push([dd, i]); }
-      near.sort((x, y) => x[0] - y[0]).slice(0, 4).forEach(([dd, i]) => {
-        ctx.strokeStyle = `hsla(${hue},100%,80%,${(1 - dd / 110) * 0.8})`; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(mouse.x, mouse.y);
-        ctx.quadraticCurveTo((mouse.x + PX[i]) / 2 + (Math.random() - 0.5) * 14, (mouse.y + PY[i]) / 2 + (Math.random() - 0.5) * 14, PX[i], PY[i]); ctx.stroke();
+      for (let k = 0; k < 200; k++) { const i = ((Math.random() * N) | 0) & (HQ ? ~0 : ~1); const dd = Math.hypot(PX[i] - mouse.x, PY[i] - mouse.y); if (dd < 110 && PD[i] > 0.5) near.push([dd, i]); }
+      ctx.strokeStyle = `hsla(${hue},100%,80%,0.55)`; ctx.lineWidth = 1; ctx.beginPath();
+      near.sort((x, y) => x[0] - y[0]).slice(0, 4).forEach(([, i]) => {
+        ctx.moveTo(mouse.x, mouse.y); ctx.quadraticCurveTo((mouse.x + PX[i]) / 2 + (Math.random() - 0.5) * 14, (mouse.y + PY[i]) / 2 + (Math.random() - 0.5) * 14, PX[i], PY[i]);
       });
+      ctx.stroke();
     }
-    for (let i = 0; i < N; i++) {
-      const depth = PD[i], p = pts[i];
-      ctx.fillStyle = `hsla(${hue + p.s * 30 - 15},100%,${58 + depth * 30}%,${0.18 + depth * 0.8})`;
-      const sz = 0.8 + depth * 2.0;
-      ctx.fillRect(PX[i] - sz / 2, PY[i] - sz / 2, sz, sz);
+    // hạt: 6 mức độ sâu × 2 sắc độ = 12 nhóm, mỗi nhóm đặt màu MỘT lần
+    for (let g = 0; g < 12; g++) BUCKET[g].length = 0;
+    for (let i = 0; i < N; i += step) BUCKET[Math.min(5, (PD[i] * 6) | 0) * 2 + (pts[i].s > 0.5 ? 1 : 0)].push(i);
+    for (let g = 0; g < 12; g++) {
+      const bk = BUCKET[g]; if (!bk.length) continue;
+      const depth = ((g >> 1) + 0.5) / 6, sz = (0.8 + depth * 2.0) * (HQ ? 1 : 1.3);
+      ctx.fillStyle = `hsla(${hue + (g & 1 ? 10 : -10)},100%,${58 + depth * 30}%,${0.18 + depth * 0.8})`;
+      for (const i of bk) ctx.fillRect(PX[i] - sz / 2, PY[i] - sz / 2, sz, sz);
     }
     const coreR = R * 0.5 * breathe + 0.1;
-    const k = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
-    k.addColorStop(0, 'rgba(255,255,255,0.95)'); k.addColorStop(0.25, `hsla(${hue},100%,70%,0.8)`); k.addColorStop(1, 'transparent');
-    ctx.fillStyle = k; ctx.beginPath(); ctx.arc(CX, CY, coreR, 0, Math.PI * 2); ctx.fill();
-    // tia loé chéo (lens flare)
-    ctx.strokeStyle = `hsla(${hue},100%,85%,${0.25 + level * 0.3})`; ctx.lineWidth = 1;
-    for (const a of [0.2, 1.77]) {
-      const L = R * (1.4 + level * 0.6);
-      ctx.beginPath(); ctx.moveTo(CX - Math.cos(a) * L, CY - Math.sin(a) * L * 0.2); ctx.lineTo(CX + Math.cos(a) * L, CY + Math.sin(a) * L * 0.2); ctx.stroke();
-    }
-    ctx.globalCompositeOperation = 'source-over';
+    const kg = ctx.createRadialGradient(CX, CY, 0, CX, CY, coreR);
+    kg.addColorStop(0, 'rgba(255,255,255,0.95)'); kg.addColorStop(0.25, `hsla(${hue},100%,70%,0.8)`); kg.addColorStop(1, 'transparent');
+    ctx.fillStyle = kg; ctx.beginPath(); ctx.arc(CX, CY, coreR, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = `hsla(${hue},100%,85%,${0.25 + level * 0.3})`; ctx.lineWidth = 1; ctx.beginPath();
+    for (const a of [0.2, 1.77]) { const L = R * (1.4 + level * 0.6); ctx.moveTo(CX - Math.cos(a) * L, CY - Math.sin(a) * L * 0.2); ctx.lineTo(CX + Math.cos(a) * L, CY + Math.sin(a) * L * 0.2); }
+    ctx.stroke();
 
-    // 7b. tia điện phóng ra từ lõi (đang nói / sự cố)
+    // 7b. tia điện (đang nói / sự cố) — 2 nét chồng thay cho đổ bóng
     if ((state === 'speaking' && level > 0.5) || state === 'alert') {
       if (Math.random() < (state === 'alert' ? 0.22 : 0.14)) {
         const a = Math.random() * Math.PI * 2, pts2 = [], seg = 9;
@@ -490,15 +513,15 @@
         bolts.push({ pts: pts2, t0: now });
       }
     }
-    ctx.globalCompositeOperation = 'lighter';
     for (let i = bolts.length - 1; i >= 0; i--) {
       const b = bolts[i], q = (now - b.t0) / 180;
       if (q > 1) { bolts.splice(i, 1); continue; }
       if (q < 0) continue;
-      ctx.strokeStyle = `hsla(${hue},100%,88%,${1 - q})`; ctx.lineWidth = 1.6; ctx.shadowColor = `hsl(${hue},100%,65%)`; ctx.shadowBlur = 14;
-      ctx.beginPath(); b.pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+      ctx.beginPath(); b.pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.strokeStyle = `hsla(${hue},100%,65%,${(1 - q) * 0.35})`; ctx.lineWidth = 5; ctx.stroke();
+      ctx.strokeStyle = `hsla(${hue},100%,92%,${1 - q})`; ctx.lineWidth = 1.4; ctx.stroke();
     }
-    ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
+    ctx.globalCompositeOperation = 'source-over';
 
     // 8. sóng xung kích
     for (let i = shocks.length - 1; i >= 0; i--) {
@@ -509,23 +532,19 @@
       ctx.beginPath(); ctx.arc(CX, CY, R * (0.9 + p * 2.4), 0, Math.PI * 2); ctx.stroke();
     }
 
-    // 9. tia gọi công cụ: đuôi lấp lánh + đầu phát sáng; tới nơi thì nút gợn sóng
+    // 9. tia gọi công cụ đi theo sợi thần kinh; tới nơi nút gợn sóng
     for (let i = beams.length - 1; i >= 0; i--) {
       const b = beams[i], p = Math.max(0, (now - b.t0) / b.dur);
       if (p > 1.5) { beams.splice(i, 1); continue; }
-      const nc = nerveCurve(b.n, t), at = (q) => bez(nc, q);
-      const fade = Math.max(0, 1 - Math.max(0, p - 0.7) * 1.4);
-      ctx.strokeStyle = b.color; ctx.globalAlpha = fade * 0.75; ctx.lineWidth = 2.2; ctx.shadowColor = b.color; ctx.shadowBlur = 16;
-      ctx.beginPath(); ctx.moveTo(nc[0], nc[1]); ctx.bezierCurveTo(nc[2], nc[3], nc[4], nc[5], nc[6], nc[7]); ctx.stroke();
-      const q = Math.min(1, p);
-      for (let s = 0; s < 10; s++) {
-        const qq = q - s * 0.025; if (qq < 0) break;
-        const [sx, sy] = at(qq); ctx.globalAlpha = fade * (1 - s / 10); ctx.fillStyle = b.color;
-        ctx.beginPath(); ctx.arc(sx + (Math.random() - 0.5) * 2, sy + (Math.random() - 0.5) * 2, 2.6 - s * 0.2, 0, Math.PI * 2); ctx.fill();
-      }
-      const [hx, hy] = at(q); ctx.globalAlpha = fade; ctx.fillStyle = '#fff'; ctx.shadowBlur = 20;
-      ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, Math.PI * 2); ctx.fill();
-      ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+      const nc = nerveCurve(b.n, t), fade = Math.max(0, 1 - Math.max(0, p - 0.7) * 1.4);
+      ctx.beginPath(); ctx.moveTo(nc[0], nc[1]); ctx.bezierCurveTo(nc[2], nc[3], nc[4], nc[5], nc[6], nc[7]);
+      ctx.strokeStyle = b.color; ctx.globalAlpha = fade * 0.25; ctx.lineWidth = 6; ctx.stroke();
+      ctx.globalAlpha = fade * 0.8; ctx.lineWidth = 2; ctx.stroke();
+      const q = Math.min(1, p); ctx.fillStyle = b.color; ctx.beginPath();
+      for (let s = 0; s < 8; s++) { const qq = q - s * 0.03; if (qq < 0) break; const [sx, sy] = bez(nc, qq), r = 2.6 - s * 0.25; ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2); }
+      ctx.globalAlpha = fade * 0.8; ctx.fill();
+      const [hx, hy] = bez(nc, q); ctx.globalAlpha = fade; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
       if (p >= 1 && !b.arrived) { b.arrived = true; b.n.glow = 1; b.n.hit = b.color; ripples.push({ n: b.n, color: b.color, t0: now }); }
     }
     for (let i = ripples.length - 1; i >= 0; i--) {
@@ -535,18 +554,18 @@
       hexPath(r.n.x, r.n.y, 10 + p * 26); ctx.stroke(); ctx.globalAlpha = 1;
     }
 
-    // 10. chòm sao (nửa trước)
-    nodes.filter((n) => n.z >= 0).forEach(drawNode);
+    // 10. nút nửa trước
+    nodes.forEach((n) => { if (n.z >= 0) drawNode(n); });
 
-    // 11. mảnh suy nghĩ
-    ctx.font = `500 ${Math.max(12, R * 0.085)}px 'Be Vietnam Pro', sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    // 11. mảnh suy nghĩ (không đổ bóng)
+    ctx.font = `500 ${Math.max(12, R * 0.08)}px 'Be Vietnam Pro', sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = 'hsl(272,100%,86%)';
     for (let i = frags.length - 1; i >= 0; i--) {
       const f = frags[i], p = (now - f.t0) / f.dur;
       if (p > 1) { frags.splice(i, 1); continue; }
       if (p < 0) continue;
       const d = f.d + p * R * 1.25, x = CX + Math.cos(f.a) * d * 1.35, y = CY + Math.sin(f.a) * d * 0.75;
-      ctx.globalAlpha = Math.sin(p * Math.PI) * 0.9; ctx.fillStyle = 'hsl(272,100%,86%)'; ctx.shadowColor = 'hsl(272,100%,60%)'; ctx.shadowBlur = 10;
-      ctx.fillText(f.text, x, y); ctx.shadowBlur = 0;
+      ctx.globalAlpha = Math.sin(p * Math.PI) * 0.9; ctx.fillText(f.text, x, y);
     }
     ctx.globalAlpha = 1;
   }
@@ -564,7 +583,8 @@
     const hue = KIND_HUE[n.kind] ?? 190, front = (n.z + 1) / 2, sz = 10 + front * 6 + n.glow * 5 + (n === hovered ? 6 : 0);
     const col = n.glow > 0.05 ? n.hit : n.down ? '#ff4d6d' : `hsl(${hue},100%,66%)`;
     ctx.globalAlpha = 0.4 + front * 0.6;
-    ctx.shadowColor = col; ctx.shadowBlur = 10 + n.glow * 26 + (n === hovered ? 24 : 0);
+    const lit = n === hovered || n.glow > 0.05;
+    ctx.shadowColor = col; ctx.shadowBlur = lit ? 14 + n.glow * 20 + (n === hovered ? 16 : 0) : 0;
     hexPath(n.x, n.y, sz); ctx.fillStyle = n.down ? 'rgba(255,77,109,.35)' : `hsla(${hue},100%,55%,0.18)`; ctx.fill();
     ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke(); ctx.shadowBlur = 0;
     ctx.fillStyle = '#eaffff'; ctx.font = `700 ${n.icon.length > 1 ? 8 + front * 2 : 9 + front * 3}px Orbitron, sans-serif`;
@@ -632,7 +652,6 @@
     const sr = (d.tasks || {}).success_rate; tile('t-success', sr == null ? '–' : Math.round(sr), 'ok', '%');
     const cost = d.cost || {};
     $('ai-tokens').textContent = fmtN(cost.total_tokens); $('ai-calls').textContent = fmtN(cost.llm_calls);
-    ringData.tokens = cost.total_tokens; ringData.calls = cost.llm_calls; ringData.incidents = d.incidents_open; updateRing();
     const groups = (d.voice && d.voice.by_outcome) || {};
     let p50 = null;
     for (const name of ['llm', 'agent', ...Object.keys(groups)]) { const m = ((groups[name] || {}).metrics || {}).ttfa_answer_ms; if (m) { p50 = m.p50; break; } }
@@ -646,24 +665,17 @@
     }).join('') : '<li class="empty">Không có việc nào cần chú ý.</li>';
   }
   const SERVICE_NAME = { llm_9router: 'Mô hình AI (9Router)', telegram_gateway: 'Telegram', database_sqlite: 'Cơ sở dữ liệu', active_directory: 'Danh bạ nhân sự (AD)' };
-  const ringData = {};
-  function updateRing() {
-    const parts = ['VN-MATEAI', 'NEURAL CORE', `AGENTS ${nodes.length}`];
-    if (ringData.tokens != null) parts.push(`TOKENS ${Number(ringData.tokens).toLocaleString('en-US')}`);
-    if (ringData.calls != null) parts.push(`LLM CALLS ${ringData.calls}`);
-    if (ringData.latency != null) parts.push(`LATENCY ${Math.round(ringData.latency)} MS`);
-    if (ringData.cpu != null) parts.push(`CPU ${Math.round(ringData.cpu)}%`);
-    if (ringData.incidents) parts.push(`INCIDENTS ${ringData.incidents}`);
-    ringText = parts.join(' ◆ ') + ' ◆ ';
-  }
   function applyHealth(h) {
     const hw = h.hardware || {};
-    ringData.cpu = hw.cpu_percent; ringData.latency = ((h.services || {}).llm_9router || {}).latency_ms; updateRing();
     gauge('g-cpu', hw.cpu_percent, 'CPU'); gauge('g-ram', hw.ram_percent, 'RAM'); gauge('g-disk', hw.disk_percent, 'Ổ đĩa');
     $('host-net').textContent = `↑ ${(hw.net_sent_mbps ?? 0).toFixed(2)} · ↓ ${(hw.net_recv_mbps ?? 0).toFixed(2)} MB/s`;
     spark(hw.cpu_history);
     const sv = h.services || {};
     const llm = sv.llm_9router; if (llm) $('ai-model').textContent = llm.model || '9Router';
+    const setInfo = (id, svc, extra) => { const n = byId.get(id); if (!n || !svc) return; n.down = String(svc.status || '').toUpperCase() !== 'OK';
+      n.info = [FIXED.find((f) => f.id === id).info[0], n.down ? `Trạng thái: ${svc.status}` : 'Đang hoạt động', extra].filter(Boolean); };
+    setInfo('llm', llm, llm && llm.latency_ms != null ? `Độ trễ ${Math.round(llm.latency_ms)} ms · ${llm.model || ''}` : '');
+    setInfo('telegram', sv.telegram_gateway, '');
     const rows = Object.entries(sv).map(([k, v]) => {
       const ok = String(v.status || '').toUpperCase() === 'OK';
       const extra = v.latency_ms != null ? fmtMs(v.latency_ms) : v.backend ? v.backend : ok ? 'trực tuyến' : (v.status || '').toLowerCase();
@@ -693,6 +705,10 @@
     if (t.startsWith('mcp_')) { const n = nodes.find((x) => x.kind === 'mcp' && t.startsWith(`mcp_${x.id.replace(/-/g, '_')}_`)); if (n) return n.id; }
     if (t.startsWith('a2a_')) { const n = nodes.find((x) => x.kind === 'a2a' && `a2a_${x.id.replace(/-/g, '_')}` === t); if (n) return n.id; }
     if (String(target || '').startsWith('worker:')) return (nodes.find((x) => x.kind === 'workstations') || {}).id || 'core-server';
+    if (/playbook/.test(t)) return 'playbooks';
+    if (/infra|prometheus|grafana|incident|monitor/.test(t)) return 'monitor';
+    if (/rag|knowledge|document|search_doc|policy/.test(t)) return 'rag';
+    if (/telegram|notify/.test(t)) return 'telegram';
     return 'core-server';
   }
   function onTopology(ev, quiet) {
@@ -909,4 +925,11 @@
     mouse.on = true; mouse.x = CX + R * 0.35; mouse.y = CY - R * 0.25;
     hovered = nodes.find((n) => n.kind !== 'core') || nodes[0]; showTip(hovered);
   }, 1900);
+  // ?bench: đo chi phí vẽ thuần — gọi draw() 200 lần liên tiếp (thời gian tăng 16,7 ms mỗi lần), kết quả ở data-bench của <body>
+  if (new URLSearchParams(location.search).has("bench")) (() => {
+    const v = [], n0 = performance.now();
+    for (let k = 0; k < 200; k++) { const a = performance.now(); try { draw(n0 + k * 16.7); } catch (_) { /* bỏ qua */ } v.push(performance.now() - a); }
+    v.sort((x, y) => x - y);
+    document.body.dataset.bench = `p50=${v[100].toFixed(2)}ms p90=${v[180].toFixed(2)}ms`;
+  })();
 })();

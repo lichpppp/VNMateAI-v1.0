@@ -52,12 +52,17 @@ def test_neural_interactions_exist_and_stay_display_only():
     assert "fetch(" not in click and "send(" not in click                    # bấm chỉ tạo hiệu ứng
 
 
-def test_futuristic_layer_uses_real_numbers_and_settles():
-    # bệ phát ba chiều, lưới tổ ong, vòng chữ dữ liệu (số liệu THẬT), tia điện, chiều sâu theo chuột, chữ "giải mã" + nhiễu RGB
-    for marker in ("2b. bệ phát ba chiều", "1b. lưới tổ ong", "4b. vòng chữ dữ liệu", "7b. tia điện", "--px", "function scramble", "function glitch"):
+def test_v5_layout_modules_and_performance():
+    # Người dùng bỏ vòng chữ dữ liệu + bệ phát ba chiều; thêm quỹ đạo module hệ thống nối với nhau; tối ưu để nhẹ máy.
+    for gone in ("2b. bệ phát ba chiều", "4b. vòng chữ dữ liệu", "ringText", "ringData"):
+        assert gone not in JS, gone
+    for marker in ("MODULE_LINKS", "ring === 'in'", "function adaptQuality", "function setQuality", "BUCKET", "1b. lưới tổ ong", "7b. tia điện", "--px",
+                   "function scramble", "function glitch"):
         assert marker in JS, marker
-    ring = JS[JS.index("function updateRing"):JS.index("function applyHealth")]
-    assert "ringData.tokens" in ring and "ringData.latency" in ring and "Math.random" not in ring       # không bịa số
+    draw = JS[JS.index("  function draw(now) {"):JS.index("  function hexPath(")]
+    assert "createRadialGradient(PX" not in draw                            # không tạo gradient cho từng nơ-ron
+    assert draw.count("shadowBlur") == 0                                    # không đổ bóng trong vòng vẽ (chỉ nút đang rê)
+    assert "for (let i = 0; i < N; i++) {" in draw                          # toạ độ mọi hạt luôn đúng, chế độ nhẹ chỉ vẽ một nửa
     scr = JS[JS.index("function scramble"):JS.index("function glitch")]
-    assert "setTimeout" in scr                                                                       # luôn hiện chữ đúng
-    assert "clip-path" not in HTML[HTML.index("@keyframes glitch"):HTML.index("@keyframes glitch") + 600]
+    assert "setTimeout" in scr
+    assert 'id="perf-chip"' in HTML
