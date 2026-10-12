@@ -41,3 +41,12 @@ def test_effects_use_one_clock_and_a_draw_error_never_stops_the_loop():
     for effect in ("shocks.push({ t0: performance.now()", "beams.push({ n, color, t0: performance.now()", "t0: performance.now(), dur"):
         assert effect not in JS, effect
     assert "clockNow = now;" in JS and "try { draw(now); }" in JS and "if (p < 0) continue;" in JS
+
+
+def test_neural_interactions_exist_and_stay_display_only():
+    # sợi thần kinh tới từng agent + tia đi theo sợi, xung synapse, nơ-ron bắn, tương tác chuột (rê / bấm) — vẫn không gửi gì ra ngoài
+    for marker in ("function nerveCurve", "function fireNeuron", "cv.addEventListener('mousemove'", "cv.addEventListener('click'", "function showTip"):
+        assert marker in JS, marker
+    assert 'id="tip"' in HTML and "#frame > main { pointer-events: none; }" in HTML
+    click = JS[JS.index("cv.addEventListener('click'"):JS.index("function clock()")]
+    assert "fetch(" not in click and "send(" not in click                    # bấm chỉ tạo hiệu ứng

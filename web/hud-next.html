@@ -42,6 +42,8 @@
     /* ── khung ───────────────────────────────────────────────────────────── */
     #frame { position: fixed; inset: 0; z-index: 10; display: grid; grid-template-rows: auto 1fr auto; padding: 18px 26px 16px; pointer-events: none; }
     #frame > * { pointer-events: auto; }
+    /* cột giữa để chuột đi xuyên xuống canvas (tương tác nơ-ron); hai cánh panel vẫn nhận chuột */
+    #frame > main { pointer-events: none; } .wing { pointer-events: auto; }
     header { display: flex; align-items: center; gap: 22px; }
     .brand { display: flex; align-items: center; gap: 12px; }
     .brand .orb { width: 34px; height: 34px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, var(--accent) 45%, transparent 72%);
@@ -59,7 +61,7 @@
     #clock small { display: block; font-family: var(--vn); font-size: 10.5px; letter-spacing: .5px; color: var(--dim); text-align: right; }
     header a { color: var(--dim); font-size: 12px; text-decoration: none; border-bottom: 1px dotted var(--dim); }
 
-    main { position: relative; display: grid; grid-template-columns: minmax(300px, 25vw) 1fr minmax(320px, 26vw); gap: 18px; min-height: 0; padding-top: 14px; }
+    main { position: relative; display: grid; grid-template-columns: minmax(280px, 21.5vw) 1fr minmax(300px, 23vw); gap: 18px; min-height: 0; padding-top: 14px; }
     .wing { display: flex; flex-direction: column; gap: 14px; min-height: 0; transform-style: preserve-3d; }
     .wing.left { transform: perspective(1400px) rotateY(9deg); transform-origin: left center; }
     .wing.right { transform: perspective(1400px) rotateY(-9deg); transform-origin: right center; }
@@ -109,6 +111,13 @@
       transform: translateX(-100%); animation: load 1.6s ease-out forwards; }
     @keyframes load { to { transform: translateX(0); } }
     body.booted #boot { opacity: 0; }
+    #tip { position: fixed; z-index: 35; min-width: 210px; max-width: 280px; padding: 10px 12px; border-radius: 10px; pointer-events: none;
+      background: linear-gradient(160deg, rgba(8,34,56,.92), rgba(3,12,24,.92)); border: 1px solid hsl(var(--c) 95% 62% / .55);
+      box-shadow: 0 0 24px hsl(var(--c) 95% 62% / .25); backdrop-filter: blur(8px); font-size: 12.5px; color: #cfeefc;
+      opacity: 0; transform: translateY(6px) scale(.97); transition: opacity .18s, transform .18s; }
+    #tip.on { opacity: 1; transform: none; }
+    #tip b { display: block; font-size: 14px; color: #fff; } #tip small { display: block; color: var(--accent); margin-bottom: 6px; font-size: 11px; }
+    #tip div { padding: 1px 0; } #tip em { display: block; margin-top: 6px; color: var(--dim); font-size: 11px; }
     body.no-intro .wing .glass, body.no-intro header, body.no-intro footer { transition: none; }
     body.no-intro #boot { display: none; }
     @media (prefers-reduced-motion: reduce) { #scan::after, #bg-grid, .glass::before, .glass::after { animation: none; } }
@@ -191,6 +200,7 @@
   <div id="vignette"></div>
   <div id="scan"></div>
 
+  <div id="tip" role="tooltip"></div>
   <div id="incident" role="alert">
     <div class="lbl">⚠ SỰ CỐ NGHIÊM TRỌNG</div>
     <h4 id="inc-title">—</h4>
@@ -268,6 +278,6 @@
     </footer>
   </div>
 
-  <script src="/static/hud-next.js?v=3"></script>
+  <script src="/static/hud-next.js?v=4"></script>
 </body>
 </html>

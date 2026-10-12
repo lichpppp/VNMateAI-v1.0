@@ -79,8 +79,11 @@
     W = window.innerWidth; H = window.innerHeight;
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    CX = W / 2; CY = H * 0.47; R = Math.min(W, H) * 0.155;
+    CX = W / 2; CY = H * 0.47; R = Math.min(W, H) * 0.19;
+    const c = $('center') && $('center').getBoundingClientRect();
+    CENTER_HALF = c && c.width ? c.width / 2 : W * 0.25;
   }
+  let CENTER_HALF = 0;
   window.addEventListener('resize', resize);
 
   // hạt trên mặt cầu (Fibonacci) + mạng nơ-ron giữa các hạt gần nhau
@@ -91,7 +94,7 @@
   }
   const PX = new Float32Array(N), PY = new Float32Array(N), PD = new Float32Array(N);
   const links = [];
-  for (let k = 0; k < 340; k++) {
+  for (let k = 0; k < 720; k++) {
     const i = Math.floor(Math.random() * N); let best = -1, bd = 1e9;
     for (let j = 0; j < N; j += 1) {
       if (j === i) continue;
@@ -101,26 +104,54 @@
     if (best >= 0) links.push([i, best, Math.random()]);
   }
 
+  const adj = Array.from({ length: N }, () => []);
+  links.forEach(([a, b], li) => { adj[a].push(li); adj[b].push(li); });
+
+  // xung synapse (chạy dọc một nhánh), nơ-ron loé sáng, xung trên sợi thần kinh tới agent
+  const synapses = [], fires = [], nerves = [];
+  function fireNeuron(i, strength = 1) {
+    fires.push({ i, t0: clockNow, s: strength });
+    for (const li of adj[i].slice(0, 4)) synapses.push({ li, from: i, t0: clockNow + Math.random() * 120, dur: 380 + Math.random() * 260 });
+  }
+
+  // chuột: nơ-ron quanh con trỏ bừng sáng; rê lên agent → sợi sáng + thẻ thông tin; bấm lõi / agent → phát xung
+  const mouse = { x: -1e4, y: -1e4, on: false };
+  let hovered = null;
+
   // sao bay sâu phía sau
   const stars = Array.from({ length: 240 }, () => ({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2, z: Math.random() }));
 
   // chòm sao agent
   const FIXED = [
-    { id: 'core-server', label: 'Máy chủ', kind: 'core', icon: 'S' },
-    { id: 'llm', label: 'Mô hình AI', kind: 'core', icon: 'AI' },
-    { id: 'hitl', label: 'Phê duyệt', kind: 'core', icon: '✓' },
-    { id: 'robot', label: 'Robot', kind: 'core', icon: 'R' },
+    { id: 'core-server', label: 'Máy chủ', kind: 'core', icon: 'S', info: ['Công cụ chạy ngay trên máy chủ VN-MateAI'] },
+    { id: 'llm', label: 'Mô hình AI', kind: 'core', icon: 'AI', info: ['Bộ não ngôn ngữ — mỗi lượt hội thoại đi qua đây'] },
+    { id: 'hitl', label: 'Phê duyệt', kind: 'core', icon: '✓', info: ['Hàng đợi duyệt: tác vụ rủi ro cao chờ người có thẩm quyền'] },
+    { id: 'robot', label: 'Robot', kind: 'core', icon: 'R', info: ['Robot ESP32 / Xiaozhi nói chuyện trực tiếp với Ly Ly'] },
   ];
   const KIND_ICON = { mcp: 'M', a2a: 'A', inbound: 'I', devfleet: 'D', workstations: 'W' };
   const KIND_HUE = { core: 190, mcp: 200, a2a: 150, inbound: 215, devfleet: 38, workstations: 170 };
+  const KIND_NAME = { core: 'Thành phần lõi', mcp: 'MCP server', a2a: 'Agent A2A (được giao việc)', inbound: 'Agent gọi vào', devfleet: 'Dev Fleet', workstations: 'Máy trạm' };
   let nodes = [];
   function setNodes(list) {
     const all = [...FIXED, ...list.map((n) => ({ ...n, icon: KIND_ICON[n.kind] || '•' }))];
     const keep = new Map(nodes.map((n) => [n.id, n]));
-    nodes = all.map((n, i) => ({ ...n, a0: (i / all.length) * Math.PI * 2, glow: (keep.get(n.id) || {}).glow || 0 }));
+    nodes = all.map((n, i) => ({ ...n, a0: (i / all.length) * Math.PI * 2, glow: (keep.get(n.id) || {}).glow || 0,
+      ph: Math.random() * 6.28, nextNerve: 0 }));
   }
 
   const beams = [], frags = [], ripples = [];
+  // Sợi thần kinh lõi → agent: bezier bậc ba, hai điểm điều khiển lắc nhẹ theo thời gian (trông như sợi sống).
+  function nerveCurve(n, t) {
+    const a = Math.atan2(n.y - CY, n.x - CX), sx = CX + Math.cos(a) * R * 0.92, sy = CY + Math.sin(a) * R * 0.85;
+    const dx = n.x - sx, dy = n.y - sy, len = Math.hypot(dx, dy) || 1, px = -dy / len, py = dx / len;
+    const w1 = Math.sin(t * 0.9 + n.ph) * R * 0.32, w2 = Math.cos(t * 0.7 + n.ph * 1.3) * R * 0.24;
+    return [sx, sy, sx + dx * 0.33 + px * w1, sy + dy * 0.33 + py * w1, sx + dx * 0.68 + px * w2, sy + dy * 0.68 + py * w2, n.x, n.y];
+  }
+  function bez(c, u) {
+    const v = 1 - u;
+    return [v * v * v * c[0] + 3 * v * v * u * c[2] + 3 * v * u * u * c[4] + u * u * u * c[6],
+      v * v * v * c[1] + 3 * v * v * u * c[3] + 3 * v * u * u * c[5] + u * u * u * c[7]];
+  }
   function beam(nodeId, status) {
     const n = nodes.find((x) => x.id === nodeId) || nodes[0];
     if (!n) return;
@@ -189,7 +220,7 @@
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
 
     // 3. chòm sao (nửa sau)
-    const orbA = Math.min(R * 2.55, W * 0.245 - 70), orbB = Math.min(R * 0.95, orbA * 0.4);
+    const orbA = Math.min(R * 2.4, CENTER_HALF - 40), orbB = Math.min(R * 1.0, orbA * 0.42);
     nodes.forEach((n) => {
       const a = n.a0 + t * 0.06;
       n.x = CX + Math.cos(a) * orbA * bootS; n.y = CY + Math.sin(a) * orbB * bootS; n.z = Math.sin(a); n.glow = Math.max(0, (n.glow || 0) - dt * 0.7);
@@ -197,6 +228,42 @@
     ctx.strokeStyle = `hsla(${hue},90%,60%,0.12)`; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.ellipse(CX, CY, orbA * bootS + 0.1, orbB * bootS + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
     nodes.filter((n) => n.z < 0).forEach(drawNode);
+
+    // 3b. sợi thần kinh lõi → từng agent (+ nối các agent kề nhau); xung tín hiệu chạy dọc sợi
+    ctx.globalCompositeOperation = 'lighter';
+    nodes.forEach((n, i) => {
+      const m = nodes[(i + 1) % nodes.length];
+      if (nodes.length > 2) {
+        ctx.strokeStyle = `hsla(${hue},80%,65%,0.07)`; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.quadraticCurveTo((n.x + m.x) / 2, (n.y + m.y) / 2 + (n.y + m.y > 2 * CY ? 18 : -18), m.x, m.y); ctx.stroke();
+      }
+      const c = nerveCurve(n, t), hot = n === hovered ? 1 : n.glow;
+      const nh = KIND_HUE[n.kind] ?? 190;
+      // hai lớp: quầng rộng mờ + lõi mảnh sáng — đủ thấy trên nền tối mà vẫn thanh
+      const path = () => { ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.bezierCurveTo(c[2], c[3], c[4], c[5], c[6], c[7]); };
+      const glow = ctx.createLinearGradient(c[0], c[1], c[6], c[7]);
+      glow.addColorStop(0, `hsla(${hue},100%,60%,${0.16 + hot * 0.3})`); glow.addColorStop(1, `hsla(${nh},100%,60%,${0.10 + hot * 0.3})`);
+      ctx.strokeStyle = glow; ctx.lineWidth = 6 + hot * 6; path(); ctx.stroke();
+      const core = ctx.createLinearGradient(c[0], c[1], c[6], c[7]);
+      core.addColorStop(0, `hsla(${hue},100%,80%,${0.75 + hot * 0.25})`); core.addColorStop(1, `hsla(${nh},100%,72%,${0.45 + hot * 0.55})`);
+      ctx.strokeStyle = core; ctx.lineWidth = 1.3 + hot * 1.4; path(); ctx.stroke();
+      if (now > n.nextNerve) {                         // xung đều đặn: lõi "hỏi thăm" agent và agent "trả lời"
+        nerves.push({ n, t0: now, dur: 1500 + Math.random() * 900, back: Math.random() < 0.45 });
+        n.nextNerve = now + 1800 + Math.random() * (state === 'thinking' ? 1200 : 4200);
+      }
+    });
+    for (let i = nerves.length - 1; i >= 0; i--) {
+      const p = nerves[i], q = (now - p.t0) / p.dur;
+      if (q > 1) { nerves.splice(i, 1); continue; }
+      if (q < 0) continue;
+      const c = nerveCurve(p.n, t);
+      for (let k = 0; k < 6; k++) {
+        const u = p.back ? 1 - (q - k * 0.022) : q - k * 0.022; if (u < 0 || u > 1) continue;
+        const [x, y] = bez(c, u); ctx.fillStyle = `hsla(${hue},100%,${80 - k * 6}%,${(1 - k / 6) * 0.9})`;
+        ctx.beginPath(); ctx.arc(x, y, Math.max(0.4, 2.6 - k * 0.35), 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
 
     // 4. thước độ quay + khung ngắm
     const RS = R * 1.86 * bootS;
@@ -255,17 +322,53 @@
       PX[i] = CX + x * rad * wob * persp * 1.3; PY[i] = CY + y * rad * wob * persp * 1.3; PD[i] = (z + 1) / 2;
     }
     ctx.globalCompositeOperation = 'lighter';
-    // mạng nơ-ron: nét mảnh ở mặt trước, khi suy nghĩ có tín hiệu chạy dọc
-    ctx.lineWidth = 0.8;
+    // mạng nơ-ron: nhánh mặt trước sáng theo độ sâu; gần con trỏ thì bừng sáng
+    const mNear = mouse.on && Math.hypot(mouse.x - CX, mouse.y - CY) < R * 1.6;
+    ctx.lineWidth = 0.9;
     for (const [a, b, ph] of links) {
-      const d = Math.min(PD[a], PD[b]); if (d < 0.5) continue;
-      const pulse = 0.5 + 0.5 * Math.sin(t * 4 + ph * 20);
-      ctx.strokeStyle = `hsla(${hue},100%,72%,${(d - 0.5) * cur.lattice * (0.35 + pulse * 0.5)})`;
+      const d = Math.min(PD[a], PD[b]); if (d < 0.42) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 3 + ph * 20);
+      let al = (d - 0.42) * (0.25 + cur.lattice * 0.9) * (0.45 + pulse * 0.55);
+      if (mNear) { const md = Math.hypot((PX[a] + PX[b]) / 2 - mouse.x, (PY[a] + PY[b]) / 2 - mouse.y); if (md < 90) al += (1 - md / 90) * 0.9; }
+      ctx.strokeStyle = `hsla(${hue + ph * 30},100%,74%,${Math.min(1, al)})`;
       ctx.beginPath(); ctx.moveTo(PX[a], PY[a]); ctx.lineTo(PX[b], PY[b]); ctx.stroke();
-      if (cur.lattice > 0.7 && pulse > 0.93) {
-        const q = (t * 2 + ph) % 1; ctx.fillStyle = '#fff';
-        ctx.fillRect(lerp(PX[a], PX[b], q) - 1, lerp(PY[a], PY[b], q) - 1, 2.2, 2.2);
-      }
+    }
+    // nơ-ron bắn ngẫu nhiên (khi suy nghĩ dày đặc) + gần con trỏ
+    const rate = { idle: 2, listening: 4, thinking: 16, speaking: 6, alert: 9 }[state] || 2;
+    for (let k = 0; k < rate * dt * 3; k++) { const i = (Math.random() * N) | 0; if (PD[i] > 0.55) fireNeuron(i, 0.8); }
+    if (mNear && Math.random() < 0.6) {
+      let best = -1, bd = 70 * 70;
+      for (let k = 0; k < 120; k++) { const i = (Math.random() * N) | 0; const dd = (PX[i] - mouse.x) ** 2 + (PY[i] - mouse.y) ** 2; if (dd < bd && PD[i] > 0.5) { bd = dd; best = i; } }
+      if (best >= 0) fireNeuron(best, 1.2);
+    }
+    for (let i = synapses.length - 1; i >= 0; i--) {
+      const sp = synapses[i], q = (now - sp.t0) / sp.dur;
+      if (q > 1) { synapses.splice(i, 1); continue; }
+      if (q < 0) continue;
+      const [a, b] = links[sp.li], from = sp.from === a ? a : b, to = from === a ? b : a;
+      const x = lerp(PX[from], PX[to], q), y = lerp(PY[from], PY[to], q);
+      ctx.strokeStyle = `hsla(${hue},100%,85%,${(1 - q) * 0.9})`; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(PX[from], PY[from]); ctx.lineTo(x, y); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.fillRect(x - 1.3, y - 1.3, 2.6, 2.6);
+      if (q > 0.96 && !sp.chained && Math.random() < 0.35 && synapses.length < 400) { sp.chained = true; fireNeuron(to, 0.6); }   // lan truyền
+    }
+    for (let i = fires.length - 1; i >= 0; i--) {
+      const f = fires[i], q = (now - f.t0) / 520;
+      if (q > 1) { fires.splice(i, 1); continue; }
+      if (q < 0) continue;
+      const r = 3 + q * 9 * f.s, gx = ctx.createRadialGradient(PX[f.i], PY[f.i], 0, PX[f.i], PY[f.i], r);
+      gx.addColorStop(0, `hsla(${hue},100%,92%,${(1 - q) * 0.95})`); gx.addColorStop(1, 'transparent');
+      ctx.fillStyle = gx; ctx.beginPath(); ctx.arc(PX[f.i], PY[f.i], r, 0, Math.PI * 2); ctx.fill();
+    }
+    // tia plasma từ con trỏ tới các nơ-ron gần nhất
+    if (mNear) {
+      const near = [];
+      for (let k = 0; k < 260; k++) { const i = (Math.random() * N) | 0; const dd = Math.hypot(PX[i] - mouse.x, PY[i] - mouse.y); if (dd < 110 && PD[i] > 0.5) near.push([dd, i]); }
+      near.sort((x, y) => x[0] - y[0]).slice(0, 4).forEach(([dd, i]) => {
+        ctx.strokeStyle = `hsla(${hue},100%,80%,${(1 - dd / 110) * 0.8})`; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(mouse.x, mouse.y);
+        ctx.quadraticCurveTo((mouse.x + PX[i]) / 2 + (Math.random() - 0.5) * 14, (mouse.y + PY[i]) / 2 + (Math.random() - 0.5) * 14, PX[i], PY[i]); ctx.stroke();
+      });
     }
     for (let i = 0; i < N; i++) {
       const depth = PD[i], p = pts[i];
@@ -298,11 +401,10 @@
     for (let i = beams.length - 1; i >= 0; i--) {
       const b = beams[i], p = Math.max(0, (now - b.t0) / b.dur);
       if (p > 1.5) { beams.splice(i, 1); continue; }
-      const mx = (CX + b.n.x) / 2, my = Math.min(CY, b.n.y) - R * 0.9;
-      const at = (q) => [(1 - q) * (1 - q) * CX + 2 * (1 - q) * q * mx + q * q * b.n.x, (1 - q) * (1 - q) * CY + 2 * (1 - q) * q * my + q * q * b.n.y];
+      const nc = nerveCurve(b.n, t), at = (q) => bez(nc, q);
       const fade = Math.max(0, 1 - Math.max(0, p - 0.7) * 1.4);
-      ctx.strokeStyle = b.color; ctx.globalAlpha = fade * 0.55; ctx.lineWidth = 1.4; ctx.shadowColor = b.color; ctx.shadowBlur = 12;
-      ctx.beginPath(); ctx.moveTo(CX, CY); ctx.quadraticCurveTo(mx, my, b.n.x, b.n.y); ctx.stroke();
+      ctx.strokeStyle = b.color; ctx.globalAlpha = fade * 0.75; ctx.lineWidth = 2.2; ctx.shadowColor = b.color; ctx.shadowBlur = 16;
+      ctx.beginPath(); ctx.moveTo(nc[0], nc[1]); ctx.bezierCurveTo(nc[2], nc[3], nc[4], nc[5], nc[6], nc[7]); ctx.stroke();
       const q = Math.min(1, p);
       for (let s = 0; s < 10; s++) {
         const qq = q - s * 0.025; if (qq < 0) break;
@@ -347,10 +449,10 @@
     ctx.lineTo(x + r, y + h); ctx.arc(x + r, y + r, r, Math.PI / 2, Math.PI * 1.5); ctx.closePath();
   }
   function drawNode(n) {
-    const hue = KIND_HUE[n.kind] ?? 190, front = (n.z + 1) / 2, sz = 8 + front * 5 + n.glow * 5;
+    const hue = KIND_HUE[n.kind] ?? 190, front = (n.z + 1) / 2, sz = 10 + front * 6 + n.glow * 5 + (n === hovered ? 6 : 0);
     const col = n.glow > 0.05 ? n.hit : n.down ? '#ff4d6d' : `hsl(${hue},100%,66%)`;
     ctx.globalAlpha = 0.4 + front * 0.6;
-    ctx.shadowColor = col; ctx.shadowBlur = 10 + n.glow * 26;
+    ctx.shadowColor = col; ctx.shadowBlur = 10 + n.glow * 26 + (n === hovered ? 24 : 0);
     hexPath(n.x, n.y, sz); ctx.fillStyle = n.down ? 'rgba(255,77,109,.35)' : `hsla(${hue},100%,55%,0.18)`; ctx.fill();
     ctx.strokeStyle = col; ctx.lineWidth = 1.6; ctx.stroke(); ctx.shadowBlur = 0;
     ctx.fillStyle = '#eaffff'; ctx.font = `700 ${n.icon.length > 1 ? 8 + front * 2 : 9 + front * 3}px Orbitron, sans-serif`;
@@ -509,7 +611,10 @@
     try { applyBudget(await api('/api/v1/llmops/budget')); } catch (_) { /* tuỳ chọn */ }
     try {
       const d = await api('/api/v1/agent-gateway/agents');
-      setNodes((d.agents || []).map((a) => ({ id: a.agent_id, label: a.name, kind: a.kind, down: a.status !== 'active' || !!a.last_error })));
+      setNodes((d.agents || []).map((a) => ({ id: a.agent_id, label: a.name, kind: a.kind, down: a.status !== 'active' || !!a.last_error,
+        info: [a.status === 'active' ? 'Đang hoạt động' : 'TẠM DỪNG', a.calls ? `${a.calls.total} lời gọi · ${a.calls.failed} lỗi` : '',
+          a.role ? `Quyền: ${a.role}` : '', a.tools != null ? `${a.registered}/${a.tools} công cụ` : '', a.last_seen_at ? `Lần cuối: ${a.last_seen_at}` : '',
+          a.last_error ? `Lỗi: ${a.last_error}` : ''].filter(Boolean) })));
     } catch (_) { /* tuỳ chọn */ }
   }
   function connectWs() {
@@ -539,9 +644,12 @@
 
   // ── DEMO ─────────────────────────────────────────────────────────────────
   const DEMO_AGENTS = [
-    { id: 'erp', label: 'ERP nội bộ', kind: 'mcp' }, { id: 'crm-bot', label: 'Bot CRM', kind: 'inbound' },
-    { id: 'ke-toan', label: 'Agent Kế toán', kind: 'a2a' }, { id: 'dev-fleet', label: 'Dev Fleet', kind: 'devfleet' },
-    { id: 'may-tram', label: 'Máy trạm (6)', kind: 'workstations' }, { id: 'itsm', label: 'ITSM GLPI', kind: 'mcp' },
+    { id: 'erp', label: 'ERP nội bộ', kind: 'mcp', info: ['Đang hoạt động', '128 lời gọi · 2 lỗi', '14/14 công cụ'] },
+    { id: 'crm-bot', label: 'Bot CRM', kind: 'inbound', info: ['Đang hoạt động', 'Quyền: operator', '57 lời gọi'] },
+    { id: 'ke-toan', label: 'Agent Kế toán', kind: 'a2a', info: ['Đang hoạt động', '23 việc được giao · 1 lỗi'] },
+    { id: 'dev-fleet', label: 'Dev Fleet', kind: 'devfleet', info: ['Chế độ: read_only', '4 tác vụ'] },
+    { id: 'may-tram', label: 'Máy trạm (6)', kind: 'workstations', info: ['6 máy online'] },
+    { id: 'itsm', label: 'ITSM GLPI', kind: 'mcp', info: ['Đang hoạt động', '41 lời gọi', '9/9 công cụ'] },
   ];
   const DEMO_TOOLS = [['mcp_erp_get_order', 'erp'], ['get_infra_status', 'core-server'], ['a2a_ke_toan', 'ke-toan'], ['create_system_ticket', 'core-server'],
     ['mcp_itsm_list_tickets', 'itsm'], ['get_system_info', 'may-tram'], ['run_playbook', 'hitl'], ['crm_lookup_customer', 'crm-bot']];
@@ -605,6 +713,37 @@
     if (k && !e.target.closest('input,textarea')) { lastManual = Date.now(); PREVIEW[k](); }
   });
 
+  function hitNode(x, y) {
+    let best = null, bd = 30;
+    for (const n of nodes) { const d = Math.hypot(n.x - x, n.y - y); if (d < bd) { bd = d; best = n; } }
+    return best;
+  }
+  function showTip(n) {
+    const tip = $('tip');
+    if (!n) { tip.classList.remove('on'); return; }
+    tip.innerHTML = `<b>${esc(n.label)}</b><small>${esc(KIND_NAME[n.kind] || n.kind)}</small>${(n.info || []).map((l) => `<div>${esc(l)}</div>`).join('')}`
+      + '<em>Bấm để gửi xung tới agent này</em>';
+    // đặt thẻ phía NGOÀI agent (xa lõi) để không che sợi thần kinh
+    const left = n.x < CX ? n.x - 300 : n.x + 30;
+    tip.style.left = `${Math.max(10, Math.min(W - 290, left))}px`; tip.style.top = `${Math.max(70, n.y - 40)}px`; tip.classList.add('on');
+  }
+  cv.addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true;
+    const n = hitNode(e.clientX, e.clientY);
+    if (n !== hovered) { hovered = n; showTip(n); }
+    cv.style.cursor = n || Math.hypot(e.clientX - CX, e.clientY - CY) < R ? 'pointer' : 'default';
+  });
+  cv.addEventListener('mouseleave', () => { mouse.on = false; hovered = null; showTip(null); });
+  cv.addEventListener('click', (e) => {
+    const n = hitNode(e.clientX, e.clientY);
+    if (n) { beam(n.id, 'running'); setTimeout(() => beam(n.id, 'ok'), 700); return; }
+    if (Math.hypot(e.clientX - CX, e.clientY - CY) < R * 1.1) {          // bấm lõi: xung lan toả + một loạt nơ-ron bắn
+      shocks.push({ t0: clockNow, hue: Math.round(cur.hue) });
+      for (let k = 0; k < 40; k++) { const i = (Math.random() * N) | 0; if (PD[i] > 0.45) fireNeuron(i, 1.4); }
+      nodes.forEach((m, i) => nerves.push({ n: m, t0: clockNow + i * 60, dur: 1100, back: false }));
+    }
+  });
+
   function clock() {
     const d = new Date();
     $('clock').innerHTML = `${d.toLocaleTimeString('vi-VN', { hour12: false })}<small>${d.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</small>`;
@@ -631,4 +770,9 @@
   pollFast(); setInterval(pollFast, 2000);
   const qs = new URLSearchParams(location.search).get('state');
   if (qs && PREVIEW[qs]) setTimeout(() => { lastManual = Date.now() + 60000; PREVIEW[qs](); }, 1700);
+  // ?hover: giả lập chuột (xem trước tương tác) — con trỏ trên lõi + rê lên một agent
+  if (new URLSearchParams(location.search).has('hover')) setTimeout(() => {
+    mouse.on = true; mouse.x = CX + R * 0.35; mouse.y = CY - R * 0.25;
+    hovered = nodes.find((n) => n.kind !== 'core') || nodes[0]; showTip(hovered);
+  }, 1900);
 })();
