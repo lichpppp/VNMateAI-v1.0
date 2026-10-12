@@ -385,6 +385,10 @@ async def save_config(
         raise HTTPException(status_code=500, detail=f"Không thể ghi config.json: {exc}")
 
 
+#: Giữ tham chiếu task làm nóng cache giọng đọc (asyncio chỉ giữ tham chiếu yếu — task có thể bị thu gom giữa chừng).
+_WARMUP_TASKS: set = set()
+
+
 async def _apply_written_config(merged: Dict[str, Any], payload: Dict[str, Any]) -> None:
     """Sau khi ghi config.json: nạp lại runtime, báo HUD, nạp lại connector / Telegram.
     Dùng chung cho Lưu và Khôi phục phiên bản."""
@@ -411,6 +415,16 @@ async def _apply_written_config(merged: Dict[str, Any], payload: Dict[str, Any])
             "volume": audio_block.get("volume", 80),
             "timestamp": datetime.utcnow().isoformat(),
         })
+        # Đổi nguồn / giọng đọc (vd sang Vbee): làm nóng ngay các câu cố định (lời đệm, "Anh còn cần…", lời chào) bằng
+        # GIỌNG MỚI — cache theo giọng, nếu không thì câu đầu của mỗi loại phải chờ tổng hợp (Vbee Batch ~3 s).
+        if "audio" in payload:
+            from mateai.application.voice.voice_session import FAREWELL_PHRASE, FOLLOW_UP_PHRASE, GOODBYE_PHRASE
+            from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
+            from asyncio import create_task as _create_task   # hàm này có `import asyncio` cục bộ phía dưới
+            task = _create_task(warmup_acoustic_ack_cache(
+                extra_phrases=(FOLLOW_UP_PHRASE, FAREWELL_PHRASE, GOODBYE_PHRASE)), name="tts-warmup-after-config")
+            _WARMUP_TASKS.add(task)
+            task.add_done_callback(_WARMUP_TASKS.discard)
     except Exception as hot_err:  # pylint: disable=broad-except
         logger.warning("Hot-reload settings failed (non-critical): %s", hot_err)
 

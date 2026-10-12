@@ -42,6 +42,9 @@ os.environ["VNMATEAI_HR_DB_PATH"] = str(_TEST_DATA_DIR / "hr_kpi.db")
 os.environ["VNMATEAI_TELEGRAM_OUTBOUND"] = "off"
 # Không gửi trace của bộ test tới OTel collector thật (config.json có thể đặt otlp).
 os.environ["VNMATEAI_OTEL_EXPORTER"] = "none"
+# Nguồn đọc trả phí (Vbee / ElevenLabs trong config.json thật): test không được gọi — tốn điểm API thật, chậm, và kết
+# quả phụ thuộc mạng. Tắt = engine dùng đường 9Router / Edge như mặc định (test nào cần thì tự giả lập).
+os.environ["VNMATEAI_TTS_PAID_PROVIDERS"] = "off"
 
 # Backend CSDL của bộ test — KHÔNG BAO GIỜ là DB vận hành (config.json có DATABASE_URL sau cutover):
 #   mặc định  : SQLite tạm ở trên

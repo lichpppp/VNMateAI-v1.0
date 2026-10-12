@@ -62,7 +62,10 @@ async def main():
     # 2. TTS Voice Fallback & Sanitisation
     section("2. TTS Voice Config & Markdown Sanitisation")
     voice = _get_tts_voice()
-    check("Voice TTS hợp lệ", bool(voice) and "Neural" in voice, f"Voice: {voice}")
+    # Giọng Edge ("…Neural") hoặc mã giọng Vbee (2026-10-12) — dự phòng 9Router/Edge tự đổi mã Vbee về Hoài My.
+    from mateai.infrastructure.tts.vbee_tts import edge_choice, is_vbee_voice
+    check("Voice TTS hợp lệ", bool(voice) and ("Neural" in voice or is_vbee_voice(voice)), f"Voice: {voice}")
+    check("Dự phòng Edge luôn nhận giọng Edge", "Neural" in edge_choice(voice)["voice"], f"Voice: {voice}")
 
     test_md = "Xin chào! **Sếp** cần xem [báo cáo](http://example.com) `cpu` không?\n```print('done')```"
     cleaned = _sanitise_for_tts(test_md)

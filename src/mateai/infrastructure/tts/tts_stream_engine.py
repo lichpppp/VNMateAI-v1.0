@@ -6,11 +6,13 @@ core/audio/tts_stream_engine.py
 TTS Stream Engine — implementation TTS DUY NHẤT của hệ thống (mọi kênh voice).
 
 Thứ tự nguồn (đo 2026-10-01 trên máy chủ, câu mới mỗi lần):
-  1. Cache RAM / Disk (0ms)
-  2. ElevenLabs WebSocket stream (chỉ khi đã cấu hình)
+  1. Cache RAM / Disk (0ms) — khoá theo câu + GIỌNG (audio_cache.get_audio_hash)
+  2. Nguồn đã chọn trong Voice Studio (chỉ khi đủ thông tin đăng nhập — vbee_tts.resolve_tts):
+       Vbee AIVoice Realtime (byte đầu ~0,5 s theo tài liệu Vbee) hoặc ElevenLabs WebSocket stream
   3. 9Router /v1/audio/speech — Hoài My qua proxy, p50 1,2 s cả câu
   4. Microsoft Edge-TTS stream — Hoài My trực tiếp, chunk đầu p50 3,8 s;
      dự phòng khi 9Router lỗi / chưa cấu hình (đo được 1/5 lần 502)
+  Nguồn 2 lỗi (token Vbee hết hạn, hết điểm, mất mạng…) → tự rơi xuống 3 / 4 với giọng Edge: không bao giờ câm.
 
 Không còn nhánh gTTS: thư viện chưa từng được khai báo nên nhánh đó chưa bao
 giờ chạy, và giọng khác Hoài My.
@@ -94,18 +96,18 @@ def apply_pronunciation(text: str) -> str:
 # Cache helpers
 # ---------------------------------------------------------------------------
 
-def _cache_get(text: str) -> Optional[bytes]:
+def _cache_get(text: str, tag: Optional[str] = None) -> Optional[bytes]:
     try:
         from mateai.infrastructure.tts.audio_cache import get_cached_audio_bytes
-        return get_cached_audio_bytes(text)
+        return get_cached_audio_bytes(text, tag)
     except Exception:
         return None
 
 
-def _cache_set(text: str, data: bytes, voice: str = "") -> None:
+def _cache_set(text: str, data: bytes, voice: str = "", tag: Optional[str] = None) -> None:
     try:
         from mateai.infrastructure.tts.audio_cache import save_to_cache
-        save_to_cache(text, data, voice=voice or _get_tts_voice())
+        save_to_cache(text, data, voice=voice or _get_tts_voice(), tag=tag)
     except Exception:
         pass
 
@@ -147,7 +149,8 @@ async def _stream_edge_tts(
                     "[TTS/edge-tts] OK: %d bytes, attempt=%d, voice=%s",
                     len(accumulated), attempt + 1, voice,
                 )
-                _cache_set(cache_key or text, bytes(accumulated), voice)
+                from mateai.infrastructure.tts.vbee_tts import edge_choice
+                _cache_set(cache_key or text, bytes(accumulated), voice, tag=edge_choice(voice)["tag"])
                 return
 
             logger.warning("[TTS/edge-tts] 0 chunks trả về (attempt %d), retry...", attempt + 1)
@@ -291,31 +294,13 @@ class TTSStreamEngine:
         voice: Optional[str] = None,
         rate: Optional[str] = None,
     ) -> None:
-        self._voice = voice or _get_tts_voice()
-        self._rate = rate or _get_tts_rate()
-        self._elevenlabs_config = self._load_elevenlabs_config()
-
-    def _load_elevenlabs_config(self) -> Optional[dict]:
-        """Đọc ElevenLabs config từ settings nếu người dùng đã cấu hình."""
-        try:
-            from mateai.config.loader import settings
-            audio = getattr(settings, "audio", {})
-            cfg = audio if isinstance(audio, dict) else {}
-            api_key = cfg.get("elevenlabs_api_key") or getattr(settings, "ELEVENLABS_API_KEY", "")
-            voice_id = cfg.get("elevenlabs_voice_id") or getattr(settings, "ELEVENLABS_VOICE_ID", "")
-            tts_engine = cfg.get("tts_engine", "edge-tts")
-            if api_key and voice_id and tts_engine == "elevenlabs":
-                return {
-                    "api_key": api_key,
-                    "voice_id": voice_id,
-                    "model": cfg.get("elevenlabs_model", "eleven_turbo_v2_5"),
-                }
-        except Exception:
-            pass
-        return None
+        # Chỉ giữ giá trị truyền VÀO; còn lại đọc cấu hình mỗi lần đọc. Trước đây đọc một lần lúc tạo singleton (và
+        # reset_tts_engine() không ai gọi) → đổi nguồn / giọng trong Voice Studio phải khởi động lại máy chủ mới ăn.
+        self._voice_override = voice
+        self._rate_override = rate
 
     # ------------------------------------------------------------------
-    # stream() — ưu tiên cache → edge-tts streaming chunks
+    # stream() — cache → nguồn đã chọn (Vbee / ElevenLabs) → 9Router → Edge-TTS
     # ------------------------------------------------------------------
 
     async def stream(
@@ -330,55 +315,59 @@ class TTSStreamEngine:
         """
         if not text or not text.strip():
             return
+        from mateai.infrastructure.tts.vbee_tts import edge_choice, resolve_tts, stream_vbee
 
-        effective_voice = voice or self._voice
-        effective_rate = rate or self._rate
+        choice = resolve_tts(voice or self._voice_override)
+        effective_rate = rate or self._rate_override or _get_tts_rate()
 
-        # 1. Cache hit (0ms)
-        cached = _cache_get(text)
+        # 1. Cache hit (0ms) — đúng giọng đang chọn
+        cached = _cache_get(text, choice["tag"])
         if cached and len(cached) > 100:
             logger.info("[TTSStream] Cache HIT (0ms): '%s'", text[:50])
             yield cached
             return
 
         t0 = time.perf_counter()
-
-        # 2. ElevenLabs WS (nếu đã cấu hình)
-        if self._elevenlabs_config:
-            cfg = self._elevenlabs_config
-            chunks_buf = bytearray()
-            async for chunk in _stream_elevenlabs_ws(
-                text, cfg["voice_id"], cfg["api_key"], cfg["model"]
-            ):
-                chunks_buf.extend(chunk)
-                yield chunk
-
-            if chunks_buf:
-                elapsed = (time.perf_counter() - t0) * 1000
-                logger.info("[TTSStream] ElevenLabs: %d bytes / %.0fms", len(chunks_buf), elapsed)
-                _cache_set(text, bytes(chunks_buf), effective_voice)
-                return
-
-        # 3. 9Router Hoài My (nhanh nhất theo số đo)
         spoken = apply_pronunciation(text)
-        router_bytes = await _synthesise_9router(spoken, effective_voice)
+
+        # 2. Nguồn đã chọn trong Voice Studio
+        if choice["engine"] in ("vbee", "elevenlabs"):
+            buf = bytearray()
+            if choice["engine"] == "vbee":
+                gen = stream_vbee(spoken, choice["voice"], choice["speed"], choice["app_id"], choice["token"])
+            else:
+                gen = _stream_elevenlabs_ws(text, choice["voice"], choice["api_key"], choice["model"])
+            async for chunk in gen:
+                buf.extend(chunk)
+                yield chunk
+            if buf:
+                elapsed = (time.perf_counter() - t0) * 1000
+                logger.info("[TTSStream] %s: %d bytes / %.0fms", "Vbee" if choice["engine"] == "vbee" else "ElevenLabs",
+                            len(buf), elapsed)
+                _cache_set(text, bytes(buf), choice["voice"], tag=choice["tag"])
+                return
+            logger.warning("[TTSStream] %s không trả audio — dùng 9Router / Edge-TTS dự phòng", choice["engine"])
+
+        # 3. 9Router Hoài My (nhanh nhất theo số đo) — giọng Edge (Vbee lỗi thì về giọng Edge của cấu hình / Hoài My)
+        edge = edge_choice(voice or self._voice_override or _get_tts_voice())
+        router_bytes = await _synthesise_9router(spoken, edge["voice"])
         if router_bytes:
             elapsed = (time.perf_counter() - t0) * 1000
             logger.info("[TTSStream] 9Router: %d bytes / %.0fms", len(router_bytes), elapsed)
-            _cache_set(text, router_bytes, effective_voice)
+            _cache_set(text, router_bytes, edge["voice"], tag=edge["tag"])
             yield router_bytes
             return
 
-        # 4. Edge-TTS stream trực tiếp (dự phòng)
+        # 4. Edge-TTS stream trực tiếp (dự phòng) — lưu cache theo tag giọng Edge
         edge_buf = bytearray()
-        async for chunk in _stream_edge_tts(spoken, effective_voice, effective_rate, cache_key=text):
+        async for chunk in _stream_edge_tts(spoken, edge["voice"], effective_rate, cache_key=text):
             edge_buf.extend(chunk)
             yield chunk
 
         if edge_buf:
             elapsed = (time.perf_counter() - t0) * 1000
             logger.info("[TTSStream] Edge-TTS: %d bytes / %.0fms", len(edge_buf), elapsed)
-            _cache_set(text, bytes(edge_buf), effective_voice)
+            _cache_set(text, bytes(edge_buf), edge["voice"], tag=edge["tag"])
             return
 
         logger.error("[TTSStream] TẤT CẢ nguồn TTS thất bại cho: '%s'", text[:60])
@@ -397,7 +386,8 @@ class TTSStreamEngine:
         Tổng hợp toàn bộ câu thành bytes (blocking-style, có cache).
         Dùng cho: Acoustic ACK warmup, HUD base64 fallback, lưu cache.
         """
-        cached = _cache_get(text)
+        from mateai.infrastructure.tts.vbee_tts import resolve_tts
+        cached = _cache_get(text, resolve_tts(voice or self._voice_override)["tag"])
         if cached and len(cached) > 100:
             return cached
 

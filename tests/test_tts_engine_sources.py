@@ -34,8 +34,8 @@ def calls(monkeypatch):
 
     monkeypatch.setattr(tse, "_synthesise_9router", fake_router)
     monkeypatch.setattr(tse, "_stream_edge_tts", fake_edge)
-    monkeypatch.setattr(tse, "_cache_get", lambda text: None)
-    monkeypatch.setattr(tse, "_cache_set", lambda text, data, voice="": log["cache_set"].append(text))
+    monkeypatch.setattr(tse, "_cache_get", lambda text, tag=None: None)
+    monkeypatch.setattr(tse, "_cache_set", lambda text, data, voice="", tag=None: log["cache_set"].append(text))
     return log, state
 
 

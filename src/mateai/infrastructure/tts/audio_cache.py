@@ -58,22 +58,36 @@ def normalize_text_for_hash(text: str) -> str:
     return cleaned
 
 
-def get_audio_hash(text: str) -> str:
+def _active_tag() -> str:
+    try:
+        from mateai.infrastructure.tts.vbee_tts import resolve_tts
+        return resolve_tts()["tag"]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def get_audio_hash(text: str, tag: Optional[str] = None) -> str:
     """
-    Trả về mã MD5 của chuỗi text (đã chuyển lowercase và xóa khoảng trắng thừa).
+    Mã MD5 của câu (chữ thường, gộp khoảng trắng) + GIỌNG đọc.
+
+    `tag` = giọng (vd "vbee:hn_female_ngochuyen_full_48k-fhg"); bỏ trống = giọng đang cấu hình. Trước 2026-10-12 khoá
+    chỉ theo chữ: đổi sang giọng khác (Vbee, ElevenLabs, Nam Minh…) mà các câu đã lưu (lời đệm, "Anh còn cần…", lời chào)
+    vẫn phát giọng cũ. Giọng mặc định Hoài My có tag rỗng → khoá giữ nguyên như cũ, cache sẵn có vẫn dùng được.
     """
     norm = normalize_text_for_hash(text)
     if not norm:
         return ""
-    return hashlib.md5(norm.encode("utf-8")).hexdigest()
+    tag = _active_tag() if tag is None else tag
+    key = f"{tag}|{norm}" if tag else norm
+    return hashlib.md5(key.encode("utf-8")).hexdigest()
 
 
-def check_cached_audio(text: str) -> Optional[str]:
+def check_cached_audio(text: str, tag: Optional[str] = None) -> Optional[str]:
     """
     Kiểm tra nếu file [hash].mp3 tồn tại trong storage/audio_cache/,
     trả về đường dẫn tệp (str). Nếu không tồn tại hoặc rỗng, trả về None.
     """
-    h = get_audio_hash(text)
+    h = get_audio_hash(text, tag)
     if not h:
         return None
 
@@ -83,11 +97,11 @@ def check_cached_audio(text: str) -> Optional[str]:
     return None
 
 
-def get_cached_audio_bytes(text: str) -> Optional[bytes]:
+def get_cached_audio_bytes(text: str, tag: Optional[str] = None) -> Optional[bytes]:
     """
-    Lấy trực tiếp nội dung bytes âm thanh từ RAM cache (0ms) hoặc Disk cache nếu tồn tại.
+    Lấy trực tiếp nội dung bytes âm thanh từ RAM cache (0ms) hoặc Disk cache nếu tồn tại (theo giọng — xem get_audio_hash).
     """
-    h = get_audio_hash(text)
+    h = get_audio_hash(text, tag)
     if not h:
         return None
 
@@ -97,7 +111,7 @@ def get_cached_audio_bytes(text: str) -> Optional[bytes]:
             return _RAM_AUDIO_CACHE[h]
 
     # 2. Tra cứu Disk cache
-    path_str = check_cached_audio(text)
+    path_str = check_cached_audio(text, tag)
     if not path_str:
         return None
     try:
@@ -113,7 +127,8 @@ def get_cached_audio_bytes(text: str) -> Optional[bytes]:
     return None
 
 
-def save_to_cache(text: str, audio_bytes: bytes, voice: str = "vi-VN-HoaiMyNeural") -> Optional[str]:
+def save_to_cache(text: str, audio_bytes: bytes, voice: str = "vi-VN-HoaiMyNeural",
+                  tag: Optional[str] = None) -> Optional[str]:
     """
     Lưu luồng bytes âm thanh sinh ra từ TTS vào RAM cache và file [hash].mp3.
     Cập nhật cache_index.json để dễ theo dõi.
@@ -121,7 +136,7 @@ def save_to_cache(text: str, audio_bytes: bytes, voice: str = "vi-VN-HoaiMyNeura
     if not audio_bytes or len(audio_bytes) < 100:
         return None
 
-    h = get_audio_hash(text)
+    h = get_audio_hash(text, tag)
     if not h:
         return None
 

@@ -235,7 +235,8 @@ def _acoustic_ack(ctx: StepContext) -> None:
     from mateai.interfaces.http import hud_voice
     # Realtime P4: thêm câu cố định của lệnh nhanh và vòng hội thoại HUD.
     spawn(warmup_acoustic_ack_cache(
-        extra_phrases=(*STATIC_REPLIES, hud_voice.FOLLOW_UP_QUESTION, hud_voice.FAREWELL)), "acoustic-ack-warmup")
+        extra_phrases=(*STATIC_REPLIES, hud_voice.FOLLOW_UP_QUESTION, hud_voice.FAREWELL, hud_voice.GOODBYE)),
+        "acoustic-ack-warmup")
 
 
 def _connector_tools(ctx: StepContext) -> str:

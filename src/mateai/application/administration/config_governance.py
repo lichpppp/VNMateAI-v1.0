@@ -23,7 +23,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from mateai.infrastructure.database.db_manager import db_manager
 
-TTS_ENGINES = {"edge-tts", "elevenlabs"}
+TTS_ENGINES = {"edge-tts", "elevenlabs", "vbee"}
 ASR_ENGINES = {"google", "groq", "whisper", "local_whisper"}
 ROUTING_MODES = {"router", "direct"}
 _URL_RE = re.compile(r"^https?://[^\s/$.?#][^\s]*$", re.IGNORECASE)
@@ -82,6 +82,9 @@ def validate(cfg: Dict[str, Any], router_models: Optional[Iterable[str]] = None,
     if _get(cfg, "audio.tts_engine") == "elevenlabs" and not (
             _get(cfg, "audio.elevenlabs_api_key") and _get(cfg, "audio.elevenlabs_voice_id")):
         errors.append("Chọn ElevenLabs thì phải có API key và Voice ID")
+    if _get(cfg, "audio.tts_engine") == "vbee" and not (
+            _get(cfg, "audio.vbee_app_id") and _get(cfg, "audio.vbee_token")):
+        errors.append("Chọn Vbee thì phải có App ID và Token (tạo ở studio.vbee.vn/apps)")
 
     name = _get(cfg, "persona.ai_name")
     if name is not None and not (1 <= len(str(name).strip()) <= 40):

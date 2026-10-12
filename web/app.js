@@ -5018,6 +5018,7 @@ async function _doLoadAIManagerConfig() {
   const ttsEngine = (audio.tts_engine && audio.tts_engine !== 'local') ? audio.tts_engine : 'edge-tts';
   const ttsVoice = audio.tts_voice || cfg.TTS_VOICE || 'vi-VN-HoaiMyNeural';
   setVal('ai-tts-engine', ttsEngine);
+  if (_isVbeeVoice(ttsVoice)) _ensureVbeeVoiceOption(ttsVoice, ttsVoice);
   setVal('ai-tts-voice', ttsVoice);
 
   // Parse TTS_RATE: "+15%" → 15
@@ -5037,6 +5038,13 @@ async function _doLoadAIManagerConfig() {
   if (audio.elevenlabs_api_key) setVal('ai-elevenlabs-key', audio.elevenlabs_api_key);
   if (audio.elevenlabs_voice_id) setVal('ai-elevenlabs-voice-id', audio.elevenlabs_voice_id);
   if (audio.elevenlabs_model) setVal('ai-elevenlabs-model', audio.elevenlabs_model);
+  // Vbee: token KHÔNG nạp lại vào ô (máy chủ chỉ trả ký hiệu che) — để trống nghĩa là giữ token đã lưu.
+  setVal('ai-vbee-app-id', audio.vbee_app_id || '');
+  const vbeeTokenEl = document.getElementById('ai-vbee-token');
+  if (vbeeTokenEl) {
+    vbeeTokenEl.value = '';
+    vbeeTokenEl.placeholder = audio.vbee_token ? 'Đã lưu token — để trống để giữ nguyên' : 'Dán token của ứng dụng Vbee';
+  }
 
   // Trạng thái hai ô mật khẩu. Dùng hàm chung với tab Cấu Hình để hai nơi
   // không lệch nhau — trước đây chỉ ô tab Cấu Hình có gợi ý.
@@ -5131,6 +5139,14 @@ async function saveAIConfig() {
   const elKey = (typedElKey && typedElKey !== SECRET_MASK) ? typedElKey : (currentConfig?.audio?.elevenlabs_api_key || '');
   const elVoiceId = getVal('ai-elevenlabs-voice-id') || currentConfig?.audio?.elevenlabs_voice_id || '';
   const elModel = getVal('ai-elevenlabs-model') || 'eleven_turbo_v2_5';
+  // Vbee AIVoice: ô token trống / còn ký hiệu che → giữ token đã lưu (máy chủ nhận ký hiệu che là "không đổi")
+  const vbeeAppId = (getVal('ai-vbee-app-id') || '').trim();
+  const typedVbeeToken = (getVal('ai-vbee-token') || '').trim();
+  const vbeeToken = (typedVbeeToken && typedVbeeToken !== SECRET_MASK) ? typedVbeeToken : (currentConfig?.audio?.vbee_token || '');
+  if (ttsEngine === 'vbee' && (!vbeeAppId || !vbeeToken)) {
+    showToast('Chọn Vbee thì cần nhập App ID và Token (studio.vbee.vn/apps → Tạo ứng dụng).', 'error');
+    return;
+  }
 
   if (activeTemplateKey) {
     const curEditor = document.getElementById('tpl-editor-body')?.value;
@@ -5185,6 +5201,8 @@ async function saveAIConfig() {
       elevenlabs_api_key: elKey,
       elevenlabs_voice_id: elVoiceId,
       elevenlabs_model: elModel,
+      vbee_app_id: vbeeAppId,
+      vbee_token: vbeeToken,
     },
     report_templates: { ...currentReportTemplates },
     // Backward compatibility keys
@@ -5804,7 +5822,103 @@ function onAITTSEngineChange() {
       elSection.classList.add('hidden');
     }
   }
+  document.getElementById('ai-vbee-section')?.classList.toggle('hidden', engine !== 'vbee');
+  // Giọng phải khớp bộ máy: Vbee dùng mã giọng Vbee, Edge dùng tên giọng Microsoft.
+  const sel = document.getElementById('ai-tts-voice');
+  if (!sel) return;
+  if (engine === 'vbee' && !_isVbeeVoice(sel.value)) {
+    _ensureVbeeVoiceOption(VBEE_DEFAULT_VOICE, '⚡ HN - Ngọc Huyền');
+    sel.value = VBEE_DEFAULT_VOICE;
+  } else if (engine !== 'vbee' && _isVbeeVoice(sel.value)) {
+    sel.value = 'vi-VN-HoaiMyNeural';
+  }
 }
+
+// ── Vbee AIVoice (studio.vbee.vn) ───────────────────────────────────────────
+const VBEE_DEFAULT_VOICE = 'hn_female_ngochuyen_full_48k-fhg';
+const _vbeeVal = (id) => (document.getElementById(id)?.value || '').trim();
+function _isVbeeVoice(v) { return /^[a-z]{2,}_(female|male)_/.test(String(v || '')) && !String(v).includes('Neural'); }
+
+/** Nhóm "Vbee AIVoice" trong ô chọn giọng (tạo nếu chưa có); thêm một giọng nếu chưa có. */
+function _vbeeGroup() {
+  const sel = document.getElementById('ai-tts-voice');
+  if (!sel) return null;
+  let g = sel.querySelector('optgroup[data-vbee]');
+  if (!g) {
+    g = document.createElement('optgroup');
+    g.label = '🇻🇳 Vbee AIVoice (⚡ = dùng được cho hội thoại)';
+    g.dataset.vbee = '1';
+    sel.insertBefore(g, sel.firstChild);
+  }
+  return g;
+}
+function _ensureVbeeVoiceOption(code, label) {
+  const g = _vbeeGroup();
+  if (!g || [...g.querySelectorAll('option')].some((o) => o.value === code)) return;
+  const o = document.createElement('option');
+  o.value = code; o.textContent = label || code;
+  g.appendChild(o);
+}
+function _vbeeCredsBody(extra = {}) {
+  const token = (_vbeeVal('ai-vbee-token') || '').trim();
+  return JSON.stringify({ app_id: (_vbeeVal('ai-vbee-app-id') || '').trim() || null,
+    token: token && token !== SECRET_MASK ? token : null, ...extra });
+}
+function _vbeeStatus(text, kind = '') {
+  const el = document.getElementById('ai-vbee-status');
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'text-[11px] ' + (kind === 'error' ? 'text-rose-500' : kind === 'ok' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400');
+}
+
+/** Tải giọng Vbee của tài khoản (dùng App ID / Token đang gõ, hoặc đã lưu) vào ô chọn giọng. */
+async function loadVbeeVoices() {
+  _vbeeStatus('Đang tải giọng Vbee…');
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/tts/vbee/voices`, { method: 'POST', body: _vbeeCredsBody() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+    const sel = document.getElementById('ai-tts-voice');
+    const keep = sel?.value;
+    const g = _vbeeGroup();
+    if (g) g.innerHTML = '';
+    for (const v of data.voices || []) {
+      _ensureVbeeVoiceOption(v.code, `${v.realtime ? '⚡ ' : ''}${v.name}${v.personal ? ' (giọng của bạn)' : ''}`);
+    }
+    if (sel) sel.value = _isVbeeVoice(keep) && [...sel.options].some((o) => o.value === keep) ? keep : VBEE_DEFAULT_VOICE;
+    const rt = (data.voices || []).filter((v) => v.realtime).length;
+    _vbeeStatus(`Đã tải ${(data.voices || []).length} giọng (${rt} giọng ⚡ dùng được cho hội thoại).`, 'ok');
+  } catch (err) {
+    _vbeeStatus(String(err.message || err), 'error');
+  }
+}
+
+/** Nghe thử giọng Vbee đang chọn — kiểm tra App ID / Token / giọng TRƯỚC khi lưu. */
+async function testVbeeVoice() {
+  const voice = _vbeeVal('ai-tts-voice');
+  _vbeeStatus('Đang đọc thử…');
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/tts/vbee/test`, {
+      method: 'POST', body: _vbeeCredsBody({ voice: _isVbeeVoice(voice) ? voice : VBEE_DEFAULT_VOICE }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || `HTTP ${res.status}`);
+    }
+    const ms = res.headers.get('X-Vbee-Ms');
+    const url = URL.createObjectURL(await res.blob());
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    await audio.play();
+    const mode = res.headers.get('X-Vbee-Mode');
+    const how = mode === 'batch' ? ' · gói hiện tại dùng Batch API (cả câu ~2–4 s); nâng gói có Realtime để nhanh hơn' : '';
+    _vbeeStatus(`Vbee đọc được${ms ? ` (${ms} ms)` : ''}${how} — bấm "Lưu" để dùng cho HUD, robot, portal.`, 'ok');
+  } catch (err) {
+    _vbeeStatus(String(err.message || err), 'error');
+  }
+}
+window.loadVbeeVoices = loadVbeeVoices;
+window.testVbeeVoice = testVbeeVoice;
 
 /** Sắp xếp danh sách model theo tên. Giá trị lấy từ đâu ra cũng dùng chung
  *  một thứ tự, để hai tab không lệch nhau. */

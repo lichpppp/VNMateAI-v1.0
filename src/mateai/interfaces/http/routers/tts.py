@@ -100,3 +100,52 @@ async def tts_voices_endpoint(user: dict = Depends(require_roles(["viewer", "man
             return {"success": False, "error": str(exc), "voices": []}
 
     return {"success": True, "total": len(_TTS_VOICES_CACHE), "voices": _TTS_VOICES_CACHE}
+
+
+# ── Vbee AIVoice (studio.vbee.vn) ────────────────────────────────────────────
+class VbeeCredentials(BaseModel):
+    """App ID + Token Vbee. Bỏ trống / còn ký hiệu che → dùng thông tin ĐÃ LƯU (token không bao giờ gửi ngược về trình duyệt)."""
+    app_id: Optional[str] = Field(default=None, max_length=200)
+    token: Optional[str] = Field(default=None, max_length=4000)
+    voice: Optional[str] = Field(default=None, max_length=200)
+    text: Optional[str] = Field(default=None, max_length=300)
+
+
+def _vbee_creds(body: VbeeCredentials) -> tuple:
+    from mateai.infrastructure.tts.vbee_tts import audio_cfg
+    saved = audio_cfg()
+    app_id = (body.app_id or "").strip() or str(saved.get("vbee_app_id") or "").strip()
+    token = (body.token or "").strip()
+    if not token or set(token) == {"•"}:
+        token = str(saved.get("vbee_token") or "").strip()
+    if not app_id or not token:
+        raise HTTPException(status_code=400, detail="Cần App ID và Token Vbee (tạo ở studio.vbee.vn/apps → Tạo ứng dụng).")
+    return app_id, token
+
+
+@router.post("/api/v1/tts/vbee/voices", summary="Danh sách giọng Vbee AIVoice của tài khoản", tags=["Audio"])
+async def vbee_voices_endpoint(body: VbeeCredentials = Body(default_factory=VbeeCredentials),
+                               user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
+    """Giọng Vbee (tiếng Việt) + giọng cá nhân; giọng hỗ trợ Realtime (dùng được cho hội thoại) xếp trước."""
+    from mateai.infrastructure.tts.vbee_tts import list_vbee_voices
+    app_id, token = _vbee_creds(body)
+    try:
+        return await list_vbee_voices(app_id, token)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[TTS/Vbee] lỗi tải danh sách giọng: %s", exc)
+        return {"ok": False, "error": f"Không tải được danh sách giọng Vbee: {exc}", "voices": []}
+
+
+@router.post("/api/v1/tts/vbee/test", summary="Đọc thử bằng Vbee (kiểm tra App ID / Token / giọng trước khi lưu)",
+             tags=["Audio"], response_class=Response)
+async def vbee_test_endpoint(body: VbeeCredentials, user: dict = Depends(require_roles(["admin"]))) -> Response:
+    """Trả MP3 nếu đọc được; lỗi (token hết hạn, hết điểm, giọng không hỗ trợ realtime…) → 400 kèm lý do dễ hiểu."""
+    from mateai.infrastructure.tts.vbee_tts import DEFAULT_VBEE_VOICE, audio_cfg, is_vbee_voice, speed_from_rate, vbee_try
+    app_id, token = _vbee_creds(body)
+    voice = body.voice if is_vbee_voice(body.voice) else DEFAULT_VBEE_VOICE
+    text = (body.text or "").strip() or f"Xin chào, em là {get_assistant_name()}. Đây là giọng đọc Vbee."
+    res = await vbee_try(text, voice, speed_from_rate(audio_cfg().get("speech_rate", 0)), app_id, token)
+    if not res["ok"]:
+        raise HTTPException(status_code=400, detail=res["error"])
+    return Response(content=res["audio"], media_type="audio/mpeg",
+                    headers={"X-Vbee-Ms": str(res["ms"]), "X-Vbee-Mode": res.get("mode", "")})

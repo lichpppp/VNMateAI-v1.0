@@ -60,7 +60,8 @@ async def get_mic_status(
         from mateai.config.loader import get_config_section, settings
         audio = get_config_section("audio")
         voice = audio.get("tts_voice") or getattr(settings, "TTS_VOICE", "") or ""
-        engine = "ElevenLabs" if audio.get("tts_engine") == "elevenlabs" else "9Router TTS → Edge-TTS dự phòng"
+        engine = {"elevenlabs": "ElevenLabs", "vbee": "Vbee AIVoice → 9Router / Edge-TTS dự phòng"}.get(
+            audio.get("tts_engine"), "9Router TTS → Edge-TTS dự phòng")
     except Exception:  # noqa: BLE001
         voice, engine = "", ""
     return {

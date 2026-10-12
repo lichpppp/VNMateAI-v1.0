@@ -45,7 +45,7 @@ SECRET_FIELD_NAMES = frozenset({
     # Kênh cảnh báo: URL webhook Teams / Slack chứa chữ ký truy cập.
     "webhook_url", "hmac_secret",
     # Âm thanh
-    "elevenlabs_api_key",
+    "elevenlabs_api_key", "vbee_token",
     # Hạ tầng (prompt cuối §67): URL Redis chứa mật khẩu.
     "redis_url", "database_url",
 })

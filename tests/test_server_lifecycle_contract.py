@@ -41,6 +41,7 @@ NEW_ROUTES = {"/api/v1/health/startup",
               # Quyền đọc kho tri thức theo tài liệu (docs/security/rag-permissions.md)
               '/api/v1/enterprise/rag/acl', '/api/v1/enterprise/rag/acl/{doc_name}',
               '/hud-next',   # bản thử giao diện HUD mới
+              '/api/v1/tts/vbee/voices', '/api/v1/tts/vbee/test',   # Vbee AIVoice (giọng đọc)
               # Danh bạ Agent: inbound / A2A (docs/integrations/agent-gateway.md)
               '/api/v1/agent-gateway/agents', '/api/v1/agent-gateway/agents/{agent_id}', '/api/v1/agent-gateway/agents/{agent_id}/status',
               '/api/v1/agent-gateway/agents/{agent_id}/token', '/api/v1/agent-gateway/agents/{agent_id}/card',
