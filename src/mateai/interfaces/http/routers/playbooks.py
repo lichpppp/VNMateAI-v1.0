@@ -8,10 +8,11 @@ Xem + chạy thử: manager + admin. Lưu / xoá / chạy / huỷ / xác nhận:
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Dict
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from mateai.application.playbooks import definition as D
 from mateai.application.playbooks import engine as E
@@ -110,3 +111,43 @@ async def confirm_run(run_id: str, body: Dict[str, Any] = Body(default={}), user
     if out["status"] != "confirmed":
         raise HTTPException(status_code=409, detail=out.get("error") or "Không xác nhận được")
     return out
+
+
+# ── tự kích hoạt bằng webhook ───────────────────────────────────────────────
+
+_WEBHOOK_MAX_BYTES = 64 * 1024
+
+
+@router.post("/api/v1/playbooks/{playbook_id}/webhook-token", summary="Cấp / xoay token webhook của kịch bản (chỉ hiện MỘT lần)",
+             tags=["Playbooks"])
+async def issue_webhook_token(playbook_id: str, user: Dict[str, Any] = _WRITE) -> Dict[str, Any]:
+    from mateai.application.playbooks import triggers
+    try:
+        token = triggers.issue_webhook_token(playbook_id, _who(user))
+    except triggers.TriggerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"playbook_id": playbook_id, "token": token,
+            "usage": f"POST /api/v1/playbooks/{playbook_id}/trigger  (Authorization: Bearer <token>, thân JSON → payload.*)"}
+
+
+@router.post("/api/v1/playbooks/{playbook_id}/trigger", summary="Hệ thống ngoài kích hoạt kịch bản (token webhook riêng, không dùng JWT)",
+             tags=["Playbooks"])
+async def webhook_trigger(playbook_id: str, request: Request) -> Dict[str, Any]:
+    from mateai.application.playbooks import triggers
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.lower().startswith("bearer ") else request.headers.get("x-playbook-token", "")
+    if not triggers.verify_webhook_token(playbook_id, token):
+        raise HTTPException(status_code=401, detail="Token webhook không hợp lệ", headers={"WWW-Authenticate": "Bearer"})
+    raw = await request.body()
+    if len(raw) > _WEBHOOK_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Thân yêu cầu quá 64 KB")
+    try:
+        payload = json.loads(raw or b"{}")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Thân yêu cầu phải là JSON")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="Thân yêu cầu phải là đối tượng JSON")
+    try:
+        return await triggers.on_webhook(playbook_id, payload, request.headers.get("x-idempotency-key"))
+    except triggers.TriggerError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

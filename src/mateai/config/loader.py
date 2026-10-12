@@ -506,6 +506,13 @@ class MonitoringConfig(BaseModel):
     disk_crit: float = 95.0
 
 
+class PlaybookTriggersConfig(BaseModel):
+    """Kịch bản tự kích hoạt (lịch / cảnh báo / webhook) — docs/integrations/playbooks.md."""
+    enabled: bool = True
+    #: Trần lượt tự kích hoạt toàn hệ thống mỗi giờ (chống bão cảnh báo).
+    max_auto_runs_per_hour: int = Field(default=20, ge=1, le=500)
+
+
 class AgentGatewayConfig(BaseModel):
     """Cổng nối agent / MCP server có sẵn của doanh nghiệp (docs/integrations/agent-gateway.md)."""
     #: Cho phép MCP server kiểu stdio (máy chủ CHẠY một chương trình cục bộ). Mặc định tắt: bật khi thật sự cần.
@@ -612,6 +619,9 @@ class AppSettings(BaseSettings):
 
     # Cổng agent (MCP server ngoài)
     agent_gateway: AgentGatewayConfig = Field(default_factory=AgentGatewayConfig)
+
+    # Kịch bản tự kích hoạt
+    playbook_triggers: PlaybookTriggersConfig = Field(default_factory=PlaybookTriggersConfig)
 
     # Dev Fleet: điều phối cụm Dev (Ubuntu Master -> Mac mini/OpenClaw) — mặc định tắt
     dev_fleet: DevFleetConfig = Field(default_factory=DevFleetConfig)

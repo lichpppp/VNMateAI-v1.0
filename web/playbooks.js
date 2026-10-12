@@ -31,6 +31,13 @@ const PlaybooksUI = (() => {
     RUNNING: ['Đang chạy', 'sky'], WAITING_APPROVAL: ['Chờ duyệt', 'amber'], PLANNED: ['Đã lên kế hoạch', 'slate'],
     FAILED: ['Thất bại', 'rose'], BLOCKED: ['Bị chính sách chặn', 'rose'], CANCELLED: ['Đã huỷ', 'slate'], INTERRUPTED: ['Bị gián đoạn', 'rose'],
   };
+  const TRIGGER = { schedule: 'lịch', alert: 'cảnh báo', webhook: 'webhook' };
+  const AUTO = { cron: 'theo lịch', alert: 'theo cảnh báo', webhook: 'qua webhook' };
+  const trigText = (p) => {
+    const t = (p.definition.triggers || []).map((x) => (x.type === 'schedule' ? `lịch ${x.cron}` : TRIGGER[x.type] || x.type));
+    return t.length ? ` · <span class="text-sky-600">tự kích hoạt: ${e(t.join(', '))}</span>` : '';
+  };
+  const hasWebhook = (p) => !!p && (p.definition.triggers || []).some((x) => x.type === 'webhook');
   const DECISION = { allow: ['Được phép', 'emerald'], require_approval: ['Cần duyệt', 'amber'], deny: ['BỊ CHẶN', 'rose'] };
   const COLOR = {
     emerald: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30', amber: 'bg-amber-500/15 text-amber-600 border-amber-500/30',
@@ -67,7 +74,8 @@ const PlaybooksUI = (() => {
     <div class="${CARD} space-y-3"><h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Chạy kịch bản <span id="pb-selected-name" class="font-mono text-primary-600 dark:text-primary-400"></span></h3>
       <div id="pb-params" class="grid grid-cols-1 sm:grid-cols-3 gap-3"></div>
       <div class="flex flex-wrap gap-2"><button type="button" data-pb="plan" class="${BTN} border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200">Chạy thử (dry-run)</button>
-        <button type="button" data-pb="run" id="pb-run" class="${BTN} bg-emerald-600 hover:bg-emerald-700 text-white">Chạy thật</button></div>
+        <button type="button" data-pb="run" id="pb-run" class="${BTN} bg-emerald-600 hover:bg-emerald-700 text-white">Chạy thật</button>
+        <button type="button" data-pb="webhook" id="pb-webhook" class="${BTN} border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hidden">Cấp token webhook</button></div>
       <div id="pb-plan" class="text-xs overflow-x-auto"></div><div id="pb-run-msg" class="text-xs"></div></div>
     <div class="${CARD}"><h3 class="text-sm font-bold mb-2 text-slate-800 dark:text-slate-100">Lượt chạy gần đây</h3><div id="pb-runs" class="overflow-x-auto"></div><div id="pb-run-detail" class="mt-3 text-xs"></div></div>`;
   }
@@ -88,11 +96,12 @@ const PlaybooksUI = (() => {
     $('pb-list').innerHTML = playbooks.length ? playbooks.map((p) => `
       <button type="button" data-pb="select" data-id="${e(p.id)}" class="w-full text-left px-3 py-2 rounded-lg border ${p.id === selected ? 'border-primary-500 bg-primary-500/10' : 'border-slate-200 dark:border-slate-700'}">
         <span class="font-semibold text-slate-800 dark:text-slate-100">${e(p.name)}</span> ${p.enabled ? '' : '<span class="text-[11px] text-slate-500">(đang tắt)</span>'}
-        <span class="block text-[11px] font-mono text-slate-500">${e(p.id)} · v${e(p.version)} · ${e((p.definition.steps || []).length)} bước${(p.definition.verify || []).length ? ' · có kiểm chứng' : ' · chưa có kiểm chứng'}</span></button>`).join('')
+        <span class="block text-[11px] font-mono text-slate-500">${e(p.id)} · v${e(p.version)} · ${e((p.definition.steps || []).length)} bước${(p.definition.verify || []).length ? ' · có kiểm chứng' : ' · chưa có kiểm chứng'}${trigText(p)}</span></button>`).join('')
       : '<p class="text-slate-500 dark:text-slate-400">Chưa có kịch bản nào.</p>';
     $('pb-new').classList.toggle('hidden', !canWrite);
     $('pb-edit-actions').classList.toggle('hidden', !canWrite);
     $('pb-run').classList.toggle('hidden', !canWrite);
+    $('pb-webhook').classList.toggle('hidden', !(canWrite && hasWebhook(playbooks.find((p) => p.id === selected))));
   }
 
   function renderParams() {
@@ -192,7 +201,7 @@ const PlaybooksUI = (() => {
     if (!r.ok) { $('pb-runs').innerHTML = `<p class="text-rose-600 text-xs">${e(err(r))}</p>`; return; }
     const runs = r.data.runs || [];
     $('pb-runs').innerHTML = table(['Thời gian', 'Kịch bản', 'Trạng thái', 'Lỗi / ghi chú', ''], runs.map((x) => `<tr>
-      <td class="py-1.5 pr-3 font-mono">${e(x.created_at)}</td><td class="pr-3">${e(x.playbook_id)}</td><td class="pr-3">${pill(RUN_BADGE, x.status)}</td>
+      <td class="py-1.5 pr-3 font-mono">${e(x.created_at)}</td><td class="pr-3">${e(x.playbook_id)}</td><td class="pr-3">${pill(RUN_BADGE, x.status)}${x.trigger ? ` <span class="text-[11px] text-sky-600 whitespace-nowrap">tự động ${e(AUTO[x.trigger] || x.trigger)}</span>` : ''}</td>
       <td class="pr-3 text-slate-600 dark:text-slate-300">${e(x.error || '')}</td>
       <td class="whitespace-nowrap"><button type="button" data-pb="detail" data-id="${e(x.run_id)}" class="${BTN} border border-slate-300 dark:border-slate-600">Chi tiết</button>
         ${canWrite && ['RUNNING', 'WAITING_APPROVAL', 'PLANNED'].includes(x.status) ? `<button type="button" data-pb="cancel" data-id="${e(x.run_id)}" class="${BTN} border border-rose-300 text-rose-600">Huỷ</button>` : ''}
@@ -219,6 +228,13 @@ const PlaybooksUI = (() => {
     if (act === 'save') return save(btn);
     if (act === 'plan') return plan(btn);
     if (act === 'run') return run(btn);
+    if (act === 'webhook' && selected) {
+      if (!window.confirm('Cấp token webhook mới? Token cũ (nếu có) hết hiệu lực ngay.')) return;
+      const r = await send(`/playbooks/${encodeURIComponent(selected)}/webhook-token`, 'POST');
+      $('pb-run-msg').innerHTML = r.ok ? `<div class="rounded-lg border border-amber-400 bg-amber-500/10 p-2"><b>Token webhook — chỉ hiện MỘT lần, chép ngay:</b>
+        <div class="font-mono break-all select-all mt-1">${e(r.data.token)}</div><div class="mt-1">${e(r.data.usage)}</div></div>` : `<span class="text-rose-600">✖ ${e(err(r))}</span>`;
+      return;
+    }
     if (act === 'detail') return detail(id);
     if (act === 'toggle' && selected) {
       const pb = playbooks.find((p) => p.id === selected);

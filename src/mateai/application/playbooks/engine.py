@@ -82,6 +82,9 @@ def known_tools() -> Set[str]:
 
 def save_playbook(raw: Dict[str, Any], *, actor: str, validate_tools: bool = True) -> Dict[str, Any]:
     defn = D.validate_definition(raw, known_tools() if validate_tools else None)
+    if defn["triggers"]:
+        # Lượt tự kích hoạt chạy bằng danh tính người đặt trình kích hoạt (admin lưu kịch bản) — RBAC / duyệt áp theo người này.
+        defn["triggers_owner"] = actor
     existing = _db().dev_get("pb_playbooks", defn["id"])
     now = _now()
     row = {"name": defn["name"], "definition_json": json.dumps(defn, ensure_ascii=False), "updated_at": now}
@@ -485,6 +488,8 @@ def _run_view(r: Dict[str, Any], brief: bool = False) -> Dict[str, Any]:
     out = {"run_id": r["run_id"], "playbook_id": r["playbook_id"], "task_id": r.get("task_id"), "status": r["status"], "caller": r.get("caller"),
            "approval_id": r.get("approval_id"), "error": r.get("error"), "created_at": r["created_at"], "started_at": r.get("started_at"),
            "finished_at": r.get("finished_at"), "plan_hash": r.get("plan_hash")}
+    key = str(r.get("idempotency_key") or "")
+    out["trigger"] = key.split(":", 1)[0] if key.startswith(("cron:", "alert:", "webhook:")) else None   # lượt tự kích hoạt
     if not brief:
         res = _jl(r.get("results_json"), {})
         out.update(params=_jl(r.get("params_json"), {}), plan=_jl(r.get("plan_json"), {}), steps=res.get("steps", []), verify=res.get("verify", []))

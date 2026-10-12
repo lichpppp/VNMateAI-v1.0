@@ -125,6 +125,13 @@ async def dispatch(
         now = time.time()
         alert = {"title": title, "message": message, "severity": severity if severity in ch.SEVERITIES else "warning",
                  "category": category, "source": source, "resolved": resolved, "time": now}
+        if not resolved:
+            # Kịch bản tự kích hoạt theo cảnh báo: xét MỌI cảnh báo, độc lập với ngưỡng / chống lặp của kênh gửi.
+            try:
+                from mateai.application.playbooks import triggers as _pb_triggers
+                _pb_triggers.spawn_on_alert(alert)
+            except Exception as _exc:  # noqa: BLE001
+                logger.debug("[Alert] Không xét được kịch bản tự kích hoạt: %s", _exc)
 
         if resolved:
             if category not in _open_incidents and not force:

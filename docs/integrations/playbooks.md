@@ -37,6 +37,38 @@ Một **kịch bản** là chuỗi bước (mỗi bước = một công cụ đ�
 - Điều kiện chỉ là **dữ liệu** (không có mã chạy được).
 - Công cụ phải tồn tại thật khi lưu.
 
+## Tự kích hoạt (lịch / cảnh báo / webhook)
+
+Thêm `triggers` vào định nghĩa (tối đa 5). Tham số lấy từ dữ liệu kích hoạt bằng mẫu; thiếu dữ liệu thì **không chạy** (không chạy với
+tham số giả).
+
+```json
+"triggers": [
+  {"type": "schedule", "cron": "0 8 * * 1-5"},
+  {"type": "alert", "match": {"category_prefix": "infra:", "severity": ["critical"], "title_contains": "ổ đĩa"},
+   "params": {"host": "{{alert.source}}"}, "cooldown_min": 30},
+  {"type": "webhook", "params": {"host": "{{payload.ci.name}}"}, "cooldown_min": 1}
+]
+```
+
+- **Lịch** (`cron` 5 trường: phút giờ ngày tháng thứ, 0 hoặc 7 = Chủ nhật). Cùng một phút không chạy hai lần (khoá chống trùng).
+- **Cảnh báo**: xét **mọi** cảnh báo đi qua bộ gửi cảnh báo (giám sát hạ tầng, sentinel, webhook giám sát), độc lập với ngưỡng / chống
+  lặp của kênh gửi. Cần ít nhất một điều kiện `category_prefix` / `title_contains` / `source`; lọc thêm `severity`. Mẫu dùng được:
+  `{{alert.title}}`, `message`, `severity`, `category`, `source`. Thông báo *đã khôi phục* và cảnh báo của chính kịch bản (`playbook*`)
+  không kích hoạt gì (chống vòng lặp).
+- **Webhook**: admin bấm **Cấp token webhook** (chỉ hiện một lần; máy chủ chỉ lưu hash). Hệ thống ngoài gọi
+  `POST /api/v1/playbooks/<id>/trigger` với `Authorization: Bearer <token>` và thân JSON (≤ 64 KB) → mẫu `{{payload.<đường dẫn>}}`.
+  Header `X-Idempotency-Key` chống chạy trùng khi bên gửi gửi lại.
+
+**An toàn — không có đường vòng:**
+- Lượt tự kích hoạt chạy bằng danh tính **admin đã lưu trình kích hoạt** (`triggers_owner`), tác nhân `VN-MATEAI-PLAYBOOK`: bước cần
+  duyệt → **một phiếu duyệt** cho cả kế hoạch, chưa duyệt thì chưa chạy; bước bị chặn → không chạy.
+- Mỗi trình kích hoạt có thời gian nghỉ (`cooldown_min`, mặc định 10 phút với cảnh báo); toàn hệ thống tối đa
+  `playbook_triggers.max_auto_runs_per_hour` (mặc định 20) lượt / giờ.
+- Bật **kill switch** hoặc `playbook_triggers.enabled = false` → không tự kích hoạt gì. Kịch bản đang tắt cũng không.
+- Mỗi lần kích hoạt (kể cả bị bỏ qua vì lỗi / vượt giới hạn) ghi audit `PLAYBOOK_TRIGGER`; bảng lượt chạy ghi nhãn *tự động theo lịch /
+  cảnh báo / webhook*.
+
 ## Dùng
 
 - **Giao diện**: tab *Kịch Bản Vận Hành* — danh sách, soạn JSON (nút *Kịch bản mới* chèn mẫu chỉ đọc), *Chạy thử*, *Chạy thật*, bảng lượt chạy, huỷ, xác nhận.
@@ -45,6 +77,6 @@ Một **kịch bản** là chuỗi bước (mỗi bước = một công cụ đ�
 
 ## Giới hạn hiện tại
 
-- Chưa có kích hoạt tự động theo lịch hoặc theo sự cố — mọi lượt chạy do người (hoặc AI theo yêu cầu của admin) khởi động.
+- Tự kích hoạt: lịch tính theo giờ máy chủ, độ chính xác khoảng 15 giây; chưa có điều kiện "sự cố kéo dài N phút".
 - Hủy lượt chạy **không** tự hoàn tác các bước đã chạy.
 - Kiểm chứng chỉ đúng khi công cụ kiểm chứng phản ánh đúng thực tế; chưa thử trên hệ thống thật.

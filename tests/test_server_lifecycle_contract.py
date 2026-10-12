@@ -51,6 +51,7 @@ NEW_ROUTES = {"/api/v1/health/startup",
               '/api/v1/llmops/usage', '/api/v1/llmops/budget', '/api/v1/llmops/eval/sets', '/api/v1/llmops/eval/sets/{set_id}',
               '/api/v1/llmops/eval/sets/{set_id}/run', '/api/v1/llmops/eval/runs', '/api/v1/llmops/eval/runs/{run_id}',
               # Kịch bản vận hành (docs/integrations/playbooks.md)
+              '/api/v1/playbooks/{playbook_id}/webhook-token', '/api/v1/playbooks/{playbook_id}/trigger',
               '/api/v1/playbooks', '/api/v1/playbooks/{playbook_id}', '/api/v1/playbooks/{playbook_id}/enable',
               '/api/v1/playbooks/{playbook_id}/plan', '/api/v1/playbooks/{playbook_id}/run', '/api/v1/playbook-runs',
               '/api/v1/playbook-runs/{run_id}', '/api/v1/playbook-runs/{run_id}/cancel', '/api/v1/playbook-runs/{run_id}/confirm',

@@ -75,6 +75,21 @@ confirmAnswer = false; const before = calls.length;
 await click('run');
 ok(calls.length === before, 'không xác nhận thì không chạy');
 
+// tự kích hoạt: danh sách nêu trình kích hoạt, lượt tự động có nhãn, token webhook chỉ hiện một lần (phải xác nhận)
+const auto = { ...def, id: 'pb2', name: 'Tự động', triggers: [{ type: 'schedule', cron: '0 8 * * 1-5' }, { type: 'webhook' }] };
+routes['GET /playbooks'] = { body: { playbooks: [{ id: 'pb1', name: def.name, enabled: true, version: 2, definition: def }, { id: 'pb2', name: 'Tự động', enabled: true, version: 1, definition: auto }] } };
+routes['GET /playbook-runs'] = { body: { runs: [{ run_id: 'PBR-3', playbook_id: 'pb2', status: 'RUNNING', created_at: '2026-10-12 08:00:00', error: '', trigger: 'cron' }] } };
+routes['POST /playbooks/pb2/webhook-token'] = { body: { token: 'tok<b>', usage: 'POST /api/v1/playbooks/pb2/trigger' } };
+confirmAnswer = true;
+await click('refresh');
+ok(el('pb-list').innerHTML.includes('tự kích hoạt: lịch 0 8 * * 1-5, webhook') && el('pb-runs').innerHTML.includes('tự động theo lịch'), 'hiện trình kích hoạt + nhãn lượt tự động');
+await click('select', 'pb1');
+ok(el('pb-webhook').classList.contains('hidden'), 'kịch bản không có webhook: ẩn nút token');
+await click('select', 'pb2');
+ok(!el('pb-webhook').classList.contains('hidden'), 'kịch bản có webhook: hiện nút token');
+await click('webhook');
+ok(el('pb-run-msg').innerHTML.includes('chỉ hiện MỘT lần') && el('pb-run-msg').innerHTML.includes('tok&lt;b&gt;'), 'token webhook hiện một lần, thoát HTML');
+
 userRole = 'manager'; await PlaybooksUI.onEnter(); await flush();
 ok(!el('pb-runs').innerHTML.includes('data-pb="confirm"') && el('pb-run').classList.contains('hidden'), 'manager không thấy nút ghi');
 

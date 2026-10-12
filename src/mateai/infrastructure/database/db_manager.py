@@ -353,6 +353,12 @@ class DatabaseManager:
                             finished_at TEXT
                         );
                         CREATE INDEX IF NOT EXISTS idx_ai_eval_runs_set ON ai_eval_runs(set_id);
+                        CREATE TABLE IF NOT EXISTS pb_webhook_tokens (
+                            playbook_id TEXT PRIMARY KEY,
+                            token_sha256 TEXT NOT NULL,
+                            created_by TEXT,
+                            created_at TEXT NOT NULL
+                        );
                         CREATE TABLE IF NOT EXISTS agent_directory (
                             agent_id TEXT PRIMARY KEY,
                             kind TEXT NOT NULL,
@@ -1161,7 +1167,7 @@ class DatabaseManager:
     _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id",
                    "pb_playbooks": "playbook_id", "pb_runs": "run_id", "rag_doc_acl": "doc_name",
                    "llm_usage": "usage_id", "ai_eval_sets": "set_id", "ai_eval_runs": "run_id",
-                   "agent_directory": "agent_id"}
+                   "agent_directory": "agent_id", "pb_webhook_tokens": "playbook_id"}
 
     def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
         if table not in self._DEV_TABLES:

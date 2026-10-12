@@ -184,6 +184,10 @@ async def auth_middleware(request: Request, call_next):
         elif "token" in request.query_params:
             token = request.query_params.get("token")
 
+        # Webhook kích hoạt kịch bản: route tự kiểm token webhook RIÊNG của kịch bản (không phải JWT).
+        if request.method == "POST" and re.fullmatch(r"/api/v1/playbooks/[a-z0-9][a-z0-9_-]{1,48}/trigger", path):
+            return await call_next(request)
+
         # Agent ngoài (Danh bạ Agent): CHỈ nhận token agent riêng — JWT người dùng không thay được. Route kiểm lại lần nữa.
         if path.startswith("/api/v1/agents/inbound/"):
             from mateai.application.agent_gateway import directory as _agent_dir

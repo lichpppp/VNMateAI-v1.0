@@ -162,7 +162,7 @@ def validate_definition(raw: Any, known_tools: Optional[Set[str]] = None) -> Dic
         raise PlaybookError("Thiếu `name` (tối đa 120 ký tự)")
     trig = raw.get("trigger") or {"type": "manual"}
     if not isinstance(trig, dict) or trig.get("type", "manual") != "manual":
-        raise PlaybookError("`trigger.type` hiện chỉ nhận 'manual' (chạy theo lịch / theo sự cố chưa có)")
+        raise PlaybookError("`trigger` chỉ nhận {\"type\": \"manual\"} — tự kích hoạt (lịch / cảnh báo / webhook) khai trong `triggers`")
 
     params: Dict[str, Dict[str, Any]] = {}
     for pname, spec in (raw.get("params") or {}).items():
@@ -245,8 +245,13 @@ def validate_definition(raw: Any, known_tools: Optional[Set[str]] = None) -> Dic
             raise PlaybookError(f"{where}: retries / delay_s phải là số")
         verify.append({"id": str(v.get("id") or f"v{i}"), "tool": tool, "args": args, "expect": expect, "retries": retries, "delay_s": delay})
 
+    from mateai.application.playbooks import triggers as _triggers
+    try:
+        auto = _triggers.validate(raw.get("triggers"), params)
+    except _triggers.TriggerError as exc:
+        raise PlaybookError(str(exc)) from exc
     return {"id": pid, "name": name, "description": str(raw.get("description") or "")[:1000], "params": params,
-            "trigger": {"type": "manual"}, "steps": steps, "verify": verify}
+            "trigger": {"type": "manual"}, "triggers": auto, "steps": steps, "verify": verify}
 
 
 def coerce_params(defn: Dict[str, Any], supplied: Optional[Dict[str, Any]]) -> Dict[str, Any]:

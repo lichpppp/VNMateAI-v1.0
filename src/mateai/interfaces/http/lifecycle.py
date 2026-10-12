@@ -224,6 +224,8 @@ def _playbooks(ctx: StepContext) -> str:
     n = engine.recover_interrupted()
     from mateai.application.llmops import evaluation
     n += evaluation.recover_interrupted()
+    from mateai.application.playbooks import triggers
+    triggers.start_scheduler()                     # kịch bản tự kích hoạt theo lịch (cron)
     return f"{n} lượt chạy bị gián đoạn được đánh dấu" if n else "ok"
 
 
