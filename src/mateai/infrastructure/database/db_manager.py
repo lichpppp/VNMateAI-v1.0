@@ -353,6 +353,28 @@ class DatabaseManager:
                             finished_at TEXT
                         );
                         CREATE INDEX IF NOT EXISTS idx_ai_eval_runs_set ON ai_eval_runs(set_id);
+                        CREATE TABLE IF NOT EXISTS agent_directory (
+                            agent_id TEXT PRIMARY KEY,
+                            kind TEXT NOT NULL,
+                            name TEXT NOT NULL,
+                            owner TEXT,
+                            description TEXT,
+                            status TEXT NOT NULL,
+                            role TEXT,
+                            token_sha256 TEXT,
+                            url TEXT,
+                            auth_header TEXT,
+                            auth_value TEXT,
+                            timeout_s INTEGER NOT NULL DEFAULT 60,
+                            risk INTEGER NOT NULL DEFAULT 3,
+                            daily_token_limit INTEGER NOT NULL DEFAULT 0,
+                            card_json TEXT,
+                            last_seen_at TEXT,
+                            last_error TEXT,
+                            created_by TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
                         CREATE INDEX IF NOT EXISTS idx_pb_runs_pb ON pb_runs(playbook_id);
                         CREATE INDEX IF NOT EXISTS idx_pb_runs_status ON pb_runs(status);
                         CREATE TABLE IF NOT EXISTS voice_traces (
@@ -1138,7 +1160,8 @@ class DatabaseManager:
     # Dùng chung cho Dev Fleet và Kịch bản vận hành (pb_*): cùng một bộ hàm CRUD có danh sách bảng cho phép.
     _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id",
                    "pb_playbooks": "playbook_id", "pb_runs": "run_id", "rag_doc_acl": "doc_name",
-                   "llm_usage": "usage_id", "ai_eval_sets": "set_id", "ai_eval_runs": "run_id"}
+                   "llm_usage": "usage_id", "ai_eval_sets": "set_id", "ai_eval_runs": "run_id",
+                   "agent_directory": "agent_id"}
 
     def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
         if table not in self._DEV_TABLES:

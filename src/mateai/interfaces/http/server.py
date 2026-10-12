@@ -184,6 +184,15 @@ async def auth_middleware(request: Request, call_next):
         elif "token" in request.query_params:
             token = request.query_params.get("token")
 
+        # Agent ngoài (Danh bạ Agent): CHỈ nhận token agent riêng — JWT người dùng không thay được. Route kiểm lại lần nữa.
+        if path.startswith("/api/v1/agents/inbound/"):
+            from mateai.application.agent_gateway import directory as _agent_dir
+            _row, _why = _agent_dir.authenticate(token or "")
+            if _row:
+                return await call_next(request)
+            return JSONResponse(status_code=401 if "không hợp lệ" in _why else 403, content={"detail": _why},
+                                headers={"WWW-Authenticate": "Bearer"})
+
         if path in worker_endpoints:
             if token and ws_auth.is_valid_worker_token(token):
                 return await call_next(request)

@@ -251,13 +251,13 @@ def _computer_use(ctx: StepContext) -> str:
 
 def _mcp_gateway(ctx: StepContext) -> str:
     """Công cụ MCP đã lưu đăng ký ngay (AI thấy từ lượt đầu); kết nối lại + đồng bộ danh sách chạy nền."""
-    from mateai.application.agent_gateway import mcp_gateway
+    from mateai.application.agent_gateway import directory, mcp_gateway
     n = mcp_gateway.register_all_from_cache()
+    a2a = directory.register_all()                 # agent A2A: công cụ từ thẻ agent đã lưu
     servers = len(mcp_gateway.list_servers())
-    if not servers:
-        return "chưa có MCP server"
-    spawn(mcp_gateway.refresh_all(), "mcp-refresh")
-    return f"{servers} server, {n} công cụ (đang đồng bộ lại)"
+    if servers:
+        spawn(mcp_gateway.refresh_all(), "mcp-refresh")
+    return f"{servers} MCP server, {n} công cụ MCP; {a2a} agent A2A"
 
 
 def _desktop_session(ctx: StepContext) -> str:

@@ -907,6 +907,7 @@ function switchTab(tabId) {
   if (tabId === 'dev-fleet' && typeof DevFleetUI !== 'undefined') DevFleetUI.onEnter();
   if (tabId === 'infra-monitor' && typeof InfraMonitorUI !== 'undefined') InfraMonitorUI.onEnter();
   if (tabId === 'playbooks' && typeof PlaybooksUI !== 'undefined') PlaybooksUI.onEnter();
+  if (tabId === 'agent-gateway' && typeof AgentDirectoryUI !== 'undefined') AgentDirectoryUI.onEnter();
   if (tabId === 'agent-gateway' && typeof AgentGatewayUI !== 'undefined') AgentGatewayUI.onEnter();
   if (tabId === 'system-integration') loadSystemIntegration();
   if (tabId === 'ai-manager') { loadAIManagerConfig(); initAISubTabs(); }

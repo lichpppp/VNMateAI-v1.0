@@ -158,6 +158,8 @@ PORTAL_ROLE_MAP: Dict[str, str] = {
 DEVICE_PRINCIPAL_PREFIX = "device:"
 #: Quyền đặt được cho một thiết bị ở Web Portal.
 DEVICE_ROLES = ("admin", "it_support", "operator", "viewer")
+#: Agent ngoài gọi VÀO VN-MateAI bằng token riêng (Danh bạ Agent, docs/integrations/agent-gateway.md) — máy chủ gán, client không tự đặt.
+AGENT_PRINCIPAL_PREFIX = "agent:"
 
 #: Danh tính dịch vụ khai báo tường minh (so khớp CHÍNH XÁC). Trống: bản cũ
 #: (f389bbe) cấp "admin" cho "esp32", "robot", "hud", "console", "telegram"… theo
@@ -377,6 +379,16 @@ class SecurityGuard:
             if role:
                 return self._normalize_role(role)
             employee_id, clean_id = device_id, device_id.lower()
+
+        # Agent ngoài (token riêng): quyền đặt trong Danh bạ Agent; bị tạm dừng / không có -> quyền thấp nhất.
+        if clean_id.startswith(AGENT_PRINCIPAL_PREFIX):
+            try:
+                from mateai.application.agent_gateway import directory
+                role = directory.inbound_role(str(employee_id).strip()[len(AGENT_PRINCIPAL_PREFIX):])
+            except Exception as e:  # noqa: BLE001 — fail-closed
+                logger.warning("Không đọc được quyền agent '%s': %s", employee_id, e)
+                return DEFAULT_ROLE
+            return self._normalize_role(role) if role else DEFAULT_ROLE
 
         # Danh tính có trong DB (người dùng / nhân viên) luôn dùng role trong DB,
         # xét TRƯỚC service principal. Trước đây thứ tự ngược lại: tài khoản

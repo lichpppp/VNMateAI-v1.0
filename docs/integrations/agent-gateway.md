@@ -1,11 +1,12 @@
-# Cổng Agent: nối MCP server / agent có sẵn của doanh nghiệp
+# Cổng Agent: nối MCP server, agent gọi vào và agent A2A của doanh nghiệp
 
 Dành cho quản trị viên. Doanh nghiệp đã có hệ thống và agent riêng (ERP, CRM, ITSM, agent nội bộ…) nói giao thức **MCP (Model Context
 Protocol)**: khai báo một lần ở VN-MateAI, mọi **công cụ** của server đó thành công cụ của AI Ly Ly — dùng được qua portal, giọng nói,
 robot, Telegram — và đi qua **cùng chính sách** như công cụ có sẵn.
 
-> **Trạng thái trung thực.** Giao thức đã kiểm thử với MCP server giả (HTTP JSON + SSE, phân trang, phiên hết hạn, stdio) —
-> `tests/test_agent_gateway_mcp.py`, `tests/test_agent_gateway_ui.mjs`. **Chưa** thử với MCP server thật của hãng nào. Sau khi lưu, luôn
+> **Trạng thái trung thực.** Giao thức đã kiểm thử với MCP server giả (HTTP JSON + SSE, phân trang, phiên hết hạn, stdio) và agent A2A
+> giả (thẻ agent, Message / Task, hỏi lại tasks/get, input-required) — `tests/test_agent_gateway_mcp.py`, `tests/test_agent_directory.py`
+> và test giao diện `.mjs`. **Chưa** thử với MCP server / agent A2A thật của hãng nào. Sau khi lưu, luôn
 > bấm **Thử kết nối** và **Đồng bộ công cụ** trên hệ thống thật.
 
 ## Nối một server
@@ -40,6 +41,44 @@ Khai báo nằm ở `config/mcp_servers.json` (quyền 600, không lên Git).
   chỉ dùng làm thông tin. Chữ dài quá 8 000 ký tự bị cắt.
 - Lỗi của công cụ (`isError`) và lỗi kết nối được báo là **thất bại**, không phải thành công.
 
+## Danh bạ Agent
+
+Đầu tab **Cổng Agent**: mọi agent nối với VN-MateAI, tình trạng (lần cuối thấy, lỗi gần nhất, số lời gọi) và **kill switch từng agent**
+(*Tạm dừng* có hiệu lực ngay).
+
+| Loại | Chiều | Danh tính / công cụ |
+|---|---|---|
+| **Gọi vào** (`inbound`) | agent của doanh nghiệp → VN-MateAI | `agent:<id>`, token riêng, quyền đặt trong danh bạ |
+| **A2A** (`a2a`) | VN-MateAI giao việc → agent ngoài (giao thức Agent2Agent) | một công cụ `a2a_<id>` |
+| **MCP server** | VN-MateAI dùng công cụ của server | `mcp_<server>_<tool>` (khai báo ở mục MCP bên dưới) |
+
+### Agent gọi vào
+
+1. *+ Thêm / sửa agent* → loại **Gọi vào**, đặt **quyền** (`viewer` … `admin`; admin phải xác nhận) và **hạn mức token / ngày** (tuỳ chọn).
+2. **Cấp token** → token dạng `<id>.<bí mật>` **chỉ hiện một lần**; máy chủ chỉ lưu hash. *Xoay token* làm token cũ hết hiệu lực ngay.
+3. Agent gọi (chỉ nhận token agent — JWT người dùng không dùng được ở đây):
+
+```
+POST /api/v1/agents/inbound/ask            {"message": "Tổng hợp ticket mở hôm nay", "conversation_id": "ca-sang"}
+GET  /api/v1/agents/inbound/tools          → công cụ agent này được phép gọi theo quyền
+POST /api/v1/agents/inbound/tools/{tool}   {"arguments": {...}}
+Authorization: Bearer crm-bot.xxxxxxxx
+```
+
+- `ask` chạy **vòng agent đầy đủ** của Ly Ly với danh tính `agent:<id>`; gọi thẳng công cụ cũng qua `tool_gate`. Tác vụ rủi ro ≥ L3 tạo
+  phiếu duyệt cho admin (kết quả có `requires_confirmation`); duyệt một lần thì công cụ đó được **nhớ** cho agent (như robot).
+- Tạm dừng → mọi lời gọi bị từ chối (403) và quyền về thấp nhất ngay. Agent không có / sai token → 401.
+- Token / chi phí của agent tính riêng (`agent:<id>` trong Mức dùng AI); vượt hạn mức token / ngày của agent thì bị chặn khi ngân sách ở chế độ `block`.
+
+### Agent A2A (giao việc cho agent ngoài)
+
+1. *+ Thêm / sửa agent* → loại **A2A**, địa chỉ agent (VN-MateAI đọc `/.well-known/agent-card.json`, dự phòng `agent.json`), khoá (mã hoá
+   khi lưu), **rủi ro** (mặc định L3 = mỗi lần giao việc cần duyệt; L2 không cần duyệt — phải xác nhận).
+2. Lưu → máy chủ đọc thẻ agent (tên, mô tả, kỹ năng, địa chỉ RPC — địa chỉ metadata cloud bị chặn) và đăng ký công cụ `a2a_<id>`.
+3. AI gọi công cụ với một việc viết bằng lời → `message/send`; Task chưa xong thì hỏi lại `tasks/get` tới khi xong / hết thời gian.
+   Agent cần thêm thông tin (`input-required`) → AI hỏi lại **người dùng** rồi gọi tiếp với `context_id`, không tự trả lời thay.
+4. Kết quả mang `untrusted: true`. Tạm dừng → gỡ công cụ khỏi AI.
+
 ## API (`/api/v1/agent-gateway/mcp/...`)
 
 | Phương thức | Đường dẫn | Quyền |
@@ -50,9 +89,18 @@ Khai báo nằm ở `config/mcp_servers.json` (quyền 600, không lên Git).
 | POST | `servers/{id}/discover` | admin |
 | PATCH | `servers/{id}/tools/{tool}` — `{"enabled": bool}` / `{"risk": 1–5}` | admin |
 
+## API Danh bạ Agent (`/api/v1/agent-gateway/agents/...`)
+
+| Phương thức | Đường dẫn | Quyền |
+|---|---|---|
+| GET | `agents`, `agents/{id}` | manager, admin |
+| PUT / DELETE | `agents/{id}` (`kind`: `inbound` / `a2a`) | admin |
+| POST | `agents/{id}/status` — `{"status": "active" \| "suspended"}` (MCP: bật / tắt server) | admin |
+| POST | `agents/{id}/token` (inbound) · `agents/{id}/card` (A2A: đọc lại thẻ) | admin |
+
 ## Giới hạn hiện tại
 
 - Chỉ dùng **công cụ** (tools). Chưa dùng resources, prompts, sampling; chưa có OAuth 2.1 tự động (dùng token đặt sẵn trong header).
 - Chưa hỗ trợ giao thức HTTP+SSE kiểu cũ (2024-11-05) — chỉ Streamable HTTP.
 - Tối đa `agent_gateway.max_tools_per_server` (mặc định 64) công cụ mỗi server.
-- Chưa có giao thức agent-với-agent (A2A) — đang nằm trong kế hoạch tiếp theo cùng **Danh bạ Agent**.
+- A2A: chưa hỗ trợ streaming (`message/stream`), push notification, gửi tệp / dữ liệu có cấu trúc.

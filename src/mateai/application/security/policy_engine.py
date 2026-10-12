@@ -121,11 +121,11 @@ def _forbidden_keyword(tool: str, args: Dict[str, Any]) -> Optional[str]:
 # ── Uỷ quyền "duyệt rồi nhớ" (L4) — chuyển từ tool_gate ───────────────────────
 
 def grant_principal(caller: Optional[str]) -> Optional[str]:
-    """Danh tính được nhớ uỷ quyền: robot "device:<id>" (token riêng) hoặc kênh
+    """Danh tính được nhớ uỷ quyền: robot "device:<id>" / agent ngoài "agent:<id>" (token riêng) hoặc kênh
     Telegram "telegram:<chat_id>" (bỏ tên người gửi — tên đổi được)."""
-    from mateai.application.security.security_guard import DEVICE_PRINCIPAL_PREFIX
+    from mateai.application.security.security_guard import AGENT_PRINCIPAL_PREFIX, DEVICE_PRINCIPAL_PREFIX
     c = str(caller or "")
-    if c.lower().startswith(DEVICE_PRINCIPAL_PREFIX):
+    if c.lower().startswith((DEVICE_PRINCIPAL_PREFIX, AGENT_PRINCIPAL_PREFIX)):
         return c
     parts = c.split(":")
     if len(parts) >= 2 and parts[0].lower() == "telegram" and parts[1].strip():

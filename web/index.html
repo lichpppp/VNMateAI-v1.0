@@ -15,7 +15,7 @@
 
   <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/). Trước đây là
        cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở trang, cần Internet. -->
-  <link rel="stylesheet" href="/static/tailwind.css?v=10" />
+  <link rel="stylesheet" href="/static/tailwind.css?v=11" />
   <link rel="stylesheet" href="/static/ui-polish.css?v=3" />
 
   <!-- Instant Theme Script to avoid FOUC -->
@@ -1052,6 +1052,7 @@
 
     <!-- ─── TAB: TÍCH HỢP HỆ THỐNG & BÁO CÁO ─────────────────────── -->
     <section class="tab-pane space-y-5" id="tab-agent-gateway">
+      <div id="agent-directory-root" class="space-y-4"></div>
       <div id="agent-gateway-root" class="space-y-4"></div>
     </section>
 
@@ -7966,9 +7967,10 @@
   <script src="/static/infra-monitor.js?v=2"></script>
   <script src="/static/playbooks.js?v=1"></script>
   <script src="/static/llmops.js?v=1"></script>
+  <script src="/static/agent-directory.js?v=1"></script>
   <script src="/static/agent-gateway.js?v=1"></script>
   <script src="/static/dev-fleet.js?v=3"></script>
-  <script src="/static/app.js?v=57.7"></script>
+  <script src="/static/app.js?v=57.8"></script>
 </body>
 
 </html>

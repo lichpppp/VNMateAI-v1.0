@@ -77,6 +77,11 @@ def _checks(principal: Optional[str]) -> List[Dict[str, Any]]:
             ("monthly_cost", "Chi phí trong tháng", month["cost"], c.monthly_cost_limit)]
     if principal and c.user_daily_token_limit:
         rows.append(("user_daily_tokens", f"Token trong ngày của {principal}", db.llm_usage_sum(_today(), principal)["tokens"], c.user_daily_token_limit))
+    if principal:
+        from mateai.application.agent_gateway import directory
+        agent_limit = directory.daily_limit(principal)            # agent ngoài: hạn mức riêng trong Danh bạ Agent
+        if agent_limit:
+            rows.append(("agent_daily_tokens", f"Token trong ngày của {principal}", db.llm_usage_sum(_today(), principal)["tokens"], agent_limit))
     out = []
     for key, label, used, limit in rows:
         if not limit:
@@ -108,7 +113,7 @@ def _maybe_alert(principal: Optional[str]) -> None:
     for x in _checks(principal):
         if x["state"] == "ok":
             continue
-        key = f"{_today()}:{x['key']}:{x['state']}:{principal if x['key'].startswith('user') else ''}"
+        key = f"{_today()}:{x['key']}:{x['state']}:{principal if x['key'].startswith(('user', 'agent')) else ''}"
         if _alerted.get(key):
             continue
         _alerted[key] = True
