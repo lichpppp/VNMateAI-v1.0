@@ -133,6 +133,11 @@ def grant_principal(caller: Optional[str]) -> Optional[str]:
     return None
 
 
+def _people_decision(tool: str) -> bool:
+    from mateai.application.security.hr_guard import is_people_decision
+    return is_people_decision(tool)
+
+
 def has_delegation(caller: Optional[str], tool: str) -> bool:
     principal = grant_principal(caller)
     if not principal:
@@ -261,7 +266,8 @@ def authorize(
         return Decision(ALLOW, "L3", risk, agent_id, ["người có quyền đã duyệt lượt này"], "approved", version)
     if risk < 3:
         decision = Decision(ALLOW, level, risk, agent_id, [f"rủi ro {risk}: tự chạy"], "auto", version)
-    elif has_delegation(caller, name):
+    elif has_delegation(caller, name) and not _people_decision(name):
+        # Quyết định về con người không dùng "duyệt một lần, nhớ 30 ngày": mỗi quyết định về một người được duyệt riêng.
         decision = Decision(ALLOW, "L4", risk, agent_id, ["uỷ quyền còn hạn cho danh tính + tool này"], "delegated", version)
     else:
         decision = None

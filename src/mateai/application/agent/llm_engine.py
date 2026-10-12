@@ -73,10 +73,10 @@ _AGENT_SYSTEM_PROMPT = (
     "[QUY TẮC HOẠT ĐỘNG BẤT DI BẤT DỊCH (STRICT DIRECTIVES)]\n"
     "Quy tắc 1 - Không Ảo giác Hành động (Zero Hallucination): BẠN KHÔNG CÓ TAY CHÂN VẬT LÝ. Mọi tác vụ bạn làm ĐỀU PHẢI thông qua việc gọi Công cụ (Function/Tool Calling). "
     "Nếu bạn không gọi API/Tool, nghĩa là tác vụ chưa được thực hiện. TUYỆT ĐỐI KHÔNG trả lời 'Em đã hoàn thành' nếu tool chưa báo về kết quả thành công.\n"
-    "Quy tắc 2 - Quyền Quản trị Tuyệt đối & Tự động Phê duyệt (Full Admin Mode): "
-    "Mọi chỉ lệnh từ Quản trị viên (qua Robot ESP32, Telegram, Standby HUD, Web Portal Admin) đều được ủy quyền tối cao và tự động phê duyệt ngay lập tức. "
-    "BẠN PHẢI THỰC THI NGAY MỌI CÔNG CỤ theo yêu cầu (chạy lệnh hệ thống, xóa/ghi file, truy vấn DB, điều khiển thiết bị). "
-    "TUYỆT ĐỐI KHÔNG HỎI LẠI, KHÔNG YÊU CẦU PHÊ DUYỆT BẢO MẬT, KHÔNG NÓI 'Tác vụ này yêu cầu phê duyệt bảo mật'. Hãy thực thi ngay và báo cáo kết quả.\n"
+    "Quy tắc 2 - Thực thi ngay, báo đúng sự thật: Với chỉ lệnh của người dùng đã xác thực (Robot ESP32, Telegram, Standby HUD, Web Portal), "
+    "GỌI NGAY công cụ phù hợp (chạy lệnh hệ thống, ghi file, truy vấn DB, điều khiển thiết bị) — không hỏi lại những gì đã rõ. "
+    "Quyền và phê duyệt do HỆ THỐNG quyết định, không phải bạn: khi công cụ trả `need_confirm` / chờ phê duyệt, nói rõ tác vụ ĐANG CHỜ "
+    "người có thẩm quyền duyệt (và vì sao) — TUYỆT ĐỐI không nói là đã làm xong; bị từ chối thì nói rõ lý do hệ thống đưa ra.\n"
     "Quy tắc 3 - Tự động Mở rộng (Self-Expanding Capability): Doanh nghiệp có muôn vàn nghiệp vụ mới. Khi nhận được lệnh mà hệ thống chưa có sẵn Tool, "
     "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Trước hết dùng công cụ có sẵn (có thể gọi `list_available_skills` để tìm); nếu thật sự chưa có, gọi `create_new_skill` để tự viết kỹ năng Python mới, rồi gọi ngay kỹ năng vừa tạo (tên trả về ở `skill_name`) để hoàn thành yêu cầu.\n"
     "Quy tắc 4 - Điều hướng Đa thiết bị (Master-Worker Routing): Luôn phân tích đối tượng thực thi. Lệnh dành cho máy chủ (Master) hay máy trạm (Client)? "
@@ -115,6 +115,15 @@ _AGENT_SYSTEM_PROMPT = (
 #: Quy tắc dữ liệu thực tế — dùng cho CẢ prompt trò chuyện lẫn prompt vận hành.
 #: Đo 2026-10-04: thiếu quy tắc này model bịa ngày ("hôm nay là 24/02/2025") hoặc
 #: trả lời "chưa tích hợp API" dù đã được đưa công cụ create_new_skill.
+#: Đạo đức AI — ghép vào MỌI prompt (trò chuyện, giọng nói, vận hành). 2026-10-12, xem docs/security/ai-ethics.md.
+_ETHICS_RULE = (
+    "- CON NGƯỜI (nhân viên, ứng viên): trình bày SỐ LIỆU và TIÊU CHÍ, không tự kết luận ai giỏi / kém hay ai nên được tuyển, "
+    "bị loại, kỷ luật, sa thải, thăng chức, tăng / giảm lương — nói rõ quyết định thuộc về người quản lý có thẩm quyền.\n"
+    "- KHÔNG dùng và không suy đoán đặc điểm được bảo vệ khi đánh giá, xếp hạng, đề xuất tuyển chọn hay phân việc: giới tính, "
+    "tuổi, dân tộc, tôn giáo, quê quán, tình trạng hôn nhân, mang thai / thai sản, khuyết tật, quan điểm chính trị.\n"
+    "- Dữ liệu cá nhân hệ thống đã che (vd 0912***678) thì giữ nguyên dạng che, không đoán hay khôi phục phần bị che."
+)
+
 _LIVE_DATA_RULE = (
     "Câu cần DỮ LIỆU THỰC TẾ hoặc TÍNH TOÁN CHÍNH XÁC (giá vàng, tỷ giá, thời tiết, tin tức, đổi ngày "
     "dương lịch sang âm lịch, số liệu máy chủ): dùng công cụ; chưa có công cụ phù hợp thì GỌI "
@@ -289,6 +298,9 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
             "Câu trả lời này được đọc to ngay khi viết: thường 2-5 câu văn nói: đủ kết quả / con số chính và gợi ý bước tiếp theo nếu có ích. "
             "Không viết bảng, gạch đầu dòng, Markdown hay thẻ VOICE. " + _NATURAL_SPEECH_RULE
         )
+
+    # Đạo đức AI: MỌI prompt (trò chuyện / giọng nói / vận hành) — trước khối xưng hô (khối đó phải đứng cuối).
+    system_content += f"\n\n[ĐẠO ĐỨC & CÔNG BẰNG]\n{_ETHICS_RULE}"
 
     # Phase 66: xưng hô — đặt CUỐI CÙNG, sau mọi khối inject khác.
     #

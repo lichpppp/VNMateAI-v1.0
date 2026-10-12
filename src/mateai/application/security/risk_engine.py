@@ -171,6 +171,12 @@ def assess_risk(
     if _config_requires_confirmation(clean):
         computed = max(computed, APPROVAL_THRESHOLD)
 
+    # Quyết định về CON NGƯỜI (tuyển / sa thải / kỷ luật / chấm điểm nhân viên / đổi lương…): AI không tự quyết — tối thiểu
+    # L3, kể cả kỹ năng AI tự tạo sau này (nhận theo tên). Xem security/hr_guard.py.
+    from mateai.application.security.hr_guard import is_people_decision
+    if is_people_decision(str(action_name or "")):   # tên gốc: adjustSalary → adjust + salary
+        computed = max(computed, APPROVAL_THRESHOLD)
+
     if declared_risk_level is not None:
         try:
             declared = int(declared_risk_level)

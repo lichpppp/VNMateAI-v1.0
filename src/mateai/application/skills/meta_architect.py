@@ -67,6 +67,8 @@ _CODE_GEN_SYSTEM_PROMPT = textwrap.dedent("""\
         for, while, with hay lời gọi hàm ở cấp module — import tuỳ chọn / theo hệ điều hành đặt BÊN TRONG hàm.
     12. Phím media (phát / tạm dừng / bài tiếp), âm lượng, mở ứng dụng đã có công cụ sẵn (media_control,
         set_system_volume, open_application) — không viết lại.
+    13. Kỹ năng chấm điểm / xếp hạng / lọc NGƯỜI (nhân viên, ứng viên) KHÔNG được dùng giới tính, tuổi, dân tộc, tôn giáo,
+        quê quán, tình trạng hôn nhân, thai sản, khuyết tật làm tiêu chí; kỹ năng chỉ TRẢ SỐ LIỆU, quyết định do người.
 
     PLATFORM: Windows 10/11 x64, Python 3.10+
 """)

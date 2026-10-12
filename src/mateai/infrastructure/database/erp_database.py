@@ -1898,6 +1898,30 @@ class ERPDatabase:
                 leaderboard.append(item)
             return leaderboard
 
+    def get_workload_by_employee(self) -> List[Dict[str, Any]]:
+        """Khối lượng việc của TỪNG nhân viên (cho báo cáo công bằng — ethics/fairness.py): tổng việc, xong, đang làm,
+        việc do AI giao, việc quá hạn. Không có cột giới tính / tuổi — báo cáo so theo phòng ban và chức danh."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT e.id, e.name, e.position, d.name AS dept_name,
+                       COUNT(t.id) AS total,
+                       COUNT(CASE WHEN t.status = 'completed' THEN 1 END) AS completed,
+                       COUNT(CASE WHEN t.status IN ('pending', 'in_progress') THEN 1 END) AS active,
+                       COUNT(CASE WHEN t.created_by_ai = 1 THEN 1 END) AS ai_assigned,
+                       COUNT(CASE WHEN t.status <> 'completed' AND t.due_date IS NOT NULL AND t.due_date <> ''
+                                       AND t.due_date < ? THEN 1 END) AS overdue
+                FROM employees e
+                LEFT JOIN departments d ON e.dept_id = d.id
+                LEFT JOIN tasks t ON t.assignee_id = e.id
+                GROUP BY e.id, e.name, e.position, d.name
+                ORDER BY d.name, e.name;
+                """,
+                (datetime.now().strftime("%Y-%m-%d"),),
+            )
+            return [dict(r) for r in cursor.fetchall()]
+
     def get_company_kpi_overview(self) -> Dict[str, Any]:
         """Tóm tắt toàn bộ chỉ số KPI doanh nghiệp cho góc nhìn Tổng Giám Đốc (CEO View)."""
         with self.get_connection() as conn:
