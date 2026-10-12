@@ -18,6 +18,8 @@
  *   canPlay()             false -> bỏ qua đoạn (HUD tắt tiếng)
  *   onBeforeChunk(first)  trước mỗi đoạn; first = đoạn đầu của lượt
  *   onStart(durationSec)  bắt đầu phát (từ trạng thái im lặng)
+ *   onChunkScheduled(durationSec, delaySec)  MỖI đoạn vừa được lập lịch: phát sau delaySec giây, dài durationSec
+ *                         (HUD: hiện đúng câu đang đọc — mỗi câu một khung MP3)
  *   onFirstAudio()        đoạn đầu tiên của lượt đã được lập lịch
  *   onPlaybackEnd()       phát hết
  *   autoEnd               true: phát hết hàng đợi là kết thúc (HUD — không có
@@ -145,6 +147,7 @@
       }
       source.start(startAt);
       this._nextStartTime = startAt + audioBuf.duration;
+      this._call(this._opts.onChunkScheduled, audioBuf.duration, Math.max(0, startAt - now));
       this._activeSources.push(source);
       source.onended = () => {
         const idx = this._activeSources.indexOf(source);

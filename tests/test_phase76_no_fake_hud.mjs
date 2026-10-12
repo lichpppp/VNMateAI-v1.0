@@ -346,7 +346,6 @@ section('Ô trong HTML bắt đầu ở trạng thái chờ, không phải số 
 // Mỗi ô lấy dữ liệu từ server đều phải nói "chờ kết nối" ngay từ đầu, để
 // không có khoảnh khắc nào người xem tưởng đã có số liệu.
 const WAIT_FROM_SERVER = [
-  ['hud-link-badge', 'chờ kết nối'],
   ['hud-conn-text', 'chờ kết nối'],
   ['hud-security-status', 'chờ kết nối'],
   ['hud-permission-badge', 'chờ kết nối'],
@@ -354,7 +353,6 @@ const WAIT_FROM_SERVER = [
   ['metric-clients-count', 'chờ kết nối'],
   ['metric-audio-nodes', 'chờ kết nối'],
   ['metric-skills-count', 'chờ kết nối'],
-  ['metric-net-io', 'chờ kết nối'],
 ];
 /**
  * Lấy nguyên khối HTML bắt đầu từ thẻ mang `id` cho tới thẻ đóng CÙNG cấp.
@@ -387,40 +385,38 @@ for (const [id, want] of WAIT_FROM_SERVER) {
   );
 }
 
-// Ô đo cục bộ (đồng hồ, FPS, số nhân) chưa có gì để hiện -> dấu "--", không
-// phải số giả. FPS và uptime đo ngay trong máy nên không cần class is-waiting.
+// HUD "buồng lái AI" (2026-10-12): số liệu lấy từ API do lớp hình web/hud-visual.js điền. Mọi ô bắt đầu bằng dấu
+// "–" (chưa có số), đồng hồ máy chủ khởi đầu ở 0% — không vẽ sẵn vòng 35% hay thanh 42% rồi mới đo lại.
+const visualJs = read('web/hud-visual.js');
 const DASH_PLACEHOLDER = [
-  ['metric-cpu-text', 'đồng hồ CPU'],
-  ['metric-ram-text', 'đồng hồ RAM'],
-  ['metric-cores-text', 'số nhân'],
-  ['metric-procs-text', 'số tiến trình'],
-  ['metric-disk-text', 'mức dùng đĩa'],
-  ['metric-disk-free', 'dung lượng trống'],
-  ['hud-uptime', 'thời gian chạy HUD'],
-  ['hud-fps', 'khung hình mỗi giây'],
+  ['ai-tokens', 'token đã dùng'],
+  ['ai-calls', 'lượt gọi model'],
+  ['ai-voice', 'thời gian bắt đầu trả lời'],
+  ['host-net', 'lưu lượng mạng máy chủ'],
 ];
 for (const [id, label] of DASH_PLACEHOLDER) {
   const m = hudHtml.match(new RegExp(`id="${id}"[^>]*>([^<]*)<`));
   check(
-    `${id} (${label}) mở đầu bằng "--"`,
-    m !== null && m[1].trim().includes('--'),
+    `${id} (${label}) mở đầu bằng "–"`,
+    m !== null && m[1].trim() === '–',
     m ? `thấy ${JSON.stringify(m[1].trim())}` : 'không tìm thấy phần tử'
   );
 }
-
-// Vòng cung đồng hồ phải RỖNG, không vẽ vòng 35% rồi mới đo lại được.
-for (const id of ['metric-cpu-circle', 'metric-ram-circle']) {
-  const m = hudHtml.match(new RegExp(`id="${id}"[\\s\\S]{0,200}?stroke-dashoffset="([^"]+)"`));
-  check(
-    `${id} vòng cung rỗng (dashoffset = chu vi)`,
-    m !== null && parseFloat(m[1]) >= 238,
-    m ? `dashoffset=${m[1]}` : 'không đọc được'
-  );
+for (const id of ['t-incidents', 't-approvals', 't-active', 't-success']) {
+  check(`ô ${id} mở đầu bằng "–"`, new RegExp(`id="${id}"><div class="v">–</div>`).test(hudHtml));
 }
 check(
-  'thanh đĩa rỗng (width 0%)',
-  /id="metric-disk-bar"[^>]*style="width:\s*0%/.test(hudHtml),
-  'trước đây vẽ sẵn 42%'
+  'đồng hồ CPU / RAM / ổ đĩa khởi đầu ở 0%, không vẽ sẵn số',
+  /gauge\('g-cpu', 0, 'CPU'\); gauge\('g-ram', 0, 'RAM'\); gauge\('g-disk', 0, 'Ổ đĩa'\);/.test(visualJs)
+);
+check(
+  'lớp hình không còn chế độ DEMO với số liệu mô phỏng',
+  !/toDemo|DEMO_AGENTS|DEMO_TALK|số liệu mô phỏng/.test(visualJs),
+  'HUD chính chưa đăng nhập phải để trống ô số liệu, không hiện số bịa'
+);
+check(
+  'chưa đăng nhập: ghi rõ cần đăng nhập, ô số liệu về "–"',
+  /function toLogin\(/.test(visualJs) && /tile\(id, '–', ''\)/.test(visualJs)
 );
 
 // ──────────────────────────────────────────────────────────────────────
@@ -609,11 +605,11 @@ check(
 );
 
 // ──────────────────────────────────────────────────────────────────────
-section('Radar chỉ còn hiệu ứng trang trí, không vẽ mục tiêu bịa');
+section('Không còn radar / mục tiêu vẽ tay — hiệu ứng nằm riêng ở lớp hình');
 
 check(
-  'đã gỡ chấm sáng mục tiêu mô phỏng trong renderRadar',
-  !/radarCtx\.arc\(cx \+ Math\.cos\([\d.]+\)/.test(hudCode),
+  'hud.js không còn bộ vẽ radar (từng vẽ hai "mục tiêu" đặt cứng toạ độ)',
+  !/radarCtx|renderRadar/.test(hudCode),
   'hai chấm sáng đặt cứng toạ độ, không đến từ dữ liệu nào'
 );
 check(
@@ -621,9 +617,8 @@ check(
   !/const t1 = \(timestamp/.test(hudCode)
 );
 check(
-  'khung radar có nhãn nói rõ đây là minhọa',
-  /MINHỌA — KHÔNG PHẢI DỮ LIỆU/.test(hudMarkup),
-  'người xem phải phân biệt được hiệu ứng với dữ liệu thật'
+  'tia trên chòm sao agent chỉ đến từ sự kiện topology thật (bỏ sự kiện mô phỏng)',
+  /if \(!e\.simulated\) onTopology\(e, first\)/.test(visualJs)
 );
 
 // ──────────────────────────────────────────────────────────────────────

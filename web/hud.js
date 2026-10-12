@@ -3,17 +3,12 @@
 /**
  * web/hud.js
  * ==========
- * VN-MateAI 3D Cybernetic HUD & Visualizer Engine.
- * 
- * Features:
- * - Ultra-crisp 60 FPS HTML5 Canvas engine with Retina / 4K HiDPI scaling.
- * - Multi-tier holographic Arc Reactor rings with rotating degree notches.
- * - 3D Quantum Fibonacci Sphere with dynamic crystalline Plexus connections.
- * - Audio-reactive shockwave ripples & particle burst physics.
- * - Decorative radar mini-sweep canvas (hiệu ứng trang trí, không phải dữ liệu).
- * - Circular SVG dual arc gauges for CPU & RAM telemetry.
- * - Multi-band stereo equalizer oscilloscope with floating peak caps.
- * - WebSocket telemetry link; mọi số đo thiếu đều hiện "chờ kết nối".
+ * Bộ não của HUD (/hud): WebSocket /ws/hud, micro + vòng hội thoại, phát tiếng câu trả lời, popup chi tiết,
+ * phiếu phê duyệt, khung "quá trình suy nghĩ", nhật ký, thanh lệnh. Mọi số đo thiếu đều hiện "chờ kết nối".
+ *
+ * Phần HÌNH (lõi nơ-ron, chòm sao agent, phụ đề, bảng số liệu) nằm ở web/hud-visual.js. File này chỉ báo
+ * cho nó qua `window.HUDVisual` (hàm `viz`): trạng thái, câu đang nói (kèm thời lượng thật của audio),
+ * lời người dùng vừa nói, mảnh suy nghĩ, và MỨC ÂM THANH THẬT đo từ AnalyserNode khi Ly Ly đang phát tiếng.
  *
  * Phase 76: HUD chỉ hiện dữ liệu thật. Xem `applyMetrics()` và
  * `renderAuthStatus()` — đó là hai nơi quyết định mọi con số và vai trò
@@ -123,27 +118,23 @@
   };
 
   let currentState = STATES.IDLE;
-  let currentColor = { r: 0, g: 242, b: 254 };
-  let targetColor = { r: 0, g: 242, b: 254 };
+
+  /** Gọi sang lớp hình (web/hud-visual.js). Thiếu lớp hình hoặc lớp hình lỗi thì bỏ qua — logic vẫn chạy. */
+  function viz(method, ...args) {
+    const v = window.HUDVisual;
+    if (!v || typeof v[method] !== 'function') return undefined;
+    try { return v[method](...args); } catch (err) { console.warn('[HUD] lớp hình lỗi:', method, err); return undefined; }
+  }
+  // trạng thái của hud.js → trạng thái của lớp hình
+  const VIZ_STATE = { IDLE: 'idle', LISTENING: 'listening', PROCESSING: 'thinking', SPEAKING: 'speaking' };
 
   // ---------------------------------------------------------------------------
   // 2. DOM ELEMENT REFERENCES
   // ---------------------------------------------------------------------------
-  const coreCanvas = document.getElementById('core-canvas');
-  const coreCtx = coreCanvas ? coreCanvas.getContext('2d') : null;
-  const waveCanvas = document.getElementById('waveform-canvas');
-  const waveCtx = waveCanvas ? waveCanvas.getContext('2d') : null;
-  const radarCanvas = document.getElementById('radar-canvas');
-  const radarCtx = radarCanvas ? radarCanvas.getContext('2d') : null;
-
-  const clockLocalEl = document.getElementById('hud-clock-local');
-  const uptimeEl = document.getElementById('hud-uptime');
-  const fpsEl = document.getElementById('hud-fps');
   const connDotEl = document.getElementById('hud-conn-dot');
   const connTextEl = document.getElementById('hud-conn-text');
   const linkBadgeEl = document.getElementById('hud-link-badge');
   const secStatusEl = document.getElementById('hud-security-status');
-  const statusBadgeEl = document.getElementById('core-status-badge');
 
   const cpuTextEl = document.getElementById('metric-cpu-text');
   const cpuCircleEl = document.getElementById('metric-cpu-circle');
@@ -166,9 +157,6 @@
   const netIoEl = document.getElementById('metric-net-io');
   const permBadgeEl = document.getElementById('hud-permission-badge');
 
-  const voiceDotEl = document.getElementById('voice-indicator-dot');
-  const voiceTagEl = document.getElementById('voice-indicator-tag');
-  const typewriterTextEl = document.getElementById('typewriter-text');
   const logStreamEl = document.getElementById('hud-log-stream');
   const logPlaceholderEl = document.getElementById('hud-log-placeholder');
   const voiceStreamEl = document.getElementById('hud-voice-stream');
@@ -185,75 +173,6 @@
   // Đếm giây không nhận được gói "done": nếu máy chủ đứt giữa chừng, vòng
   // xoay phải tự tắt thay vì quay mãi.
   let thinkingStuckTimer = null;
-
-  // ---------------------------------------------------------------------------
-  // 3. ZERO-ALLOCATION PRE-ALLOCATED POOLS FOR 3D QUANTUM SPHERE & PARTICLES
-  // ---------------------------------------------------------------------------
-  const NUM_PARTICLES = 70;
-  const NUM_SPHERE_POINTS = 180;
-  const CIRCLE_CIRCUMFERENCE = 238.76; // 2 * Math.PI * 38
-  
-  // Static Particle Pool [x, y, z, angle, speed, radius]
-  const particles = new Float32Array(NUM_PARTICLES * 6);
-  for (let i = 0; i < NUM_PARTICLES; i++) {
-    const idx = i * 6;
-    const theta = Math.random() * Math.PI * 2;
-    const rad = 95 + Math.random() * 140;
-    particles[idx] = Math.cos(theta) * rad;      // x
-    particles[idx + 1] = (Math.random() - 0.5) * 80; // y
-    particles[idx + 2] = Math.sin(theta) * rad;  // z
-    particles[idx + 3] = theta;                  // angle
-    particles[idx + 4] = 0.006 + Math.random() * 0.016; // speed
-    particles[idx + 5] = 1.0 + Math.random() * 2.0;     // size
-  }
-
-  // Static 3D Sphere Vertices Pool (Fibonacci Sphere with Golden Spiral)
-  const sphereVertices = new Float32Array(NUM_SPHERE_POINTS * 3);
-  const phi = Math.PI * (3 - Math.sqrt(5)); // Golden angle ~2.3999 rad
-  for (let i = 0; i < NUM_SPHERE_POINTS; i++) {
-    const y = 1 - (i / (NUM_SPHERE_POINTS - 1)) * 2; // -1 to 1
-    const radius = Math.sqrt(1 - y * y);
-    const theta = phi * i;
-    const x = Math.cos(theta) * radius;
-    const z = Math.sin(theta) * radius;
-    const baseRadius = 90;
-
-    sphereVertices[i * 3] = x * baseRadius;
-    sphereVertices[i * 3 + 1] = y * baseRadius;
-    sphereVertices[i * 3 + 2] = z * baseRadius;
-  }
-
-  // Projected 2D points pool for crystal Plexus lines
-  const projectedPoints = new Float32Array(NUM_SPHERE_POINTS * 3); // [px, py, scale]
-
-  // Expanding shockwave ripple rings
-  const shockwaves = [
-    { radius: 0, alpha: 0, active: false },
-    { radius: 0, alpha: 0, active: false },
-    { radius: 0, alpha: 0, active: false }
-  ];
-
-  // ---------------------------------------------------------------------------
-  // 4. ANIMATION ANGLES & TIMING
-  // ---------------------------------------------------------------------------
-  let rotX = 0.25;
-  let rotY = 0;
-  let rotZ = 0;
-  let arcReactorAngle1 = 0;
-  let arcReactorAngle2 = 0;
-  let arcReactorAngle3 = 0;
-  let arcReactorAngle4 = 0;
-  let radarAngle = 0;
-  let wavePhase = 0;
-
-  let startTime = Date.now();
-  let frameCount = 0;
-  let lastFpsUpdate = performance.now();
-
-  // Equalizer bar heights & peak caps
-  const NUM_BARS = 40;
-  const barHeights = new Float32Array(NUM_BARS);
-  const barPeaks = new Float32Array(NUM_BARS);
 
   // ---------------------------------------------------------------------------
   // 4.1. HARDWARE WEB AUDIO API FFT SPECTRUM & PROCEDURAL SFX SYNTHESIZER
@@ -300,9 +219,17 @@
         hudSpeechDraining = false;
       }
     },
-    onStart: (durationSec) => {
+    onStart: () => {
       isAudioPlaying = true;
-      setHudState('speaking', lastSpokenText || '', durationSec * 1000);
+    },
+    // Mỗi câu một khung MP3, tới SAU gói chữ của nó (và gói chữ câu kế có thể tới trước khi câu này phát xong).
+    // Trước đây phụ đề lấy `lastSpokenText` = câu nhận SAU CÙNG → đang đọc câu trả lời mà hiện câu hỏi lại
+    // "Anh còn cần em hỗ trợ gì nữa không ạ?". Nay ghép chữ với tiếng theo thứ tự, hiện đúng lúc câu bắt đầu phát.
+    onChunkScheduled: (durationSec, delaySec) => {
+      const item = hudAudioTexts.shift();
+      const text = item ? item.text : (lastSpokenText || '');
+      const show = () => { if (hudIsSpeaking()) setHudState('speaking', text, durationSec * 1000); };
+      if (delaySec > 0.02) setTimeout(show, delaySec * 1000); else show();
     },
     onPlaybackEnd: () => {
       isAudioPlaying = false;
@@ -395,516 +322,23 @@
   });
 
   // ---------------------------------------------------------------------------
-  // 5. CANVAS RESIZING (HiDPI / Retina Crisp Rendering)
+  // 5. MỨC ÂM THANH THẬT CHO LỚP HÌNH
+  //
+  //   Khi Ly Ly đang phát tiếng, lõi đập và vòng sóng âm chạy theo đúng giọng nói (AnalyserNode — cả khung MP3
+  //   nhị phân lẫn audio base64 đều đi qua nút này). Không phát gì → trả null, lớp hình tự tạo nhịp nhẹ.
   // ---------------------------------------------------------------------------
-  function resizeCanvases() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-    if (coreCanvas) {
-      const rect = coreCanvas.getBoundingClientRect();
-      const w = rect.width || 440;
-      const h = rect.height || 440;
-      coreCanvas.width = w * dpr;
-      coreCanvas.height = h * dpr;
-      if (coreCtx) coreCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    if (waveCanvas) {
-      const rect = waveCanvas.getBoundingClientRect();
-      const w = rect.width || 600;
-      const h = rect.height || 50;
-      waveCanvas.width = w * dpr;
-      waveCanvas.height = h * dpr;
-      if (waveCtx) waveCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-
-    if (radarCanvas) {
-      const rect = radarCanvas.getBoundingClientRect();
-      const w = rect.width || 240;
-      const h = rect.height || 110;
-      radarCanvas.width = w * dpr;
-      radarCanvas.height = h * dpr;
-      if (radarCtx) radarCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-  }
-
-  window.addEventListener('resize', resizeCanvases);
-
-  // ---------------------------------------------------------------------------
-  // 6. RENDER LOOP: 3D CYBERNETIC ARC REACTOR & QUANTUM PLEXUS SPHERE
-  // ---------------------------------------------------------------------------
-  function renderCore(timestamp) {
-    if (!coreCtx || !coreCanvas) return;
-
-    const w = coreCanvas.getBoundingClientRect().width;
-    const h = coreCanvas.getBoundingClientRect().height;
-    const cx = w / 2;
-    const cy = h / 2;
-
-    coreCtx.clearRect(0, 0, w, h);
-
-    // Smooth Color Interpolation
-    currentColor.r += (targetColor.r - currentColor.r) * 0.08;
-    currentColor.g += (targetColor.g - currentColor.g) * 0.08;
-    currentColor.b += (targetColor.b - currentColor.b) * 0.08;
-
-    const cr = Math.round(currentColor.r);
-    const cg = Math.round(currentColor.g);
-    const cb = Math.round(currentColor.b);
-
-    // ── Real-Time Voice Audio FFT Frequency Coupling ──────────────────
-    let voiceEnergy = 0;
-    if (isAudioPlaying && freqData) {
-      let sum = 0;
-      const count = Math.min(32, freqData.length);
-      for (let k = 0; k < count; k++) sum += freqData[k];
-      voiceEnergy = sum / count; // 0 - 255
-    }
-    const voiceEnergyRatio = voiceEnergy / 255;
-
-    // Rotational velocities accelerated by real-time voice energy
-    rotY += currentState.spinSpeed * (1 + voiceEnergyRatio * 1.5);
-    rotX = 0.28 + Math.sin(timestamp * 0.0012) * 0.12;
-    arcReactorAngle1 += currentState.spinSpeed * (1.2 + voiceEnergyRatio * 0.8);
-    arcReactorAngle2 -= currentState.spinSpeed * (0.9 + voiceEnergyRatio * 0.6);
-    arcReactorAngle3 += currentState.spinSpeed * (1.6 + voiceEnergyRatio * 1.2);
-    arcReactorAngle4 -= currentState.spinSpeed * 0.5;
-
-    // Pulse scaled dynamically with vocal syllable energy
-    const pulse = (1 + Math.sin(timestamp * 0.004) * 0.04 * currentState.pulseAmp) * (1 + voiceEnergyRatio * 0.24);
-
-    // ── Layer 0: Radial Ambient Plasma Glow (Additive Blend) ──────────
-    coreCtx.save();
-    coreCtx.globalCompositeOperation = 'lighter';
-    const bgGlow = coreCtx.createRadialGradient(cx, cy, 5, cx, cy, 180 * pulse);
-    bgGlow.addColorStop(0, `rgba(${cr},${cg},${cb}, ${0.28 + voiceEnergyRatio * 0.2})`);
-    bgGlow.addColorStop(0.4, `rgba(${cr},${cg},${cb}, 0.08)`);
-    bgGlow.addColorStop(1, 'rgba(0,0,0,0)');
-    coreCtx.fillStyle = bgGlow;
-    coreCtx.beginPath();
-    coreCtx.arc(cx, cy, 180 * pulse, 0, Math.PI * 2);
-    coreCtx.fill();
-    coreCtx.restore();
-
-    // ── Layer 1: Holographic Arc Reactor Rings ────────────────────────
-    coreCtx.save();
-    coreCtx.translate(cx, cy);
-
-    // Shockwave ripple update & render (real-time voice transient trigger)
-    const shouldTriggerShockwave = (isAudioPlaying && voiceEnergy > 90 && Math.random() < 0.12) ||
-      ((currentState === STATES.SPEAKING || currentState === STATES.LISTENING) && Math.random() < 0.04);
-
-    if (shouldTriggerShockwave) {
-      for (const sw of shockwaves) {
-        if (!sw.active) {
-          sw.active = true;
-          sw.radius = 40;
-          sw.alpha = 0.95;
-          break;
-        }
-      }
-    }
-    for (const sw of shockwaves) {
-      if (sw.active) {
-        sw.radius += 2.5;
-        sw.alpha -= 0.015;
-        if (sw.alpha <= 0 || sw.radius > 200) {
-          sw.active = false;
-        } else {
-          coreCtx.save();
-          coreCtx.strokeStyle = `rgba(${cr},${cg},${cb}, ${sw.alpha * 0.6})`;
-          coreCtx.lineWidth = 1.8;
-          coreCtx.beginPath();
-          coreCtx.arc(0, 0, sw.radius, 0, Math.PI * 2);
-          coreCtx.stroke();
-          coreCtx.restore();
-        }
-      }
-    }
-
-    // Outer Segmented Tech Ring
-    coreCtx.save();
-    coreCtx.rotate(arcReactorAngle1);
-    coreCtx.strokeStyle = `rgba(${cr},${cg},${cb}, 0.5)`;
-    coreCtx.lineWidth = 1.6;
-    coreCtx.setLineDash([22, 10, 6, 10]);
-    coreCtx.beginPath();
-    coreCtx.arc(0, 0, 168 * pulse, 0, Math.PI * 2);
-    coreCtx.stroke();
-
-    // 8 Outer Cardinal Chevrons
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      coreCtx.save();
-      coreCtx.rotate(a);
-      coreCtx.fillStyle = `rgba(${cr},${cg},${cb}, 0.8)`;
-      coreCtx.beginPath();
-      coreCtx.moveTo(176 * pulse, 0);
-      coreCtx.lineTo(182 * pulse, -3.5);
-      coreCtx.lineTo(185 * pulse, 0);
-      coreCtx.lineTo(182 * pulse, 3.5);
-      coreCtx.closePath();
-      coreCtx.fill();
-      coreCtx.restore();
-    }
-    coreCtx.restore();
-
-    // Middle Geared Ring with 24 Radial Ticks
-    coreCtx.save();
-    coreCtx.rotate(arcReactorAngle2);
-    coreCtx.strokeStyle = `rgba(${cr},${cg},${cb}, 0.6)`;
-    coreCtx.lineWidth = 1.2;
-    coreCtx.setLineDash([40, 12, 12, 12]);
-    coreCtx.beginPath();
-    coreCtx.arc(0, 0, 138 * pulse, 0, Math.PI * 2);
-    coreCtx.stroke();
-
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      const tickLen = (i % 6 === 0) ? 9 : 5;
-      coreCtx.strokeStyle = (i % 6 === 0) ? `rgba(${cr},${cg},${cb}, 0.9)` : `rgba(${cr},${cg},${cb}, 0.4)`;
-      coreCtx.lineWidth = (i % 6 === 0) ? 1.8 : 1.0;
-      coreCtx.beginPath();
-      coreCtx.moveTo(Math.cos(a) * (138 - tickLen) * pulse, Math.sin(a) * (138 - tickLen) * pulse);
-      coreCtx.lineTo(Math.cos(a) * (138 + tickLen) * pulse, Math.sin(a) * (138 + tickLen) * pulse);
-      coreCtx.stroke();
-    }
-    coreCtx.restore();
-
-    // Inner Gyroscope Gimbal Ring (Fast Spin)
-    coreCtx.save();
-    coreCtx.rotate(arcReactorAngle3);
-    coreCtx.strokeStyle = `rgba(${cr},${cg},${cb}, 0.75)`;
-    coreCtx.lineWidth = 1.8;
-    coreCtx.setLineDash([12, 8, 4, 8]);
-    coreCtx.beginPath();
-    coreCtx.arc(0, 0, 108 * pulse, 0, Math.PI * 2);
-    coreCtx.stroke();
-    coreCtx.restore();
-
-    coreCtx.restore(); // Return translation
-
-    // ── Layer 2: 3D Holographic Fibonacci Sphere & Plexus Lines ──────
-    const cosY = Math.cos(rotY);
-    const sinY = Math.sin(rotY);
-    const cosX = Math.cos(rotX);
-    const sinX = Math.sin(rotX);
-    const fov = 320;
-
-    // 1. Calculate 3D perspective projections for all sphere vertices
-    for (let i = 0; i < NUM_SPHERE_POINTS; i++) {
-      const idx = i * 3;
-      let x0 = sphereVertices[idx] * pulse;
-      let y0 = sphereVertices[idx + 1] * pulse;
-      let z0 = sphereVertices[idx + 2] * pulse;
-
-      // Rotate Y
-      const x1 = x0 * cosY - z0 * sinY;
-      const z1 = z0 * cosY + x0 * sinY;
-
-      // Rotate X
-      const y2 = y0 * cosX - z1 * sinX;
-      const z2 = z1 * cosX + y0 * sinX;
-
-      const scale = fov / (fov + z2 + 110);
-      const px = cx + x1 * scale;
-      const py = cy + y2 * scale;
-
-      projectedPoints[idx] = px;
-      projectedPoints[idx + 1] = py;
-      projectedPoints[idx + 2] = scale;
-    }
-
-    // 2. Draw Crystal Plexus Lines between nearby 3D vertices
-    coreCtx.save();
-    coreCtx.lineWidth = 0.65;
-    for (let i = 0; i < NUM_SPHERE_POINTS; i += 2) {
-      const p1x = projectedPoints[i * 3];
-      const p1y = projectedPoints[i * 3 + 1];
-      const scale1 = projectedPoints[i * 3 + 2];
-
-      for (let j = i + 1; j < Math.min(i + 14, NUM_SPHERE_POINTS); j++) {
-        const p2x = projectedPoints[j * 3];
-        const p2y = projectedPoints[j * 3 + 1];
-        const dx = p1x - p2x;
-        const dy = p1y - p2y;
-        const distSq = dx * dx + dy * dy;
-
-        // Threshold distance for plexus connection (~32px)
-        if (distSq < 1050) {
-          const alpha = (1 - distSq / 1050) * 0.35 * Math.min(scale1, 1.2);
-          coreCtx.strokeStyle = `rgba(${cr},${cg},${cb}, ${alpha})`;
-          coreCtx.beginPath();
-          coreCtx.moveTo(p1x, p1y);
-          coreCtx.lineTo(p2x, p2y);
-          coreCtx.stroke();
-        }
-      }
-    }
-    coreCtx.restore();
-
-    // 3. Draw Radiant Central Singularity Plasma Nucleus
-    coreCtx.save();
-    coreCtx.globalCompositeOperation = 'lighter';
-    const coreGrad = coreCtx.createRadialGradient(cx, cy, 2, cx, cy, 48 * pulse);
-    coreGrad.addColorStop(0, '#ffffff');
-    coreGrad.addColorStop(0.2, `rgba(${cr},${cg},${cb}, 0.95)`);
-    coreGrad.addColorStop(0.55, `rgba(${cr},${cg},${cb}, 0.3)`);
-    coreGrad.addColorStop(1, 'rgba(0,0,0,0)');
-    coreCtx.fillStyle = coreGrad;
-    coreCtx.beginPath();
-    coreCtx.arc(cx, cy, 48 * pulse, 0, Math.PI * 2);
-    coreCtx.fill();
-    coreCtx.restore();
-
-    // 4. Draw 3D Sphere Vertices (Glowing Nodes)
-    for (let i = 0; i < NUM_SPHERE_POINTS; i++) {
-      const px = projectedPoints[i * 3];
-      const py = projectedPoints[i * 3 + 1];
-      const scale = projectedPoints[i * 3 + 2];
-
-      const alpha = Math.max(0.15, Math.min(0.95, (scale - 0.6) * 1.5));
-      const ptRadius = Math.max(1.0, 2.2 * scale);
-
-      coreCtx.fillStyle = `rgba(${cr},${cg},${cb}, ${alpha})`;
-      coreCtx.beginPath();
-      coreCtx.arc(px, py, ptRadius, 0, Math.PI * 2);
-      coreCtx.fill();
-    }
-
-    // ── Layer 3: Orbiting Quantum Particles with Luminous Tracers ─────
-    for (let i = 0; i < NUM_PARTICLES; i++) {
-      const idx = i * 6;
-      particles[idx + 3] += particles[idx + 4] * (currentState === STATES.PROCESSING ? 3.5 : 1.0);
-      const a = particles[idx + 3];
-      const rad = 115 + (i % 6) * 16;
-
-      const x = Math.cos(a) * rad;
-      const z = Math.sin(a) * rad;
-      const y = Math.sin(a * 2.5 + i) * 35;
-
-      const x1 = x * cosY - z * sinY;
-      const z1 = z * cosY + x * sinY;
-      const y2 = y * cosX - z1 * sinX;
-      const z2 = z1 * cosX + y * sinX;
-
-      const scale = fov / (fov + z2 + 110);
-      const px = cx + x1 * scale;
-      const py = cy + y2 * scale;
-
-      const alpha = Math.max(0.12, Math.min(0.95, (z2 + 120) / 240));
-      const pSize = particles[idx + 5] * scale;
-
-      coreCtx.fillStyle = `rgba(${cr},${cg},${cb}, ${alpha})`;
-      coreCtx.beginPath();
-      coreCtx.arc(px, py, pSize, 0, Math.PI * 2);
-      coreCtx.fill();
-
-      // Mini tracer spark
-      if (scale > 0.8) {
-        coreCtx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.8})`;
-        coreCtx.beginPath();
-        coreCtx.arc(px, py, pSize * 0.5, 0, Math.PI * 2);
-        coreCtx.fill();
-      }
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 7. RENDER LOOP: TACTICAL MINI-RADAR SWEEP CANVAS
-  // ---------------------------------------------------------------------------
-  function renderRadar(timestamp) {
-    if (!radarCtx || !radarCanvas) return;
-
-    const w = radarCanvas.getBoundingClientRect().width;
-    const h = radarCanvas.getBoundingClientRect().height;
-    const cx = w / 2;
-    const cy = h / 2;
-    const radius = Math.min(w, h) * 0.44;
-
-    radarCtx.clearRect(0, 0, w, h);
-
-    radarAngle += 0.035;
-
-    // Draw Range Rings
-    radarCtx.strokeStyle = 'rgba(0, 242, 254, 0.2)';
-    radarCtx.lineWidth = 1;
-
-    for (let r = 0.33; r <= 1.0; r += 0.33) {
-      radarCtx.beginPath();
-      radarCtx.arc(cx, cy, radius * r, 0, Math.PI * 2);
-      radarCtx.stroke();
-    }
-
-    // Crosshairs
-    radarCtx.beginPath();
-    radarCtx.moveTo(cx - radius, cy);
-    radarCtx.lineTo(cx + radius, cy);
-    radarCtx.moveTo(cx, cy - radius);
-    radarCtx.lineTo(cx, cy + radius);
-    radarCtx.stroke();
-
-    // Rotating Sweep Gradient Beam
-    radarCtx.save();
-    radarCtx.translate(cx, cy);
-    radarCtx.rotate(radarAngle);
-
-    const sweepGrad = radarCtx.createRadialGradient(0, 0, 0, 0, 0, radius);
-    sweepGrad.addColorStop(0, 'rgba(0, 242, 254, 0.45)');
-    sweepGrad.addColorStop(1, 'rgba(0, 242, 254, 0.0)');
-
-    radarCtx.fillStyle = sweepGrad;
-    radarCtx.beginPath();
-    radarCtx.moveTo(0, 0);
-    radarCtx.arc(0, 0, radius, 0, 0.45);
-    radarCtx.closePath();
-    radarCtx.fill();
-
-    // Sharp Sweep Front Line
-    radarCtx.strokeStyle = '#00ffff';
-    radarCtx.lineWidth = 1.5;
-    radarCtx.beginPath();
-    radarCtx.moveTo(0, 0);
-    radarCtx.lineTo(Math.cos(0.45) * radius, Math.sin(0.45) * radius);
-    radarCtx.stroke();
-    radarCtx.restore();
-
-    // Phase 76: đã gỡ 2 chấm sáng "mục tiêu vệ tinh mô phỏng" vẽ ra.
-    // Chúng không đến từ dữ liệu nào — chỉ là hình tròn tĩnh đặt cứng toạ độ,
-    // mà bảng "TARGETS: 0 DETECTED" lại nói ngược lại. Giữ lại sẽ hiển thị
-    // mục tiêu không có thật. Ô quét radar giờ là hiệu ứng trang trí thuần,
-    // có nhãn "MINHỌA — KHÔNG PHẢI DỮ LIỆU" bên cạnh.
-  }
-
-  // ---------------------------------------------------------------------------
-  // 8. RENDER LOOP: DUAL-BAND HARMONIC AUDIO EQUALIZER
-  // ---------------------------------------------------------------------------
-  function renderWaveform(timestamp) {
-    if (!waveCtx || !waveCanvas) return;
-
-    const w = waveCanvas.getBoundingClientRect().width;
-    const h = waveCanvas.getBoundingClientRect().height;
-    const cy = h / 2;
-
-    waveCtx.clearRect(0, 0, w, h);
-
-    const cr = Math.round(currentColor.r);
-    const cg = Math.round(currentColor.g);
-    const cb = Math.round(currentColor.b);
-
-    const isVoiceActive = currentState === STATES.SPEAKING || currentState === STATES.LISTENING;
-    wavePhase += (isVoiceActive || isAudioPlaying) ? 0.035 : 0.012;
-
-    // Read real hardware FFT frequency spectrum
-    if (analyserNode && freqData && (isAudioPlaying || isVoiceActive)) {
-      analyserNode.getByteFrequencyData(freqData);
-    }
-
-    // 1. Mirrored Dynamic Stereo Equalizer Bars
-    const barWidth = 3.5;
-    const gap = 3.5;
-    const totalW = NUM_BARS * (barWidth + gap);
-    const startX = (w - totalW) / 2;
-
-    for (let i = 0; i < NUM_BARS; i++) {
-      const distFromCenter = 1 - Math.abs(i - NUM_BARS / 2) / (NUM_BARS / 2);
-      
-      let targetH = 3;
-      if (isAudioPlaying && freqData) {
-        // Map 40 bars across first 48 frequency bins (sub-bass to speech formant range)
-        const binIndex = Math.min(freqData.length - 1, Math.floor((i / NUM_BARS) * 48));
-        const rawEnergy = freqData[binIndex] / 255;
-        targetH = Math.max(3, rawEnergy * 32.0 * (0.45 + distFromCenter * 0.85));
-      } else if (isVoiceActive) {
-        targetH = Math.max(3, (Math.sin(timestamp * 0.008 + i * 0.45) * 0.5 + 0.5) * 16.0 * (0.4 + distFromCenter * 0.9));
-      } else {
-        // Organic quantum ambient breathing oscillation
-        targetH = Math.max(2.5, (Math.sin(timestamp * 0.003 + i * 0.35) * 0.5 + 0.5) * 5.0 * (0.3 + distFromCenter * 0.8));
-      }
-      
-      // Smooth bar smoothing & peak caps
-      barHeights[i] += (targetH - barHeights[i]) * 0.32;
-      if (barHeights[i] > barPeaks[i]) {
-        barPeaks[i] = barHeights[i];
-      } else {
-        barPeaks[i] = Math.max(barHeights[i], barPeaks[i] - 0.45); // Gravity fall
-      }
-
-      const bx = startX + i * (barWidth + gap);
-      const bh = barHeights[i];
-
-      // Gradient fill for each bar
-      const barGrad = waveCtx.createLinearGradient(bx, cy - bh, bx, cy + bh);
-      barGrad.addColorStop(0, `rgba(${cr},${cg},${cb}, 0.95)`);
-      barGrad.addColorStop(0.5, `rgba(0, 255, 255, 0.45)`);
-      barGrad.addColorStop(1, `rgba(${cr},${cg},${cb}, 0.95)`);
-
-      waveCtx.fillStyle = barGrad;
-      waveCtx.fillRect(bx, cy - bh, barWidth, Math.max(2, bh * 2));
-
-      // Peak cap dot
-      const peakY = Math.max(cy - barPeaks[i] - 2, 2);
-      waveCtx.fillStyle = '#ffffff';
-      waveCtx.fillRect(bx, peakY, barWidth, 1.5);
-    }
-
-    // 2. Harmonic Center Bezier Waves
-    const waveAmp = (isAudioPlaying || isVoiceActive) ? 14.0 : 3.0;
-    for (let channel = 0; channel < 2; channel++) {
-      waveCtx.beginPath();
-      waveCtx.lineWidth = channel === 0 ? 1.8 : 1.0;
-      waveCtx.strokeStyle = channel === 0 ? `rgba(${cr},${cg},${cb}, 0.85)` : `rgba(0, 255, 255, 0.35)`;
-
-      const offset = channel * Math.PI * 0.5;
-
-      for (let x = 0; x < w; x += 4) {
-        const normX = (x / w) * Math.PI * 6;
-        const envelope = Math.sin((x / w) * Math.PI); // Window function
-        const wave1 = Math.sin(normX + wavePhase * 10 + offset);
-        const wave2 = Math.cos(normX * 1.8 - wavePhase * 8) * 0.5;
-        const y = cy + (wave1 + wave2) * waveAmp * 0.85 * envelope;
-
-        if (x === 0) waveCtx.moveTo(x, y);
-        else waveCtx.lineTo(x, y);
-      }
-      waveCtx.stroke();
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 9. MASTER ANIMATION TICKER & FPS CALCULATION
-  // ---------------------------------------------------------------------------
-  function tick(timestamp) {
-    if (!isTabActive) {
-      // Background tab optimization: Throttle to 10 FPS to save 95% GPU & battery
-      setTimeout(() => {
-        requestAnimationFrame(tick);
-      }, 100);
-      return;
-    }
-
-    frameCount++;
-    if (timestamp - lastFpsUpdate >= 1000) {
-      const fps = Math.round((frameCount * 1000) / (timestamp - lastFpsUpdate));
-      if (fpsEl) fpsEl.textContent = `${fps}.0 FPS`;
-      frameCount = 0;
-      lastFpsUpdate = timestamp;
-    }
-
-    renderCore(timestamp);
-    // renderRadar(timestamp); // Removed decorative radar as requested
-    renderWaveform(timestamp);
-
-    requestAnimationFrame(tick);
+  function hudAudioLevel() {
+    if (!hudIsSpeaking() || !analyserNode || !freqData) return null;
+    try { analyserNode.getByteFrequencyData(freqData); } catch (_) { return null; }
+    let sum = 0;
+    const n = Math.min(24, freqData.length);           // dải thấp–trung: nơi giọng nói nằm
+    for (let i = 1; i < n; i++) sum += freqData[i];
+    return Math.min(1, (sum / ((n - 1) * 255)) * 1.8);
   }
 
   // ---------------------------------------------------------------------------
   // 10. TYPEWRITER SUBTITLE ENGINE & AUDIO SYNCHRONIZER
   // ---------------------------------------------------------------------------
-  let currentTypedText = '';
-  let targetTypedText = 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...';
-  let typeIndex = 0;
-  let typingTimer = null;
   let currentVoiceAudio = null;
 
   /* HÀNG ĐỢI PHÁT GIỌNG NÓI — Phase 69
@@ -931,38 +365,9 @@
   };
 
 
-  function setTypewriterText(newText, durationMs = null) {
-    if (!newText || newText === targetTypedText) return;
-    targetTypedText = newText;
-    currentTypedText = '';
-    typeIndex = 0;
-
-    if (typingTimer) {
-      clearInterval(typingTimer);
-      typingTimer = null;
-    }
-
-    // Dynamic pacing: synchronize typing speed with audio duration!
-    let charInterval = 45;
-    if (durationMs && durationMs > 0 && newText.length > 0) {
-      charInterval = Math.max(18, Math.min(80, Math.floor((durationMs * 0.95) / newText.length)));
-    }
-
-    typingTimer = setInterval(() => {
-      if (typeIndex < targetTypedText.length) {
-        currentTypedText += targetTypedText.charAt(typeIndex);
-        typeIndex++;
-        if (typewriterTextEl) {
-          typewriterTextEl.textContent = currentTypedText;
-        }
-      } else {
-        clearInterval(typingTimer);
-        typingTimer = null;
-      }
-    }, charInterval);
-  }
-
   let lastSpokenText = '';
+  // Câu đã nhận chữ, đang chờ khung MP3 của nó (cùng thứ tự máy chủ gửi) — xem onChunkScheduled.
+  let hudAudioTexts = [];
   let lastSpokenTime = 0;
   let hudDisplayDismissTimer = null;
 
@@ -1309,6 +714,8 @@
     }
 
     if (packet.has_audio && !audioB64) {
+      hudAudioTexts.push({ text, at: now });
+      if (hudAudioTexts.length > 12) hudAudioTexts.shift();
       // Tiếng của câu này tới ngay sau bằng khung nhị phân (_hudAudioQueue).
       // Trước đây gói chữ không có `audio_base64` bị coi là "không có tiếng":
       // hiện cảnh báo, nhảy về idle rồi lại "đang nói" khi tiếng tới.
@@ -1475,6 +882,7 @@
     }
     const dropped = hudSpeechQueue.length;
     hudSpeechQueue = [];
+    hudAudioTexts = [];
     // Cờ draining phải về false, nếu không `drainSpeechQueue()` sẽ trả về ngay
     // ở dòng đầu và HÀNG ĐỢI KẸT VĨNH VIỄN — kể cả các lượt sau.
     hudSpeechDraining = false;
@@ -1489,16 +897,13 @@
     hudAudioEnabled = !hudAudioEnabled;
     const soundBtn = document.getElementById('hud-sound-btn');
     if (soundBtn) {
-      if (hudAudioEnabled) {
-        soundBtn.textContent = '[🔊 SOUND: BẬT]';
-        soundBtn.className = 'hud-btn border-emerald-500/60 bg-emerald-950/40 text-emerald-300 hover:border-emerald-400';
-      } else {
-        soundBtn.textContent = '[🔇 SOUND: TẮT]';
-        soundBtn.className = 'hud-btn border-rose-500/60 bg-rose-950/40 text-rose-300 hover:border-rose-400';
-        // Dùng chung hàm dừng với lệnh mới: cùng một chỗ xử lý nên không có
-        // chỗ nào dừng được mà chỗ kia không.
-        hudStopSpeaking();
-      }
+      soundBtn.dataset.state = hudAudioEnabled ? 'on' : 'off';
+      soundBtn.textContent = hudAudioEnabled ? '🔊 Âm thanh: bật' : '🔇 Âm thanh: tắt';
+    }
+    if (!hudAudioEnabled) {
+      // Dùng chung hàm dừng với lệnh mới: cùng một chỗ xử lý nên không có
+      // chỗ nào dừng được mà chỗ kia không.
+      hudStopSpeaking();
     }
     appendSystemLog(`HUD Audio Output: ${hudAudioEnabled ? 'ENABLED' : 'MUTED'}`, 'SYS');
   }
@@ -1520,6 +925,20 @@
 //   3. Không hỏi lại    → không đo được "admin đã im bao lâu", nên không biết
 //      khi nào phải hỏi lại rồi bỏ cuộc.
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Vẽ nút MIC theo trạng thái: idle | listening | blocked. CSS của hud.html tô màu theo `data-state`.
+ * Nhãn giữ nguyên câu chữ của hudMicAdvice (bỏ ngoặc vuông khi hiện).
+ */
+function hudSetMicBtn(mode, label) {
+  const micBtn = document.getElementById('hud-mic-btn');
+  if (!micBtn) return;
+  micBtn.dataset.state = mode;
+  const lbl = micBtn.querySelector('.lbl');
+  const text = String(label).replace(/^\[|\]$/g, '');
+  if (lbl) lbl.textContent = text; else micBtn.textContent = text;
+  micBtn.setAttribute('aria-pressed', mode === 'listening' ? 'true' : 'false');
+}
 
 /** Transcript CHÍNH XÁC của lượt nghe hiện tại, lấy từ sự kiện nhận dạng. */
 let hudFinalTranscript = '';
@@ -1573,11 +992,7 @@ function hudAttachRecognitionHandlers(rec) {
     // không thì khi lượt này không nhận dạng được gì, onend sẽ gửi lại
     // lệnh cũ — đúng triệu chứng admin phản ánh.
     hudFinalTranscript = '';
-    const micBtn = document.getElementById('hud-mic-btn');
-    if (micBtn) {
-      micBtn.className = 'hud-btn border-rose-500 bg-rose-950/60 text-rose-300 shadow-[0_0_15px_#f43f5e] animate-pulse';
-      micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> [🔴 LẮNG NGHE...]';
-    }
+    hudSetMicBtn('listening', 'Đang nghe…');
     setHudState('listening', 'Microphone active. Đang lắng nghe giọng nói của bạn...');
     appendSystemLog('Microphone input active. Listening for Vietnamese speech...', 'VOICE');
         };
@@ -1597,9 +1012,7 @@ function hudAttachRecognitionHandlers(rec) {
     if (finalText) hudFinalTranscript = finalText.trim();
 
     const activeTranscript = finalText || interimText;
-    if (activeTranscript) {
-    if (typewriterTextEl) typewriterTextEl.textContent = `"${activeTranscript}"`;
-    }
+    if (activeTranscript) viz('transcript', activeTranscript);
         };
 
         rec.onerror = (event) => {
@@ -1629,8 +1042,7 @@ function hudAttachRecognitionHandlers(rec) {
     // HUD trông như sẵn sàng trong khi mic đã chết. Đó chính là triệu chứng
     // admin phản ánh.
     if (micBtn && !hudMicBlocked) {
-    micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
-    micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
+    hudSetMicBtn('idle', 'Nói');
     }
 
     // Lấy transcript từ SỰ KIỆN nhận dạng, không phải từ phần tử hiển thị.
@@ -1729,10 +1141,7 @@ function hudRefreshMicPermission() {
 
 /** Nút MIC về trạng thái chờ, kèm nhãn dựa trên việc bấm có dùng được không. */
 function hudMarkMicIdle() {
-  const micBtn = document.getElementById('hud-mic-btn');
-  if (!micBtn) return;
-  micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
-  micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
+  hudSetMicBtn('idle', 'Nói');
 }
 
 /**
@@ -1780,11 +1189,7 @@ function hudMarkMicBlocked(reason) {
   isHudListening = false;
   hudRefreshMicPermission().then(function () {
     const advice = hudMicAdvice(reason);
-    const micBtn = document.getElementById('hud-mic-btn');
-    if (micBtn) {
-      micBtn.className = 'hud-btn border-amber-500 bg-amber-950/60 text-amber-300 shadow-[0_0_15px_#f59e0b]';
-      micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> ' + advice.label;
-    }
+    hudSetMicBtn('blocked', advice.label);
     setHudState('idle', advice.message);
     appendSystemLog(advice.log, 'ERROR');
   });
@@ -1979,8 +1384,7 @@ function hudStopListeningForTurn() {
   const micBtn = document.getElementById('hud-mic-btn');
   // Giữ nguyên cảnh báo mất quyền — xem giải thích ở rec.onend.
   if (micBtn && !hudMicBlocked) {
-    micBtn.className = 'hud-btn flex items-center gap-1.5 border-cyan-400/60 bg-cyan-950/40 text-cyan-300';
-    micBtn.innerHTML = '<span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span> [🎙️ MIC]';
+    hudSetMicBtn('idle', 'Nói');
   }
 }
 
@@ -2073,7 +1477,8 @@ function hudOpenMicForFollowup() {
     // từng nhánh. Nếu thiếu, người dùng nói lệnh mới vẫn phải nghe hết lượt
     // cũ, đúng triệu chứng "ra lệnh rồi mà AI chưa dừng".
     hudStopSpeaking();
-    setHudState('processing', `Đang phân tích câu lệnh: "${query}"...`);
+    viz('setQuery', query);
+    setHudState('processing', 'Em đang suy nghĩ…');
 
     // 1. Tuyến ưu tiên: Gửi trực tiếp qua kết nối WebSocket bảo mật
     if (hudSocket && hudSocket.readyState === WebSocket.OPEN) {
@@ -2226,23 +1631,9 @@ function hudOpenMicForFollowup() {
   // 13. STATE SWITCHING
   // ---------------------------------------------------------------------------
   function setHudState(stateKey, customText = '', durationMs = null) {
-    const nextState = STATES[stateKey.toUpperCase()] || STATES.IDLE;
+    const key = String(stateKey || '').toUpperCase() === 'THINKING' ? 'PROCESSING' : String(stateKey || '').toUpperCase();
+    const nextState = STATES[key] || STATES.IDLE;
     currentState = nextState;
-    targetColor = { r: nextState.r, g: nextState.g, b: nextState.b };
-
-    if (statusBadgeEl) {
-      statusBadgeEl.textContent = nextState.badge;
-      statusBadgeEl.className = `px-5 py-1.5 rounded-full border bg-black/90 font-orbitron font-bold text-xs tracking-[0.2em] shadow-lg transition-all duration-300 ${nextState.badgeClass}`;
-    }
-
-    if (voiceDotEl) {
-      voiceDotEl.style.backgroundColor = `rgb(${nextState.r}, ${nextState.g}, ${nextState.b})`;
-    }
-
-    if (voiceTagEl) {
-      voiceTagEl.textContent = nextState.tag;
-      voiceTagEl.style.color = `rgb(${nextState.r}, ${nextState.g}, ${nextState.b})`;
-    }
 
     // Phase 76: nhãn này từng ghi cứng "VOICE STREAM ACTIVE" ngay khi mở trang,
     // tức tuyên bố có luồng âm thanh dù mic chưa từng được bật. Nay bám theo
@@ -2253,9 +1644,8 @@ function hudOpenMicForFollowup() {
       voiceStreamEl.classList.toggle('is-waiting', false);
     }
 
-    if (customText) {
-      setTypewriterText(customText, durationMs);
-    }
+    const vizKey = Object.keys(STATES).find((k) => STATES[k] === nextState);
+    viz('setState', VIZ_STATE[vizKey] || 'idle', { text: customText || undefined, durationMs });
   }
 
   function updateAssistantName(name) {
@@ -2272,31 +1662,12 @@ function hudOpenMicForFollowup() {
     const mainTitle = document.getElementById('hud-main-title');
     if (mainTitle) mainTitle.textContent = `TRỢ LÝ AI ${currentAiName.toUpperCase()}`;
 
-    if (voiceTagEl && (currentState === STATES.IDLE || currentState === STATES.SPEAKING)) {
-      voiceTagEl.textContent = `${currentAiName}:`;
-    }
+    viz('setAssistantName', currentAiName);
   }
 
   // ---------------------------------------------------------------------------
   // 14. TELEMETRY & CLOCK UPDATERS
   // ---------------------------------------------------------------------------
-  function updateClocks() {
-    const now = new Date();
-    if (clockLocalEl) {
-      clockLocalEl.textContent = now.toTimeString().split(' ')[0] + ' ICT';
-    }
-
-    if (uptimeEl) {
-      const diffSec = Math.floor((Date.now() - startTime) / 1000);
-      const hrs = String(Math.floor(diffSec / 3600)).padStart(2, '0');
-      const mins = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
-      const secs = String(diffSec % 60).padStart(2, '0');
-      uptimeEl.textContent = `${hrs}:${mins}:${secs}`;
-    }
-  }
-
-  setInterval(updateClocks, 1000);
-
   /**
    * Ghi số đo vào giao diện, hoặc "chờ kết nối" khi chưa có.
    *
@@ -2517,6 +1888,7 @@ function hudOpenMicForFollowup() {
     }
     appendSystemLog(`[SEC] CẢNH BÁO: Tác vụ '${packet.skill || 'hệ thống'}' yêu cầu phê duyệt bảo mật!`, 'SECURITY');
     playCyberChime('process');
+    viz('setState', 'alert', { text: `Cần phê duyệt: ${packet.skill || 'tác vụ rủi ro cao'}` });
   }
 
   function hideSecurityApprovalModal() {
@@ -2525,6 +1897,7 @@ function hudOpenMicForFollowup() {
     if (secAlert) {
       secAlert.classList.add('hidden');
     }
+    viz('clearAlert');
   }
 
   function handleSecurityApprovalResolved(packet) {
@@ -2533,6 +1906,7 @@ function hudOpenMicForFollowup() {
     if (secAlert) {
       secAlert.classList.add('hidden');
     }
+    viz('clearAlert');
     if (packet.status === 'approved') {
       appendSystemLog(`[SEC] ✅ Tác vụ '${packet.skill || 'hệ thống'}' đã được phê duyệt qua Web Portal.`, 'VOICE');
       playCyberChime('ready');
@@ -2603,6 +1977,7 @@ function hudOpenMicForFollowup() {
     thinkingPeekEl?.classList.remove('hidden');
     thinkingCaretEl?.classList.remove('hidden');
     thinkingTextEl && (thinkingTextEl.textContent = text);
+    viz('thoughts', text);
     // Dòng tóm tắt ở tiêu đề: 120 ký tự đầu, để biết nội dung mà không phải
     // mở khung. Cắt ở ranh giới từ để không dính nửa từ.
     const peek = (text || '').slice(0, 120);
@@ -2627,6 +2002,7 @@ function hudOpenMicForFollowup() {
     playCyberChime('click');
     const secAlert = document.getElementById('hud-security-alert');
     if (secAlert) secAlert.classList.add('hidden');
+    viz('clearAlert');
 
     const actId = currentPendingSecurityAction?.action_id || 'hud';
     const skill = currentPendingSecurityAction?.skill || '';
@@ -2688,12 +2064,9 @@ function hudOpenMicForFollowup() {
       hudSocket.binaryType = 'arraybuffer';
 
       hudSocket.onopen = () => {
-        if (connDotEl) {
-          connDotEl.className = 'w-2 h-2 rounded-full bg-cyan-400 shadow-[0_0_8px_#00f2fe] animate-pulse';
-        }
+        if (connDotEl) connDotEl.dataset.state = 'on';
         if (connTextEl) {
-          connTextEl.textContent = 'LINK ACTIVE';
-          connTextEl.className = 'text-xs font-bold text-cyan-300 font-orbitron tracking-wider';
+          connTextEl.textContent = 'Đã kết nối';
           connTextEl.classList.remove('is-waiting');
         }
         if (linkBadgeEl) {
@@ -2796,15 +2169,10 @@ function hudOpenMicForFollowup() {
             const rText = document.getElementById('hud-robot-status-text');
             const rCode = document.getElementById('hud-robot-code-badge');
             if (packet.status === 'paired' || packet.status === 'online') {
-              if (rDot) rDot.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981] animate-pulse';
-              if (rText) {
-                rText.textContent = `Online [${packet.device_id || 'Robot'}]`;
-                rText.className = 'text-xs font-bold text-emerald-300';
-              }
-              if (rCode && packet.pairing_code) {
-                rCode.textContent = `MÃ: ${packet.pairing_code}`;
-                rCode.className = 'px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
-              }
+              if (rDot) rDot.dataset.state = 'on';
+              if (rText) rText.textContent = `Online · ${packet.device_id || 'Robot'}`;
+              if (rCode && packet.pairing_code) rCode.textContent = `MÃ: ${packet.pairing_code}`;
+              viz('robot', true, packet.device_id || '');
               appendSystemLog(`🤖 Robot [${packet.device_id}] đã ghép đôi (Mã: ${packet.pairing_code || 'OK'}).`, 'SYS');
             }
           } else if (type === 'voice_state') {
@@ -2838,12 +2206,9 @@ function hudOpenMicForFollowup() {
 
       hudSocket.onclose = () => {
         clearInterval(hudSocket?._pingInterval);
-        if (connDotEl) {
-          connDotEl.className = 'w-2 h-2 rounded-full bg-amber-400 animate-ping';
-        }
+        if (connDotEl) connDotEl.dataset.state = 'off';
         if (connTextEl) {
-          connTextEl.textContent = 'LINK RECONNECTING';
-          connTextEl.className = 'text-xs font-bold text-amber-400 font-orbitron';
+          connTextEl.textContent = 'Đang kết nối lại…';
           connTextEl.classList.add('is-waiting');
         }
         if (linkBadgeEl) {
@@ -2930,30 +2295,12 @@ function hudOpenMicForFollowup() {
     }
   });
 
-  // Single click on AI Core canvas toggles mic; double click toggles fullscreen
-  let coreClickTimeout = null;
-  if (coreCanvas) {
-    coreCanvas.addEventListener('click', () => {
-      if (coreClickTimeout) {
-        clearTimeout(coreClickTimeout);
-        coreClickTimeout = null;
-        toggleFullscreen();
-      } else {
-        coreClickTimeout = setTimeout(() => {
-          coreClickTimeout = null;
-          toggleHudMic();
-        }, 250);
-      }
-    });
-  }
-
   // ---------------------------------------------------------------------------
   // 17. INITIALIZATION BOOTSTRAP
   // ---------------------------------------------------------------------------
   function init() {
-    resizeCanvases();
+    viz('setLevelSource', hudAudioLevel);
     connectHudWebSocket();
-    requestAnimationFrame(tick);
 
     fetch('/api/v1/config/assistant-name')
       .then(res => res.ok ? res.json() : null)
@@ -2975,19 +2322,7 @@ function hudOpenMicForFollowup() {
       }
     });
 
-    // Live Uptime Session Counter
-    const hudSessionStart = Date.now();
-    setInterval(() => {
-      const el = document.getElementById('hud-uptime-counter');
-      if (!el) return;
-      const diff = Math.floor((Date.now() - hudSessionStart) / 1000);
-      const h = String(Math.floor(diff / 3600)).padStart(2, '0');
-      const m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
-      const s = String(diff % 60).padStart(2, '0');
-      el.textContent = `${h}:${m}:${s}`;
-    }, 1000);
-
-    appendSystemLog(`${currentAiName} Mark-85 3D Cybernetic HUD khởi tạo xong.`, 'SYS');
+    appendSystemLog(`${currentAiName} HUD khởi tạo xong.`, 'SYS');
   }
 
   if (document.readyState === 'loading') {

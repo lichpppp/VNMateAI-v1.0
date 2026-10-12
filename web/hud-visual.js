@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 /**
- * web/hud-next.js — BẢN THỬ giao diện HUD "buồng lái AI" (2026-10-12). HUD đang dùng vẫn ở /hud (web/hud.js).
+ * web/hud-visual.js — LỚP HÌNH của HUD (/hud) "buồng lái AI". Bộ não (WebSocket, micro, phát tiếng, phê duyệt, thanh lệnh)
+ * nằm ở web/hud.js và điều khiển lớp này qua `window.HUDVisual` (setState, setQuery, transcript, thoughts, setLevelSource…).
  *
  * - Lõi AI là nhân vật chính, đổi hình theo trạng thái: chờ (thở chậm, cyan) · đang nghe (hạt hút vào tâm, xanh lá) · suy nghĩ (quỹ đạo
- *   quay nhanh, mạng nơ-ron loé tín hiệu, mảnh suy nghĩ bay ra, tím) · đang nói (lõi đập theo nhịp, sóng âm tròn, hổ phách) · sự cố (đỏ).
- * - Lớp hiệu ứng: sao bay sâu, mạng nơ-ron giữa các hạt, thước độ + khung ngắm quay, sóng xung kích khi đổi trạng thái, vệ tinh trên quỹ đạo,
- *   màn khởi động. Tất cả vẽ trên MỘT canvas 2D; chuyển màu theo thời gian thật (không phụ thuộc số khung hình).
- * - "Chòm sao agent": MCP server, agent A2A / gọi vào, Dev Fleet, máy trạm (Danh bạ Agent) + máy chủ, mô hình AI, phê duyệt, robot; mỗi lần AI
- *   gọi công cụ (sự kiện topology thật) bắn một tia có đuôi lấp lánh tới đúng nút, nút gợn sóng khi nhận: tím = đang chạy, xanh = xong,
- *   vàng = chờ duyệt, đỏ = lỗi.
- * - Dữ liệu THẬT khi đã đăng nhập portal (cùng trình duyệt): /api/v1/ops/overview, /api/v1/health-dashboard, /api/v1/system/topology/events,
- *   /api/v1/agent-gateway/agents, /api/v1/llmops/budget, WebSocket /ws/hud (trạng thái thoại, suy nghĩ, câu trả lời, phiếu duyệt).
- *   Chưa đăng nhập → chế độ DEMO, số liệu mô phỏng và ghi rõ là mô phỏng. Bản thử KHÔNG phát âm thanh, KHÔNG gửi lệnh, KHÔNG duyệt phiếu.
+ *   quay nhanh, mạng nơ-ron loé tín hiệu, mảnh suy nghĩ bay ra, tím) · đang nói (lõi đập theo MỨC ÂM THANH THẬT của giọng đọc, hổ phách)
+ *   · cần phê duyệt / sự cố (đỏ).
+ * - Quỹ đạo TRONG: module của VN-MateAI (mô hình AI, kho tri thức, máy chủ, giám sát, kịch bản, phê duyệt, Telegram, robot), nối với nhau
+ *   theo luồng thật. Quỹ đạo NGOÀI: agent của doanh nghiệp (MCP, A2A, gọi vào, Dev Fleet, máy trạm — Danh bạ Agent). Mỗi lần AI gọi công cụ
+ *   (sự kiện topology thật) bắn một tia tới đúng nút: tím = đang chạy, xanh = xong, vàng = chờ duyệt, đỏ = lỗi.
+ * - Bảng số liệu THẬT khi trình duyệt đã đăng nhập portal: /api/v1/ops/overview, /api/v1/health-dashboard, /api/v1/system/topology/events,
+ *   /api/v1/agent-gateway/agents, /api/v1/llmops/budget. Chưa đăng nhập → ô số liệu để trống ("–") và ghi rõ cần đăng nhập; KHÔNG có số mô phỏng.
+ * - Tự hạ chất lượng khi máy yếu (FPS < 42); ?lite ép chế độ nhẹ. ?nointro / ?freeze / ?state= / ?hover / ?bench chỉ để chụp ảnh, đo hiệu năng.
  */
 (() => {
   'use strict';
@@ -29,13 +29,15 @@
     listening: { hue: 152, label: 'ĐANG NGHE',      spin: 0.22, ring: 0.5,  pull: 0.35, noise: 0.05, pulse: 0.0,  lattice: 0.5 },
     thinking:  { hue: 272, label: 'ĐANG SUY NGHĨ',  spin: 1.1,  ring: 1.6,  pull: 0.1,  noise: 0.16, pulse: 0.02, lattice: 1.0 },
     speaking:  { hue: 36,  label: 'ĐANG TRẢ LỜI',   spin: 0.35, ring: 0.6,  pull: 0,    noise: 0.04, pulse: 0.0,  lattice: 0.55 },
-    alert:     { hue: 352, label: 'SỰ CỐ',          spin: 0.6,  ring: 1.0,  pull: 0,    noise: 0.09, pulse: 0.08, lattice: 0.8 },
+    alert:     { hue: 352, label: 'CẦN PHÊ DUYỆT',          spin: 0.6,  ring: 1.0,  pull: 0,    noise: 0.09, pulse: 0.08, lattice: 0.8 },
   };
   let state = 'idle';
   const cur = { ...STATES.idle };
   let level = 0;
   let speakUntil = 0, wordTimer = null;
   let lastManual = 0;
+  let aiName = 'Ly Ly';
+  let levelSource = null;                  // hud.js cấp: () => mức âm thanh thật 0..1, hoặc null khi không phát tiếng
   const shocks = [];                       // sóng xung kích khi đổi trạng thái
   // MỘT đồng hồ cho mọi hiệu ứng: dấu thời gian của requestAnimationFrame. Trộn với performance.now() làm tiến độ âm
   // (hai đồng hồ lệch nhau) → bán kính âm → canvas ném lỗi và mọi lớp vẽ sau đó trong khung bị mất.
@@ -49,9 +51,9 @@
     if ($('state-pill').dataset.t !== STATES[s].label) { scramble($('state-pill'), STATES[s].label); glitch(); }
     document.body.classList.toggle('alert', s === 'alert');
     if (opts.query !== undefined) $('query').textContent = opts.query ? `“${opts.query}”` : '';
-    if (s === 'speaking' && opts.text) speak(opts.text);
+    if (s === 'speaking' && opts.text) speak(opts.text, opts.durationMs);
     if (s === 'listening') subtitle(opts.text || 'Em đang lắng nghe…', true);
-    if (s === 'thinking') { subtitle('Em đang suy nghĩ…', true); if (opts.text) thoughts(opts.text); }
+    if (s === 'thinking') { subtitle(opts.text || 'Em đang suy nghĩ…', true); if (opts.thoughts) thoughts(opts.thoughts); }
     if (s === 'alert' && opts.text) subtitle(opts.text, true);
     if (s === 'idle' && opts.text !== undefined) subtitle(opts.text || 'Sẵn sàng nhận lệnh.', true);
   }
@@ -81,13 +83,15 @@
   function subtitle(text, allOn) {
     clearInterval(wordTimer);
     const words = String(text || '').split(/\s+/).filter(Boolean);
-    $('subtitle').innerHTML = '<span class="who on">LY LY</span>' + words.map((w) => `<span${allOn ? ' class="on"' : ''}>${esc(w)} </span>`).join('');
+    $('subtitle').innerHTML = `<span class="who on">${esc(aiName.toUpperCase())}</span>` + words.map((w) => `<span${allOn ? ' class="on"' : ''}>${esc(w)} </span>`).join('');
   }
-  function speak(text) {
+  // durationMs = thời lượng THẬT của đoạn audio (hud.js đo từ trình phát) → chữ sáng dần khớp với tiếng
+  function speak(text, durationMs) {
     subtitle(text, false);
     const spans = [...$('subtitle').querySelectorAll('span:not(.who)')];
     let i = 0;
-    const per = Math.max(140, Math.min(320, 5200 / Math.max(spans.length, 1)));
+    const per = durationMs > 0 ? Math.max(90, Math.min(650, (durationMs * 0.95) / Math.max(spans.length, 1)))
+      : Math.max(140, Math.min(320, 5200 / Math.max(spans.length, 1)));
     speakUntil = clockNow + spans.length * per + 600;
     wordTimer = setInterval(() => { if (i < spans.length) spans[i++].classList.add('on'); else clearInterval(wordTimer); }, per);
   }
@@ -263,11 +267,15 @@
     const ease = 1 - Math.exp(-realDt * 9);
     const dh = ((tgt.hue - cur.hue + 540) % 360) - 180; cur.hue = (cur.hue + dh * ease + 360) % 360;
     for (const k of ['spin', 'ring', 'pull', 'noise', 'pulse', 'lattice']) cur[k] = lerp(cur[k], tgt[k], 1 - Math.exp(-realDt * 4));
-    const speakingNow = state === 'speaking' && now < speakUntil;
-    const want = speakingNow ? 0.45 + 0.55 * Math.abs(Math.sin(now / 95) * Math.sin(now / 233)) :
+    let real = null;
+    if (levelSource) { try { real = levelSource(); } catch (_) { real = null; } }
+    const speakingNow = state === 'speaking' && (real != null || now < speakUntil);
+    const want = real != null && state === 'speaking' ? 0.2 + real * 0.9 :
+      speakingNow ? 0.45 + 0.55 * Math.abs(Math.sin(now / 95) * Math.sin(now / 233)) :
       state === 'listening' ? 0.25 + 0.4 * Math.abs(Math.sin(now / 170) * Math.cos(now / 410)) : 0;
-    level = lerp(level, want, 1 - Math.exp(-realDt * 11));
-    if (state === 'speaking' && now > speakUntil + 900 && Date.now() - lastManual > 400) setState('idle');
+    level = lerp(level, want, 1 - Math.exp(-realDt * (real != null ? 18 : 11)));
+    // không có tiếng thật (robot / thiết bị khác đang nói, hoặc TTS lỗi): hết chữ thì tự về chờ
+    if (state === 'speaking' && real == null && now > speakUntil + 1500 && Date.now() - lastManual > 400) setState('idle');
 
     const boot = clamp01((now - BOOT) / 1500), bootS = easeOutBack(boot);
     const hue = Math.round(cur.hue), t = now / 1000, HQ = quality === 1;
@@ -747,11 +755,11 @@
       const first = seq < 0;
       (ev.events || []).forEach((e) => { if (!e.simulated) onTopology(e, first); seq = Math.max(seq, e.seq); });  // lần đầu: điền luồng, không bắn tia
       if (first && seq < 0) seq = 0;
-    } catch (e) { if (e.auth) toDemo('Phiên đăng nhập hết hạn — đăng nhập lại portal để xem dữ liệu thật.'); }
+    } catch (e) { if (e.auth) toLogin('Phiên đăng nhập hết hạn — đăng nhập lại portal rồi mở lại HUD.'); }
   }
   async function pollSlow() {
     if (!live) return;
-    try { applyOverview(await api('/api/v1/ops/overview?hours=24')); } catch (e) { if (e.auth) return toDemo('Tài khoản không đủ quyền xem số liệu (cần manager / admin).'); }
+    try { applyOverview(await api('/api/v1/ops/overview?hours=24')); } catch (e) { if (e.auth) return toLogin('Tài khoản này không đủ quyền xem số liệu doanh nghiệp (cần manager / admin).'); }
     try { applyBudget(await api('/api/v1/llmops/budget')); } catch (_) { /* tuỳ chọn */ }
     try {
       const d = await api('/api/v1/agent-gateway/agents');
@@ -761,101 +769,27 @@
           a.last_error ? `Lỗi: ${a.last_error}` : ''].filter(Boolean) })));
     } catch (_) { /* tuỳ chọn */ }
   }
-  function connectWs() {
-    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/hud?token=${encodeURIComponent(TOKEN)}`);
-    ws.onmessage = (m) => {
-      let p; try { p = JSON.parse(m.data); } catch (_) { return; }
-      if (Date.now() - lastManual < 8000) return;
-      if (p.type === 'voice_active') {
-        const s = p.status || 'speaking';
-        if (s === 'listening') setState('listening', { text: p.text });
-        else if (s === 'processing' || s === 'thinking') setState('thinking', { query: p.query || p.text || '' });
-        else if (s === 'speaking') setState('speaking', { text: p.text || '' });
-        else if (s === 'idle') setState('idle');
-      } else if (p.type === 'thinking') {
-        if (p.status === 'thinking') setState('thinking');
-        else if (p.status === 'done' && p.text) thoughts(p.text);
-      } else if (p.type === 'display_result' && p.display_text) {
-        setState('speaking', { text: String(p.display_text).replace(/[#*`>|_-]+/g, ' ').slice(0, 400), query: p.query || '' });
-      } else if (p.type === 'security_approval_required') {
-        showIncident('Cần phê duyệt tác vụ rủi ro cao', p.description || p.action_name || '');
-      } else if (p.type === 'security_approval_resolved' || p.type === 'security_approval_rejected') {
-        if (state === 'alert') setState('idle');
-      }
-    };
-    ws.onclose = () => { if (live) setTimeout(connectWs, 4000); };
-  }
-
-  // ── DEMO ─────────────────────────────────────────────────────────────────
-  const DEMO_AGENTS = [
-    { id: 'erp', label: 'ERP nội bộ', kind: 'mcp', info: ['Đang hoạt động', '128 lời gọi · 2 lỗi', '14/14 công cụ'] },
-    { id: 'crm-bot', label: 'Bot CRM', kind: 'inbound', info: ['Đang hoạt động', 'Quyền: operator', '57 lời gọi'] },
-    { id: 'ke-toan', label: 'Agent Kế toán', kind: 'a2a', info: ['Đang hoạt động', '23 việc được giao · 1 lỗi'] },
-    { id: 'dev-fleet', label: 'Dev Fleet', kind: 'devfleet', info: ['Chế độ: read_only', '4 tác vụ'] },
-    { id: 'may-tram', label: 'Máy trạm (6)', kind: 'workstations', info: ['6 máy online'] },
-    { id: 'itsm', label: 'ITSM GLPI', kind: 'mcp', info: ['Đang hoạt động', '41 lời gọi', '9/9 công cụ'] },
-  ];
-  const DEMO_TOOLS = [['mcp_erp_get_order', 'erp'], ['get_infra_status', 'core-server'], ['a2a_ke_toan', 'ke-toan'], ['create_system_ticket', 'core-server'],
-    ['mcp_itsm_list_tickets', 'itsm'], ['get_system_info', 'may-tram'], ['run_playbook', 'hitl'], ['crm_lookup_customer', 'crm-bot']];
-  const DEMO_TALK = [
-    { q: 'Tình hình hệ thống sáng nay thế nào?', think: 'Cần xem cảnh báo hạ tầng; đối chiếu ticket đang mở; tổng hợp việc chờ duyệt',
-      a: 'Dạ, hệ thống ổn định. Có một cảnh báo ổ đĩa ở máy chủ cơ sở dữ liệu, hai ticket đang mở và một kịch bản dọn ổ đĩa đang chờ anh duyệt.' },
-    { q: 'Đơn hàng DH-1024 giao chưa?', think: 'Tra ERP qua MCP; kiểm tra trạng thái giao vận',
-      a: 'Đơn DH-1024 đã giao lúc chín giờ mười lăm sáng nay, khách đã ký nhận.' },
-  ];
-  let demoTimers = [];
-  const hhmmss = (d) => d.toTimeString().slice(0, 8).padStart(19, ' ');
-  function demoEvent(quiet, when) {
-    const [tool, node] = DEMO_TOOLS[Math.floor(Math.random() * DEMO_TOOLS.length)];
-    const st = node === 'hitl' ? 'waiting' : Math.random() < 0.12 ? 'error' : 'ok';
-    if (!quiet) beam(node, st);
-    addFeed({ ts: hhmmss(when || new Date()), tool, status: st, ms: 200 + Math.random() * 1800 }, quiet);
-  }
-  function toDemo(reason) {
+  // ── chưa đăng nhập: KHÔNG bịa số liệu — ô để trống, ghi rõ cần đăng nhập ─────
+  function toLogin(reason) {
     live = false;
-    $('mode-chip').className = 'chip demo'; $('mode-chip').textContent = 'DEMO · số liệu mô phỏng';
-    $('note').textContent = reason || 'Chưa đăng nhập portal trên trình duyệt này — đang hiển thị dữ liệu MÔ PHỎNG. Đăng nhập portal rồi mở lại trang để xem dữ liệu thật.';
-    setNodes(DEMO_AGENTS);
-    applyOverview({ incidents_open: 1, approvals_pending: 2, tasks: { active: 5, success_rate: 96.4, attention_total: 3, attention: [
-      { title: 'Ổ đĩa srv-db sắp đầy (92%)', status: 'ESCALATED', updated_at: '2026-10-12 08:12:00' },
-      { title: 'Kịch bản dọn ổ đĩa srv-db', status: 'WAITING_AUTHORIZATION', updated_at: '2026-10-12 08:14:00' },
-      { title: 'Đồng bộ hoá đơn điện tử', status: 'FAILED', updated_at: '2026-10-12 07:40:00' }] },
-      cost: { total_tokens: 184230, llm_calls: 412 }, voice: { by_outcome: { llm: { metrics: { ttfa_answer_ms: { p50: 1850 } } } } } });
-    applyBudget({ mode: 'warn', checks: [{ key: 'daily_tokens', label: 'Token hôm nay', used: 184230, limit: 500000, ratio: 0.37 }] });
-    for (let i = 8; i > 0; i--) demoEvent(true, new Date(Date.now() - i * 47000));
-    demoTimers.forEach(clearInterval); demoTimers = [];
-    demoTimers.push(setInterval(() => demoEvent(false), 3800));
-    let k = 0;
-    const talk = () => {
-      if (Date.now() - lastManual < 20000) return;
-      const c = DEMO_TALK[k++ % DEMO_TALK.length];
-      setState('listening', { query: '' });
-      setTimeout(() => setState('thinking', { query: c.q, text: c.think }), 2600);
-      setTimeout(() => setState('speaking', { text: c.a }), 7200);
-    };
-    demoTimers.push(setInterval(talk, 26000)); setTimeout(talk, 3000);
+    $('mode-chip').className = 'chip demo'; $('mode-chip').innerHTML = '<a href="/" title="Mở portal để đăng nhập">Chưa đăng nhập</a>';
+    $('note').textContent = reason || 'Đăng nhập portal (tài khoản admin) rồi mở lại HUD để ra lệnh và xem số liệu.';
+    setNodes([]);
+    ['t-incidents', 't-approvals', 't-active', 't-success'].forEach((id) => tile(id, '–', ''));
+    $('feed').innerHTML = '<li class="empty">Cần đăng nhập để xem luồng hành động.</li>';
+    $('attention').innerHTML = '<li class="empty">Cần đăng nhập để xem việc cần chú ý.</li>';
   }
 
-  function showIncident(title, desc) {
-    $('inc-title').textContent = title; $('inc-desc').textContent = desc;
-    $('inc-yes').title = $('inc-no').title = 'Bản thử chỉ hiển thị — duyệt ở HUD hiện tại hoặc portal.';
-    setState('alert', { text: `Phát hiện sự cố: ${title}. ${desc}`.slice(0, 220) });
-  }
 
   // ── xem thử ───────────────────────────────────────────────────────────────
   const PREVIEW = {
     idle: () => setState('idle', { text: 'Sẵn sàng nhận lệnh.', query: '' }),
     listening: () => setState('listening', { text: 'Em đang lắng nghe anh…', query: '' }),
-    thinking: () => setState('thinking', { query: 'Tổng hợp tình hình hạ tầng và việc chờ duyệt', text: 'Đọc cảnh báo Prometheus; đối chiếu ticket GLPI; kiểm tra phiếu chờ duyệt; ước lượng mức ảnh hưởng' }),
+    thinking: () => setState('thinking', { query: 'Tổng hợp tình hình hạ tầng và việc chờ duyệt', thoughts: 'Đọc cảnh báo Prometheus; đối chiếu ticket GLPI; kiểm tra phiếu chờ duyệt; ước lượng mức ảnh hưởng' }),
     speaking: () => setState('speaking', { text: 'Dạ, em đã kiểm tra xong. Hạ tầng ổn định, có một cảnh báo ổ đĩa ở máy chủ cơ sở dữ liệu và một kịch bản dọn dẹp đang chờ anh duyệt.' }),
-    alert: () => showIncident('Ổ đĩa srv-db đầy 97%', 'Prometheus báo ổ đĩa máy chủ cơ sở dữ liệu vượt ngưỡng nghiêm trọng. Kịch bản "Dọn ổ đĩa" đã sẵn sàng, cần duyệt để chạy.'),
+    alert: () => setState('alert', { text: 'Cần phê duyệt: chạy kịch bản dọn ổ đĩa' }),
     tool: () => { const pick = nodes[Math.floor(Math.random() * nodes.length)]; ['running', 'ok'].forEach((s, i) => setTimeout(() => beam(pick.id, s), i * 900)); },
   };
-  document.querySelectorAll('#dock button').forEach((b) => b.addEventListener('click', () => { lastManual = Date.now(); PREVIEW[b.dataset.s](); }));
-  window.addEventListener('keydown', (e) => {
-    const k = ['idle', 'listening', 'thinking', 'speaking', 'alert', 'tool'][Number(e.key) - 1];
-    if (k && !e.target.closest('input,textarea')) { lastManual = Date.now(); PREVIEW[k](); }
-  });
 
   const par = { x: 0, y: 0, tx: 0, ty: 0 };
   window.addEventListener('mousemove', (e) => { par.tx = (e.clientX / W) * 2 - 1; par.ty = (e.clientY / H) * 2 - 1; });
@@ -873,8 +807,7 @@
   function showTip(n) {
     const tip = $('tip');
     if (!n) { tip.classList.remove('on'); return; }
-    tip.innerHTML = `<b>${esc(n.label)}</b><small>${esc(KIND_NAME[n.kind] || n.kind)}</small>${(n.info || []).map((l) => `<div>${esc(l)}</div>`).join('')}`
-      + '<em>Bấm để gửi xung tới agent này</em>';
+    tip.innerHTML = `<b>${esc(n.label)}</b><small>${esc(KIND_NAME[n.kind] || n.kind)}</small>${(n.info || []).map((l) => `<div>${esc(l)}</div>`).join('')}`;
     // đặt thẻ phía NGOÀI agent (xa lõi) để không che sợi thần kinh
     const left = n.x < CX ? n.x - 300 : n.x + 30;
     tip.style.left = `${Math.max(10, Math.min(W - 290, left))}px`; tip.style.top = `${Math.max(70, n.y - 40)}px`; tip.classList.add('on');
@@ -885,23 +818,48 @@
     mouse.x = x; mouse.y = y; mouse.on = true;
     const n = hitNode(x, y);
     if (n !== hovered) { hovered = n; showTip(n); }
-    cv.style.cursor = n || Math.hypot(x - CX, y - CY) < R ? 'pointer' : 'default';
+    cv.style.cursor = Math.hypot(x - CX, y - CY) < R ? 'pointer' : 'default';
+    cv.title = !n && Math.hypot(x - CX, y - CY) < R ? 'Bấm lõi để nói (hoặc phím Cách)' : '';
   });
   cv.addEventListener('mouseleave', () => { mouse.on = false; hovered = null; showTip(null); });
   cv.addEventListener('click', (e) => {
     const [x, y] = toCanvas(e), n = hitNode(x, y);
-    if (n) { beam(n.id, 'running'); setTimeout(() => beam(n.id, 'ok'), 700); return; }
-    if (Math.hypot(x - CX, y - CY) < R * 1.1) {          // bấm lõi: xung lan toả + một loạt nơ-ron bắn
+    if (n) return;
+    if (Math.hypot(x - CX, y - CY) < R * 1.1) {          // bấm lõi: bật / tắt mic (hud.js) + xung lan toả, một loạt nơ-ron bắn
+      if (typeof window.toggleHudMic === 'function') window.toggleHudMic();
       shocks.push({ t0: clockNow, hue: Math.round(cur.hue) });
       for (let k = 0; k < 40; k++) { const i = (Math.random() * N) | 0; if (PD[i] > 0.45) fireNeuron(i, 1.4); }
       nodes.forEach((m, i) => nerves.push({ n: m, t0: clockNow + i * 60, dur: 1100, back: false }));
     }
   });
 
+  document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-tab]').forEach((x) => x.classList.toggle('on', x === b));
+    document.querySelectorAll('[data-pane]').forEach((p) => { p.hidden = p.dataset.pane !== b.dataset.tab; });
+  }));
+
   function clock() {
     const d = new Date();
     $('clock').innerHTML = `${d.toLocaleTimeString('vi-VN', { hour12: false })}<small>${d.toLocaleDateString('vi-VN', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' })}</small>`;
   }
+
+  // ── API cho hud.js (bộ não) ───────────────────────────────────────────────
+  window.HUDVisual = {
+    setState: (s, opts = {}) => setState(s, opts),
+    clearAlert: () => { if (state === 'alert') setState('idle', { text: 'Sẵn sàng nhận lệnh.' }); },
+    setQuery: (q) => { $('query').textContent = q ? `“${q}”` : ''; },
+    transcript: (t) => { $('query').textContent = t ? `“${t}”` : ''; },
+    thoughts: (t) => { if (t) thoughts(t); },
+    setLevelSource: (fn) => { levelSource = typeof fn === 'function' ? fn : null; },
+    setAssistantName: (name) => {
+      if (!name) return;
+      aiName = String(name).trim() || aiName;
+      const b = document.querySelector('.brand b'); if (b) b.textContent = aiName;
+      const who = document.querySelector('#subtitle .who'); if (who) who.textContent = aiName.toUpperCase();
+    },
+    robot: (online) => { const n = byId.get('robot'); if (n) { n.down = !online; beam('robot', online ? 'ok' : 'error'); } },
+    beam: (id, status) => beam(id, status),
+  };
 
   // ── khởi động ─────────────────────────────────────────────────────────────
   resize(); setNodes([]); subtitle('Sẵn sàng nhận lệnh.', true); clock(); scramble($('state-pill'), STATES.idle.label, 900);
@@ -914,12 +872,12 @@
   else { setTimeout(() => document.body.classList.remove('booting'), 60); setTimeout(() => document.body.classList.add('booted'), 2200); }
   if (TOKEN) {
     live = true;
-    $('mode-chip').className = 'chip live'; $('mode-chip').textContent = '● LIVE · dữ liệu thật';
-    $('note').textContent = 'Bản thử giao diện: chỉ hiển thị (không phát tiếng, không gửi lệnh, không duyệt). Phím 1–6 để xem thử từng trạng thái.';
-    pollSlow().then(() => { if (live) connectWs(); });
+    $('mode-chip').className = 'chip live'; $('mode-chip').textContent = '● Dữ liệu thật';
+    $('note').textContent = 'Phím Cách: nói · / : gõ lệnh · F: toàn màn hình · Esc: đóng bảng';
+    pollSlow();
     setInterval(pollSlow, 10000);
   } else {
-    toDemo();
+    toLogin();
   }
   pollFast(); setInterval(pollFast, 2000);
   const qs = new URLSearchParams(location.search).get('state');

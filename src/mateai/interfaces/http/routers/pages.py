@@ -143,9 +143,9 @@ async def serve_admin_root():
 
 
 @router.get("/hud", include_in_schema=True, response_class=HTMLResponse,
-         summary="VN-MateAI Sci-Fi HUD Standby Display (Phase 33)")
+         summary="HUD \"buồng lái AI\" — lõi nơ-ron, ra lệnh bằng giọng nói / gõ, phê duyệt, số liệu doanh nghiệp")
 async def get_vnmate_hud():
-    """Phục vụ giao diện HUD VN-MateAI 3D toàn màn hình cho màn hình phụ."""
+    """HUD toàn màn hình: web/hud-visual.js (hình) + web/hud.js (WebSocket, micro, phát tiếng, phê duyệt, thanh lệnh)."""
     hud_file = _WEB_DIR / "hud.html"
     if not hud_file.exists():        raise HTTPException(status_code=404, detail="web/hud.html not found.")
     return HTMLResponse(
@@ -159,15 +159,10 @@ async def get_vnmate_hud():
     )
 
 
-@router.get("/hud-next", include_in_schema=True, response_class=HTMLResponse,
-            summary="Bản THỬ giao diện HUD mới (buồng lái AI) — HUD đang dùng vẫn ở /hud")
+@router.get("/hud-next", include_in_schema=False)
 async def get_vnmate_hud_next():
-    """Bản thử: chỉ hiển thị (không phát tiếng, không gửi lệnh, không duyệt). Dữ liệu thật khi trình duyệt đã đăng nhập portal."""
-    page = _WEB_DIR / "hud-next.html"
-    if not page.exists():
-        raise HTTPException(status_code=404, detail="web/hud-next.html not found.")
-    return HTMLResponse(_inject_asset_versions(page.read_text(encoding="utf-8")),
-                        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"})
+    """Bản thử HUD "buồng lái AI" đã thay HUD cũ (2026-10-12) — giữ đường cũ cho dấu trang, chuyển về /hud."""
+    return RedirectResponse(url="/hud")
 
 
 @router.get(
