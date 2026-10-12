@@ -87,6 +87,11 @@ section("Lệnh dừng của admin")
 for w in ["dừng", "thôi", "hủy", "huỷ", "bỏ qua", "không cần", "stop", "cancel"]:
     check(f"'{w}' -> dừng", is_stop_reply(w), w)
 check("câu hỏi bình thường không phải lệnh dừng", not is_stop_reply("Anh muốn báo cáo tháng nào?"))
+# câu GHÉP (2026-10-12): "không cần, cảm ơn bạn" từng bị gửi như lệnh mới
+for w in ["không cần , cảm ơn bạn", "dạ không ạ, cảm ơn em nhé", "thôi, cảm ơn em", "hết rồi, cảm ơn", "không cần đâu, cảm ơn nhiều"]:
+    check(f"'{w}' -> dừng (câu ghép)", is_stop_reply(w), w)
+for w in ["không, kiểm tra ổ đĩa giúp anh", "cảm ơn, giờ xem giúp anh doanh thu", "không biết hôm nay CPU thế nào", "được rồi"]:
+    check(f"'{w}' -> KHÔNG dừng (còn yêu cầu)", not is_stop_reply(w), w)
 
 
 # ══ 3. Đếm lượt hỏi lại ══════════════════════════════════════════════════

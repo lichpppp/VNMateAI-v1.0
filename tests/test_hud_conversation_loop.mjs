@@ -35,10 +35,12 @@ const code = [
 const H = new Function(code)();
 
 console.log('▸ "Không còn yêu cầu" → đóng lắng nghe ngay');
-for (const t of ['không', 'dạ không có gì nữa đâu em', 'cảm ơn em nhé', 'thôi được rồi', 'hết rồi', 'tạm biệt nhé']) {
+for (const t of ['không', 'dạ không có gì nữa đâu em', 'cảm ơn em nhé', 'thôi được rồi', 'hết rồi', 'tạm biệt nhé',
+  'không cần , cảm ơn bạn', 'dạ không ạ, cảm ơn em nhé', 'thôi, cảm ơn em']) {
   check(`đóng: "${t}"`, H.hudIsDoneReply(t));
 }
-for (const t of ['không biết hôm nay CPU thế nào', 'mở bài hát Lạc Trôi', 'vâng', 'có cần kiểm tra không cần thiết']) {
+for (const t of ['không biết hôm nay CPU thế nào', 'mở bài hát Lạc Trôi', 'vâng', 'có cần kiểm tra không cần thiết',
+  'không, kiểm tra ổ đĩa giúp anh', 'cảm ơn, giờ xem giúp anh doanh thu']) {
   check(`KHÔNG đóng: "${t}"`, !H.hudIsDoneReply(t));
 }
 

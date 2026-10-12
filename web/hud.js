@@ -233,6 +233,21 @@
     },
     onPlaybackEnd: () => {
       isAudioPlaying = false;
+      // Vừa đọc xong lời ĐỆM ("Em đang xử lý ngay đây ạ") — câu trả lời thật chưa tới: giữ "đang suy nghĩ",
+      // đừng nhảy về chờ rồi lại "đang nói" (trước đây nhìn như hội thoại bị ngắt giữa chừng).
+      if (hudAwaitingAnswer && Date.now() - hudAwaitingAnswer < 30000) {
+        setHudState('processing', 'Em đang suy nghĩ…');
+        const mark = hudAwaitingAnswer;
+        // chốt chặn: máy chủ lỗi, câu trả lời không bao giờ tới → 30 s sau tự về chờ
+        setTimeout(() => {
+          if (hudAwaitingAnswer === mark && !hudIsSpeaking()) {
+            hudAwaitingAnswer = 0;
+            setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+          }
+        }, Math.max(0, 30000 - (Date.now() - mark)));
+        return;
+      }
+      hudAwaitingAnswer = 0;
       playCyberChime('ready');
       setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
     },
@@ -366,6 +381,8 @@
 
 
   let lastSpokenText = '';
+  // Mốc lúc phát lời đệm (gói is_filler) — còn khác 0 nghĩa là câu trả lời thật chưa tới (xem onPlaybackEnd).
+  let hudAwaitingAnswer = 0;
   // Câu đã nhận chữ, đang chờ khung MP3 của nó (cùng thứ tự máy chủ gửi) — xem onChunkScheduled.
   let hudAudioTexts = [];
   let lastSpokenTime = 0;
@@ -686,6 +703,7 @@
     const text = packet.text || '';
     const audioB64 = packet.audio_base64;
     const sourceDevice = packet.source_device || '';
+    hudAwaitingAnswer = packet.is_filler ? Date.now() : 0;
     const now = Date.now();
 
     // De-duplication: Prevent playing identical audio if received within 2.5s (e.g. from REST + WS broadcast)
@@ -1251,18 +1269,28 @@ const HUD_DONE_PHRASES = new Set([
   'không cần đâu', 'hết', 'xong', 'vậy thôi', 'thôi', 'dừng', 'dừng lại', 'hủy', 'huỷ',
   'bỏ qua', 'tạm dừng', 'đủ', 'cảm ơn', 'cám ơn', 'tạm biệt', 'bye', 'stop', 'cancel',
   'never mind', 'no', 'nope', 'không có gì cả', 'không có yêu cầu', 'không có yêu cầu gì',
-  'thôi vậy', 'không cần nữa',
+  'thôi vậy', 'không cần nữa', 'ổn', 'đủ rồi', 'thanks', 'thank you', 'cảm ơn nhiều', 'không còn yêu cầu',
+  'không còn việc gì', 'không có việc gì', 'tạm thời không', 'hết việc',
 ]);
 const HUD_POLITE = new Set([
   'dạ', 'vâng', 'à', 'ạ', 'a', 'em', 'anh', 'chị', 'nhé', 'nha', 'nhá', 'nhe', 'đâu', 'nữa',
   'rồi', 'được', 'ok', 'oke', 'okay', 'thế', 'vậy', 'là', 'đã', 'cả', 'lắm', 'nhiều',
+  'bạn', 'ơi', 'mình', 'luôn', 'hen', 'nghen', 'nhen', 'nhỉ', 'ha', 'hả', 'ly',
 ]);
 
 function hudIsDoneReply(text) {
+  // Câu GHÉP cũng là kết thúc khi mọi phần đều là câu kết thúc: "không cần, cảm ơn bạn" = "không cần" + "cảm ơn"
+  // (trước đây chỉ khớp nguyên câu → bị gửi như lệnh mới, trợ lý nói "Em đang xử lý…"). Cùng quy tắc với is_stop_reply.
   const words = String(text || '').toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
-  if (!words.length || words.length > 8) return false;
-  const core = words.filter((w) => !HUD_POLITE.has(w)).join(' ');
-  return !!core && HUD_DONE_PHRASES.has(core);
+  if (!words.length || words.length > 10) return false;
+  const core = words.filter((w) => !HUD_POLITE.has(w));
+  if (!core.length) return false;
+  const ok = [true];
+  for (let i = 1; i <= core.length; i++) {
+    ok[i] = false;
+    for (let k = 1; k <= Math.min(5, i); k++) if (ok[i - k] && HUD_DONE_PHRASES.has(core.slice(i - k, i).join(' '))) { ok[i] = true; break; }
+  }
+  return ok[core.length];
 }
 
 /** Trợ lý còn đang phát tiếng (khung nhị phân hoặc hàng đợi base64). */
@@ -1363,11 +1391,13 @@ function hudOnReplyTimeout() {
 
 /** Admin nói không còn yêu cầu: đóng lắng nghe ngay, không gọi AI. */
 function hudEndConversationByUser(text) {
-  appendSystemLog(`Không còn yêu cầu ("${text}") — đóng lắng nghe.`, 'VOICE');
+  appendSystemLog(`Không còn yêu cầu ("${text}") — chào tạm biệt, về chờ.`, 'VOICE');
   hudResetConversation();
   hudStopListeningForTurn();
   playCyberChime('click');
-  setHudState('idle', 'Đang ở trạng thái sẵn sàng lắng nghe chỉ lệnh của bạn...');
+  // Máy chủ đọc câu chào ("Dạ vâng, em chào anh…") rồi HUD tự về chờ khi phát xong.
+  viz('transcript', text);
+  setHudState('idle', 'Dạ vâng, em chào anh.');
   hudSendControl({ action: 'end_conversation', reason: 'user_done' });
 }
 

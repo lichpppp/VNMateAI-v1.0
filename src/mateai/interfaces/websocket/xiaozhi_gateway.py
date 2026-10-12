@@ -762,9 +762,12 @@ class XiaozhiGateway:
         transcribed = await self._transcribe(node, audio)
 
         if transcribed and node.follow_up and _is_stop_reply(transcribed):
-            # "Không / thôi / cảm ơn" khi robot đang chờ chỉ lệnh tiếp: đóng ngay (như HUD).
+            # "Không / không cần, cảm ơn…" khi robot đang chờ chỉ lệnh tiếp: chào tạm biệt rồi về chờ (như HUD).
+            from mateai.application.voice.voice_session import GOODBYE_PHRASE
             node.follow_up = 0
             await ws.send_text(json.dumps({"type": "asr_result", "text": transcribed}))
+            _topo("robot", stage="farewell", node=f"robot:{node.device_id}", detail="admin không còn yêu cầu — chào")
+            await self._say(node, GOODBYE_PHRASE)
             await self.send_ui_payload(device_id, state="idle", emotion="sleeping")
             return
 

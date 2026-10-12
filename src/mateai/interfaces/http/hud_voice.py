@@ -106,6 +106,8 @@ async def process_command(cmd_query: str, session_id: str = "hud", *, caller: st
 from mateai.application.voice.voice_session import FOLLOW_UP_PHRASE as FOLLOW_UP_QUESTION  # noqa: E402
 #: Câu chào khi chờ 30 giây không nghe thấy phản hồi (HUD báo `end_conversation`).
 from mateai.application.voice.voice_session import FAREWELL_PHRASE as FAREWELL  # noqa: E402 — dùng chung với robot
+#: Câu chào khi admin nói không còn yêu cầu (HUD báo `end_conversation` user_done, hoặc máy chủ tự nhận ra).
+from mateai.application.voice.voice_session import GOODBYE_PHRASE as GOODBYE  # noqa: E402 — dùng chung với robot
 
 
 async def say(text: str) -> None:
@@ -125,12 +127,12 @@ async def say(text: str) -> None:
 
 
 async def end_conversation(session_id: str = "hud", reason: str = "user_done") -> None:
-    """Kết thúc vòng hội thoại. `timeout`: không nghe phản hồi → nói lời chào rồi
-    đóng; `user_done`: admin nói không còn yêu cầu → đóng ngay, không nói gì."""
+    """Kết thúc vòng hội thoại rồi về trạng thái chờ. `timeout`: không nghe phản hồi → "Nếu anh không có yêu cầu
+    nào khác thì tạm biệt…"; `user_done`: admin nói "không / không cần, cảm ơn…" → "Dạ vâng, em chào anh…".
+    Không gọi LLM — câu cố định, có sẵn trong cache âm thanh nên phát ngay."""
     from mateai.application.voice.voice_session import voice_sessions
     voice_sessions.get(session_id).clear_expecting_reply()
-    if reason == "timeout":
-        await say(FAREWELL)
+    await say(FAREWELL if reason == "timeout" else GOODBYE)
     await broadcast_hud({
         "type": "voice_state", "session_id": session_id, "expecting_reply": False,
         "question": "", "closed": True, "reason": reason,
@@ -203,8 +205,9 @@ async def process_command_body(cmd_query: str, session_id: str = "hud", *, calle
 
     session = voice_sessions.get(session_id)
     if is_stop_reply(cmd_query) and session.expecting_reply:
-        # "Không còn gì / thôi / cảm ơn" khi đang chờ: đóng lắng nghe NGAY, không
-        # gọi LLM, không nói thêm.
+        # "Không còn gì / thôi / cảm ơn" khi đang chờ: chào tạm biệt rồi đóng lắng nghe,
+        # không gọi LLM.
+        logger.info("[HUD] Admin không còn yêu cầu: '%s' — chào và về chờ", cmd_query[:80])
         await end_conversation(session_id, "user_done")
         return
 

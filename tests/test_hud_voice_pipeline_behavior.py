@@ -219,7 +219,10 @@ async def test_answer_ending_with_question_is_not_asked_twice(hud, monkeypatch):
     assert _states(hud["events"])[-1]["expecting_reply"] is True
 
 
-async def test_no_more_requests_closes_immediately_without_llm(hud, monkeypatch):
+@pytest.mark.parametrize("reply", ["dạ không có gì nữa đâu em", "không cần , cảm ơn bạn", "thôi, cảm ơn em nhé"])
+async def test_no_more_requests_says_goodbye_and_closes_without_llm(hud, monkeypatch, reply):
+    # 2026-10-12 người dùng: trả lời "không cần, cảm ơn bạn" mà trợ lý lại nói "Em đang xử lý…" — câu ghép không được nhận
+    # ra. Nay: nhận ra câu ghép, chào tạm biệt ("Dạ vâng, em chào anh…"), đóng, về chờ — không gọi LLM.
     from mateai.application.voice.voice_session import voice_sessions
     voice_sessions.get(hud["session_id"]).mark_expecting_reply(hud_voice.FOLLOW_UP_QUESTION)
 
@@ -228,10 +231,11 @@ async def test_no_more_requests_closes_immediately_without_llm(hud, monkeypatch)
         yield  # pragma: no cover
 
     monkeypatch.setattr(llm_engine, "stream_voice_response", must_not_run)
-    await hud_voice.process_command_body("dạ không có gì nữa đâu em", hud["session_id"], caller="hud-admin")
+    await hud_voice.process_command_body(reply, hud["session_id"], caller="hud-admin")
     state = _states(hud["events"])[-1]
     assert state["closed"] is True and state["reason"] == "user_done" and state["expecting_reply"] is False
-    assert _spoken_audio(hud["events"]) == []
+    said = [p["text"] for kind, p in hud["events"] if kind == "json" and p.get("status") == "speaking"]
+    assert said == [hud_voice.GOODBYE]
 
 
 async def test_timeout_says_goodbye_then_closes(hud):

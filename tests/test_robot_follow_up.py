@@ -84,18 +84,22 @@ async def test_after_answer_robot_keeps_listening_10s(gw, monkeypatch):
     assert ui[-1] == {"state": "listening", "emotion": "focused", "listen_timeout_ms": 10000}
 
 
-async def test_no_more_requests_closes_immediately(gw, monkeypatch):
+@pytest.mark.parametrize("reply", ["không có gì nữa đâu em", "không cần , cảm ơn bạn"])
+async def test_no_more_requests_says_goodbye_then_idle(gw, monkeypatch, speech, reply):
+    # 2026-10-12: nói "không / không cần, cảm ơn…" → robot chào tạm biệt rồi về chờ (trước: tắt im lặng), không gọi AI.
+    from mateai.application.voice.voice_session import GOODBYE_PHRASE
     g, node, ui = gw
     node.follow_up = 1
 
     async def asr(n, audio):
-        return "không có gì nữa đâu em"
+        return reply
 
     started = []
     monkeypatch.setattr(g, "_transcribe", asr)
     monkeypatch.setattr(g, "_execute_pipeline", lambda n, t: started.append(t) or asyncio.sleep(0))
     await g._finish_utterance(node, b"\0" * 4000)
     assert node.follow_up == 0 and started == [] and ui[-1]["state"] == "idle"
+    assert speech == [GOODBYE_PHRASE]
 
 
 @pytest.fixture
