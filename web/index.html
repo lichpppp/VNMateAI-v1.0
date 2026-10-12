@@ -197,68 +197,7 @@
     }
 
     /* ─── ROI Dashboard Nav Button (Hài hòa với Sidebar) ─────────── */
-    .nav-btn-roi {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 12px;
-      border-radius: 10px;
-      font-size: 0.8125rem;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      position: relative;
-      color: #64748b;
-      background: transparent;
-      border: 1px solid transparent;
-      text-decoration: none;
-      white-space: nowrap;
-    }
-
-    .dark .nav-btn-roi {
-      color: #94a3b8;
-      background: transparent;
-      border: 1px solid transparent;
-    }
-
-    .nav-btn-roi:hover {
-      color: #0f172a;
-      background: #f1f5f9;
-      border-color: rgba(99, 102, 241, 0.2);
-    }
-
-    .dark .nav-btn-roi:hover {
-      color: #ffffff;
-      background: #334155;
-      border-color: rgba(99, 102, 241, 0.3);
-    }
-
-    .nav-btn-roi .roi-badge {
-      margin-left: auto;
-      padding: 2px 6px;
-      border-radius: 6px;
-      font-size: 9px;
-      font-weight: 700;
-      font-family: ui-monospace, monospace;
-      background: rgba(99, 102, 241, 0.15);
-      color: #818cf8;
-      border: 1px solid rgba(99, 102, 241, 0.3);
-      letter-spacing: 0.3px;
-    }
-
-    @keyframes roiPulse {
-
-      0%,
-      100% {
-        opacity: 1;
-        box-shadow: 0 0 6px rgba(99, 102, 241, 0.4);
-      }
-
-      50% {
-        opacity: 0.8;
-        box-shadow: 0 0 12px rgba(99, 102, 241, 0.7);
-      }
-    }
+    /* .nav-btn-roi + roiPulse đã gỡ (2026-10-12): mục ROI dùng chung kiểu .nav-btn, đánh dấu ↗ như các mục mở tab mới. */
 
     .nav-separator {
       margin: 8px 0;
@@ -683,12 +622,13 @@
       </div>
 
       <!-- Navigation Links: Structured by Executive Command Hierarchy -->
-      <nav class="p-3 space-y-3.5">
-        <!-- NHÓM 1: CHỈ HUY & ĐIỀU HÀNH -->
+      <nav class="p-3 space-y-3.5" aria-label="Điều hướng chính">
+        <!-- 5 nhóm theo cách dùng (2026-10-12): xem tổng quan → vận hành hằng ngày → kết nối → trợ lý AI → quản trị. -->
+        <!-- NHÓM 1: TỔNG QUAN -->
         <div>
           <div
             class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
-            <span>CHỈ HUY & ĐIỀU HÀNH</span>
+            <span>TỔNG QUAN</span>
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
           </div>
           <div class="space-y-1">
@@ -702,55 +642,33 @@
               <span class="whitespace-nowrap">Bảng Điều Khiển</span>
             </div>
 
-            <div class="nav-btn" id="nav-system-integration" onclick="switchTab('system-integration')">
+            <a href="/roi" target="_blank" rel="noopener" class="nav-btn" id="nav-roi-dashboard"
+              title="Hiệu quả đầu tư tự động hoá — mở tab mới">
               <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M9 2v6" />
-                <path d="M15 2v6" />
-                <path d="M6 8h12v3a6 6 0 0 1-12 0V8z" />
-                <path d="M12 17v5" />
-              </svg>
-              <span class="whitespace-nowrap">Tích Hợp Hệ Thống</span>
-            </div>
-
-            <!-- Sơ Đồ Topology n8n -->
-            <a href="/admin/topology" target="_blank" class="nav-btn group flex items-center justify-between"
-              id="nav-topology" title="Xem sơ đồ mạng lưới kiến trúc và luồng dữ liệu thời gian thực (React Flow)">
-              <div class="flex items-center gap-2.5">
-                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"
-                  class="text-cyan-500">
-                  <circle cx="18" cy="5" r="3" />
-                  <circle cx="6" cy="12" r="3" />
-                  <circle cx="18" cy="19" r="3" />
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                </svg>
-                <span class="whitespace-nowrap">Topology Luồng</span>
-              </div>
-              <span
-                class="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">n8n</span>
-            </a>
-
-            <!-- ROI Dashboard -->
-            <a class="nav-btn-roi" id="nav-roi-dashboard" href="/roi" target="_blank"
-              title="Mở ROI Dashboard trong tab mới — Hiệu quả đầu tư tự động hóa">
-              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <rect x="2" y="2" width="9" height="9" rx="1" />
-                <rect x="13" y="2" width="9" height="9" rx="1" />
-                <rect x="2" y="13" width="9" height="9" rx="1" />
-                <rect x="13" y="13" width="9" height="9" rx="1" />
+                <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" />
               </svg>
               <span class="whitespace-nowrap">Hiệu Quả ROI</span>
-              <span class="roi-badge">Báo Cáo</span>
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" class="ml-auto opacity-60 shrink-0" aria-hidden="true"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg>
+            </a>
+
+            <a href="/admin/topology" target="_blank" rel="noopener" class="nav-btn" id="nav-topology"
+              title="Sơ đồ kiến trúc và luồng dữ liệu thời gian thực — mở tab mới">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" />
+                <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+              </svg>
+              <span class="whitespace-nowrap">Topology Luồng</span>
+              <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24" class="ml-auto opacity-60 shrink-0" aria-hidden="true"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg>
             </a>
           </div>
         </div>
 
-        <!-- NHÓM 2: TRÍ TUỆ NHÂN TẠO & ROBOT -->
+        <!-- NHÓM 2: VẬN HÀNH HẰNG NGÀY -->
         <div>
           <div
             class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
-            <span>TRÍ TUỆ NHÂN TẠO & ROBOT</span>
-            <span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+            <span>VẬN HÀNH HẰNG NGÀY</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
           </div>
           <div class="space-y-1">
             <div class="nav-btn" id="nav-infra-monitor" onclick="switchTab('infra-monitor')"
@@ -760,12 +678,44 @@
               </svg>
               <span class="whitespace-nowrap">Giám Sát Hạ Tầng</span>
             </div>
+
+            <div class="nav-btn" id="nav-tasks" onclick="switchTab('tasks')" title="Việc đã giao / đã làm, KPI, báo cáo">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <rect x="8" y="2" width="8" height="4" rx="1" />
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <path d="M9 12h6M9 16h4" />
+              </svg>
+              <span class="whitespace-nowrap">Nhật Ký Công Việc</span>
+              <span id="badge-kpi-count"
+                class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">KPI</span>
+            </div>
+
             <div class="nav-btn" id="nav-playbooks" onclick="switchTab('playbooks')"
               title="Kịch bản vận hành: chạy thử, duyệt, hoàn tác, kiểm chứng">
               <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <polyline points="9 11 12 14 22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
               </svg>
               <span class="whitespace-nowrap">Kịch Bản Vận Hành</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- NHÓM 3: KẾT NỐI DOANH NGHIỆP -->
+        <div>
+          <div
+            class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>KẾT NỐI DOANH NGHIỆP</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+          </div>
+          <div class="space-y-1">
+            <div class="nav-btn" id="nav-system-integration" onclick="switchTab('system-integration')" title="Hệ thống có API dữ liệu (REST / SQL), webhook giám sát, máy trạm, phòng ban">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path d="M9 2v6" />
+                <path d="M15 2v6" />
+                <path d="M6 8h12v3a6 6 0 0 1-12 0V8z" />
+                <path d="M12 17v5" />
+              </svg>
+              <span class="whitespace-nowrap">Tích Hợp Hệ Thống</span>
             </div>
 
             <div class="nav-btn" id="nav-agent-gateway" onclick="switchTab('agent-gateway')"
@@ -778,7 +728,7 @@
             </div>
 
             <div class="nav-btn" id="nav-dev-fleet" onclick="switchTab('dev-fleet')"
-              title="Điều phối cụm WorkNode qua Master">
+              title="Giao việc phát triển cho cụm Mac mini / OpenClaw qua Ubuntu Master">
               <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <rect x="3" y="4" width="18" height="6" rx="1" />
                 <rect x="3" y="14" width="18" height="6" rx="1" />
@@ -786,7 +736,17 @@
               </svg>
               <span class="whitespace-nowrap">Dev Fleet</span>
             </div>
+          </div>
+        </div>
 
+        <!-- NHÓM 4: TRỢ LÝ AI & ROBOT -->
+        <div>
+          <div
+            class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>TRỢ LÝ AI & ROBOT</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>
+          </div>
+          <div class="space-y-1">
             <div class="nav-btn" id="nav-ai-manager" onclick="switchTab('ai-manager')">
               <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <circle cx="12" cy="8" r="4" />
@@ -801,48 +761,28 @@
                 AI</span>
             </div>
 
-            <div class="nav-btn" id="nav-voice" onclick="switchTab('voice')">
+            <div class="nav-btn" id="nav-skills" onclick="switchTab('skills')" title="Kỹ năng / công cụ AI dùng được, bật tắt, tạo mới">
+              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+              <span class="whitespace-nowrap">Kho Kỹ Năng</span>
+            </div>
+
+            <div class="nav-btn" id="nav-voice" onclick="switchTab('voice')" title="Kiểm thử lệnh thoại, TTS, robot ESP32 và màn hình HUD">
               <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
                 <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
                 <line x1="12" y1="19" x2="12" y2="23" />
                 <line x1="8" y1="23" x2="16" y2="23" />
               </svg>
-              <span class="whitespace-nowrap">Cấu hình Robot - HUD</span>
-            </div>
-
-            <div class="nav-btn" id="nav-skills" onclick="switchTab('skills')">
-              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                <polyline points="2 17 12 22 22 17" />
-                <polyline points="2 12 12 17 22 12" />
-              </svg>
-              <span class="whitespace-nowrap">Kho Kỹ Năng RPA</span>
+              <span class="whitespace-nowrap">Giọng Nói, Robot & HUD</span>
             </div>
           </div>
         </div>
 
-        <!-- NHÓM 3: DOANH NGHIỆP & TỰ ĐỘNG HÓA -->
-        <div>
-          <div
-            class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
-            <span>DOANH NGHIỆP & TỰ ĐỘNG HÓA</span>
-            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
-          </div>
-          <div class="space-y-1">
-            <div class="nav-btn" id="nav-tasks" onclick="switchTab('tasks')">
-              <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                <path d="M9 11l3 3L22 4" />
-                <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-              </svg>
-              <span class="whitespace-nowrap">Nhật Ký Công Việc</span>
-              <span id="badge-kpi-count"
-                class="ml-auto px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/30">KPI</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- NHÓM 4: BẢO MẬT & QUẢN TRỊ -->
+        <!-- NHÓM 5: BẢO MẬT & QUẢN TRỊ -->
         <div>
           <div
             class="px-3 pb-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 flex items-center justify-between">
@@ -7893,7 +7833,7 @@
   <script src="/static/agent-directory.js?v=2"></script>
   <script src="/static/agent-gateway.js?v=2"></script>
   <script src="/static/dev-fleet.js?v=4"></script>
-  <script src="/static/app.js?v=57.9"></script>
+  <script src="/static/app.js?v=58.0"></script>
 </body>
 
 </html>

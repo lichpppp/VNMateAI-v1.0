@@ -151,10 +151,11 @@ if (dash && si) {
   const navOrder = [...html.matchAll(/<div class="nav-btn[^"]*" id="nav-([a-z-]+)"/g)]
     .map(m => m[1])
     .filter(id => VALID_TABS.includes(id));
-  const iDash = navOrder.indexOf('dashboard');
+  // 2026-10-12: thanh điều hướng xếp theo cách dùng; tab tích hợp đứng ĐẦU nhóm "Kết nối doanh nghiệp",
+  // ngay trước Cổng Agent và Dev Fleet (ba tab nối ra ngoài nằm cạnh nhau).
   const iSi = navOrder.indexOf('system-integration');
-  check('nút nav tab tích hợp nằm ngay sau nút Bảng Điều Khiển',
-    iDash >= 0 && iSi === iDash + 1, navOrder.join(' > '));
+  check('tab tích hợp mở đầu nhóm kết nối: Tích hợp > Cổng Agent > Dev Fleet',
+    iSi >= 0 && navOrder[iSi + 1] === 'agent-gateway' && navOrder[iSi + 2] === 'dev-fleet', navOrder.join(' > '));
   check('mọi nút nav đều trỏ tới một tab thật',
     navOrder.length === VALID_TABS.length,
     `nav=${navOrder.length} VALID_TABS=${VALID_TABS.length}: ${navOrder.join(', ')}`);
@@ -174,8 +175,8 @@ if (dash && si) {
 results.push('▸ Đăng ký tab trong app.js');
 check("VALID_TABS có 'system-integration'",
   /const VALID_TABS = \[[^\]]*'system-integration'[^\]]*\]/.test(src));
-check("TAB_TITLES['system-integration'] = 'Tích Hợp Hệ Thống Báo Cáo'",
-  src.includes("'system-integration': 'Tích Hợp Hệ Thống Báo Cáo',"));
+check("TAB_TITLES['system-integration'] bắt đầu bằng 'Tích Hợp Hệ Thống'",
+  src.includes("'system-integration': 'Tích Hợp Hệ Thống — "));
 // Khớp theo HÀNH VI, không khớp chuỗi tuyệt đối. Phase 78 đổi dòng này thành
 // khối nhiều dòng (tab Tích Hợp nay nạp thêm danh sách máy trạm sau khi gộp
 // tab "Thiết Bị"), nên so khớp chuỗi sẽ báo đỏ oan dù hàm vẫn được gọi đúng.

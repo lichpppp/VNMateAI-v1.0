@@ -247,11 +247,11 @@ let pendingEmergencyAction = null;
 // còn tồn tại, dễ khiến người đọc code tưởng những tab đó vẫn còn.
 const TAB_TITLES = {
   dashboard: 'Bảng Điều Khiển',
-  'system-integration': 'Tích Hợp Hệ Thống Báo Cáo',
-  skills: 'Kho Kỹ Năng Hệ Thống',
+  'system-integration': 'Tích Hợp Hệ Thống — API dữ liệu · Webhook · Máy trạm · Phòng ban',
+  skills: 'Kho Kỹ Năng — công cụ AI dùng được',
   security: 'Trung Tâm Bảo Mật & Kiểm Toán',
   tasks: 'Nhật Ký Công Việc & Báo Cáo KPI',
-  voice: 'Kiểm Thử Lệnh Thoại & TTS',
+  voice: 'Giọng Nói, Robot & HUD — kiểm thử lệnh thoại · TTS',
   config: 'Cấu Hình Toàn Bộ Hệ Thống',
   logs: 'Nhật Ký Hệ Thống (Real-time Logs)',
   'ai-manager': 'Quản Lý Trợ Lý AI — LLM · Persona · Audio',
