@@ -50,3 +50,14 @@ def test_neural_interactions_exist_and_stay_display_only():
     assert 'id="tip"' in HTML and "#frame > main { pointer-events: none; }" in HTML
     click = JS[JS.index("cv.addEventListener('click'"):JS.index("function clock()")]
     assert "fetch(" not in click and "send(" not in click                    # bấm chỉ tạo hiệu ứng
+
+
+def test_futuristic_layer_uses_real_numbers_and_settles():
+    # bệ phát ba chiều, lưới tổ ong, vòng chữ dữ liệu (số liệu THẬT), tia điện, chiều sâu theo chuột, chữ "giải mã" + nhiễu RGB
+    for marker in ("2b. bệ phát ba chiều", "1b. lưới tổ ong", "4b. vòng chữ dữ liệu", "7b. tia điện", "--px", "function scramble", "function glitch"):
+        assert marker in JS, marker
+    ring = JS[JS.index("function updateRing"):JS.index("function applyHealth")]
+    assert "ringData.tokens" in ring and "ringData.latency" in ring and "Math.random" not in ring       # không bịa số
+    scr = JS[JS.index("function scramble"):JS.index("function glitch")]
+    assert "setTimeout" in scr                                                                       # luôn hiện chữ đúng
+    assert "clip-path" not in HTML[HTML.index("@keyframes glitch"):HTML.index("@keyframes glitch") + 600]

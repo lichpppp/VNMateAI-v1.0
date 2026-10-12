@@ -46,7 +46,7 @@
     if (s !== state) shocks.push({ t0: clockNow, hue: STATES[s].hue });
     state = s;
     document.documentElement.style.setProperty('--c', STATES[s].hue);
-    $('state-pill').textContent = STATES[s].label;
+    if ($('state-pill').dataset.t !== STATES[s].label) { scramble($('state-pill'), STATES[s].label); glitch(); }
     document.body.classList.toggle('alert', s === 'alert');
     if (opts.query !== undefined) $('query').textContent = opts.query ? `“${opts.query}”` : '';
     if (s === 'speaking' && opts.text) speak(opts.text);
@@ -54,6 +54,27 @@
     if (s === 'thinking') { subtitle('Em đang suy nghĩ…', true); if (opts.text) thoughts(opts.text); }
     if (s === 'alert' && opts.text) subtitle(opts.text, true);
     if (s === 'idle' && opts.text !== undefined) subtitle(opts.text || 'Sẵn sàng nhận lệnh.', true);
+  }
+
+  // chữ chạy ký tự ngẫu nhiên rồi "giải mã" dần từ trái sang phải
+  const GLYPHS = '01ABCDEF#%&*<>/\\|=+ΞΣΔ';
+  function scramble(el, text, ms = 520) {
+    el.dataset.t = text;
+    const start = performance.now();
+    const step = () => {
+      if (el.dataset.t !== text) return;
+      // đo bằng performance.now() (cùng đồng hồ với `start`) — không dùng dấu thời gian của requestAnimationFrame
+      const p = Math.max(0, Math.min(1, (performance.now() - start) / ms)), k = Math.floor(p * text.length);
+      el.textContent = text.slice(0, k) + [...text.slice(k)].map((c) => (c === ' ' ? ' ' : GLYPHS[(Math.random() * GLYPHS.length) | 0])).join('');
+      if (p < 1) requestAnimationFrame(step); else el.textContent = text;
+    };
+    requestAnimationFrame(step);
+    setTimeout(() => { if (el.dataset.t === text) el.textContent = text; }, ms + 80);   // chắc chắn hiện chữ đúng khi tab bị giảm khung hình
+  }
+  let glitchTimer = null;
+  function glitch() {
+    document.body.classList.remove('glitch'); void document.body.offsetWidth; document.body.classList.add('glitch');
+    clearTimeout(glitchTimer); glitchTimer = setTimeout(() => document.body.classList.remove('glitch'), 420);
   }
 
   // ── phụ đề kiểu điện ảnh ─────────────────────────────────────────────────
@@ -79,7 +100,8 @@
     W = window.innerWidth; H = window.innerHeight;
     cv.width = W * DPR; cv.height = H * DPR; cv.style.width = W + 'px'; cv.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-    CX = W / 2; CY = H * 0.47; R = Math.min(W, H) * 0.19;
+    CX = W / 2; CY = H * 0.44; R = Math.min(W, H) * 0.185;
+    buildHex();
     const c = $('center') && $('center').getBoundingClientRect();
     CENTER_HALF = c && c.width ? c.width / 2 : W * 0.25;
   }
@@ -117,6 +139,21 @@
   // chuột: nơ-ron quanh con trỏ bừng sáng; rê lên agent → sợi sáng + thẻ thông tin; bấm lõi / agent → phát xung
   const mouse = { x: -1e4, y: -1e4, on: false };
   let hovered = null;
+
+  // lưới tổ ong năng lượng quanh lõi (dựng lại khi đổi kích thước)
+  let hexCells = [];
+  function buildHex() {
+    hexCells = [];
+    const sz = R * 0.15, w = sz * Math.sqrt(3), h = sz * 1.5, lim = R * 3.3;
+    for (let row = -30; row <= 30; row++) {
+      for (let col = -40; col <= 40; col++) {
+        const x = CX + col * w + (row & 1 ? w / 2 : 0), y = CY + row * h, d = Math.hypot(x - CX, (y - CY) * 1.35);
+        if (d > R * 1.45 && d < lim) hexCells.push({ x, y, d, sz: sz * 0.92 });
+      }
+    }
+  }
+  let ringText = 'VN-MATEAI ◆ NEURAL CORE ◆ ';                 // vòng chữ quay quanh lõi — cập nhật từ số liệu thật
+  const bolts = [];                                         // tia điện (khi nói / sự cố)
 
   // sao bay sâu phía sau
   const stars = Array.from({ length: 240 }, () => ({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2, z: Math.random() }));
@@ -213,11 +250,51 @@
     }
     ctx.globalAlpha = 1;
 
+    // 1b. lưới tổ ong: sóng năng lượng lan từ lõi; sóng xung kích làm từng ô loé lên
+    const shockR = shocks.map((sk) => ((now - sk.t0) / 1100)).filter((p) => p >= 0 && p <= 1).map((p) => R * (0.9 + p * 2.4));
+    ctx.lineWidth = 1;
+    for (const c of hexCells) {
+      const wave = Math.max(0, Math.sin(c.d / (R * 0.32) - t * 1.8));
+      let al = 0.025 + Math.pow(wave, 6) * 0.11 * (0.6 + cur.lattice);
+      for (const sr of shockR) { const dd = Math.abs(c.d - sr); if (dd < R * 0.25) al += (1 - dd / (R * 0.25)) * 0.35; }
+      if (al < 0.03) continue;
+      ctx.strokeStyle = `hsla(${hue},100%,65%,${al})`;
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) { const a = Math.PI / 3 * k; ctx.lineTo(c.x + Math.cos(a) * c.sz, c.y + Math.sin(a) * c.sz); }
+      ctx.closePath(); ctx.stroke();
+    }
+
     // 2. quầng sáng nền (bloom)
     const breathe = (1 + Math.sin(t * 1.6) * cur.pulse + level * 0.18) * bootS;
     let g = ctx.createRadialGradient(CX, CY, 0, CX, CY, R * 3.2 * breathe + 1);
     g.addColorStop(0, `hsla(${hue},95%,62%,0.30)`); g.addColorStop(0.3, `hsla(${hue},95%,50%,0.10)`); g.addColorStop(1, 'transparent');
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+    // 2b. bệ phát ba chiều dưới lõi: đĩa sáng, vòng quay, chùm sáng hắt lên và các lát quét chạy lên
+    const PY0 = CY + R * 1.42, PRX = R * 1.05 * bootS, PRY = R * 0.2 * bootS;
+    ctx.globalCompositeOperation = 'lighter';
+    const cone = ctx.createLinearGradient(0, PY0, 0, CY);
+    cone.addColorStop(0, `hsla(${hue},100%,65%,0.20)`); cone.addColorStop(1, `hsla(${hue},100%,65%,0)`);
+    ctx.fillStyle = cone; ctx.beginPath();
+    ctx.moveTo(CX - PRX, PY0); ctx.lineTo(CX - R * 0.55, CY + R * 0.2); ctx.lineTo(CX + R * 0.55, CY + R * 0.2); ctx.lineTo(CX + PRX, PY0);
+    ctx.closePath(); ctx.fill();
+    for (let k = 0; k < 4; k++) {                                   // lát quét chạy lên
+      const q = ((t * 0.55 + k / 4) % 1), y = lerp(PY0, CY + R * 0.25, q), rx = lerp(PRX, R * 0.55, q);
+      ctx.strokeStyle = `hsla(${hue},100%,75%,${(1 - q) * 0.35})`; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.ellipse(CX, y, rx + 0.1, rx * 0.19 + 0.1, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    const disc = ctx.createRadialGradient(CX, PY0, 0, CX, PY0, PRX + 0.1);
+    disc.addColorStop(0, `hsla(${hue},100%,80%,0.55)`); disc.addColorStop(0.5, `hsla(${hue},100%,60%,0.16)`); disc.addColorStop(1, 'transparent');
+    ctx.fillStyle = disc; ctx.beginPath(); ctx.ellipse(CX, PY0, PRX + 0.1, PRY + 0.1, 0, 0, Math.PI * 2); ctx.fill();
+    for (let k = 0; k < 3; k++) {
+      ctx.save(); ctx.translate(CX, PY0); ctx.scale(1, PRY / Math.max(PRX, 0.1)); ctx.rotate(t * (k % 2 ? -0.6 : 0.4) * (1 + k * 0.3));
+      ctx.strokeStyle = `hsla(${hue},100%,${70 + k * 8}%,${0.65 - k * 0.15})`; ctx.lineWidth = 2.4 - k * 0.6;
+      ctx.setLineDash([PRX * 0.25, PRX * 0.08 + k * 6]);
+      ctx.beginPath(); ctx.arc(0, 0, PRX * (1 - k * 0.22) + 0.1, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+    ctx.setLineDash([]);
+    ctx.globalCompositeOperation = 'source-over';
 
     // 3. chòm sao (nửa sau)
     const orbA = Math.min(R * 2.4, CENTER_HALF - 40), orbB = Math.min(R * 1.0, orbA * 0.42);
@@ -284,6 +361,20 @@
       ctx.beginPath(); ctx.moveTo(Math.cos(a) * RS * 1.14, Math.sin(a) * RS * 1.14); ctx.lineTo(Math.cos(a) * RS * 1.2, Math.sin(a) * RS * 1.2); ctx.stroke();
     }
     ctx.restore(); ctx.shadowBlur = 0;
+
+    // 4b. vòng chữ dữ liệu (số liệu thật) quay chậm quanh lõi
+    {
+      const rr = R * 1.64 * bootS, txt = ringText.repeat(Math.max(1, Math.ceil((2 * Math.PI * rr) / (ringText.length * 7.4))));
+      const n = txt.length, a0 = -t * 0.08;
+      ctx.font = `${Math.max(10, R * 0.062)}px 'Share Tech Mono', monospace`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (i / n) * Math.PI * 2, x = CX + Math.cos(a) * rr, y = CY + Math.sin(a) * rr * 0.98;
+        const front = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(a + Math.PI / 2));
+        ctx.save(); ctx.translate(x, y); ctx.rotate(a + Math.PI / 2);
+        ctx.fillStyle = `hsla(${hue},100%,78%,${0.22 + front * 0.5})`; ctx.fillText(txt[i], 0, 0); ctx.restore();
+      }
+      ctx.textBaseline = 'alphabetic';
+    }
 
     // 5. vòng quỹ đạo + vệ tinh
     for (let i = 0; i < 3; i++) {
@@ -387,6 +478,27 @@
       ctx.beginPath(); ctx.moveTo(CX - Math.cos(a) * L, CY - Math.sin(a) * L * 0.2); ctx.lineTo(CX + Math.cos(a) * L, CY + Math.sin(a) * L * 0.2); ctx.stroke();
     }
     ctx.globalCompositeOperation = 'source-over';
+
+    // 7b. tia điện phóng ra từ lõi (đang nói / sự cố)
+    if ((state === 'speaking' && level > 0.5) || state === 'alert') {
+      if (Math.random() < (state === 'alert' ? 0.22 : 0.14)) {
+        const a = Math.random() * Math.PI * 2, pts2 = [], seg = 9;
+        for (let k = 0; k <= seg; k++) {
+          const r = R * (0.95 + (k / seg) * 0.55), jit = k && k < seg ? (Math.random() - 0.5) * R * 0.12 : 0;
+          pts2.push([CX + Math.cos(a) * r - Math.sin(a) * jit, CY + Math.sin(a) * r + Math.cos(a) * jit]);
+        }
+        bolts.push({ pts: pts2, t0: now });
+      }
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i], q = (now - b.t0) / 180;
+      if (q > 1) { bolts.splice(i, 1); continue; }
+      if (q < 0) continue;
+      ctx.strokeStyle = `hsla(${hue},100%,88%,${1 - q})`; ctx.lineWidth = 1.6; ctx.shadowColor = `hsl(${hue},100%,65%)`; ctx.shadowBlur = 14;
+      ctx.beginPath(); b.pts.forEach(([x, y], k) => (k ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
 
     // 8. sóng xung kích
     for (let i = shocks.length - 1; i >= 0; i--) {
@@ -520,6 +632,7 @@
     const sr = (d.tasks || {}).success_rate; tile('t-success', sr == null ? '–' : Math.round(sr), 'ok', '%');
     const cost = d.cost || {};
     $('ai-tokens').textContent = fmtN(cost.total_tokens); $('ai-calls').textContent = fmtN(cost.llm_calls);
+    ringData.tokens = cost.total_tokens; ringData.calls = cost.llm_calls; ringData.incidents = d.incidents_open; updateRing();
     const groups = (d.voice && d.voice.by_outcome) || {};
     let p50 = null;
     for (const name of ['llm', 'agent', ...Object.keys(groups)]) { const m = ((groups[name] || {}).metrics || {}).ttfa_answer_ms; if (m) { p50 = m.p50; break; } }
@@ -533,8 +646,19 @@
     }).join('') : '<li class="empty">Không có việc nào cần chú ý.</li>';
   }
   const SERVICE_NAME = { llm_9router: 'Mô hình AI (9Router)', telegram_gateway: 'Telegram', database_sqlite: 'Cơ sở dữ liệu', active_directory: 'Danh bạ nhân sự (AD)' };
+  const ringData = {};
+  function updateRing() {
+    const parts = ['VN-MATEAI', 'NEURAL CORE', `AGENTS ${nodes.length}`];
+    if (ringData.tokens != null) parts.push(`TOKENS ${Number(ringData.tokens).toLocaleString('en-US')}`);
+    if (ringData.calls != null) parts.push(`LLM CALLS ${ringData.calls}`);
+    if (ringData.latency != null) parts.push(`LATENCY ${Math.round(ringData.latency)} MS`);
+    if (ringData.cpu != null) parts.push(`CPU ${Math.round(ringData.cpu)}%`);
+    if (ringData.incidents) parts.push(`INCIDENTS ${ringData.incidents}`);
+    ringText = parts.join(' ◆ ') + ' ◆ ';
+  }
   function applyHealth(h) {
     const hw = h.hardware || {};
+    ringData.cpu = hw.cpu_percent; ringData.latency = ((h.services || {}).llm_9router || {}).latency_ms; updateRing();
     gauge('g-cpu', hw.cpu_percent, 'CPU'); gauge('g-ram', hw.ram_percent, 'RAM'); gauge('g-disk', hw.disk_percent, 'Ổ đĩa');
     $('host-net').textContent = `↑ ${(hw.net_sent_mbps ?? 0).toFixed(2)} · ↓ ${(hw.net_recv_mbps ?? 0).toFixed(2)} MB/s`;
     spark(hw.cpu_history);
@@ -713,6 +837,14 @@
     if (k && !e.target.closest('input,textarea')) { lastManual = Date.now(); PREVIEW[k](); }
   });
 
+  const par = { x: 0, y: 0, tx: 0, ty: 0 };
+  window.addEventListener('mousemove', (e) => { par.tx = (e.clientX / W) * 2 - 1; par.ty = (e.clientY / H) * 2 - 1; });
+  (function parallax() {
+    par.x = lerp(par.x, par.tx, 0.06); par.y = lerp(par.y, par.ty, 0.06);
+    document.documentElement.style.setProperty('--px', par.x.toFixed(3)); document.documentElement.style.setProperty('--py', par.y.toFixed(3));
+    requestAnimationFrame(parallax);
+  })();
+
   function hitNode(x, y) {
     let best = null, bd = 30;
     for (const n of nodes) { const d = Math.hypot(n.x - x, n.y - y); if (d < bd) { bd = d; best = n; } }
@@ -727,17 +859,19 @@
     const left = n.x < CX ? n.x - 300 : n.x + 30;
     tip.style.left = `${Math.max(10, Math.min(W - 290, left))}px`; tip.style.top = `${Math.max(70, n.y - 40)}px`; tip.classList.add('on');
   }
+  const toCanvas = (e) => [e.clientX + par.x * 10, e.clientY + par.y * 8];      // bù độ dịch parallax của canvas
   cv.addEventListener('mousemove', (e) => {
-    mouse.x = e.clientX; mouse.y = e.clientY; mouse.on = true;
-    const n = hitNode(e.clientX, e.clientY);
+    const [x, y] = toCanvas(e);
+    mouse.x = x; mouse.y = y; mouse.on = true;
+    const n = hitNode(x, y);
     if (n !== hovered) { hovered = n; showTip(n); }
-    cv.style.cursor = n || Math.hypot(e.clientX - CX, e.clientY - CY) < R ? 'pointer' : 'default';
+    cv.style.cursor = n || Math.hypot(x - CX, y - CY) < R ? 'pointer' : 'default';
   });
   cv.addEventListener('mouseleave', () => { mouse.on = false; hovered = null; showTip(null); });
   cv.addEventListener('click', (e) => {
-    const n = hitNode(e.clientX, e.clientY);
+    const [x, y] = toCanvas(e), n = hitNode(x, y);
     if (n) { beam(n.id, 'running'); setTimeout(() => beam(n.id, 'ok'), 700); return; }
-    if (Math.hypot(e.clientX - CX, e.clientY - CY) < R * 1.1) {          // bấm lõi: xung lan toả + một loạt nơ-ron bắn
+    if (Math.hypot(x - CX, y - CY) < R * 1.1) {          // bấm lõi: xung lan toả + một loạt nơ-ron bắn
       shocks.push({ t0: clockNow, hue: Math.round(cur.hue) });
       for (let k = 0; k < 40; k++) { const i = (Math.random() * N) | 0; if (PD[i] > 0.45) fireNeuron(i, 1.4); }
       nodes.forEach((m, i) => nerves.push({ n: m, t0: clockNow + i * 60, dur: 1100, back: false }));
@@ -750,7 +884,7 @@
   }
 
   // ── khởi động ─────────────────────────────────────────────────────────────
-  resize(); setNodes([]); subtitle('Sẵn sàng nhận lệnh.', true); clock();
+  resize(); setNodes([]); subtitle('Sẵn sàng nhận lệnh.', true); clock(); scramble($('state-pill'), STATES.idle.label, 900);
   setInterval(clock, 1000);
   gauge('g-cpu', 0, 'CPU'); gauge('g-ram', 0, 'RAM'); gauge('g-disk', 0, 'Ổ đĩa');
   requestAnimationFrame(frame);
