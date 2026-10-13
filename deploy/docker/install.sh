@@ -70,7 +70,9 @@ done
 [ "${ok:-0}" = 1 ] || { docker compose logs --tail=60 app; die "Chưa thấy ứng dụng trả lời — xem nhật ký ở trên."; }
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
-[ -n "$ip" ] || ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"   # macOS
+if [ -z "$ip" ] && [ "$(uname -s)" = Darwin ]; then                                  # macOS
+  ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+fi
 say "XONG. Mở Portal: https://${ip:-<địa chỉ máy chủ>}$( [ "$port" = 443 ] || echo ":$port" )/   ·   HUD: …/hud"
 say "Đăng nhập: admin / $(getv VNMATE_ADMIN_PASSWORD)    (mật khẩu nằm trong .env — đổi ngay sau lần đăng nhập đầu)"
 say "Trình duyệt sẽ cảnh báo chứng chỉ tự ký: chọn 'Vẫn tiếp tục' hoặc thay chứng chỉ thật (xem README-CAI-DAT.md)."

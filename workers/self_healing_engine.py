@@ -63,11 +63,12 @@ class SelfHealingUIEngine:
         try:
             import redis
             import os
-            redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+            redis_url = (os.environ.get("VNMATEAI_REDIS_URL") or os.environ.get("REDIS_URL")
+                         or "redis://localhost:6379/0")
             self.redis = redis.Redis.from_url(redis_url, decode_responses=True, socket_timeout=2)
             # Test ping nhẹ
             self.redis.ping()
-            logger.info("[SelfHealing] Connected to Redis cache at %s", redis_url)
+            logger.info("[SelfHealing] Connected to Redis cache at %s", re.sub(r"//[^@/]*@", "//***@", redis_url))
         except Exception as e:
             logger.info("[SelfHealing] Redis not available (%s). Using thread-safe in-memory cache.", e)
             self.redis = None
