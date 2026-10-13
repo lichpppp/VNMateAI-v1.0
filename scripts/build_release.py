@@ -176,7 +176,7 @@ def main() -> int:
         "Bản sạch: không kèm dữ liệu, tài khoản, token, khoá của máy build.\n", encoding="utf-8")
     sums = [f"{sha256(p)}  {p.relative_to(out).as_posix()}" for p in sorted(out.glob("*")) + sorted(out.glob("images/*"))
             if p.is_file()]
-    (out / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8")
+    (out / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8", newline="\n")  # LF: sha256sum -c trên Linux
     print(f"XONG → {out}")
     return 0
 
