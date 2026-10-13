@@ -29,10 +29,13 @@ WORKDIR /app
 
 # Thư viện trước mã nguồn (tận dụng cache khi chỉ đổi mã). PyTorch bản CPU (không kéo CUDA ~2 GB).
 # Bỏ các gói chỉ có trên Windows / giao diện máy bàn: pywinauto, pywin32, pyaudio, pystray, customtkinter.
+# gcc chỉ có trong lúc pip chạy: vài gói không có wheel arm64 (vd psutil 5.9.8) phải biên dịch khi build bản ARM (Mac M1–M4).
 COPY requirements.txt requirements-connectors.txt ./
-RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.0.0" \
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+ && pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.0.0" \
  && grep -vE '^\s*(pywinauto|pywin32|pyaudio|pystray|customtkinter|-e\s)' requirements.txt > /tmp/requirements-docker.txt \
- && pip install -r /tmp/requirements-docker.txt -r requirements-connectors.txt
+ && pip install -r /tmp/requirements-docker.txt -r requirements-connectors.txt \
+ && apt-get purge -y --auto-remove gcc libc6-dev && rm -rf /var/lib/apt/lists/*
 
 # Model offline (đúng thư mục user chạy ứng dụng đọc): nhận câu gọi tên "Ly Ly ơi" (tiny + small), embedding kho tri thức.
 USER vnmate

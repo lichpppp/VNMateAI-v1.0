@@ -3,7 +3,7 @@
 """
 Đóng gói bản chuyển giao VN-MateAI chạy trên Docker (bản SẠCH: không dữ liệu / khoá / token của máy build).
 
-    python scripts/build_release.py D:\\VNmatebuildv1.0 [--version 1.0.0] [--no-image] [--force]
+    python scripts/build_release.py D:\\VNmatebuildv1.0 [--version 1.0.0] [--no-image] [--arm64] [--force]
 
 Kết quả:
     <đích>/app/                 mã nguồn đúng commit HEAD (git archive — chỉ tệp được git theo dõi) + giao diện admin đã build
@@ -13,6 +13,7 @@ Kết quả:
     <đích>/backup.sh            sao lưu
     <đích>/README-CAI-DAT.md    hướng dẫn
     <đích>/images/*.tar         image dựng sẵn (docker save) — cài không cần Internet
+                                (--arm64: thêm *-arm64-images.tar cho Mac Apple Silicon / máy chủ ARM, build giả lập — chậm)
     <đích>/VERSION.txt, SHA256SUMS.txt
 
 An toàn: trước khi xong, quét mọi tệp văn bản trong gói tìm BÍ MẬT THẬT của máy build (giá trị trong config.json đã giải mã,
@@ -129,8 +130,19 @@ def build_images(out: Path, version: str) -> list:
             run(["docker", "pull", img])
     (out / "images").mkdir(exist_ok=True)
     tar = out / "images" / f"vnmateai-{version}-images.tar"
-    run(["docker", "save", "-o", str(tar), tag, "postgres:16-alpine", "redis:7-alpine"])
+    run(["docker", "save", "--platform", "linux/amd64", "-o", str(tar), tag, "postgres:16-alpine", "redis:7-alpine"])
     return [tag, "postgres:16-alpine", "redis:7-alpine"]
+
+
+def build_images_arm64(out: Path, version: str) -> list:
+    """Image linux/arm64 (Mac Apple Silicon). install.sh trên máy ARM nạp tệp này và gắn lại tag vnmateai/app:<version>."""
+    tag = f"vnmateai/app:{version}-arm64"
+    run(["docker", "build", "--platform", "linux/arm64", "-f", "deploy/docker/Dockerfile", "-t", tag, "."], cwd=out / "app")
+    for img in ("postgres:16-alpine", "redis:7-alpine"):
+        run(["docker", "pull", "--platform", "linux/arm64", img])
+    tar = out / "images" / f"vnmateai-{version}-arm64-images.tar"
+    run(["docker", "save", "--platform", "linux/arm64", "-o", str(tar), tag, "postgres:16-alpine", "redis:7-alpine"])
+    return [f"{tag} (arm64)"]
 
 
 def sha256(p: Path) -> str:
@@ -146,6 +158,7 @@ def main() -> int:
     ap.add_argument("dest")
     ap.add_argument("--version", default="1.0.0")
     ap.add_argument("--no-image", action="store_true", help="không build / xuất image (chỉ mã nguồn + trình cài)")
+    ap.add_argument("--arm64", action="store_true", help="kèm image linux/arm64 cho Mac Apple Silicon (build giả lập, chậm)")
     ap.add_argument("--force", action="store_true", help="xoá nội dung thư mục đích nếu có")
     a = ap.parse_args()
     out = Path(a.dest).resolve()
@@ -170,6 +183,9 @@ def main() -> int:
     if not a.no_image:
         print("[4/4] Build + xuất image (lần đầu 10–20 phút)…")
         images = build_images(out, a.version)
+        if a.arm64:
+            print("[4b] Build + xuất image arm64 (giả lập, 30–90 phút)…")
+            images += build_images_arm64(out, a.version)
     (out / "VERSION.txt").write_text(
         f"VN-MateAI {a.version}\ncommit {commit}\nbuild {datetime.now():%Y-%m-%d %H:%M}\n"
         f"images: {', '.join(images) or '(không kèm — install sẽ build từ app/)'}\n"

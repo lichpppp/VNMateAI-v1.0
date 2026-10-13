@@ -5,7 +5,9 @@ Bộ cài **bản sạch**: không kèm dữ liệu, tài khoản, token hay kho
 ## 1. Cần có
 
 - Máy chủ **Linux x86_64** (Ubuntu 22.04 / 24.04, Debian 12…) có **Docker Engine + Docker Compose v2**,
-  hoặc **Windows 10/11 / Server** có **Docker Desktop** (WSL2).
+  hoặc **Windows 10/11 / Server** có **Docker Desktop** (WSL2),
+  hoặc **macOS** (Intel hay Apple Silicon M1–M4) có **Docker Desktop for Mac**. Trên Apple Silicon trình cài tự build
+  image bản ARM (cần Internet, 15–30 phút lần đầu); image dựng sẵn trong `images/` là bản x86_64.
 - Tối thiểu **4 CPU, 8 GB RAM, 20 GB đĩa trống** (khuyên dùng 8 CPU, 16 GB RAM).
 - Một **gateway mô hình AI** dạng OpenAI-compatible (9Router, VNmateai-proxy, OpenAI, OpenRouter, DeepSeek…): địa chỉ URL,
   API key, tên model.
@@ -18,6 +20,13 @@ Bộ cài **bản sạch**: không kèm dữ liệu, tài khoản, token hay kho
 ```bash
 cd /opt && sudo cp -r <thư mục gói> vnmateai && cd vnmateai
 sudo ./install.sh
+```
+
+**macOS (Docker Desktop đang chạy; Settings → Resources: cấp ≥ 8 GB RAM)**
+
+```bash
+cp -R "/Volumes/<USB>/<thư mục gói>" ~/vnmateai && cd ~/vnmateai
+bash install.sh
 ```
 
 **Windows (Docker Desktop đang chạy)**

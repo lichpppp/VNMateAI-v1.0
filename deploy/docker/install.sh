@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 #
-# Cài VN-MateAI trên máy chủ Linux có Docker. Chạy trong thư mục gói:   ./install.sh
+# Cài VN-MateAI trên máy chủ Linux hoặc macOS có Docker. Chạy trong thư mục gói:   ./install.sh  (hoặc: bash install.sh)
 #   - nạp image dựng sẵn (images/*.tar) nếu có → không cần Internet để cài;
 #   - tạo .env, sinh mật khẩu ngẫu nhiên cho admin / CSDL / Redis;
 #   - hỏi gateway mô hình AI (Enter để bỏ qua, nhập sau trên Portal);
@@ -17,15 +17,22 @@ command -v docker >/dev/null || die "Chưa có Docker. Cài: https://docs.docker
 docker compose version >/dev/null 2>&1 || die "Chưa có Docker Compose v2 (lệnh 'docker compose')."
 docker info >/dev/null 2>&1 || die "Không nói chuyện được với Docker (chạy bằng sudo hoặc thêm user vào nhóm docker)."
 
-# 1. Image dựng sẵn
-if ls images/*.tar >/dev/null 2>&1; then
-  for t in images/*.tar; do say "Nạp image $t …"; docker load -i "$t" >/dev/null; done
-fi
+# 1. Image dựng sẵn đúng kiến trúc máy: *-arm64-images.tar cho máy ARM (Mac Apple Silicon…), tệp còn lại cho x86_64.
+#    Không chạy image amd64 trên máy ARM (giả lập chậm, model giọng nói có thể lỗi tập lệnh) — thiếu thì build ở bước 3.
+case "$(uname -m)" in arm64|aarch64) arm=1 ;; *) arm=0 ;; esac
+for t in images/*.tar; do
+  [ -f "$t" ] || continue
+  case "$t" in *-arm64-images.tar) [ "$arm" = 1 ] || continue ;; *) [ "$arm" = 0 ] || continue ;; esac
+  say "Nạp image $t …"; docker load -i "$t" >/dev/null
+done
 
-# 2. .env
-rnd() { tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-24}"; }
+# 2. .env   (sed / tr viết sao cho chạy được cả GNU (Linux) lẫn BSD (macOS))
+rnd() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom 2>/dev/null | head -c "${1:-24}" || true; }
 setv() { # setv KEY VALUE — ghi / thay trong .env
-  if grep -q "^$1=" .env; then sed -i "s|^$1=.*|$1=$2|" .env; else echo "$1=$2" >> .env; fi
+  if grep -q "^$1=" .env; then
+    v="$(printf '%s' "$2" | sed 's/[\\|&]/\\&/g')"                                      # key có thể chứa & | \
+    sed "s|^$1=.*|$1=$v|" .env > .env.tmp && cat .env.tmp > .env && rm -f .env.tmp   # giữ quyền 600 của .env
+  else echo "$1=$2" >> .env; fi
 }
 getv() { grep -E "^$1=" .env | head -1 | cut -d= -f2- | sed 's/[[:space:]]*$//'; }
 [ -f .env ] || { cp env.example .env; chmod 600 .env; say "Đã tạo .env"; }
@@ -43,10 +50,13 @@ if [ -z "$(getv VNMATE_LLM_BASE_URL)" ] && [ -t 0 ]; then
 fi
 
 # 3. Khởi động (có image thì không build; không có thì build từ app/ — cần Internet)
-if docker image inspect "vnmateai/app:$(getv VNMATE_VERSION)" >/dev/null 2>&1; then
+img="vnmateai/app:$(getv VNMATE_VERSION)"
+if [ "$arm" = 1 ] && docker image inspect "$img-arm64" >/dev/null 2>&1; then docker tag "$img-arm64" "$img"; fi
+img_arch="$(docker image inspect -f '{{.Architecture}}' "$img" 2>/dev/null || true)"
+if [ -n "$img_arch" ] && { [ "$arm" = 0 ] || [ "$img_arch" = arm64 ]; }; then
   docker compose up -d
 else
-  say "Không thấy image dựng sẵn — build từ mã nguồn (cần Internet, 10–20 phút)…"
+  say "Không thấy image dựng sẵn cho máy này — build từ mã nguồn (cần Internet, 15–30 phút)…"
   docker compose up -d --build
 fi
 
@@ -59,7 +69,8 @@ for i in $(seq 1 90); do
 done
 [ "${ok:-0}" = 1 ] || { docker compose logs --tail=60 app; die "Chưa thấy ứng dụng trả lời — xem nhật ký ở trên."; }
 
-ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+[ -n "$ip" ] || ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"   # macOS
 say "XONG. Mở Portal: https://${ip:-<địa chỉ máy chủ>}$( [ "$port" = 443 ] || echo ":$port" )/   ·   HUD: …/hud"
 say "Đăng nhập: admin / $(getv VNMATE_ADMIN_PASSWORD)    (mật khẩu nằm trong .env — đổi ngay sau lần đăng nhập đầu)"
 say "Trình duyệt sẽ cảnh báo chứng chỉ tự ký: chọn 'Vẫn tiếp tục' hoặc thay chứng chỉ thật (xem README-CAI-DAT.md)."
