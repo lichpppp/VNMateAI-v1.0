@@ -58,7 +58,9 @@ services:
   redis:
     image: redis:7-alpine
     # Chỉ số đếm ngắn hạn (giới hạn tần suất, khoá đăng nhập) — không phải nguồn dữ liệu chính.
-    command: ["redis-server", "--save", "", "--appendonly", "no", "--requirepass", "${VNMATE_REDIS_PASSWORD}"]
+    # ARM64-COW-BUG: lỗi kernel chỉ hại khi Redis ghi đĩa nền — ở đây không ghi đĩa, nên bỏ qua để chạy được trên máy ARM.
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--ignore-warnings", "ARM64-COW-BUG",
+              "--requirepass", "${VNMATE_REDIS_PASSWORD}"]
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${VNMATE_REDIS_PASSWORD}", "--no-auth-warning", "ping"]
       interval: 10s
