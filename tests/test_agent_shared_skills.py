@@ -144,3 +144,44 @@ def test_release_refuses_stale_agent_build(monkeypatch, tmp_path):
     (win / "version.txt").write_text("9.9.9")
     br.copy_agent_builds(app)
     assert (app / "dist" / "agent" / "windows" / "VNMateAgent.exe").read_bytes() == b"MZ"
+
+
+async def test_skill_refusal_is_not_reported_as_success():
+    """open_youtube từ chối đường dẫn lạ trả {"status": "error", "message": …} (không có khoá "error"):
+    Agent 2.2 gửi success=True và máy chủ từng báo "success" → AI nói "đã mở"."""
+    import asyncio
+    import json
+    from mateai.interfaces.websocket.client_orchestrator import Orchestrator
+
+    class _WS:
+        def __init__(self):
+            self.sent = []
+
+        async def send_text(self, text):
+            self.sent.append(json.loads(text))
+
+    o = Orchestrator()
+    ws = _WS()
+    await o.register_client("PC1", ws, {"agent_version": "2.2.1"})
+    for reply, want in (({"status": "error", "message": "Chỉ mở được đường dẫn YouTube"}, "error"),
+                        ({"status": "success", "success": False}, "error"),
+                        ({"status": "success", "hostname": "PC1"}, "success")):
+        t = asyncio.create_task(o.execute_on_client("PC1", "open_youtube", timeout=5))
+        await asyncio.sleep(0.05)
+        o.handle_incoming_message("PC1", {"action": "result", "task_id": ws.sent[-1]["task_id"],
+                                          "success": True, "result": reply})
+        assert (await t)["status"] == want, reply
+
+
+def test_agent_reports_refusal_as_failure():
+    saved_modules, saved_path = dict(sys.modules), list(sys.path)
+    sys.path.insert(0, str(ROOT / "client_agent"))
+    try:
+        import agent
+        assert agent._succeeded({"status": "error", "message": "từ chối"}) is False
+        assert agent._succeeded({"status": "success", "success": False}) is False
+        assert agent._succeeded({"status": "success", "result": "ok"}) is True
+    finally:
+        sys.modules.clear()
+        sys.modules.update(saved_modules)
+        sys.path[:] = saved_path

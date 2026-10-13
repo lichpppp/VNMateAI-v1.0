@@ -306,7 +306,10 @@ class Orchestrator:
             # Await worker reply with timeout
             response = await asyncio.wait_for(future, timeout=timeout)
             result = response.get("result", {})
-            is_success = bool(
+            # Kỹ năng tự báo lỗi (`status: error` / `success: False`) là lỗi, dù Agent ≤ 2.2 vẫn gửi success=True khi
+            # kết quả chỉ có "message" mà không có khoá "error" — AI từng báo "đã mở" khi kỹ năng từ chối.
+            failed = isinstance(result, dict) and (result.get("status") == "error" or result.get("success") is False)
+            is_success = not failed and bool(
                 response.get("success")
                 or (isinstance(result, dict) and (result.get("status") == "success" or result.get("success") is True or not result.get("error")))
             )

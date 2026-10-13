@@ -230,6 +230,13 @@ def _acquire_single_instance(port: int, wait_s: float = 0.0):
             time.sleep(0.5)
 
 
+def _succeeded(result: Dict[str, Any]) -> bool:
+    """Kỹ năng tự báo lỗi (`status: error` / `success: False`) là lỗi, kể cả khi chỉ có "message" mà không có "error"."""
+    if result.get("status") == "error" or result.get("success") is False:
+        return False
+    return bool(result.get("status") == "success" or result.get("success") is True or not result.get("error"))
+
+
 def safe_skill_filename(filename: str) -> Optional[str]:
     """Tên file skill hợp lệ (chỉ chữ/số/_ + .py, không thư mục). Trước đây ghi thẳng
     `skills/<filename>` — tên kiểu `../agent.py` ghi đè được file ngoài thư mục skills."""
@@ -494,7 +501,7 @@ class ClientAgent:
                 "action": "result",
                 "task_id": task_id,
                 "client_id": self.client_id,
-                "success": bool(result.get("status") == "success" or result.get("success") is True or not result.get("error")),
+                "success": _succeeded(result),
                 "result": result,
             }
             await ws.send(json.dumps(response, ensure_ascii=False))
@@ -596,7 +603,7 @@ class ClientAgent:
                 "pid": pid,
                 # Từ bản client_template (đã gộp, Phase 6): skill có thể trả
                 # {"success": True} thay vì {"status": "success"}.
-                "success": bool(result.get("status") == "success" or result.get("success") is True or not result.get("error")),
+                "success": _succeeded(result),
                 "result": result,
             }
             await ws.send(json.dumps(response, ensure_ascii=False))
