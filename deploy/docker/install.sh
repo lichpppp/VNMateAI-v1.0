@@ -49,6 +49,20 @@ if [ -z "$(getv VNMATE_LLM_BASE_URL)" ] && [ -t 0 ]; then
   fi
 fi
 
+# Địa chỉ LAN của máy chủ cho gói "Tải Agent" (trong container chỉ thấy IP nội bộ 172.x)
+lan_ip() {
+  local ip
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+  if [ -z "$ip" ] && [ "$(uname -s)" = Darwin ]; then                                # macOS
+    ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
+  fi
+  printf '%s' "$ip"
+}
+if [ -z "$(getv VNMATE_PUBLIC_HOST)" ]; then
+  ip="$(lan_ip)"
+  if [ -n "$ip" ]; then setv VNMATE_PUBLIC_HOST "$ip"; say "Địa chỉ LAN của máy chủ: $ip (VNMATE_PUBLIC_HOST trong .env)"; fi
+fi
+
 # 3. Khởi động (có image thì không build; không có thì build từ app/ — cần Internet)
 img="vnmateai/app:$(getv VNMATE_VERSION)"
 if [ "$arm" = 1 ] && docker image inspect "$img-arm64" >/dev/null 2>&1; then docker tag "$img-arm64" "$img"; fi
@@ -69,10 +83,7 @@ for i in $(seq 1 90); do
 done
 [ "${ok:-0}" = 1 ] || { docker compose logs --tail=60 app; die "Chưa thấy ứng dụng trả lời — xem nhật ký ở trên."; }
 
-ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
-if [ -z "$ip" ] && [ "$(uname -s)" = Darwin ]; then                                  # macOS
-  ip="$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)"
-fi
+ip="$(getv VNMATE_PUBLIC_HOST)"; [ -n "$ip" ] || ip="$(lan_ip)"
 say "XONG. Mở Portal: https://${ip:-<địa chỉ máy chủ>}$( [ "$port" = 443 ] || echo ":$port" )/   ·   HUD: …/hud"
 say "Đăng nhập: admin / $(getv VNMATE_ADMIN_PASSWORD)    (mật khẩu nằm trong .env — đổi ngay sau lần đăng nhập đầu)"
 say "Trình duyệt sẽ cảnh báo chứng chỉ tự ký: chọn 'Vẫn tiếp tục' hoặc thay chứng chỉ thật (xem README-CAI-DAT.md)."

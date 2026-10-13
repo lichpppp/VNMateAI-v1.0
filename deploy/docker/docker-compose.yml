@@ -26,6 +26,8 @@ services:
       VNMATEAI_DB_PATH: /data/data/vnmateai.db
       VNMATEAI_HR_DB_PATH: /data/data/hr_kpi.db
       VNMATEAI_OTEL_EXPORTER: none
+      # Địa chỉ LAN của máy chủ ghi vào gói "Tải Agent" khi Portal được mở bằng localhost (IP container không dùng được)
+      VNMATEAI_PUBLIC_HOST: ${VNMATE_PUBLIC_HOST:-}
       VNMATEAI_LLM_API_KEY: ${VNMATE_LLM_API_KEY:-}
       # Chỉ dùng ở lần chạy đầu để tạo config.json (sau đó sửa trên Portal)
       VNMATE_LLM_BASE_URL: ${VNMATE_LLM_BASE_URL:-}

@@ -322,9 +322,11 @@ async def download_agent(
 
     # Nếu người dùng mở trang bằng localhost/loopback, máy con trong LAN không
     # nối được vào 127.0.0.1 — lúc đó mới thay bằng IP LAN của máy chủ.
+    # Trong Docker, IP tự dò là IP của container (172.x) — máy trạm không tới được:
+    # dùng VNMATEAI_PUBLIC_HOST (trình cài ghi IP LAN của máy chủ vào .env).
     server_ip = host
     if host in ("127.0.0.1", "localhost", "::1"):
-        server_ip = _get_server_local_ip()
+        server_ip = os.environ.get("VNMATEAI_PUBLIC_HOST", "").strip() or _get_server_local_ip()
 
     default_port = 443 if scheme == "wss" else 80
     port_suffix = "" if port == default_port else f":{port}"

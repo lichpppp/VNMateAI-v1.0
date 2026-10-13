@@ -105,6 +105,27 @@ def test_notepad_refuses_paths_outside_desktop(monkeypatch, tmp_path):
     assert ok["status"] == "success" and opened == [["notepad.exe", str(desk / "ghi_chu.txt")]]
 
 
+def test_download_via_localhost_uses_public_host_not_container_ip(monkeypatch):
+    """Máy chủ Docker: mở Portal bằng localhost → IP tự dò là IP container (172.x), máy trạm không tới được."""
+    import json
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import mateai.interfaces.http.routers.workers as workers
+    from mateai.interfaces.http.auth_dependencies import get_current_user
+    app = FastAPI()
+    app.include_router(workers.router)
+    app.dependency_overrides[get_current_user] = lambda: {"username": "boss", "role": "admin"}
+    c = TestClient(app, base_url="https://127.0.0.1:18443")
+    monkeypatch.setattr(workers, "_get_server_local_ip", lambda: "172.19.0.4")
+    monkeypatch.setenv("VNMATEAI_PUBLIC_HOST", "192.168.1.10")
+    cfg = json.loads(zipfile.ZipFile(io.BytesIO(c.get("/api/v1/download-agent?platform=windows").content)).read("config.json"))
+    assert cfg["ws_url"] == "wss://192.168.1.10:18443/ws/client" and cfg["master_ip"] == "192.168.1.10"
+    monkeypatch.delenv("VNMATEAI_PUBLIC_HOST")
+    c2 = TestClient(app, base_url="https://10.0.0.7")                  # mở bằng IP LAN: giữ nguyên địa chỉ đó
+    cfg2 = json.loads(zipfile.ZipFile(io.BytesIO(c2.get("/api/v1/download-agent?platform=windows").content)).read("config.json"))
+    assert cfg2["ws_url"] == "wss://10.0.0.7:443/ws/client"
+
+
 def test_release_refuses_stale_agent_build(monkeypatch, tmp_path):
     import importlib.util
     spec = importlib.util.spec_from_file_location("_br", ROOT / "scripts" / "build_release.py")

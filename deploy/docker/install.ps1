@@ -39,6 +39,11 @@ if (-not (GetV "VNMATE_LLM_BASE_URL").Trim()) {
     $m = Read-Host "  Model chính (vd gpt-4o-mini)"; if ($m) { SetV "VNMATE_LLM_MODEL" $m }
   }
 }
+if (-not (GetV "VNMATE_PUBLIC_HOST").Trim()) {   # địa chỉ LAN cho gói "Tải Agent" (container chỉ thấy IP 172.x)
+  $lan = Get-NetIPConfiguration -ErrorAction SilentlyContinue | Where-Object { $_.IPv4DefaultGateway -and $_.NetAdapter.Status -eq "Up" } |
+    ForEach-Object { $_.IPv4Address.IPAddress } | Select-Object -First 1
+  if ($lan) { SetV "VNMATE_PUBLIC_HOST" $lan; Say "Địa chỉ LAN của máy chủ: $lan (VNMATE_PUBLIC_HOST trong .env)" }
+}
 [System.IO.File]::WriteAllLines((Join-Path $PSScriptRoot ".env"), $envText, (New-Object System.Text.UTF8Encoding($false)))
 
 # 3. Khởi động
@@ -57,5 +62,6 @@ for ($i = 0; $i -lt 90; $i++) {
 }
 if (-not $ok) { docker compose logs --tail=60 app; Die "Chưa thấy ứng dụng trả lời — xem nhật ký ở trên." }
 $suffix = if ($port -eq "443") { "" } else { ":$port" }
-Say "XONG. Mở Portal: https://localhost$suffix/   ·   HUD: https://localhost$suffix/hud"
+$hostShown = (GetV "VNMATE_PUBLIC_HOST").Trim(); if (-not $hostShown) { $hostShown = "localhost" }
+Say "XONG. Mở Portal: https://$hostShown$suffix/   ·   HUD: https://$hostShown$suffix/hud"
 Say "Đăng nhập: admin / $(GetV 'VNMATE_ADMIN_PASSWORD')   (mật khẩu nằm trong .env — đổi ngay sau lần đăng nhập đầu)"
