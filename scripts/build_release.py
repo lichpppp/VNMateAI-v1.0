@@ -125,9 +125,8 @@ def copy_package_files(out: Path) -> None:
 def build_images(out: Path, version: str) -> list:
     tag = f"vnmateai/app:{version}"
     run(["docker", "build", "-f", "deploy/docker/Dockerfile", "-t", tag, "."], cwd=out / "app")
-    for img in ("postgres:16-alpine", "redis:7-alpine"):
-        if subprocess.run(["docker", "image", "inspect", img], capture_output=True).returncode != 0:
-            run(["docker", "pull", img])
+    for img in ("postgres:16-alpine", "redis:7-alpine"):            # luôn pull: tag cục bộ có thể chỉ còn bản arm64
+        run(["docker", "pull", "--platform", "linux/amd64", img])
     (out / "images").mkdir(exist_ok=True)
     tar = out / "images" / f"vnmateai-{version}-images.tar"
     run(["docker", "save", "--platform", "linux/amd64", "-o", str(tar), tag, "postgres:16-alpine", "redis:7-alpine"])
