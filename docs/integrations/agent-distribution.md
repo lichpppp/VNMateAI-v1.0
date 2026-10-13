@@ -12,6 +12,14 @@ Dành cho quản trị viên. Hướng dẫn cài cho người dùng máy trạm
 
 Portal → **Tải Agent** cho chọn nền tảng. Nếu chưa có bản build cho nền tảng đó, máy chủ phát gói `source` kèm script cài và báo rõ trên giao diện.
 
+**Kỹ năng máy chủ dùng chung** (`client_agent/shared_skills.txt`): các tệp trong `skills/` của máy chủ (mở nhạc, YouTube,
+Notepad…) được đóng NGUYÊN BẢN vào `skills/` của gói `source` và của bản build — một tính năng một bản mã, không chép tay.
+Tệp dùng chung chỉ được import thư viện chuẩn và `core.plugin_manager.export_skill` (kiểm trong
+`tests/test_agent_shared_skills.py`). Đổi danh sách hoặc tệp thì tăng `AGENT_VERSION` và build lại.
+
+**Gói cài máy chủ Docker** (`scripts/build_release.py`) chép `dist/agent/<nền tảng>/` vào image, và dừng nếu bản build
+khác `AGENT_VERSION` — build Agent trước rồi mới đóng gói máy chủ.
+
 ## 2. Build
 
 ```

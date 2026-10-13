@@ -29,6 +29,7 @@ from mateai.config.loader import settings
 
 PROJECT_ROOT = Path(settings.PROJECT_ROOT)
 SOURCE_DIR = PROJECT_ROOT / "client_agent"
+SERVER_SKILLS_DIR = PROJECT_ROOT / "skills"
 DIST_DIR = PROJECT_ROOT / "dist" / "agent"
 FROZEN = {
     "windows-exe": DIST_DIR / "windows" / "VNMateAgent.exe",
@@ -42,14 +43,30 @@ _SKIP_TOP = {"logs", ".venv", "venv", "config.json", "server_cert.pem", "device.
 _cache: Dict[str, Tuple[float, bytes]] = {}
 
 
+def shared_skill_files():
+    """Kỹ năng máy chủ chạy nguyên bản trên máy trạm (client_agent/shared_skills.txt) — tệp nào có thật."""
+    listing = SOURCE_DIR / "shared_skills.txt"
+    if not listing.exists():
+        return []
+    names = [ln.strip() for ln in listing.read_text(encoding="utf-8").splitlines()]
+    return [SERVER_SKILLS_DIR / n for n in names
+            if n and not n.startswith("#") and n == Path(n).name and (SERVER_SKILLS_DIR / n).is_file()]
+
+
 def _source_files():
+    seen = set()
     for f in sorted(SOURCE_DIR.rglob("*")):
         if not f.is_file():
             continue
         rel = f.relative_to(SOURCE_DIR)
         if rel.parts[0] in _SKIP_TOP or "__pycache__" in rel.parts or f.suffix in (".pyc", ".pyo", ".log"):
             continue
+        seen.add(rel.as_posix())
         yield f, rel
+    for f in shared_skill_files():
+        rel = Path("skills") / f.name
+        if rel.as_posix() not in seen:                      # bản riêng của máy trạm (nếu có) được ưu tiên
+            yield f, rel
 
 
 def source_version() -> Optional[str]:

@@ -40,19 +40,22 @@ def export_skill(
     name: str,
     description: str,
     parameters_schema: Dict[str, Any],
+    **contract: Any,
 ) -> Callable:
-    """Decorator marking a function as an exportable automation skill."""
+    """Decorator marking a function as an exportable automation skill.
+
+    `contract` nhận các tham số mà `core.plugin_manager.export_skill` của máy chủ có (needs_desktop, risk_level,
+    data_classification…): kỹ năng máy chủ chép / đẩy xuống máy trạm nạp được nguyên bản thay vì lỗi TypeError.
+    """
     def decorator(func: Callable) -> Callable:
-        _DECORATOR_STAGING[func] = {
+        meta = {
             "name": name,
             "description": description,
             "parameters": parameters_schema,
+            "contract": dict(contract),
         }
-        func.__skill_meta__ = {  # type: ignore[attr-defined]
-            "name": name,
-            "description": description,
-            "parameters": parameters_schema,
-        }
+        _DECORATOR_STAGING[func] = meta
+        func.__skill_meta__ = meta  # type: ignore[attr-defined]
         return func
     return decorator
 
@@ -78,7 +81,7 @@ class ClientPluginManager:
                 sys.path.insert(0, client_root_str)
 
             loaded_count = 0
-            for py_file in sorted(self._skills_dir.glob("*.py")):
+            for py_file in self._skill_files():
                 if py_file.name.startswith("__"):
                     continue
 
@@ -119,6 +122,23 @@ class ClientPluginManager:
 
             logger.info("ClientPluginManager: Đã nạp thành công %d kỹ năng trên máy con.", loaded_count)
             return loaded_count
+
+    def _skill_files(self) -> List[Path]:
+        """skills/*.py + kỹ năng máy chủ dùng chung (shared_skills.txt) khi chạy ngay trong mã nguồn dự án.
+
+        Gói đã cài thì các tệp đó nằm sẵn trong skills/ (máy chủ đóng vào lúc phát gói / build).
+        """
+        files = sorted(self._skills_dir.glob("*.py"))
+        have = {f.name for f in files}
+        listing = _CLIENT_ROOT / "shared_skills.txt"
+        server_skills = _CLIENT_ROOT.parent / "skills"
+        if self._skills_dir == SKILLS_DIR and listing.exists() and server_skills.is_dir():
+            for line in listing.read_text(encoding="utf-8").splitlines():
+                name = line.strip()
+                if name and not name.startswith("#") and name == Path(name).name and name not in have \
+                        and (server_skills / name).is_file():
+                    files.append(server_skills / name)
+        return files
 
     def get_skill_names(self) -> List[str]:
         with self._lock:

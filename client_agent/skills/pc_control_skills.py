@@ -729,3 +729,79 @@ def run_powershell_command(command: str, timeout_sec: int = 30) -> Dict[str, Any
         raise
     except Exception as exc:  # pylint: disable=broad-except
         raise RuntimeError(f"run_powershell_command failed: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# Skill 11: Media Control (phím media)
+# ---------------------------------------------------------------------------
+
+#: Mã phím ảo Windows (VK_MEDIA_* / VK_VOLUME_*). Cùng tập lệnh với `media_control` của máy chủ.
+_MEDIA_VK = {"play_pause": 0xB3, "next": 0xB0, "previous": 0xB1, "stop": 0xB2,
+             "mute": 0xAD, "volume_down": 0xAE, "volume_up": 0xAF}
+#: Lệnh playerctl / amixer tương ứng trên Linux.
+_MEDIA_LINUX = {"play_pause": ["playerctl", "play-pause"], "next": ["playerctl", "next"],
+                "previous": ["playerctl", "previous"], "stop": ["playerctl", "stop"],
+                "mute": ["amixer", "-q", "set", "Master", "toggle"],
+                "volume_down": ["amixer", "-q", "set", "Master", "5%-"], "volume_up": ["amixer", "-q", "set", "Master", "5%+"]}
+#: macOS chỉ có lệnh hệ thống cho âm lượng; phát / dừng / chuyển bài cần quyền điều khiển từng ứng dụng.
+_MEDIA_MAC = {"mute": "set volume output muted not (output muted of (get volume settings))",
+              "volume_down": "set volume output volume ((output volume of (get volume settings)) - 6)",
+              "volume_up": "set volume output volume ((output volume of (get volume settings)) + 6)"}
+
+
+@export_skill(
+    name="media_control",
+    description=(
+        "Điều khiển trình phát nhạc / video đang mở trên máy trạm bằng phím media của hệ điều hành "
+        "(YouTube trên Chrome, Spotify, VLC…): phát tiếp / tạm dừng, bài tiếp theo, bài trước, dừng, "
+        "tắt / bật tiếng, tăng / giảm âm lượng."
+    ),
+    parameters_schema={
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": sorted(_MEDIA_VK),
+                "description": "play_pause (phát tiếp / tạm dừng), next, previous, stop, mute, volume_up, volume_down.",
+            },
+            "times": {"type": "integer", "minimum": 1, "maximum": 10, "default": 1,
+                      "description": "Số lần nhấn (vd tăng âm lượng 3 nấc)."},
+        },
+        "required": ["action"],
+    },
+    needs_desktop=True,
+)
+def media_control(action: str, times: int = 1) -> Dict[str, Any]:
+    """Nhấn phím media trong phiên người dùng của máy trạm (Agent chạy trong phiên đăng nhập)."""
+    action = str(action or "").strip().lower()
+    if action not in _MEDIA_VK:
+        raise ValueError(f"action không hợp lệ: {action!r} (chỉ {', '.join(sorted(_MEDIA_VK))})")
+    times = max(1, min(10, int(times or 1)))
+    if _IS_WINDOWS:
+        import ctypes
+        user32 = ctypes.windll.user32
+        vk, extended, keyup = _MEDIA_VK[action], 0x0001, 0x0002
+        for _ in range(times):
+            user32.keybd_event(vk, 0, extended, 0)
+            user32.keybd_event(vk, 0, extended | keyup, 0)
+            time.sleep(0.05)
+        return {"action": action, "times": times, "platform": "windows"}
+    if platform.system() == "Linux":
+        cmd = _MEDIA_LINUX[action]
+        if not shutil.which(cmd[0]):
+            raise RuntimeError(f"Thiếu '{cmd[0]}' trên máy trạm Linux (cài playerctl / alsa-utils).")
+        for _ in range(times):
+            result = _run(cmd, timeout=5)
+            if not result["success"]:
+                raise RuntimeError(result["stderr"] or f"{cmd[0]} lỗi")
+        return {"action": action, "times": times, "platform": "linux"}
+    if platform.system() == "Darwin":
+        script = _MEDIA_MAC.get(action)
+        if not script:
+            raise RuntimeError(f"'{action}' chưa hỗ trợ trên macOS (chỉ mute, volume_up, volume_down).")
+        for _ in range(1 if action == "mute" else times):
+            result = _run(["osascript", "-e", script], timeout=5)
+            if not result["success"]:
+                raise RuntimeError(result["stderr"] or "osascript lỗi")
+        return {"action": action, "times": times, "platform": "macos"}
+    raise RuntimeError("media_control hỗ trợ Windows, Linux và macOS.")

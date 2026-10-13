@@ -103,6 +103,21 @@ Trong container **không có** các chức năng cần màn hình hay phần c�
 **Agent máy trạm** (Portal → "Tải Agent"). Portal, HUD (mic / loa nằm ở trình duyệt), robot, Telegram, agent doanh nghiệp,
 kịch bản vận hành, kho tri thức, giám sát, phê duyệt đều chạy đầy đủ.
 
+**Agent máy trạm Windows** (`VNMateAgent.exe` có sẵn trong gói, máy trạm không cần cài Python). Nói / gõ kèm tên máy, vd
+"mở YouTube trên máy PC-KETOAN-01", AI gửi lệnh xuống máy đó (qua phê duyệt, ghi `audit_logs`):
+
+| Nhóm | Kỹ năng trên máy trạm |
+|---|---|
+| Điều khiển máy | mở ứng dụng, âm lượng, phím media (phát / dừng / chuyển bài), clipboard, PowerShell, dịch vụ Windows, tắt tiến trình |
+| Giải trí / văn bản | mở nhạc theo tên bài, mở YouTube, mở tệp trên Desktop bằng Notepad |
+| Tệp | liệt kê, đọc, ghi, xoá, tìm kiếm |
+| Giám sát | chụp màn hình, tiến trình, kết nối mạng, thiết bị ngoại vi, kiểm tra bảo mật, sức khoẻ máy |
+| Office | ghi Excel qua COM |
+| Hiển thị | cửa sổ nhắc việc, bảng HUD nổi trên màn hình máy trạm |
+
+Tải Agent: mở Portal bằng **địa chỉ LAN của máy chủ** (vd `https://192.168.1.10/`, không dùng `localhost`) rồi bấm
+"Tải Agent" — gói ghi địa chỉ máy chủ theo địa chỉ bạn đang mở. Mỗi gói dùng cho **một** máy. Mở cổng 443 trên máy chủ.
+
 ## 6. Thành phần
 
 | Thành phần | Image | Dữ liệu (volume) |

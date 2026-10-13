@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -108,7 +109,31 @@ def export_source(out: Path) -> str:
         shutil.copytree(admin_out, app / "admin" / "out", dirs_exist_ok=True)
     else:
         print("  CẢNH BÁO: chưa có admin/out (trang /admin/topology) — chạy 'npm run build' trong admin/ rồi đóng gói lại.")
+    copy_agent_builds(app)
     return commit
+
+
+def copy_agent_builds(app: Path) -> None:
+    """Agent máy trạm đã build (dist/agent/<nền tảng>, không có trong git) → Portal "Tải Agent" phát bản không cần Python.
+
+    Bản build phải đúng AGENT_VERSION của mã nguồn: bản cũ hơn thì máy trạm tải về sẽ thiếu kỹ năng mới — dừng hẳn.
+    """
+    m = re.search(r'^AGENT_VERSION\s*=\s*"([^"]+)"', (app / "client_agent" / "agent.py").read_text(encoding="utf-8"), re.M)
+    want = m.group(1) if m else None
+    for plat, exe in (("windows", "VNMateAgent.exe"), ("macos", "VNMateAgent")):
+        src = ROOT / "dist" / "agent" / plat
+        if not (src / exe).is_file():
+            print(f"  CẢNH BÁO: chưa có dist/agent/{plat}/{exe} — máy trạm {plat} sẽ nhận gói Python "
+                  "(build: python scripts/build_agent.py trên máy " + ("Windows" if plat == "windows" else "Mac") + ").")
+            continue
+        got = (src / "version.txt").read_text(encoding="utf-8").strip() if (src / "version.txt").is_file() else "?"
+        if got != want:
+            sys.exit(f"DỪNG: dist/agent/{plat} là Agent {got}, mã nguồn là {want} — build lại: python scripts/build_agent.py")
+        dst = app / "dist" / "agent" / plat
+        dst.mkdir(parents=True, exist_ok=True)
+        for name in (exe, "version.txt"):
+            shutil.copy2(src / name, dst / name)
+        print(f"  Agent {plat} {got}: {(src / exe).stat().st_size / 1e6:.1f} MB")
 
 
 def copy_package_files(out: Path) -> None:

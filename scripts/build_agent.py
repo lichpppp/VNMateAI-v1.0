@@ -50,6 +50,14 @@ HIDDEN = [
 HIDDEN_WIN = ["pywinauto", "win32api", "win32con", "win32com.client", "pythoncom", "wmi", "winreg"]
 
 
+def shared_skill_files() -> list:
+    """Như `agent_packages.shared_skill_files` (script build không nạp được mateai)."""
+    listing = AGENT / "shared_skills.txt"
+    names = [ln.strip() for ln in listing.read_text(encoding="utf-8").splitlines()] if listing.exists() else []
+    return [ROOT / "skills" / n for n in names
+            if n and not n.startswith("#") and n == Path(n).name and (ROOT / "skills" / n).is_file()]
+
+
 def run(cmd, **kw):
     print("+", " ".join(str(c) for c in cmd))
     subprocess.run([str(c) for c in cmd], check=True, **kw)
@@ -94,6 +102,8 @@ def main() -> None:
            "--add-data", f"{AGENT / 'overlay_ui.py'}{sep}.",
            "--add-data", f"{AGENT / 'skills'}{sep}skills",
            "--collect-all", "customtkinter"]
+    for f in shared_skill_files():                          # kỹ năng máy chủ chạy nguyên bản trên máy trạm
+        cmd += ["--add-data", f"{f}{sep}skills"]
     for h in hidden:
         cmd += ["--hidden-import", h]
     cmd.append(AGENT / "agent.py")

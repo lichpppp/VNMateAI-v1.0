@@ -21,6 +21,7 @@ backups
 memory
 reports
 dist
+!dist/agent
 build
 models
 tests
