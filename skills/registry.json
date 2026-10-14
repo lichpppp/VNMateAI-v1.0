@@ -269,6 +269,33 @@
     },
     "enabled": true
   },
+  "open_text_file_notepad": {
+    "module": "skills.auto_open_notepad_file",
+    "attr": "open_text_file_notepad",
+    "meta": {
+      "name": "open_text_file_notepad",
+      "description": "Mở file văn bản trên Desktop bằng Notepad của Windows. Tìm file văn bản trên màn hình desktop rồi mở bằng Notepad. Hỗ trợ nhiều định dạng: txt, log, csv, md, json, xml, py, html, v.v. Người dùng có thể nói: 1) 'mở file văn bản trên desktop bằng notepad' 2) 'mở file txt trên màn hình desktop' 3) 'dùng notepad mở file trên desktop' 4) 'open text file on desktop with notepad' 5) 'mở notepad với file trên desktop' Ví dụ yêu cầu: «Mở file văn bản trên màn hình desktop bằng phần mềm Notepad của Windows».",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "Tên file cụ thể cần mở (tuỳ chọn). Nếu không truyền, sẽ tìm và mở file văn bản đầu tiên trên Desktop."
+          }
+        },
+        "required": []
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null,
+        "needs_desktop": true
+      }
+    },
+    "enabled": true
+  },
   "open_youtube": {
     "module": "skills.auto_open_youtube",
     "attr": "open_youtube",
@@ -1186,6 +1213,28 @@
         "required": [
           "query"
         ]
+      },
+      "contract": {
+        "data_classification": "INTERNAL",
+        "reversible": null,
+        "output_schema": null,
+        "data_scope": null,
+        "verification_required": null,
+        "needs_desktop": false
+      }
+    },
+    "enabled": true
+  },
+  "get_hr_fairness_report": {
+    "module": "skills.ethics_tools",
+    "attr": "get_hr_fairness_report",
+    "meta": {
+      "name": "get_hr_fairness_report",
+      "description": "Báo cáo công bằng khi giao việc / đánh giá nhân viên: so khối lượng việc và tỉ lệ hoàn thành theo phòng ban, chức danh; chỉ ra người bị dồn việc (kể cả việc do AI giao), người bị bỏ sót, nhóm chênh lệch lớn — để NGƯỜI QUẢN LÝ xem lại, không kết luận thay. Người dùng thường nói: 'báo cáo công bằng', 'kiểm tra thiên kiến giao việc', 'có ai bị dồn việc không', 'đánh giá phân việc có công bằng không'. English: fairness report, bias check, workload.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": []
       },
       "contract": {
         "data_classification": "INTERNAL",
@@ -3639,39 +3688,6 @@
       },
       "contract": {
         "data_classification": "CONFIDENTIAL",
-        "reversible": null,
-        "output_schema": null,
-        "data_scope": null,
-        "verification_required": null,
-        "needs_desktop": false
-      }
-    },
-    "enabled": true
-  },
-  "thong_ke_lo_xsmb": {
-    "module": "skills.thong_ke_lo_xsmb",
-    "attr": "thong_ke_lo_xsmb",
-    "meta": {
-      "name": "thong_ke_lo_xsmb",
-      "description": "Crawl kết quả XSMB trong 14 ngày gần nhất, bóc tách 2 chữ số cuối (lô tô), thống kê tần suất, lô gan và xuất báo cáo markdown.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "days_count": {
-            "type": "integer",
-            "description": "Số ngày cần thống kê tính từ hôm qua (mặc định là 14).",
-            "default": 14
-          },
-          "output_path": {
-            "type": "string",
-            "description": "Đường dẫn lưu file báo cáo markdown.",
-            "default": "reports/thong_ke_lo_xsmb.md"
-          }
-        },
-        "required": []
-      },
-      "contract": {
-        "data_classification": "INTERNAL",
         "reversible": null,
         "output_schema": null,
         "data_scope": null,
