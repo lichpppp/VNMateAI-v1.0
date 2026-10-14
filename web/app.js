@@ -6211,7 +6211,7 @@ function updatePromptStats() {
 }
 
 async function previewAITTS() {
-  const btn = document.getElementById('btn-preview-tts') || document.querySelector('#tab-ai-manager button[onclick="previewAITTS()"]');
+  const btn = document.getElementById('btn-preview-tts') || document.querySelector('#tab-ai-manager button[onclick="previewAITTS()"], #tab-ai-manager button[data-vn-onclick="previewAITTS()"]');
   const voice = document.getElementById('ai-tts-voice')?.value || 'vi-VN-HoaiMyNeural';
   const rateNum = parseInt(document.getElementById('ai-speech-rate')?.value || '15');
   const rate = (rateNum >= 0 ? '+' : '') + rateNum + '%';
@@ -8176,7 +8176,7 @@ function applyRolePermissions(role, user) {
   const navUsers = document.getElementById('nav-users');
   const quickModelSelect = document.getElementById('quick-model');
   const btnQuickSave = document.getElementById('btn-quick-save');
-  const btnAddSkill = document.querySelector('[onclick="openAddSkillModal()"]');
+  const btnAddSkill = document.querySelector('[onclick="openAddSkillModal()"], [data-vn-onclick="openAddSkillModal()"]');
 
   if (roleName === 'admin') {
     if (navConfig) navConfig.classList.remove('hidden');

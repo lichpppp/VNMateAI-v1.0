@@ -99,6 +99,11 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+# Nén gzip cho trang giao diện + tệp tĩnh dạng chữ (không đụng API / SSE / WebSocket / Range) — xem compression.py.
+from mateai.interfaces.http.compression import StaticGZipMiddleware  # noqa: E402
+
+app.add_middleware(StaticGZipMiddleware)
+
 
 # ─── Request ID + mô hình lỗi chuẩn (prompt cuối §95, §143) ──────────────────
 #: Id của request đang xử lý — một nguồn ở `config/log_setup` (log của request mang theo).
@@ -232,14 +237,12 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
-#: Header bảo mật cho MỌI phản hồi (thẩm định §8: thiếu CSP / X-Frame-Options…). Giao diện còn 365 `onclick` + script
-#: inline nên CSP tạm cho 'unsafe-inline'; vẫn chặn tải tài nguyên ngoài, nhúng khung, plugin, đổi base / form ra ngoài.
+#: Header bảo mật cho MỌI phản hồi (thẩm định §8: thiếu CSP / X-Frame-Options…). CSP chặt `script-src 'self'` (không
+#: 'unsafe-inline') — xem mateai/interfaces/http/csp.py; trang nào cần CSP khác tự đặt header (middleware dùng setdefault).
+from mateai.interfaces.http.csp import default_csp  # noqa: E402
+
 SECURITY_HEADERS = {
-    "Content-Security-Policy": (
-        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
-        "connect-src 'self' wss: ws:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; "
-        "form-action 'self'; frame-ancestors 'none'"),
+    "Content-Security-Policy": default_csp(),
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",

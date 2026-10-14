@@ -18,20 +18,9 @@
   <link rel="stylesheet" href="/static/tailwind.css?v=12" />
   <link rel="stylesheet" href="/static/ui-polish.css?v=3" />
 
-  <!-- Instant Theme Script to avoid FOUC -->
-  <script>
-      (function () {
-        try {
-          var savedTheme = localStorage.getItem('theme');
-          var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-            document.documentElement.classList.add('dark');
-          } else {
-            document.documentElement.classList.remove('dark');
-          }
-        } catch (e) { }
-      })();
-  </script>
+  <!-- Theme đặt ngay trong <head> (tránh nháy sáng/tối) + chạy hộ onclick khi CSP chặt -->
+  <script src="/static/theme-boot.js?v=1"></script>
+  <script src="/static/inline-handlers.js?v=1"></script>
 
   <!-- Font tự lưu (scripts/vendor_web_assets.py): chạy được khi mạng LAN không ra Internet -->
   <link rel="stylesheet" href="/static/fonts-portal.css?v=1" />
@@ -2808,7 +2797,7 @@
                 <input aria-label="VD: hệ thống nào đang bất thường? / rà soát việc quá hạn / lập báo cáo giao ban" type="text" id="cc-ask-input"
                   placeholder="VD: hệ thống nào đang bất thường? / rà soát việc quá hạn / lập báo cáo giao ban"
                   class="flex-1 px-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  onkeydown="if(event.key==='Enter'){runCommandCenterAsk();}" />
+                  onkeydown="onEnterCommandCenterAsk(event)" />
                 <button type="button" onclick="runCommandCenterAsk()"
                   class="px-3.5 py-2 text-xs font-semibold rounded-lg bg-primary-600 hover:bg-primary-700 text-white transition whitespace-nowrap">
                   Hỏi
@@ -3265,7 +3254,7 @@
                       placeholder="VD: ag/claude-opus-4-6-thinking" />
                     <div id="ai-proxy-model-picker-wrap" class="hidden">
                       <select id="ai-proxy-model-select"
-                        onchange="document.getElementById('ai-llm-model').value = this.value; if(typeof onModelChanged === 'function') onModelChanged();"
+                        onchange="onAiModelPicked(this.value)"
                         class="input-dark text-[11px] font-mono w-full">
                         <option value="">-- Chọn mô hình từ 9router --</option>
                       </select>
@@ -3821,7 +3810,7 @@
                   </div>
                   <input type="range" id="ai-speech-rate" min="-50" max="100" step="5" value="15"
                     class="w-full h-1.5 rounded-full appearance-none bg-slate-200 dark:bg-slate-700 accent-emerald-500 cursor-pointer"
-                    oninput="document.getElementById('ai-speech-rate-val').textContent = (this.value >= 0 ? '+' : '') + this.value + '%'" />
+                    oninput="showRangeValue('ai-speech-rate-val', this.value, true)" />
                   <div class="flex justify-between text-[9px] text-slate-400 font-mono">
                     <span>-50% Chậm</span><span>Chuẩn</span><span>+100% Nhanh</span>
                   </div>
@@ -3836,7 +3825,7 @@
                   </div>
                   <input type="range" id="ai-volume" min="0" max="100" step="5" value="80"
                     class="w-full h-1.5 rounded-full appearance-none bg-slate-200 dark:bg-slate-700 accent-emerald-500 cursor-pointer"
-                    oninput="document.getElementById('ai-volume-val').textContent = this.value + '%'" />
+                    oninput="showRangeValue('ai-volume-val', this.value, false)" />
                   <div class="flex justify-between text-[9px] text-slate-400 font-mono">
                     <span>0% Im lặng</span><span>50%</span><span>100% Tối đa</span>
                   </div>
@@ -4077,7 +4066,7 @@
 
             <!-- Textarea Editor -->
             <textarea aria-label="Nhập cấu trúc biểu mẫu bằng Markdown..." id="tpl-editor-body" rows="11"
-              oninput="if(typeof renderTemplatePreview === 'function') renderTemplatePreview();"
+              oninput="previewTemplateIfReady()"
               class="input-dark font-mono text-xs w-full resize-y leading-relaxed text-slate-800 dark:text-slate-200 p-3.5 flex-1 shadow-inner"
               placeholder="Nhập cấu trúc biểu mẫu bằng Markdown..."></textarea>
 
@@ -4961,7 +4950,7 @@
                 <span id="studio-rate-val" class="font-mono text-purple-600 dark:text-purple-400 font-bold">+0%</span>
               </div>
               <input type="range" id="studio-rate-slider" min="-50" max="50" value="0" step="5"
-                oninput="document.getElementById('studio-rate-val').textContent = (this.value >= 0 ? '+' : '') + this.value + '%'"
+                oninput="showRangeValue('studio-rate-val', this.value, true)"
                 class="w-full accent-purple-500 cursor-pointer" />
               <div class="flex justify-between text-[10px] text-slate-400 font-mono">
                 <span>Chậm (-50%)</span>
@@ -5130,7 +5119,7 @@
                 placeholder="VD: VN-MateAi hoặc openrouter/ling-3.0-flash-fin:free" />
               <div id="proxy-model-picker-wrap" class="hidden mt-1">
                 <select id="proxy-model-select"
-                  onchange="document.getElementById('cfg-llm-model').value = this.value; if(typeof onConfigModelChanged === 'function') onConfigModelChanged();"
+                  onchange="onCfgModelPicked(this.value)"
                   class="input-dark text-[11px] font-mono w-full">
                   <option value="">-- Chọn mô hình từ 9router --</option>
                 </select>
@@ -5765,7 +5754,7 @@
           cho toàn hệ thống.
         </p>
         <button type="button"
-          onclick="switchTab('dashboard'); setTimeout(() => document.getElementById('dash-pending-list')?.scrollIntoView({behavior:'smooth',block:'center'}), 120)"
+          onclick="goToPendingApprovals('dash-pending-list')"
           class="w-full px-3 py-2 rounded-lg border border-cyan-500/50 bg-cyan-500/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-500/20 transition flex items-center justify-center gap-2">
           Mở Hàng Đợi Phê Duyệt
         </button>
@@ -5808,7 +5797,7 @@
         <div class="flex items-center gap-2 pt-1">
           <input aria-label="Nhập từ khóa cấm mới (vd: rm -rf, drop table)..." type="text" id="input-new-security-item" placeholder="Nhập từ khóa cấm mới (vd: rm -rf, drop table)..."
             class="input-dark text-xs py-1.5 flex-1 font-mono"
-            onkeydown="if(event.key==='Enter') addSecurityPolicyItem()" />
+            onkeydown="onEnterAddPolicy(event)" />
           <button type="button" onclick="addSecurityPolicyItem()"
             class="btn-neon-cyan text-xs py-1.5 px-3.5 flex items-center gap-1.5 whitespace-nowrap shadow-sm">
             <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
@@ -6714,7 +6703,7 @@
               class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 ml-2">●
               LIVE</span>
             <label class="ml-auto flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
-              <input type="checkbox" id="log-autoscroll" checked class="rounded" onchange="" /> Auto-scroll
+              <input type="checkbox" id="log-autoscroll" checked class="rounded" /> Auto-scroll
             </label>
           </div>
           <div id="log-output"
@@ -7882,6 +7871,7 @@
   <script src="/static/vendor/chart.umd.min.js?v=1"
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
+  <script src="/static/ui-actions.js?v=1"></script>
   <script src="/static/server-time.js?v=1"></script>
   <script src="/static/ui-polish.js?v=1"></script>
   <script src="/static/header-inbox.js?v=1"></script>
