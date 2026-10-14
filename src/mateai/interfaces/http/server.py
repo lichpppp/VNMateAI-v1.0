@@ -155,6 +155,7 @@ async def auth_middleware(request: Request, call_next):
         # SSO (OIDC): chạy trước khi đăng nhập; tự kiểm state / nonce / PKCE / chữ ký id_token (application/security/sso.py)
         "/api/v1/sso/config", "/api/v1/sso/login", "/api/v1/sso/callback", "/api/v1/sso/exchange",
         "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập
+        "/api/v1/branding",                # tên / logo / màu trên màn hình đăng nhập (PUT vẫn tự đòi admin)
         # Agent máy trạm: route tự kiểm mã đăng ký dùng một lần / khoá thiết bị
         # (routers/agent_devices.py) — Agent không có tài khoản người dùng.
         "/api/v1/agent/enroll",

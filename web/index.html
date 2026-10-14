@@ -605,22 +605,22 @@
       <div class="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-3">
-            <div
-              class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-base shadow-md shadow-cyan-500/20">
+            <div data-brand="logo"
+              class="w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 via-blue-600 to-indigo-600 flex items-center justify-center text-white font-black text-base shadow-md shadow-cyan-500/20 overflow-hidden">
               V
             </div>
-            <div>
-              <span
-                class="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center leading-none">
+            <div class="min-w-0">
+              <span data-brand="name"
+                class="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center leading-none truncate">
                 VN-<span class="text-cyan-500 dark:text-cyan-400">MateAI</span>
               </span>
               <div class="text-[9px] font-mono uppercase tracking-widest text-slate-400 dark:text-slate-500 mt-1">
-                COMMAND CENTER
+                TRUNG TÂM ĐIỀU HÀNH
               </div>
             </div>
           </div>
           <span
-            class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-cyan-500/10 text-cyan-500 border border-cyan-500/30">C-LEVEL</span>
+            class="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-cyan-500/10 text-cyan-500 border border-cyan-500/30">AI OPS</span>
         </div>
       </div>
 
@@ -882,7 +882,7 @@
           <span
             class="inline-flex items-center gap-1.5 whitespace-nowrap px-2.5 py-0.5 rounded-md text-[11px] font-mono font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30">
             <span class="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
-            VN-MATEAI // EXECUTIVE COMMAND
+            <span data-brand="name">VN-MateAI</span><span aria-hidden="true">·</span>Trung tâm điều hành
           </span>
           <span class="text-slate-400 dark:text-slate-600 hidden 2xl:inline" aria-hidden="true">|</span>
           <div class="hidden 2xl:flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
@@ -5019,6 +5019,7 @@
     <!-- TAB 4: CONFIGURATION (CẤU HÌNH ĐỊNH TUYẾN 3 CẤP & HỆ THỐNG) -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <section class="tab-pane space-y-6" id="tab-config">
+      <div id="branding-admin"></div>
       <!-- Header & 9router Banner -->
       <div class="glass-panel p-6">
         <div
@@ -7722,8 +7723,8 @@
 
       <!-- Brand & Heading -->
       <div class="text-center space-y-2">
-        <div
-          class="inline-flex items-center justify-center p-3 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 shadow-[0_0_20px_rgba(34,211,238,0.35)] mb-1">
+        <div data-brand="logo"
+          class="inline-flex items-center justify-center p-3 rounded-2xl bg-cyan-500/15 border border-cyan-400/40 shadow-[0_0_20px_rgba(34,211,238,0.35)] mb-1 w-16 h-16 overflow-hidden">
           <svg width="38" height="38" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
             <defs>
               <linearGradient id="vRibbonCyanLogin" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -7743,10 +7744,10 @@
               fill="url(#vRibbonPurpleLogin)" />
           </svg>
         </div>
-        <h2 class="text-2xl font-extrabold text-white tracking-tight">
-          VN-<span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-teal-300">MateAI</span> Portal
+        <h2 class="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight" data-brand="name">
+          VN-<span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-500 to-teal-400">MateAI</span>
         </h2>
-        <p class="text-xs text-slate-400">Hệ Thống Trí Tuệ AI & Quản Trị Doanh Nghiệp</p>
+        <p class="text-xs text-slate-500 dark:text-slate-400" data-brand="tagline">Hệ Thống Trí Tuệ AI & Quản Trị Doanh Nghiệp</p>
       </div>
 
       <!-- Error Alert -->
@@ -7875,6 +7876,7 @@
     onerror="console.warn('[CommandCenter] Không tải được Chart.js — biểu đồ sẽ không hiển thị.')"></script>
   <script src="/static/voice-audio-queue.js?v=1"></script>
   <script src="/static/ui-actions.js?v=1"></script>
+  <script src="/static/branding.js?v=1"></script>
   <script src="/static/server-time.js?v=1"></script>
   <script src="/static/ui-polish.js?v=1"></script>
   <script src="/static/header-inbox.js?v=1"></script>
