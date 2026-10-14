@@ -164,6 +164,22 @@ class DatabaseManager:
                         """
                     )
 
+                    # 6b. Yêu cầu quên mật khẩu (màn đăng nhập): admin xác minh người thật rồi cấp mật khẩu tạm.
+                    cursor.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS password_reset_requests (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            username TEXT NOT NULL,
+                            note TEXT,
+                            source_ip TEXT,
+                            created_at TEXT NOT NULL,
+                            status TEXT NOT NULL DEFAULT 'open',
+                            handled_by TEXT,
+                            handled_at TEXT
+                        );
+                        """
+                    )
+
                     # 4. Phê duyệt đã nhớ: thiết bị đã được duyệt tác vụ X một lần thì
                     #    lần sau không hỏi lại (chủ hệ thống chọn, thu hồi ở Web Portal).
                     cursor.execute(

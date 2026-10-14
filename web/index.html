@@ -7796,6 +7796,23 @@
         </button>
       </form>
 
+      <!-- Quên mật khẩu: gửi yêu cầu tới quản trị viên (web/password-reset.js) -->
+      <div class="text-center" id="forgot-link-row">
+        <button type="button" id="btn-forgot-password" class="text-xs font-semibold text-primary-600 dark:text-primary-400 hover:underline">Quên mật khẩu?</button>
+      </div>
+      <form id="forgot-form" class="hidden space-y-3" novalidate>
+        <p class="text-xs text-slate-600 dark:text-slate-300">Gửi yêu cầu tới quản trị viên. Họ sẽ liên hệ xác minh rồi cấp mật khẩu tạm; bạn đặt mật khẩu mới ở lần đăng nhập sau.</p>
+        <div><label for="forgot-username" class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Tên đăng nhập</label>
+          <input type="text" id="forgot-username" maxlength="80" autocomplete="username" placeholder="Tên đăng nhập" class="input-dark w-full text-xs py-2.5 px-3" /></div>
+        <div><label for="forgot-note" class="block text-xs font-semibold text-slate-600 dark:text-slate-300 mb-1.5">Cách liên hệ để xác minh</label>
+          <input type="text" id="forgot-note" maxlength="300" placeholder="Số điện thoại / phòng ban" class="input-dark w-full text-xs py-2.5 px-3" /></div>
+        <p id="forgot-status" class="text-xs hidden" role="status" aria-live="polite"></p>
+        <div class="flex gap-2">
+          <button type="button" id="btn-forgot-back" class="flex-1 py-2.5 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200">Quay lại đăng nhập</button>
+          <button type="submit" id="btn-forgot-submit" class="flex-1 py-2.5 rounded-xl text-xs font-bold bg-primary-600 text-white">Gửi yêu cầu</button>
+        </div>
+      </form>
+
       <p class="text-center text-[11px] text-slate-400" id="login-attribution">
         <a href="https://github.com/lichpppp/VNMateAI-v1.0" target="_blank" rel="noopener noreferrer" class="hover:underline">VN-MateAI © 2026 Dương Thanh Lịch</a>
       </p>
@@ -7871,6 +7888,7 @@
   <script src="/static/voice-audio-queue.js?v=1"></script>
   <script src="/static/ui-actions.js?v=1"></script>
   <script src="/static/branding.js?v=1"></script>
+  <script src="/static/password-reset.js?v=1"></script>
   <script src="/static/server-time.js?v=1"></script>
   <script src="/static/ui-polish.js?v=1"></script>
   <script src="/static/header-inbox.js?v=1"></script>

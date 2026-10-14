@@ -149,3 +149,41 @@ def audit_hashes(ids: List[int]) -> Tuple[Dict[int, Optional[str]], int]:
             r = conn.execute("SELECT row_hash FROM audit_logs WHERE id = ?;", (int(i),)).fetchone()
             out[int(i)] = str(r[0]) if r else None
     return out, total
+
+
+# ── Yêu cầu quên mật khẩu ─────────────────────────────────────────────────────
+
+def pwreset_open_id(username: str) -> Optional[int]:
+    with _main() as conn:
+        row = conn.execute("SELECT id FROM password_reset_requests WHERE username = ? AND status = 'open' "
+                           "ORDER BY id DESC LIMIT 1;", (username,)).fetchone()
+    return int(row[0]) if row else None
+
+
+def pwreset_insert(username: str, note: str, ip: str, now: str) -> int:
+    with _main() as conn:
+        cur = conn.execute("INSERT INTO password_reset_requests (username, note, source_ip, created_at, status) "
+                           "VALUES (?, ?, ?, ?, 'open');", (username, note, ip, now))
+        conn.commit()
+        rid = cur.lastrowid
+        if rid is None:
+            rid = conn.execute("SELECT MAX(id) FROM password_reset_requests WHERE username = ?;", (username,)).fetchone()[0]
+    return int(rid)
+
+
+def pwreset_list(status: str, limit: int) -> List[Dict[str, Any]]:
+    with _main() as conn:
+        rows = conn.execute("SELECT id, username, note, source_ip, created_at, status, handled_by, handled_at "
+                            "FROM password_reset_requests WHERE status = ? ORDER BY id DESC LIMIT ?;", (status, limit)).fetchall()
+    keys = ("id", "username", "note", "source_ip", "created_at", "status", "handled_by", "handled_at")
+    return [dict(zip(keys, r)) for r in rows]
+
+
+def pwreset_close(where_sql: str, args: Tuple[Any, ...], status: str, by: str, now: str) -> int:
+    """Đóng yêu cầu đang mở; `where_sql` chỉ là một trong hai mẫu cố định của password_reset.py (id = ? / username = ?)."""
+    assert where_sql in ("id = ?", "username = ?")
+    with _main() as conn:
+        cur = conn.execute(f"UPDATE password_reset_requests SET status = ?, handled_by = ?, handled_at = ? "
+                           f"WHERE {where_sql} AND status = 'open';", (status, by, now, *args))
+        conn.commit()
+        return int(cur.rowcount or 0)

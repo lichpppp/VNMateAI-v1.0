@@ -36,6 +36,9 @@ NEW_ROUTES = {"/api/v1/health/startup",
               "/api/v1/privacy/subject/lookup", "/api/v1/privacy/subject/erase", "/api/v1/license", "/api/v1/license/usage",
               "/api/v1/reports/performance/monthly", "/api/v1/skills/catalog",
               "/api/v1/branding",                 # thương hiệu hiển thị (white-label)
+              # quên mật khẩu qua quản trị viên
+              "/api/v1/login/forgot-password", "/api/v1/auth/password-reset/requests",
+              "/api/v1/auth/password-reset/requests/{request_id}/close",
               # prompt cuối: model registry §79, sự cố §88, mục tiêu §42, toàn vẹn audit §73
               "/api/v1/llm/model-registry", "/api/v1/ops/incidents", "/api/v1/ops/incidents/{task_id}/phase",
               "/api/v1/ops/goals", "/api/v1/security/audit-logs/verify",
