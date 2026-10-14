@@ -212,6 +212,15 @@ def _neutral_login_policy(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _all_sources_ready(monkeypatch):
+    """Máy chạy test không có Prometheus / AWS / eInvoice…: không để `tool_readiness` ẩn công cụ hay chặn kịch bản của mọi
+    test. Test của chính tính năng này (test_tool_readiness.py) tự bật lại kiểm tra thật."""
+    from mateai.application.skills import tool_readiness
+    monkeypatch.setattr(tool_readiness, "REQUIREMENTS", {})
+    tool_readiness.clear_cache()
+
+
+@pytest.fixture(autouse=True)
 def _reset_emergency_counter():
     """Bộ đếm chế độ khẩn cấp (§54) là theo tiến trình: không để hàng trăm test cộng dồn
     thành "AI hành động dồn dập" rồi tự bật kill switch giữa bộ test."""

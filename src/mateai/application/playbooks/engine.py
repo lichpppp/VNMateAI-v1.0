@@ -183,6 +183,14 @@ def plan(defn: Dict[str, Any], raw_params: Optional[Dict[str, Any]], *, caller: 
     everything = rows + [r["rollback"] for r in rows if r.get("rollback")] + verify_rows
     denied = [{"id": r.get("id") or r["tool"], "tool": r["tool"], "reason": (r["reasons"] or [""])[0], "rule": r["rule"]}
               for r in everything if r["decision"] == policy_engine.DENY]
+    # Nguồn dữ liệu của bước / kiểm chứng chưa cấu hình → chặn trước khi chạy (thẩm định §5.3: lượt chạy duy nhất
+    # trên hệ thống mẫu thất bại ở kiểm chứng vì chưa khai báo Prometheus).
+    from mateai.application.skills.tool_readiness import ready_reason
+    for r in everything:
+        why = ready_reason(r["tool"])
+        if why and r["decision"] != policy_engine.DENY:
+            denied.append({"id": r.get("id") or r["tool"], "tool": r["tool"], "reason": f"Nguồn dữ liệu chưa sẵn sàng: {why}",
+                           "rule": "source_missing"})
     needs = [r["id"] for r in rows if r["decision"] == policy_engine.REQUIRE_APPROVAL]
     return {"playbook_id": defn["id"], "params": params, "steps": rows, "verify": verify_rows, "blocked": bool(denied), "denied": denied,
             "needs_approval": bool(needs), "approval_steps": needs, "max_risk": max([r["risk"] for r in everything] or [1]),

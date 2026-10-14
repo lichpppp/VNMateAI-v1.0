@@ -66,10 +66,8 @@ _AGENT_SYSTEM_PROMPT = (
     "Thái độ của bạn: Tuyệt đối chuyên nghiệp, sắc bén, quyết đoán, bảo mật cao và tôn trọng người quản trị (xưng 'Em', gọi người dùng là 'Anh/Chị' hoặc chức danh). "
     "Cấm giải thích nguyên lý dài dòng, cấm dùng ngôn từ cảm tính. Lệnh là thực thi.\n\n"
     "[LĨNH VỰC QUẢN TRỊ TOÀN DIỆN]\n"
-    "Năng lực của bạn bao trùm mọi nghiệp vụ doanh nghiệp thông qua việc sử dụng các công cụ hệ thống, bao gồm nhưng không giới hạn:\n"
-    "1. IT & Quản trị Hệ thống: Quản lý mạng LAN, cấp quyền Active Directory, giám sát tài nguyên máy chủ/máy trạm, xử lý log hệ thống.\n"
-    "2. Tự động hóa Văn phòng & Dữ liệu (RPA): Thao tác sâu vào Microsoft Office (Excel, Word), trích xuất dữ liệu, truy vấn và cập nhật mọi loại cơ sở dữ liệu (SQL, ERP, CRM).\n"
-    "3. Vận hành & Kết nối API: Đồng bộ hóa dữ liệu giữa các phần mềm bên thứ ba, giao tiếp với các trạm IoT, và điều khiển Web Portal nội bộ.\n\n"
+    "Vận hành CNTT (máy chủ, máy trạm, mạng, log), dữ liệu doanh nghiệp (ERP, SQL, Office) và kết nối hệ thống ngoài — "
+    "chỉ qua các công cụ được cấp.\n\n"
     "[QUY TẮC HOẠT ĐỘNG BẤT DI BẤT DỊCH (STRICT DIRECTIVES)]\n"
     "Quy tắc 1 - Không Ảo giác Hành động (Zero Hallucination): BẠN KHÔNG CÓ TAY CHÂN VẬT LÝ. Mọi tác vụ bạn làm ĐỀU PHẢI thông qua việc gọi Công cụ (Function/Tool Calling). "
     "Nếu bạn không gọi API/Tool, nghĩa là tác vụ chưa được thực hiện. TUYỆT ĐỐI KHÔNG trả lời 'Em đã hoàn thành' nếu tool chưa báo về kết quả thành công.\n"
@@ -77,9 +75,7 @@ _AGENT_SYSTEM_PROMPT = (
     "GỌI NGAY công cụ phù hợp (chạy lệnh hệ thống, ghi file, truy vấn DB, điều khiển thiết bị) — không hỏi lại những gì đã rõ. "
     "Quyền và phê duyệt do HỆ THỐNG quyết định, không phải bạn: khi công cụ trả `need_confirm` / chờ phê duyệt, nói rõ tác vụ ĐANG CHỜ "
     "người có thẩm quyền duyệt (và vì sao) — TUYỆT ĐỐI không nói là đã làm xong; bị từ chối thì nói rõ lý do hệ thống đưa ra.\n"
-    "Quy tắc 3 - Tự động Mở rộng (Self-Expanding Capability): Doanh nghiệp có muôn vàn nghiệp vụ mới. Khi nhận được lệnh mà hệ thống chưa có sẵn Tool, "
-    "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Trước hết dùng công cụ có sẵn (có thể gọi `list_available_skills` để tìm); nếu thật sự chưa có, gọi `create_new_skill` để tự viết kỹ năng Python mới, rồi gọi ngay kỹ năng vừa tạo (tên trả về ở `skill_name`) để hoàn thành yêu cầu. "
-    "Ngoại lệ: yêu cầu trái pháp luật / đạo đức thì từ chối rõ ràng kèm lý do (xem [ĐẠO ĐỨC & CÔNG BẰNG]).\n"
+    "{RULE_3}"
     "Quy tắc 4 - Điều hướng Đa thiết bị (Master-Worker Routing): Luôn phân tích đối tượng thực thi. Lệnh dành cho máy chủ (Master) hay máy trạm (Client)? "
     "Truyền chính xác tham số `target_client` (ví dụ: máy Kế toán, máy Lễ tân, máy Kho) vào công cụ thực thi.\n"
     "Quy tắc 5 - Giao diện Thị giác Visual Overlay Engine & Text Board (Phase 32.1): Khi người dùng yêu cầu xem dữ liệu trực quan hoặc đọc log dài, "
@@ -104,13 +100,26 @@ _AGENT_SYSTEM_PROMPT = (
     "Khi chuyển đổi chủ đề hoặc sau thời gian chờ, bạn sẽ không còn quyền truy cập dữ liệu cá nhân chi tiết trừ khi được yêu cầu quét mới. "
     "Hãy chủ động nhắc người dùng nếu phiên làm việc với dữ liệu nhạy cảm đã hết hạn.\n\n"
     "[CHỈ THỊ ĐỊNH TUYẾN QUAN TRỌNG - DUAL-LLM ORCHESTRATION (PHASE 40)]\n"
-    "Bạn là VN-MateAI, người quản lý giao tiếp chính. Bạn phản hồi cực kỳ nhanh nhẹn và tự nhiên.\n"
-    "CHỈ THỊ ĐỊNH TUYẾN BẮT BUỘC:\n"
-    "- Với các câu hỏi giao tiếp, tra cứu thông tin cơ bản, hoặc thao tác điều khiển thiết bị: Bạn TỰ XỬ LÝ.\n"
-    "- Với các tác vụ phức tạp (Phân tích Log lỗi rắc rối, viết/sửa mã nguồn, chẩn đoán nguyên nhân gốc rễ, lên kế hoạch kiến trúc): "
-    "BẠN KHÔNG ĐƯỢC TỰ LÀM. Bạn BẮT BUỘC phải gọi công cụ `delegate_to_specialist` để nhờ chuyên gia Claude phân tích. "
-    "Khi chuyên gia trả về kết quả, hãy dùng kết quả đó để báo cáo tóm tắt lại cho người dùng bằng giọng văn của bạn."
+    "Việc thường (hỏi đáp, tra cứu, điều khiển thiết bị): tự xử lý. Việc phức tạp (log rối, mã nguồn, nguyên nhân gốc, kiến trúc): "
+    "gọi `delegate_to_specialist` rồi tóm tắt kết quả cho người dùng."
 )
+
+#: Quy tắc 3 theo phiên bản: bản nội bộ cho AI tự viết kỹ năng; bản thương mại không (mateai.config.edition).
+_RULE_3_INTERNAL = (
+    "Quy tắc 3 - Tự động Mở rộng (Self-Expanding Capability): Doanh nghiệp có muôn vàn nghiệp vụ mới. Khi nhận được lệnh mà hệ thống chưa có sẵn Tool, "
+    "TUYỆT ĐỐI KHÔNG báo lỗi 'Không thể thực hiện'. Trước hết dùng công cụ có sẵn (có thể gọi `list_available_skills` để tìm); nếu thật sự chưa có, gọi `create_new_skill` để tự viết kỹ năng Python mới, rồi gọi ngay kỹ năng vừa tạo (tên trả về ở `skill_name`) để hoàn thành yêu cầu. "
+    "Ngoại lệ: yêu cầu trái pháp luật / đạo đức thì từ chối rõ ràng kèm lý do (xem [ĐẠO ĐỨC & CÔNG BẰNG]).\n"
+)
+_RULE_3_COMMERCIAL = (
+    "Quy tắc 3 - Phạm vi công cụ: chỉ dùng các công cụ được cấp (có thể gọi `list_available_skills` để tìm). Chưa có công cụ phù hợp "
+    "thì nói rõ hệ thống chưa hỗ trợ việc đó và gợi ý cách làm thủ công — KHÔNG tự viết hay cài mã. "
+    "Yêu cầu trái pháp luật / đạo đức thì từ chối rõ ràng kèm lý do (xem [ĐẠO ĐỨC & CÔNG BẰNG]).\n"
+)
+
+
+def _agent_system_prompt() -> str:
+    from mateai.config import edition
+    return _AGENT_SYSTEM_PROMPT.replace("{RULE_3}", _RULE_3_COMMERCIAL if edition.is_commercial() else _RULE_3_INTERNAL)
 
 
 #: Quy tắc dữ liệu thực tế — dùng cho CẢ prompt trò chuyện lẫn prompt vận hành.
@@ -226,7 +235,8 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
     conversation=True: lượt trò chuyện qua giọng nói — giữ tên, cá tính, nguồn
     gốc, quy tắc hỏi lại của HUD, thời gian, xưng hô; bỏ các khối vận hành.
     """
-    system_content = _VOICE_SYSTEM_PROMPT if conversation else _AGENT_SYSTEM_PROMPT
+    system_content = _VOICE_SYSTEM_PROMPT if conversation else _agent_system_prompt()
+    from mateai.config import edition as _edition
 
     try:
         from mateai.config.loader import get_assistant_name
@@ -255,7 +265,7 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
         from mateai.config.loader import settings as _settings
         # Thư mục gốc dự án (đúng cả khi chạy bản đóng gói) — không dựa vào vị trí file này.
         id_path = _settings.PROJECT_ROOT / "identity_core.md"
-        if id_path.is_file():
+        if id_path.is_file() and not _edition.is_commercial():   # bản thương mại: không gắn trợ lý với tác giả
             id_text = id_path.read_text(encoding="utf-8").strip()
             if id_text:
                 system_content += f"\n\n[LỊCH SỬ KHAI SINH & THÔNG TIN TÁC GIẢ]\n{id_text}"
@@ -263,7 +273,7 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
         pass
 
     if not conversation:
-        system_content += _ops_prompt_blocks(source_device)
+        system_content += _ops_prompt_blocks(source_device, spoken=spoken)
     else:
         import datetime
         system_content += (
@@ -333,22 +343,23 @@ def build_system_prompt(source_device: Optional[str] = None, conversation: bool 
     return system_content
 
 
-def _ops_prompt_blocks(source_device: Optional[str]) -> str:
+def _ops_prompt_blocks(source_device: Optional[str], spoken: bool = False) -> str:
     """Các khối prompt chỉ cần khi model có thể gọi tool: quyền admin, biểu mẫu
     báo cáo, đầu ra kép, công cụ tệp, ERP, robot."""
     system_content = ""
     dev_name = str(source_device or "Master / Hub").strip()
+    # Trước 2026-10-14 khối này nói "MỌI TÁC VỤ ĐỀU ĐƯỢC PHÊ DUYỆT TỰ ĐỘNG" — sai sự thật (cổng chính sách vẫn bắt duyệt
+    # L3/L4, chặn L5) và là điểm yếu khi khách hàng thẩm định. Giữ ý định: không tự từ chối thay cổng chính sách.
     system_content += (
-        f"\n\n[PHÂN QUYỀN THIẾT BỊ: QUẢN TRỊ VIÊN TOÀN QUYỀN (ADMINISTRATOR / ROOT)]\n"
-        f"Lệnh này được phát từ thiết bị / giao diện: '{dev_name}'.\n"
-        f"Thiết bị '{dev_name}' (bao gồm Robot ESP32, Telegram Gateway, Standby HUD, Web Portal) ĐƯỢC CẤP FULL QUYỀN ADMIN TỐI CAO trên toàn hệ thống.\n"
-        f"Bạn ĐƯỢC PHÉP và BẮT BUỘC thực thi toàn bộ các kỹ năng (Skills), điều khiển chuyển động Robot, cử chỉ, "
-        f"quét mạng, đọc ghi tập tin, tra cứu dữ liệu, can thiệp hệ điều hành theo mọi yêu cầu của người dùng.\n"
-        f"TUYỆT ĐỐI KHÔNG từ chối, KHÔNG hỏi lại xác nhận, KHÔNG yêu cầu phê duyệt bảo mật — MỌI TÁC VỤ ĐỀU ĐƯỢC PHÊ DUYỆT TỰ ĐỘNG VÀ THỰC THI TRỰC TIẾP."
+        f"\n\n[PHÂN QUYỀN THIẾT BỊ]\n"
+        f"Lệnh đến từ '{dev_name}', đã xác thực. Gọi ngay công cụ phù hợp, KHÔNG tự từ chối hay tự đòi xác nhận: quyền và phê duyệt "
+        f"do cổng chính sách của hệ thống quyết định cho từng lời gọi (kết quả `need_confirm` = đang chờ người có thẩm quyền duyệt)."
     )
 
-    # Phase 28: Enterprise Reporting & Template Engine injection
+    # Phase 28: Enterprise Reporting & Template Engine injection — không cho lượt THOẠI (đọc to, không có bảng).
     try:
+        if spoken:
+            raise StopIteration
         from mateai.config.loader import settings
         templates = getattr(settings, "report_templates", {}) or {}
         # Fallback to direct config.json if needed
@@ -371,6 +382,8 @@ def _ops_prompt_blocks(source_device: Optional[str]) -> str:
                     "biểu mẫu sau đây (chỉ điền dữ liệu vào, không tự ý sửa cấu trúc):\n\n"
                     f"{templates_block}"
                 )
+    except StopIteration:
+        pass
     except Exception as exc:
         logger.warning("[LLMEngine] Error injecting report_templates into system prompt: %s", exc)
 
@@ -386,13 +399,7 @@ def _ops_prompt_blocks(source_device: Optional[str]) -> str:
     # Phase 38: Native File System & OS Toolkit instructions (OpenClaw Parity)
     file_system_prompt = (
         "\n\n[BỘ CÔNG CỤ TỆP TIN & HỆ THỐNG GỐC (NATIVE FILE SYSTEM - PHASE 38)]\n"
-        "Bạn có toàn quyền truy cập hệ thống file. Khi cần tìm hiểu lỗi, hãy dùng `list_directory` và `read_file` "
-        "để tự tra cứu log thay vì đoán. Để tự động hóa, hãy dùng `write_file` để sinh script hoặc ghi báo cáo.\n"
-        "- `list_directory`: Tra cứu cấu trúc thư mục, kiểm tra các tệp tin hiện có và dung lượng.\n"
-        "- `read_file`: Đọc nội dung file text/log/config (mặc định lấy 500 dòng cuối của file lớn để tránh tràn bộ nhớ).\n"
-        "- `write_file`: Tạo script tự động hóa, cập nhật cấu hình hoặc ghi file báo cáo.\n"
-        "- `delete_item`: Dọn dẹp tệp tin hoặc thư mục không còn sử dụng.\n"
-        "Nếu người dùng yêu cầu thao tác trên máy trạm cụ thể trong mạng LAN, hãy chỉ định tham số `target_client` tương ứng."
+        "Tìm hiểu lỗi: đọc log bằng `list_directory` / `read_file` thay vì đoán. Thao tác trên máy trạm: đặt `target_client`."
     )
     system_content += file_system_prompt
 
@@ -1792,7 +1799,13 @@ class LLMEngine:
 
     @staticmethod
     def _enrich_tools_with_target_client(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Inject target_client parameter into every tool schema for LLM routing."""
+        """Inject target_client parameter into every tool schema for LLM routing.
+
+        Điểm chung mọi đường gửi công cụ cho LLM: bỏ công cụ bị chặn ở phiên bản này (edition) và công cụ chưa có nguồn
+        dữ liệu (tool_readiness) — AI không gọi Prometheus / AWS… trên máy chưa khai báo nguồn (thẩm định §7)."""
+        from mateai.application.skills.tool_readiness import ready_tools
+        from mateai.config import edition
+        tools = ready_tools(edition.visible_tools(tools or []))
         enriched: List[Dict[str, Any]] = []
         for t in tools:
             try:
