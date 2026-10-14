@@ -761,6 +761,40 @@ async function apiConfirmAction(clientId, skillName, args, approved) {
 // sau đó 'command-center' cũng gộp vào 'dashboard'.
 // Danh sách chỉ còn tab thật sự tồn tại; link cũ #users / #devices /
 // #command-center sẽ tự rơi về dashboard thay vì mở một tab không có.
+/**
+ * Tab ẩn theo vai trò (một nguồn cho menu + điều hướng). Máy chủ vẫn là nơi chặn quyền thật; đây là để người dùng không
+ * mở vào tab chỉ có thông báo "không có quyền" / lỗi 403. Viewer = nhân viên xem: Bảng điều khiển, Nhật ký công việc,
+ * Tích hợp, Kho kỹ năng, Nhật ký. Manager = trưởng bộ phận: mọi tab trừ Cấu hình và Bảo mật.
+ */
+const ROLE_HIDDEN_TABS = {
+  admin: [],
+  manager: ['config', 'security'],
+  viewer: ['config', 'security', 'voice', 'ai-manager', 'infra-monitor', 'playbooks', 'dev-fleet', 'agent-gateway', 'compliance'],
+};
+const ROLE_RANK = { viewer: 0, manager: 1, admin: 2 };
+
+function currentRoleName() {
+  const u = (typeof currentUser !== 'undefined' && currentUser) || getStoredUser();
+  const r = String((u && u.role) || 'viewer').toLowerCase();
+  return r in ROLE_RANK ? r : 'viewer';
+}
+
+function tabAllowedForRole(tabId, role) {
+  return !(ROLE_HIDDEN_TABS[role] || ROLE_HIDDEN_TABS.viewer).includes(tabId);
+}
+
+/** Ẩn tab không dành cho vai trò + khối có data-min-role cao hơn vai trò (vd khối kỹ thuật trên Bảng điều khiển). */
+function applyRoleVisibility(role) {
+  VALID_TABS.forEach((t) => {
+    const nav = document.getElementById(`nav-${t}`);
+    if (nav) nav.classList.toggle('hidden', !tabAllowedForRole(t, role));
+  });
+  const rank = ROLE_RANK[role] ?? 0;
+  document.querySelectorAll('[data-min-role]').forEach((el) => {
+    el.classList.toggle('hidden', rank < (ROLE_RANK[el.dataset.minRole] ?? 2));
+  });
+}
+
 const VALID_TABS = ['dashboard', 'infra-monitor', 'playbooks', 'compliance', 'agent-gateway', 'dev-fleet', 'system-integration', 'ai-manager', 'skills', 'voice', 'config', 'security', 'tasks', 'logs'];
 
 function getSavedTab() {
@@ -840,6 +874,9 @@ function switchLogView(view) {
 
 function switchTab(tabId) {
   if (!VALID_TABS.includes(tabId)) {
+    tabId = 'dashboard';
+  }
+  if (getAuthToken() && !tabAllowedForRole(tabId, currentRoleName())) {
     tabId = 'dashboard';
   }
   // Topology is served as a standalone Next.js page — open in new tab
@@ -8215,9 +8252,11 @@ function applyRolePermissions(role, user) {
     }
   }
 
-  // Nếu người dùng không phải admin mà đang ở tab Quản lý tài khoản -> tự động chuyển về Dashboard
+  // Tab / khối không dành cho vai trò này: ẩn; đang đứng ở tab bị ẩn → về Bảng điều khiển
+  applyRoleVisibility(roleName in ROLE_RANK ? roleName : 'viewer');
   const activePane = document.querySelector('.tab-pane.active');
-  if (roleName !== 'admin' && activePane && activePane.id === 'tab-users') {
+  const activeTab = activePane ? activePane.id.replace(/^tab-/, '') : 'dashboard';
+  if (!tabAllowedForRole(activeTab, roleName in ROLE_RANK ? roleName : 'viewer')) {
     switchTab('dashboard');
   }
 }

@@ -457,6 +457,9 @@
     /* Tiêu đề trang: phần mô tả sau dấu "—" xuống dòng nhỏ thay vì đẩy cụm nút sang hàng mới */
     #header-subtitle:empty { display: none; }
 
+    /* Ẩn theo vai trò: .nav-btn (display:flex, khai báo sau Tailwind) đè .hidden → mục menu bị ẩn vẫn hiện */
+    .nav-btn.hidden, [data-min-role].hidden { display: none !important; }
+
     /* ─── Tab Content Switching ─────────────────────────────────── */
     .tab-pane {
       display: none !important;
@@ -1684,7 +1687,7 @@
       </div>
 
       <!-- ─── AI SUPERVISOR: AI đang làm gì, ai cho phép, cái gì bị chặn / cần người ─── -->
-      <div id="supervisor-card" class="glass-panel p-5 space-y-4">
+      <div id="supervisor-card" class="glass-panel p-5 space-y-4" data-min-role="manager">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 class="text-sm font-bold text-slate-800 dark:text-white">AI Supervisor — 24 giờ qua</h3>
@@ -1750,7 +1753,7 @@
       </div>
 
       <!-- ── 3D CYBERNETIC HUD & VISUAL OVERLAY CONTROL PANEL ── -->
-      <div
+      <div data-min-role="manager"
         class="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-50 via-white to-blue-50 dark:from-cyan-950/40 dark:via-slate-900/80 dark:to-blue-950/40 p-3.5 shadow-sm backdrop-blur-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div class="flex items-center gap-3 min-w-0">
           <div
@@ -1801,7 +1804,7 @@
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <!-- ── EXECUTIVE COMMAND PILLARS & STRATEGIC HEALTH METRICS ──────── -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
-      <div class="space-y-3">
+      <div class="space-y-3" data-min-role="manager">
         <!-- Executive Operations Quick Command Bar -->
         <div
           class="p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 backdrop-blur-md shadow-sm flex flex-wrap items-center justify-between gap-2">
@@ -2778,7 +2781,7 @@
 
       <!-- ═══ HÀNH ĐỘNG AI  |  SỨC KHOẺ HỆ THỐNG ═══════════════════════
            Hai việc admin làm nhiều nhất, nên hai việc đó lên trên cùng. -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start" data-min-role="manager">
 
         <!-- ── ĐIỀU HÀNH AI ─────────────────────────────────────────── -->
         <div class="space-y-4">
