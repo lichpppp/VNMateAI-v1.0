@@ -90,7 +90,7 @@ Chú thích trạng thái:
 |---|---|---|---|
 | 1 | Đổi tên, logo, tên trợ lý | **Quyết định** | NOTICE chỉ cấm *bên thứ ba* dùng tên "VN-MateAI". Nếu tác giả tự thương mại hoá thì không bắt buộc đổi tên. Chỉ bắt buộc khi đơn vị khác phát triển phái sinh (xem §6). |
 | 2 | Tắt sinh/cài mã AI ở bản bán | **Xong** | `edition=commercial`. |
-| 3 | Loại kỹ năng demo; danh mục có chủ sở hữu và kiểm thử | **Xong** (danh mục) | `skills/catalog.json` + `/api/v1/skills/catalog`: nhóm, đội chủ sở hữu, có test chưa. Test hợp đồng: tham số khai cho LLM khớp hàm ở cả 108 kỹ năng. **Còn 31 kỹ năng bản bán chưa có test hành vi riêng**; danh mục liệt kê đủ để bù dần. |
+| 3 | Loại kỹ năng demo; danh mục có chủ sở hữu và kiểm thử | **Xong** | Danh mục `skills/catalog.json`, test hợp đồng cho 108 kỹ năng, và **test hành vi cho cả 79 kỹ năng của bản thương mại**. Khi viết test, phát hiện tên dịch vụ Windows lạ không bị chặn; đã sửa ở cả máy chủ lẫn Agent 2.3.1. |
 | 4 | LLM gateway: lọc PII, chính sách theo mức dữ liệu, chặn model không DPA | **Một phần** | Đã che PII trước LLM và chặn `:free`. Còn: định tuyến theo mức phân loại (`CONFIDENTIAL` trở lên chỉ đi model tự host) và danh sách nhà cung cấp có DPA (đợt 2, sau quyết định về nhà cung cấp). |
 | 5 | Model tự host (vLLM) | **Bên ngoài** | Mã gọi LLM theo chuẩn OpenAI nên trỏ được vào vLLM. Cần GPU và đánh giá chất lượng tiếng Việt bằng bộ ở #11. |
 | 6 | Thay Edge-TTS | **Xong** (bản bán) | Edge bị chặn. Vbee đang là engine chính. Cần hợp đồng Vbee/FPT.AI/Azure cho từng khách hàng. |
@@ -98,8 +98,8 @@ Chú thích trạng thái:
 | 8 | Tách phần Windows ra agent; lõi Linux | **Xong** | Gói Docker Linux (amd64/arm64), Agent 2.3.0 chạy kỹ năng desktop. |
 | 9 | Multi-tenant (`tenant_id`, RLS, khoá theo tenant) | **Quyết định → Đợt 3** | Phụ thuộc phân khúc đầu tiên (§6). Có bước nâng cấp CSDL theo số thứ tự (`schema_migrations`) để thêm `tenant_id` an toàn. |
 | 10 | Header bảo mật, tắt /docs, health tối giản, bắt đổi mật khẩu + MFA | **Xong** | Header, /docs, health-dashboard, MFA cho admin. Bắt đổi mật khẩu cho tài khoản mặc định, tài khoản admin vừa đặt lại cho người khác, và mật khẩu dev công khai. Chính sách: ≥ 10 ký tự, có chữ và số. |
-| 11 | Bộ đánh giá AI 300–500 câu, cổng ≥ 90% | **Một phần** | Đã có bộ 300 câu theo vai trò (CNTT, lãnh đạo, nhân sự, chung): 218 câu công cụ, 47 câu hội thoại, 35 câu tấn công. Cổng `--gate 0.9` trượt khi dưới 90% hoặc có bất kỳ đề xuất công cụ bị cấm. **Chưa chạy trên LLM thật**, vì 9Router không chạy lúc làm. Câu do đội viết; cần bổ sung câu thật từ nhật ký. |
-| 12 | Độ trễ | **Một phần** | Đã giới hạn câu đọc to, chọn công cụ trước, ẩn công cụ chưa có nguồn dữ liệu. Prompt vận hành HUD giảm từ 14.227 xuống 11.569 ký tự (-19%). Mục tiêu khoảng 3.000 ký tự cần viết lại cả khối quy tắc và đo lại bằng bộ #11. |
+| 11 | Bộ đánh giá AI 300–500 câu, cổng ≥ 90% | **Một phần** | Có bộ 300 câu và cổng `--gate 0.9`. **Đã chạy trên LLM thật** với 60 câu lấy mẫu: đạt 95,6% trên các câu gateway trả lời được, 0 đề xuất công cụ cấm. Chưa chạy đủ 300 câu (khoảng 7 triệu token). 9Router hỏng cả chuỗi model ở 10/60 lượt, cần xử lý trước khi đặt cổng phát hành. |
+| 12 | Độ trễ | **Một phần** | Phần quy tắc hệ thống trong prompt giảm từ 6,4 nghìn xuống 2,5 nghìn ký tự. Prompt vận hành HUD giảm từ 14.227 xuống 9.481 ký tự; token −14%, p95 từ 11,2 s xuống 7,9 s (đo thật). Phần còn lại là nội dung chủ dự án viết (giới thiệu, cá tính, mẫu báo cáo), không đụng tới. Còn giới hạn câu đọc to và ẩn công cụ chưa có nguồn như đã nêu. |
 | 13 | Bộ cài, nâng cấp, sao lưu khôi phục được kiểm thử | **Một phần** | Đã cài thật trên Linux/ARM64 giả lập. Còn: kịch bản nâng cấp bản N → N+1 tự động trong CI. |
 | 14 | Pentest độc lập | **Bên ngoài** | — |
 
@@ -107,13 +107,13 @@ Chú thích trạng thái:
 
 | # | Hạng mục | Trạng thái | Còn lại / ghi chú |
 |---|---|---|---|
-| 15 | Số đo lưu bền 13 tháng | **Xong** (API) | Giữ 400 ngày. `/api/v1/reports/performance/monthly` (JSON/CSV) gồm lượt, p50/p90, rơi dự phòng, thành công, token. Chưa có màn hình biểu đồ riêng. |
+| 15 | Số đo lưu bền 13 tháng | **Xong** | Giữ 400 ngày. API báo cáo tháng (JSON/CSV) và **màn hình trong tab "Thương mại & Tuân thủ"**. |
 | 16 | Chính sách khai báo (OPA/Cedar), duyệt hai người cho L4 | **Một phần** | Đã có duyệt hai người (`security.dual_approval_min_risk`, mặc định tắt): hai người khác nhau, người yêu cầu không tự duyệt. Chính sách khai báo OPA/Cedar: đợt 3. |
 | 17 | Neo chuỗi băm audit ra ngoài, xuất báo cáo kiểm toán | **Xong** | Xuất CSV và HTML in được, kèm kết quả kiểm chuỗi. Neo đầu chuỗi ra ổ khác và S3 sau mỗi lần sao lưu, kiểm ở `/audit-logs/verify`. Muốn có WORM thật: bật Object Lock ở bucket. Dịch vụ dấu thời gian (TSA) tuỳ chọn. |
 | 18 | SSO OIDC/SAML, vai trò tuỳ biến, phân tách nhiệm vụ | **Một phần** | Đã có OIDC. Còn: SAML, vai trò tuỳ biến, người cấu hình ≠ người duyệt. |
 | 19 | Trình soạn kịch bản trực quan, 20 mẫu | **Đợt 3** | Cần người làm frontend. |
 | 20 | Connector kiểm thử thật | **Bên ngoài** | Cần hệ thống thật của khách hàng thí điểm (Zabbix, GLPI, Jira, ServiceNow, vCenter, Veeam, MISA). |
-| 21 | Teams, Zalo OA, email | **Xong** (mã) | Có Teams, Email, Outlook, Slack, Webhook; thêm Zalo OA. Chưa thử với tài khoản thật. Token Zalo hết hạn sau khoảng 25 giờ, chưa tự làm mới. |
+| 21 | Teams, Zalo OA, email | **Xong** (mã) | Có Teams, Email, Outlook, Slack, Webhook, Zalo OA. Zalo **tự làm mới token** (refresh token dùng một lần, lưu ngay, mã hoá). Chưa thử với tài khoản thật. |
 | 22 | Thiết kế lại giao diện theo vai trò | **Đợt 3** | Bao gồm gỡ `onclick` inline để bật CSP chặt. |
 | 23 | Bản quyền và đo lượng sử dụng | **Xong** (cơ chế) | Tệp bản quyền ký Ed25519, ngoại tuyến (`scripts/issue_license.py`). Hạn mức người dùng và máy trạm, dùng thử 5/5, đo lượng `/api/v1/license/usage`. **Mô hình giá vẫn là quyết định §6**; cơ chế đổi được thước đo. |
 | 24 | Tuân thủ dữ liệu cá nhân: sổ xử lý, thời hạn lưu, xoá theo yêu cầu | **Xong** | Sổ hoạt động xử lý (API + `docs/compliance/`), tra cứu và xoá theo chủ thể có audit (audit chỉ lưu mã băm), mẫu DPIA. Không phải ý kiến pháp lý. |
