@@ -54,7 +54,7 @@ Mã nằm ở `src/mateai/config/edition.py`. Chọn phiên bản bằng `"editi
 - `/docs`, `/redoc` và `/openapi.json` **tắt mặc định**. Bản nội bộ bật lại bằng `security.public_api_docs: true` hoặc `VNMATEAI_API_DOCS=1`. Bản thương mại luôn tắt.
 - `/api/v1/health-dashboard` **cần đăng nhập**. HUD đã gửi kèm token.
 - Mọi phản hồi có header: CSP (`default-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`…), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Permissions-Policy` và `Cross-Origin-Opener-Policy`.
-  - CSP còn cho phép script inline (`'unsafe-inline'`), vì giao diện có khoảng 365 `onclick`. Gỡ các `onclick` này để siết CSP thuộc đợt 3 (P1-22).
+  - CSP đã chặt: `script-src 'self'`, không còn `'unsafe-inline'` trên portal, HUD và ROI. Script nội tuyến đã tách ra tệp. Khoảng 430 thuộc tính `onclick="…"` sẵn có do `web/inline-handlers.js` chạy hộ theo một ngữ pháp nhỏ (không `eval`). Bộ này chỉ gọi được 237 tên có trong danh sách cho phép, sinh từ chính mã nguồn (`scripts/inline_handlers.py`, test kiểm tra khớp), nên HTML bị chèn vào trang không gọi được `fetch`, `localStorage` hay API. Trang Next.js xuất tĩnh (`/topology`) giữ CSP cũ. Có công tắc khẩn `VNMATEAI_CSP_LEGACY=1`.
 - **HSTS** chỉ bật khi đặt `security.hsts: true`, sau khi đã có chứng chỉ CA thật. Với chứng chỉ tự ký, HSTS khiến trình duyệt không cho người dùng bấm "Vẫn tiếp tục".
 - MFA bắt buộc cho `admin` và log ra tệp có che bí mật (`logs/vnmateai.log`) đã làm trước đó trong ngày.
 
@@ -114,7 +114,7 @@ Chú thích trạng thái:
 | 19 | Trình soạn kịch bản trực quan, 20 mẫu | **Đợt 3** | Cần người làm frontend. |
 | 20 | Connector kiểm thử thật | **Bên ngoài** | Cần hệ thống thật của khách hàng thí điểm (Zabbix, GLPI, Jira, ServiceNow, vCenter, Veeam, MISA). |
 | 21 | Teams, Zalo OA, email | **Xong** (mã) | Có Teams, Email, Outlook, Slack, Webhook, Zalo OA. Zalo **tự làm mới token** (refresh token dùng một lần, lưu ngay, mã hoá). Chưa thử với tài khoản thật. |
-| 22 | Thiết kế lại giao diện theo vai trò | **Đợt 3** | Bao gồm gỡ `onclick` inline để bật CSP chặt. |
+| 22 | Thiết kế lại giao diện theo vai trò | **Xong phần lớn** | Menu và điều hướng theo vai trò (viewer: 5 tab, manager: không có Cấu hình và Bảo mật). Khối kỹ thuật trên Bảng điều khiển ẩn với viewer. CSP chặt. Admin đổi tên, logo, màu được (white-label). Nhãn đã Việt hoá. Tiêu đề và biểu tượng không còn đè nhau. Thẻ trống được ẩn khi chưa có nguồn. Trang và tệp tĩnh được nén gzip (khoảng 1,4 MB → 330 KB). Còn lại: chưa tách `app.js` (42 test đọc trực tiếp; tính năng mới đã nằm ở tệp riêng), chưa có trang đầu riêng cho giám đốc.  |
 | 23 | Bản quyền và đo lượng sử dụng | **Xong** (cơ chế) | Tệp bản quyền ký Ed25519, ngoại tuyến (`scripts/issue_license.py`). Hạn mức người dùng và máy trạm, dùng thử 5/5, đo lượng `/api/v1/license/usage`. **Mô hình giá vẫn là quyết định §6**; cơ chế đổi được thước đo. |
 | 24 | Tuân thủ dữ liệu cá nhân: sổ xử lý, thời hạn lưu, xoá theo yêu cầu | **Xong** | Sổ hoạt động xử lý (API + `docs/compliance/`), tra cứu và xoá theo chủ thể có audit (audit chỉ lưu mã băm), mẫu DPIA. Không phải ý kiến pháp lý. |
 | 25 | CI/CD, SBOM, ký số bản phát hành | **Một phần** | Đã có SBOM CycloneDX 1.5 từ image thật. `SHA256SUMS.txt` ký Ed25519; `install.sh` tự kiểm chữ ký và băm; có `verify_release.py`. Gói chặn mọi tệp `.key`/`.pem`. **CI vẫn khoá vì thanh toán GitHub.** |
