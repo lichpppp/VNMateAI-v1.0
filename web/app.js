@@ -245,6 +245,16 @@ let pendingEmergencyAction = null;
 // Mục cho tab đã gộp ('command-center' → dashboard, 'devices' → tích hợp,
 // 'users' → bảo mật) phải bị gỡ: tra ra vẫn thấy tiêu đề của một tab không
 // còn tồn tại, dễ khiến người đọc code tưởng những tab đó vẫn còn.
+/** Đặt tiêu đề trang: "Tên — mô tả" → tiêu đề ngắn ở h1, mô tả ở dòng nhỏ bên dưới (không đẩy cụm nút xuống hàng). */
+function setHeaderTitle(text) {
+  const full = text || 'Bảng Điều Khiển';
+  const i = full.indexOf(' — ');
+  const titleEl = document.getElementById('header-title');
+  const subEl = document.getElementById('header-subtitle');
+  if (titleEl) titleEl.textContent = i > 0 ? full.slice(0, i) : full;
+  if (subEl) subEl.textContent = i > 0 ? full.slice(i + 3) : '';
+}
+
 const TAB_TITLES = {
   dashboard: 'Bảng Điều Khiển',
   'system-integration': 'Tích Hợp Hệ Thống — API dữ liệu · Webhook · Máy trạm · Phòng ban',
@@ -873,8 +883,7 @@ function switchTab(tabId) {
   const activePane = document.getElementById(`tab-${tabId}`);
   if (activePane) activePane.classList.add('active');
 
-  const titleEl = document.getElementById('header-title');
-  if (titleEl) titleEl.textContent = TAB_TITLES[tabId] || 'Bảng Điều Khiển';
+  setHeaderTitle(TAB_TITLES[tabId]);
 
   // Lưu trạng thái tab hiện tại vào localStorage và cập nhật URL hash để khi F5 giữ nguyên vị trí
   try {
@@ -6087,11 +6096,15 @@ function updateAIManagerTelemetry() {
 
   const rawVoice = document.getElementById('ai-tts-voice')?.value || currentConfig?.audio?.tts_voice || currentConfig?.TTS_VOICE || 'vi-VN-HoaiMyNeural';
   let friendlyVoice = rawVoice;
-  if (rawVoice.includes('HoaiMy')) friendlyVoice = 'Hoài My (Nữ)';
+  if (rawVoice.includes('ngochuyen')) friendlyVoice = 'Ngọc Huyền (Nữ)';
+  else if (rawVoice.includes('HoaiMy')) friendlyVoice = 'Hoài My (Nữ)';
   else if (rawVoice.includes('NamMinh')) friendlyVoice = 'Nam Minh (Nam)';
   else if (rawVoice.includes('Jenny')) friendlyVoice = 'Jenny (US)';
   else if (rawVoice.includes('Guy')) friendlyVoice = 'Guy (US)';
   if (voiceEl) voiceEl.textContent = friendlyVoice;
+  const ttsBadge = document.getElementById('ai-status-tts-badge');
+  const engine = document.getElementById('ai-tts-engine')?.value || currentConfig?.audio?.tts_engine || 'edge-tts';
+  if (ttsBadge) ttsBadge.textContent = ({ vbee: 'VBEE', elevenlabs: 'ELEVENLABS', 'edge-tts': '9ROUTER · EDGE' })[engine] || String(engine).toUpperCase();
 
   const curWake = document.getElementById('ai-persona-wake')?.value?.trim() || currentConfig?.persona?.wake_word || currentConfig?.WAKE_WORD || 'Hey Ly Ly';
   if (wakeEl) wakeEl.textContent = curWake;
@@ -11005,7 +11018,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (devHint) {
     const host = window.location.hostname;
     const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.endsWith('.local');
-    if (isLocal) devHint.classList.remove('hidden');
+    const devMode = new URLSearchParams(window.location.search).has('dev');
+    if (isLocal && devMode) devHint.classList.remove('hidden');
   }
 
   // Pre-activate saved tab visually so there's zero layout shift on F5
@@ -11018,8 +11032,7 @@ document.addEventListener('DOMContentLoaded', () => {
       preNav.classList.add('active');
       document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
       prePane.classList.add('active');
-      const titleEl = document.getElementById('header-title');
-      if (titleEl && TAB_TITLES[preTab]) titleEl.textContent = TAB_TITLES[preTab];
+      if (TAB_TITLES[preTab]) setHeaderTitle(TAB_TITLES[preTab]);
     }
   }
 

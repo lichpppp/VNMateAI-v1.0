@@ -827,12 +827,34 @@ def _build_settings() -> AppSettings:
     return AppSettings(**raw)
 
 
+def _config_stamp() -> Optional[tuple]:
+    try:
+        st = CONFIG_PATH.stat()
+        return (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return None
+
+
+#: Dấu (mtime, size) của config.json ở lần nạp gần nhất — cho `reload_settings_if_changed`.
+_loaded_stamp: Optional[tuple] = None
+
+
+def reload_settings_if_changed() -> AppSettings:
+    """Nạp lại chỉ khi config.json đã đổi. Vòng hỏi tin Telegram gọi mỗi ~10 s: nạp lại vô điều kiện = đọc + giải mã
+    config.json liên tục và một dòng "AppSettings reloaded" mỗi vòng làm ngập nhật ký."""
+    stamp = _config_stamp()
+    if stamp is not None and stamp == _loaded_stamp:
+        return settings
+    return reload_settings()
+
+
 def reload_settings() -> AppSettings:
     """
     Re-read config.json and reload the in-memory settings singleton in-place.
     Ensures hot updates without server restart.
     """
-    global settings
+    global settings, _loaded_stamp
+    _loaded_stamp = _config_stamp()
     raw = _load_raw_config()
     new_s = AppSettings(**raw)
     for k, v in new_s.__dict__.items():
@@ -845,6 +867,7 @@ def reload_settings() -> AppSettings:
     return settings
 
 
+_loaded_stamp = _config_stamp()
 settings: AppSettings = _build_settings()
 
 from mateai.config.log_setup import configure_logging, default_log_file  # noqa: E402

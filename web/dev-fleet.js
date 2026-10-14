@@ -88,7 +88,7 @@ const DevFleetUI = (() => {
       </div>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <div id="df-live" class="grid grid-cols-1 xl:grid-cols-2 gap-4">
       <div class="${CARD}"><h3 class="text-sm font-bold mb-2 text-slate-800 dark:text-slate-100">Worker (Mac mini)</h3><div id="df-workers" class="overflow-x-auto"></div></div>
       <div class="${CARD}"><h3 class="text-sm font-bold mb-2 text-slate-800 dark:text-slate-100">Cần chú ý</h3><div id="df-brief" class="text-xs"></div>
         <h3 class="text-sm font-bold mt-4 mb-2 text-slate-800 dark:text-slate-100">Agent</h3><div id="df-agents" class="overflow-x-auto"></div></div>
@@ -280,9 +280,11 @@ const DevFleetUI = (() => {
     renderStatus(st.data);
     if (!st.data.enabled || st.data.configured === false) {
       ['df-workers', 'df-agents', 'df-brief'].forEach((id) => { $(id).innerHTML = ''; });
+      $('df-live').classList?.add('hidden');
       const t = await api('/tasks'); if (t.ok) renderTasks(t.data);
       return;
     }
+    $('df-live').classList?.remove('hidden');
     const [w, a, b, t, ev] = await Promise.all([api('/workers'), api('/agents'), api('/briefing'), api('/tasks'), api('/events?limit=40')]);
     if (w.ok) renderWorkers(w.data); else $('df-workers').innerHTML = `<p class="text-rose-600 text-[11px]">${e(fail(w))}</p>`;
     if (a.ok) renderAgents(a.data);

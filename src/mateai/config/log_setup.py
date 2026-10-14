@@ -119,8 +119,23 @@ def make_file_handler(path: Union[str, Path], fmt: str = "text") -> Optional[log
     return _decorate(handler, fmt)
 
 
+class QuietPollFilter(logging.Filter):
+    """Bỏ dòng httpx của vòng hỏi tin Telegram thành công (`getUpdates` … 200) — mỗi ~10 s một dòng, nhấn chìm log
+    thật trong tab Nhật ký. Lỗi (409, 5xx, timeout) vẫn giữ."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        return not ("/getUpdates" in msg and " 200 " in msg)
+
+
 def configure_logging(level: str = "INFO", fmt: str = "text", log_file: Optional[Union[str, Path]] = None) -> None:
     """Gọi một lần khi nạp cấu hình. Thay handler của root (không cộng dồn khi nạp lại)."""
+    httpx_logger = logging.getLogger("httpx")
+    if not any(isinstance(f, QuietPollFilter) for f in httpx_logger.filters):
+        httpx_logger.addFilter(QuietPollFilter())
     root = logging.getLogger()
     handlers = [make_handler(fmt=fmt)]
     if log_file:
