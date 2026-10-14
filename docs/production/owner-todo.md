@@ -83,7 +83,7 @@ Robot nạp firmware cũ (token rỗng) hiện bị từ chối (HTTP 403) — n
 
 ## Tạo kỹ năng mới (2026-10-04)
 
-- [ ] **`auto_execute = true`** trong `config.json`: mã do AI sinh được cài NGAY sau kiểm toán AST, không người duyệt. Muốn duyệt tay: đặt `false` → mã sinh ra nằm ở `skills/pending/`, xem rồi chuyển vào `skills/` và nói "nạp lại kỹ năng".
+- [x] **Quyết định 2026-10-14: giữ `auto_execute = true`** (chủ dự án: kỹ năng không cần duyệt), và **không đặt hạn mức chi phí LLM** (`llmops.*_limit` để trống). Ghi chú cũ — `auto_execute = true` trong `config.json`: mã do AI sinh được cài NGAY sau kiểm toán AST, không người duyệt. Muốn duyệt tay: đặt `false` → mã sinh ra nằm ở `skills/pending/`, xem rồi chuyển vào `skills/` và nói "nạp lại kỹ năng".
 - [ ] Kỹ năng AI sinh có thể dùng nguồn dữ liệu đã cũ / bị chặn (thử "giá vàng SJC": hai nguồn model chọn đều từ chối). Chưa có tự kiểm tra sau khi tạo (chạy thử có thể gây tác dụng phụ — vd mở trình duyệt). Kỹ năng hỏng thì xoá tệp `skills/auto_*.py` tương ứng rồi "nạp lại kỹ năng" để lần sau trợ lý tạo lại.
 - [ ] `install_skill_from_url` chỉ lưu `SKILL.md` vào thư mục con, không nạp mã — mô tả của công cụ ("tự nạp vào runtime") nói quá; quyết định giữ / sửa mô tả.
 
