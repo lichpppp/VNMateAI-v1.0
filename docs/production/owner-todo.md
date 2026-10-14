@@ -13,7 +13,7 @@ Dành cho: chủ dự án / quản trị viên. Những việc dưới đây c�
   - Kết quả: lượt thoại qua LLM chữ đầu 8,5 s (lượt đầu) / 2,8 s (lượt sau) — trước đó 88,9 s.
   - Còn lại: khối cũ `router.primary.provider_model` = `oc/ling-3.0-flash-fin-free` (lỗi 400) — KHÔNG được dùng khi đã có khối `llm`; có thể xoá khỏi config.json cho gọn.
 - [x] **9Router** đã hoạt động lại (chủ dự án sửa 2026-10-02).
-- [x] **MFA bắt buộc cho admin** (2026-10-14): `security.require_mfa_roles = ["admin"]`. Lần đăng nhập tới: quét mã QR bằng ứng dụng xác thực và **cất mã khôi phục** (mất điện thoại mà không có mã → sửa `config.json` bỏ "admin" khỏi danh sách, khởi động lại). Robot / máy trạm / Telegram không bị ảnh hưởng (dùng token thiết bị). Bản cấu hình trước khi đổi: `certs/config.json.bak-before-mfa-*`.
+- [x] **MFA bắt buộc cho admin** (2026-10-14): `security.require_mfa_roles = ["admin"]`. Lần đăng nhập tới: quét mã QR bằng ứng dụng xác thực và **cất mã khôi phục** (mất điện thoại mà không có mã → sửa `config.json` bỏ "admin" khỏi danh sách, khởi động lại). Robot / máy trạm / Telegram không bị ảnh hưởng (dùng token thiết bị). Bản cấu hình trước khi đổi: `backups/config.json.before-mfa-*`.
 
 ## Telegram
 
