@@ -185,10 +185,15 @@ def main() -> int:
                     help="chỉ đưa tối đa N tool do bộ định tuyến skill chọn (như đường thoại); 0 = cả danh mục")
     ap.add_argument("--set", default="v0", help="bộ câu: v0 (20 câu gốc) | v1 (300 câu theo vai trò)")
     ap.add_argument("--sample", type=int, default=0, help="chỉ chạy N câu chia đều theo nhóm")
+    ap.add_argument("--codes", default="", help="chỉ chạy các mã câu này (cách nhau dấu phẩy) — đo lại câu vừa sửa")
     ap.add_argument("--gate", type=float, default=0.0,
                     help="cổng phát hành: tỉ lệ đạt tối thiểu (vd 0.9) — dưới ngưỡng hoặc có đề xuất tool cấm → mã thoát 1")
     args = ap.parse_args()
-    rep = asyncio.run(run(max(1, args.repeat), max(0, args.narrow), load_cases(args.set, args.sample)))
+    cases = load_cases(args.set, args.sample)
+    if args.codes:
+        want = {c.strip() for c in args.codes.split(",") if c.strip()}
+        cases = [c for c in load_cases(args.set) if c[0] in want]
+    rep = asyncio.run(run(max(1, args.repeat), max(0, args.narrow), cases))
     rep["set"] = args.set
     out = ROOT / "reports" / "llm-eval"
     out.mkdir(parents=True, exist_ok=True)

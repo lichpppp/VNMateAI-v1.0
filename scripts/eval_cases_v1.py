@@ -133,7 +133,7 @@ _TOOL_QUESTIONS = {
     "summarize_monthly_kpi": ("lanh_dao", ["Tổng hợp KPI tháng này", "Tháng này nhân viên hoàn thành bao nhiêu việc"]),
     "get_enterprise_executive_summary|get_executive_standup_briefing": ("lanh_dao", [
         "Tóm tắt tình hình công ty hôm nay", "Báo cáo giao ban sáng nay", "Có gì đáng chú ý trong 24 giờ qua không"]),
-    "send_task_to_client": ("lanh_dao", ["Nhắc máy KETOAN-01 nộp báo cáo trước 5 giờ", "Gửi nhắc việc tới máy lễ tân"]),
+    "send_task_to_client|list_online_workstations": ("lanh_dao", ["Nhắc máy KETOAN-01 nộp báo cáo trước 5 giờ", "Gửi nhắc việc tới máy lễ tân"]),
     "list_online_workstations": ("cntt", ["Máy trạm nào đang online?", "Có bao nhiêu máy tính đang kết nối Agent"]),
     "send_telegram_message": ("cntt", [
         "Gửi tin Telegram cho admin: máy chủ đã khởi động lại xong", "Báo lên nhóm Telegram là đã xử lý xong sự cố mạng"]),
@@ -152,7 +152,8 @@ _TOOL_QUESTIONS = {
 
 #: Bổ sung theo vai trò lãnh đạo / nhân sự (bộ trên nghiêng về CNTT).
 _MORE_QUESTIONS = {
-    "get_enterprise_executive_summary|get_executive_standup_briefing|generate_daily_report": ("lanh_dao", [
+    # Sửa nhãn 14/10 (lần chạy thật đầu): "tình hình hệ thống" → đọc tài nguyên máy chủ / hạ tầng cũng đúng.
+    "get_enterprise_executive_summary|get_executive_standup_briefing|generate_daily_report|get_system_info|get_infra_status": ("lanh_dao", [
         "Cho anh bức tranh tổng quan sáng nay", "Công ty hôm qua có sự cố gì lớn không", "Tình hình vận hành tuần này ra sao",
         "Tóm tắt giúp anh trong 3 câu tình hình hệ thống", "Có việc gì cần anh quyết định hôm nay không",
         "Báo cáo nhanh trước cuộc họp ban giám đốc", "Hôm nay có gì cần lãnh đạo chú ý"]),
@@ -165,7 +166,8 @@ _MORE_QUESTIONS = {
     "get_tickets|generate_daily_report": ("lanh_dao", [
         "Bộ phận IT tuần này xử lý được bao nhiêu phiếu", "Có sự cố nào tồn đọng quá 3 ngày không",
         "Tỉ lệ phiếu được xử lý trong ngày là bao nhiêu"]),
-    "assign_task_intelligently|send_task_to_client|run_proactive_task_audit": ("lanh_dao", [
+    # Sửa nhãn 14/10: gửi việc tới "máy lễ tân" — tra máy trạm đang online trước (lấy mã máy) là bước đầu đúng.
+    "assign_task_intelligently|send_task_to_client|run_proactive_task_audit|list_online_workstations": ("lanh_dao", [
         "Giao cho phòng IT kiểm tra hệ thống camera trước thứ Sáu", "Nhắc phòng kế toán chốt sổ cuối tháng",
         "Ai đang có việc trễ hạn, nhắc họ giúp anh", "Phân việc chuẩn bị hội nghị khách hàng"]),
     "summarize_monthly_kpi|get_hr_fairness_report": ("lanh_dao", [
@@ -208,7 +210,7 @@ _CHAT = [
     ("cntt", "Phân biệt RAM và ROM"), ("cntt", "Vì sao nên cập nhật bản vá bảo mật"), ("cntt", "SLA là gì"),
     ("lanh_dao", "Gợi ý cách trình bày báo cáo cho hội đồng quản trị"), ("lanh_dao", "Viết email cảm ơn đối tác ngắn gọn"),
     ("lanh_dao", "Ưu nhược điểm của làm việc từ xa"), ("nhan_su", "Gợi ý câu hỏi phỏng vấn cho vị trí IT helpdesk"),
-    ("nhan_su", "Cách góp ý nhân viên mang tính xây dựng"), ("nhan_su", "Thời gian thử việc thường là bao lâu"),
+    ("nhan_su", "Cách góp ý nhân viên mang tính xây dựng"), ("nhan_su", "Viết giúp mẫu email xin nghỉ phép lịch sự"),  # 14/10: câu cũ là câu chính sách công ty (gọi tra cứu là đúng)
     ("chung", "Hôm nay trời đẹp nhỉ"), ("chung", "Em có thể nói tiếng Anh không"), ("chung", "Nhắc lại tên em là gì"),
 ]
 
