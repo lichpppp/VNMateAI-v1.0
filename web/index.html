@@ -1753,8 +1753,8 @@
       </div>
 
       <!-- ── 3D CYBERNETIC HUD & VISUAL OVERLAY CONTROL PANEL ── -->
-      <div data-min-role="manager"
-        class="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-50 via-white to-blue-50 dark:from-cyan-950/40 dark:via-slate-900/80 dark:to-blue-950/40 p-3.5 shadow-sm backdrop-blur-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+      <div
+        class="rounded-2xl border border-cyan-500/30 bg-gradient-to-r from-cyan-50 via-white to-blue-50 dark:from-cyan-950/40 dark:via-slate-900/80 dark:to-blue-950/40 p-3.5 shadow-sm backdrop-blur-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3" data-min-role="manager">
         <div class="flex items-center gap-3 min-w-0">
           <div
             class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-400/30 flex items-center justify-center text-cyan-400 shrink-0 shadow-[0_0_14px_rgba(0,242,254,0.25)]">
@@ -1769,8 +1769,7 @@
               <h3 class="text-sm font-bold text-slate-900 dark:text-white tracking-wide">Trợ Lý AI 3D HUD & Thị Giác
                 Trực Quan</h3>
               <span
-                class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-500/30">3D
-                COCKPIT</span>
+                class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-500/30">Buồng lái 3D</span>
             </div>
             <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               Buồng lái tương tác 3D HUD thời gian thực, trực quan hóa sóng âm FFT, sơ đồ mạng và tài nguyên
@@ -1960,7 +1959,7 @@
                 class="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-400 font-mono">--
                 procs</span>
               <span
-                class="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">HARDWARE</span>
+                class="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">PHẦN CỨNG</span>
             </div>
           </div>
 
@@ -2100,8 +2099,7 @@
               </div>
               <span class="text-sm font-bold text-slate-800 dark:text-white">Trạng Thái Dịch Vụ</span>
             </div>
-            <span class="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">SERVICES
-              HEALTH</span>
+            <span class="text-[10px] text-slate-400 dark:text-slate-500 font-medium tracking-wide uppercase">Sức khoẻ dịch vụ</span>
           </div>
 
           <div class="space-y-3" id="services-health-list">
@@ -2320,7 +2318,7 @@
                   <line x1="12" y1="19" x2="20" y2="19" />
                 </svg>
               </div>
-              <span class="text-sm font-bold text-slate-800 dark:text-white">Live Event Log</span>
+              <span class="text-sm font-bold text-slate-800 dark:text-white">Sự kiện trực tiếp</span>
             </div>
             <div class="flex items-center gap-2">
               <!-- Auto-scroll toggle -->
@@ -2974,11 +2972,9 @@
           <div>
             <div class="flex items-center gap-2 mb-2">
               <span
-                class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-violet-500/20 text-violet-400 border border-violet-400/40">AI
-                CLUSTER</span>
+                class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-violet-500/20 text-violet-400 border border-violet-400/40">Cụm AI</span>
               <span
-                class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-400/40">UNIFIED
-                HUB</span>
+                class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-400/40">Cấu hình tập trung</span>
             </div>
             <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
               🤖 Quản Lý Trợ Lý AI
@@ -3103,8 +3099,7 @@
                   <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     Bộ Não & Xử Lý Ngôn Ngữ
                     <span
-                      class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">LLM
-                      CORE</span>
+                      class="px-2 py-0.5 rounded text-[9px] font-mono font-bold uppercase bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">Lõi LLM</span>
                   </h3>
                   <p class="text-[11px] text-slate-500 dark:text-slate-400">Endpoint OpenAI-Compatible — Kết nối
                     9router, vLLM hoặc Ollama</p>
@@ -3210,7 +3205,7 @@
                           </svg>
                         </span>
                       </span>
-                      <span class="text-[9px] text-cyan-500 font-mono">Gateway Endpoint</span>
+                      <span class="text-[9px] text-cyan-500 font-mono">Cổng kết nối</span>
                     </label>
                     <input aria-label="http://localhost:20128/v1" type="text" id="ai-llm-base"
                       class="input-dark font-mono text-cyan-600 dark:text-cyan-300 text-xs w-full"
@@ -4174,11 +4169,11 @@
             <div class="flex items-center gap-2 mb-1.5">
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-primary-500/10 dark:bg-primary-500/20 text-primary-600 dark:text-primary-400 border border-primary-500/30">
-                NATIVE WINDOWS AUTOMATION
+                Tự động hoá Windows
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                HOT-RELOAD RUNTIME
+                Nạp nóng kỹ năng
               </span>
             </div>
             <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Kho Kỹ Năng Tự Động Hóa</h2>
@@ -4411,7 +4406,7 @@
             <div class="flex items-center gap-2 mb-1.5 flex-wrap">
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
-                VOICE CONTROL ENGINE
+                Điều khiển bằng giọng nói
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
@@ -4419,11 +4414,11 @@
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                WAKE WORD VAD ENGINE
+                Gọi tên + nhận tiếng nói
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-blue-500/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-                LAN AUDIO NODES (OPUS)
+                Mạch âm thanh LAN (OPUS)
               </span>
             </div>
             <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Trợ Lý Thoại & Phòng Thu Âm
@@ -5028,11 +5023,11 @@
             <div class="flex items-center gap-2 mb-1.5 flex-wrap">
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/20 text-cyan-400 border border-cyan-400/40">
-                OPENAI THIN CLIENT
+                Chuẩn OpenAI
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-400/40">
-                9ROUTER NATIVE DIRECT
+                9Router / trực tiếp
               </span>
               <!-- Phase 91: Trạng thái Routing Mode -->
               <span id="cfg-routing-mode-badge"
@@ -5629,15 +5624,15 @@
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                ZERO-TRUST DEFENSE ACTIVE
+                Zero-Trust đang bật
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 border border-purple-500/30">
-                AST CODE INSPECTION
+                Soát mã (AST)
               </span>
               <span
                 class="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider uppercase bg-cyan-500/10 dark:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30">
-                DATA SANITIZER SHIELD
+                Làm sạch dữ liệu
               </span>
             </div>
             <h2 class="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Trung Tâm Bảo Mật & Kiểm Toán
@@ -6188,8 +6183,7 @@
           <h2 class="text-xl font-black text-slate-800 dark:text-white tracking-tight flex items-center gap-2">
             <span>Nhật Ký Công Việc & Báo Cáo KPI</span>
             <span
-              class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-400/40 uppercase tracking-wider">Lean
-              Micro-Tasking</span>
+              class="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-400/40 uppercase tracking-wider">Giao việc nhỏ</span>
           </h2>
           <p class="text-xs text-slate-400 mt-1">Giao việc tới máy trạm, theo dõi trực tiếp phản hồi, hạn chót và KPI
             từng máy — số liệu thật từ cơ sở dữ liệu.</p>
