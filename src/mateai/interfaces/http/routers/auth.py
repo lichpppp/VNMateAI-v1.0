@@ -103,6 +103,17 @@ async def login_endpoint(payload: LoginRequest, request: Request) -> Dict[str, A
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không chính xác.",
         )
+    # Mật khẩu ban đầu / vừa được admin đặt lại / mật khẩu dev công khai: chỉ được đổi mật khẩu (token 15 phút, scope pwd_change).
+    if user.get("must_change_password") and (user.get("auth_source") or "local") != "sso":
+        _login_audit(user["username"], ip, "LOGIN_PASSWORD_OK_CHANGE_REQUIRED")
+        return {"status": "password_change_required", "change_token": auth_manager.create_access_token(
+            data={"sub": user["username"], "scope": "pwd_change"}, expires_delta=timedelta(minutes=15)),
+            "detail": "Bạn cần đặt mật khẩu mới trước khi vào hệ thống."}
+    return _after_password(user, ip, keys)
+
+
+def _after_password(user: Dict[str, Any], ip: str, keys) -> Dict[str, Any]:
+    """Phần đăng nhập sau khi mật khẩu đã đúng (và đã đổi nếu bị bắt đổi): MFA → cài MFA bắt buộc → cấp token."""
     # Bước 2 (MFA): đúng mật khẩu CHƯA phải đăng nhập — chỉ cấp token trung gian 5 phút (scope `mfa`, không dùng làm token truy cập).
     if user.get("mfa_enabled"):
         _login_audit(user["username"], ip, "LOGIN_PASSWORD_OK_MFA_PENDING")
@@ -133,6 +144,29 @@ async def login_endpoint(payload: LoginRequest, request: Request) -> Dict[str, A
             "role": user.get("role", "viewer"),
         },
     }
+
+
+class PasswordChangeLoginRequest(BaseModel):
+    change_token: str = Field(..., min_length=10)
+    new_password: str = Field(..., min_length=1, max_length=256)
+
+
+@router.post("/api/v1/login/change-password", summary="Đăng nhập: đặt mật khẩu mới khi bị bắt đổi", tags=["Authentication"])
+async def login_change_password_endpoint(payload: PasswordChangeLoginRequest, request: Request) -> Dict[str, Any]:
+    ip = request.client.host if request.client else "?"
+    data = auth_manager.decode_access_token(payload.change_token, allow_scopes=("pwd_change",))
+    if not data or data.get("scope") != "pwd_change" or not data.get("sub"):
+        raise HTTPException(status_code=401, detail="Phiên đổi mật khẩu đã hết hạn — hãy đăng nhập lại.")
+    user = auth_manager.get_user(str(data["sub"]))
+    if not user:
+        raise HTTPException(status_code=401, detail="Tài khoản không còn tồn tại.")
+    problem = auth_manager.password_problem(payload.new_password, user["username"], user.get("password_hash") or "")
+    if problem:
+        raise HTTPException(status_code=400, detail=problem)
+    await run_blocking(partial(auth_manager.change_user_password, user["id"], payload.new_password, False))
+    _login_audit(user["username"], ip, "PASSWORD_CHANGED_AT_LOGIN")
+    keys = (f"ip:{ip}", f"user:{user['username'].strip().lower()}")
+    return _after_password(auth_manager.get_user(user["username"]) or user, ip, keys)
 
 
 class MfaLoginRequest(BaseModel):

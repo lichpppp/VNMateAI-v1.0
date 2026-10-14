@@ -114,7 +114,42 @@ const LoginMfa = (() => {
     document.getElementById('login-mfa-saved').addEventListener('click', onDone);
   }
 
-  return { promptCode, promptSetup, showRecovery, back };
+  /** Mật khẩu ban đầu / admin vừa đặt lại / mật khẩu dev: đặt mật khẩu mới rồi mới vào (MFA nếu có đi tiếp sau). */
+  function promptPasswordChange(changeToken, detail) {
+    const p = panel();
+    const PW = 'input-dark w-full text-sm py-2.5 px-3';
+    p.innerHTML = `
+      <p class="text-sm font-bold text-slate-100 text-center">Đặt mật khẩu mới</p>
+      <p class="text-xs text-slate-400 text-center">${e(detail || 'Bạn cần đặt mật khẩu mới trước khi vào hệ thống.')} Ít nhất 10 ký tự, có chữ và số, khác tên đăng nhập.</p>
+      <input id="login-pw-new" type="password" class="${PW}" autocomplete="new-password" aria-label="Mật khẩu mới" placeholder="Mật khẩu mới" />
+      <input id="login-pw-again" type="password" class="${PW}" autocomplete="new-password" aria-label="Nhập lại mật khẩu mới" placeholder="Nhập lại mật khẩu mới" />
+      ${msg('')}
+      <button type="button" id="login-pw-submit" class="${BTN}">Lưu mật khẩu mới</button>
+      <button type="button" id="login-mfa-back" class="${GHOST}">← Quay lại đăng nhập</button>`;
+    const err = (t) => { document.getElementById('login-mfa-error').textContent = t; };
+    const submit = async () => {
+      const a = document.getElementById('login-pw-new').value;
+      const b = document.getElementById('login-pw-again').value;
+      if (a !== b) { err('Hai lần nhập không khớp.'); return; }
+      const btn = document.getElementById('login-pw-submit');
+      btn.disabled = true;
+      try {
+        const r = await call('/api/v1/login/change-password', { change_token: changeToken, new_password: a });
+        if (!r.ok) { err(errText(r)); if (r.status === 401) setTimeout(back, 1500); return; }
+        const d = r.data || {};
+        if (d.access_token) { back(); completeLogin(d); return; }
+        if (d.status === 'mfa_required' && d.mfa_token) { promptCode(d.mfa_token); return; }
+        if (d.status === 'mfa_setup_required' && d.setup_token) { promptSetup(d.setup_token); return; }
+        err(errText(r));
+      } finally { btn.disabled = false; }
+    };
+    document.getElementById('login-pw-submit').addEventListener('click', submit);
+    document.getElementById('login-pw-again').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); submit(); } });
+    document.getElementById('login-mfa-back').addEventListener('click', back);
+    document.getElementById('login-pw-new').focus();
+  }
+
+  return { promptCode, promptSetup, showRecovery, back, promptPasswordChange };
 })();
 
 /** Thẻ MFA trong tab Bảo mật. */

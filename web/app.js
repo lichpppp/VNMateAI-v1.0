@@ -7858,6 +7858,30 @@ function exportAuditLogsJson() {
   showToast('✅ Đã xuất tệp nhật ký kiểm toán thành công!', 'success');
 }
 
+/** Báo cáo kiểm toán "AI đã làm gì, ai duyệt" (thẩm định thương mại #17): CSV tải về, HTML mở tab mới để In → Lưu PDF. */
+async function exportAuditReport(fmt) {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/security/audit-logs/export?format=${fmt === 'html' ? 'html' : 'csv'}`);
+    if (!res.ok) { showToast(`Không xuất được báo cáo (HTTP ${res.status})`, 'error'); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    if (fmt === 'html') {
+      window.open(url, '_blank', 'noopener');
+    } else {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `bao_cao_kiem_toan_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    showToast('Đã xuất báo cáo kiểm toán', 'success');
+  } catch (err) {
+    showToast(`Lỗi xuất báo cáo: ${err.message}`, 'error');
+  }
+}
+
 function filterAuditLogs() {
   const filterEl = document.getElementById('filter-audit-risk');
   const level = filterEl ? filterEl.value : 'ALL';
@@ -8070,6 +8094,8 @@ async function handleLoginSubmit(event) {
     LoginMfa.promptCode(res.mfa_token);                    // đúng mật khẩu nhưng CHƯA đăng nhập: cần mã xác thực hai lớp
   } else if (res && res.status === 'mfa_setup_required' && res.setup_token) {
     LoginMfa.promptSetup(res.setup_token);                 // vai trò bắt buộc MFA: chỉ được cài MFA
+  } else if (res && res.status === 'password_change_required' && res.change_token) {
+    LoginMfa.promptPasswordChange(res.change_token, res.detail);   // mật khẩu ban đầu / vừa đặt lại: đổi trước khi vào
   } else {
     if (errBox && errText) {
       errText.textContent = res.detail || 'Tên đăng nhập hoặc mật khẩu không chính xác.';

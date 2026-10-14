@@ -86,6 +86,29 @@ def _announce_on_hud(item: Dict[str, Any]) -> None:
     task.add_done_callback(_HUD_TASKS.discard)
 
 
+def dual_approval_min_risk() -> int:
+    """0 = tắt (mặc định: hệ thống một admin không duyệt được gì nếu bật). Bật: `security.dual_approval_min_risk` (vd 4)."""
+    try:
+        from mateai.config.loader import get_config_section
+        return max(0, int(get_config_section("security").get("dual_approval_min_risk", 0) or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _log_partial_approval(item: Dict[str, Any], approved_by: str) -> None:
+    try:
+        from mateai.infrastructure.database.erp_database import erp_db
+        erp_db.log_audit_action(
+            employee_id=approved_by,
+            action_type=f"HITL_APPROVAL_1_OF_2_{str(item.get('action_name') or '').upper()}",
+            payload=json.dumps({"approval_id": item.get("approval_id") or item.get("id"), "action": item.get("action_name"),
+                                "risk_level": item.get("risk_level")}, ensure_ascii=False, default=str),
+            status="pending",
+        )
+    except Exception as exc:  # noqa: BLE001 — audit lỗi không được làm mất lượt duyệt
+        logger.warning("[ZeroTrust HITL] Không ghi được audit duyệt 1/2: %s", exc)
+
+
 class HumanInTheLoopManager:
     """
     Hàng đợi phê duyệt DUY NHẤT (Human-in-the-Loop).
@@ -339,6 +362,24 @@ class HumanInTheLoopManager:
                     None, None,
                     f"Yêu cầu {approval_id} đã ở trạng thái: {item['status']}",
                 )
+
+            # Duyệt hai người (thẩm định thương mại 14/10/2026 #16): rủi ro ≥ `security.dual_approval_min_risk` cần HAI người
+            # duyệt khác nhau, và người yêu cầu không tự duyệt (tách nhiệm vụ). Lần duyệt đầu chỉ được ghi nhận.
+            need = dual_approval_min_risk()
+            if need and int(item.get("risk_level") or 0) >= need:
+                who = str(approved_by or "").strip().lower()
+                if who and who == str(item.get("requested_by") or "").strip().lower():
+                    return None, None, (f"Yêu cầu {approval_id} cần người KHÁC người yêu cầu duyệt "
+                                        f"(rủi ro {item.get('risk_level')} — duyệt hai người).")
+                approvers = [a for a in (item.get("approvers") or []) if a]
+                if who in [a.lower() for a in approvers]:
+                    return None, None, f"Bạn đã duyệt {approval_id}; cần thêm một người duyệt khác."
+                if len(approvers) + 1 < 2:
+                    item["approvers"] = approvers + [approved_by]
+                    _log_partial_approval(item, approved_by)
+                    return None, None, (f"Đã ghi nhận duyệt 1/2 cho {approval_id} (rủi ro {item.get('risk_level')}). "
+                                        "Cần thêm MỘT người có thẩm quyền khác duyệt thì tác vụ mới chạy.")
+                item["approvers"] = approvers + [approved_by]
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             item["status"] = "approved"

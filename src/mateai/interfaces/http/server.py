@@ -146,6 +146,7 @@ async def auth_middleware(request: Request, call_next):
         "/api/v1/login",
         "/api/v1/login/",
         "/api/v1/login/mfa",               # bước 2 của đăng nhập MFA (tự kiểm token trung gian + mã)
+        "/api/v1/login/change-password",   # bắt đổi mật khẩu khi đăng nhập (tự kiểm token pwd_change)
         # SSO (OIDC): chạy trước khi đăng nhập; tự kiểm state / nonce / PKCE / chữ ký id_token (application/security/sso.py)
         "/api/v1/sso/config", "/api/v1/sso/login", "/api/v1/sso/callback", "/api/v1/sso/exchange",
         "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập

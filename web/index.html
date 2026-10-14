@@ -6726,6 +6726,12 @@
                 </svg>
                 <span>Xuất JSON</span>
               </button>
+              <button type="button" onclick="exportAuditReport('csv')"
+                class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm"
+                title="Báo cáo kiểm toán đầy đủ (kèm chuỗi băm) dạng CSV cho Excel">Báo cáo kiểm toán CSV</button>
+              <button type="button" onclick="exportAuditReport('html')"
+                class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm"
+                title="Mở báo cáo định dạng in, kèm kết quả kiểm tra toàn vẹn — In → Lưu PDF">In báo cáo kiểm toán</button>
               <button type="button" onclick="loadSecurityCenter(); showToast('Đã làm mới nhật ký kiểm toán', 'info')"
                 class="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm">
                 Làm mới
@@ -7855,7 +7861,7 @@
   <script src="/static/server-time.js?v=1"></script>
   <script src="/static/ui-polish.js?v=1"></script>
   <script src="/static/header-inbox.js?v=1"></script>
-  <script src="/static/auth-mfa.js?v=1"></script>
+  <script src="/static/auth-mfa.js?v=2"></script>
   <script src="/static/auth-sso.js?v=1"></script>
   <script src="/static/infra-monitor.js?v=2"></script>
   <script src="/static/playbooks.js?v=2"></script>
@@ -7863,7 +7869,7 @@
   <script src="/static/agent-directory.js?v=2"></script>
   <script src="/static/agent-gateway.js?v=2"></script>
   <script src="/static/dev-fleet.js?v=4"></script>
-  <script src="/static/app.js?v=58.0"></script>
+  <script src="/static/app.js?v=59.0"></script>
 </body>
 
 </html>

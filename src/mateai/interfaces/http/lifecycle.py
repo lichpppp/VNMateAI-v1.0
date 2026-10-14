@@ -279,6 +279,13 @@ def _desktop_session(ctx: StepContext) -> str:
     return f"có màn hình ({st.get('reason')})"
 
 
+def _default_passwords(ctx: StepContext) -> str:
+    """Tài khoản mặc định còn dùng mật khẩu dev công khai (admin123…) → bắt đổi ở lần đăng nhập tới."""
+    from mateai.infrastructure.database.db_manager import db_manager
+    flagged = db_manager.flag_known_dev_passwords()
+    return f"bắt đổi mật khẩu: {', '.join(flagged)}" if flagged else "không còn mật khẩu dev"
+
+
 def _schema_migrations(ctx: StepContext) -> str:
     """Bước nâng cấp CSDL có số thứ tự (migrations.py) — sao lưu trước khi chạy bước thật trên CSDL có dữ liệu."""
     from mateai.infrastructure.database import migrations
@@ -315,6 +322,7 @@ def default_steps() -> List[Step]:
     return [
         Step("core", _core, critical=True),
         Step("schema_migrations", _schema_migrations),
+        Step("default_passwords", _default_passwords),
         Step("tracing", _tracing),
         Step("ephemeral_sweeper", _ephemeral_sweeper),
         Step("telegram", _telegram),

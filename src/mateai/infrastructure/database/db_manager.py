@@ -87,8 +87,11 @@ class DatabaseManager:
                     if "clearance_level" not in _ucols:
                         cursor.execute("ALTER TABLE users ADD COLUMN clearance_level INTEGER;")
                     # Đăng nhập an toàn: MFA (TOTP) + nguồn tài khoản (local | sso). Mã bí mật MFA mã hoá khi lưu.
+                    # must_change_password: bắt đổi mật khẩu ở lần đăng nhập tới (tài khoản mặc định, admin vừa đặt lại,
+                    # mật khẩu dev công khai) — thẩm định thương mại 14/10/2026 P0-10.
                     for _col, _ddl in (("mfa_secret", "TEXT"), ("mfa_enabled", "INTEGER NOT NULL DEFAULT 0"), ("mfa_recovery", "TEXT"),
-                                       ("mfa_last_step", "INTEGER"), ("auth_source", "TEXT")):
+                                       ("mfa_last_step", "INTEGER"), ("auth_source", "TEXT"),
+                                       ("must_change_password", "INTEGER NOT NULL DEFAULT 0")):
                         if _col not in _ucols:
                             cursor.execute(f"ALTER TABLE users ADD COLUMN {_col} {_ddl};")
 
@@ -442,6 +445,25 @@ class DatabaseManager:
         with self._get_connection() as conn:
             return conn.execute("SELECT COUNT(*) FROM users;").fetchone()[0]
 
+    #: Mật khẩu dev công khai (README / mã nguồn) — tài khoản còn dùng thì bị bắt đổi.
+    _KNOWN_DEV_PASSWORDS = {"admin": "admin123", "manager": "manager123", "viewer": "viewer123"}
+
+    def flag_known_dev_passwords(self) -> List[str]:
+        """Đánh dấu bắt đổi mật khẩu cho tài khoản mặc định còn dùng mật khẩu dev công khai. Trả tên đã đánh dấu."""
+        from mateai.application.security.auth_manager import AuthManager
+        flagged = []
+        for username, pwd in self._KNOWN_DEV_PASSWORDS.items():
+            u = self.get_user_by_username_or_id(username)
+            if u and not u.get("must_change_password") and AuthManager.verify_password(pwd, u.get("password_hash") or ""):
+                with self._lock:
+                    with self._get_connection() as conn:
+                        conn.execute("UPDATE users SET must_change_password = 1 WHERE id = ?;", (u["id"],))
+                        conn.commit()
+                flagged.append(username)
+        if flagged:
+            logger.warning("Tài khoản còn dùng mật khẩu dev công khai — bắt đổi ở lần đăng nhập tới: %s", ", ".join(flagged))
+        return flagged
+
     def _seed_default_users(self) -> None:
         """
         Tạo 3 tài khoản mặc định khi bảng users rỗng.
@@ -463,10 +485,11 @@ class DatabaseManager:
                 used_fallback.append(role)
             rows.append((f"usr_{role}", role, names[role], role, self.hash_password(pwd), now_str, now_str))
         with self._get_connection() as conn:
+            # Mật khẩu ban đầu (kể cả mật khẩu ngẫu nhiên bộ cài in ra màn hình) phải đổi ở lần đăng nhập đầu.
             conn.executemany(
                 """
-                INSERT INTO users (id, username, full_name, role, password_hash, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?);
+                INSERT INTO users (id, username, full_name, role, password_hash, created_at, updated_at, must_change_password)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1);
                 """,
                 rows,
             )
@@ -547,7 +570,7 @@ class DatabaseManager:
                 cursor.execute(
                     """
                     SELECT id, username, full_name, role, department, clearance_level, password_hash,
-                           mfa_enabled, auth_source, created_at, updated_at
+                           mfa_enabled, auth_source, must_change_password, created_at, updated_at
                     FROM users
                     WHERE LOWER(username) = ? OR LOWER(id) = ?;
                     """,
@@ -690,8 +713,9 @@ class DatabaseManager:
                 conn.commit()
         logger.info("Đã xóa tài khoản user id: %s (%s)", existing["id"], existing["username"])
 
-    def change_user_password(self, user_id: str, new_password: str) -> None:
-        """Cấp lại mật khẩu mới cho người dùng."""
+    def change_user_password(self, user_id: str, new_password: str, must_change: bool = False) -> None:
+        """Cấp lại mật khẩu mới cho người dùng. `must_change=True` (admin đặt lại cho người khác): người đó phải đổi
+        ở lần đăng nhập tới; người tự đổi thì cờ được xoá."""
         if not new_password or len(new_password) < 6:
             raise ValueError("Mật khẩu mới phải có tối thiểu 6 ký tự.")
 
@@ -706,8 +730,8 @@ class DatabaseManager:
             with self._get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    "UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?;",
-                    (hashed, now_str, existing["id"]),
+                    "UPDATE users SET password_hash = ?, updated_at = ?, must_change_password = ? WHERE id = ?;",
+                    (hashed, now_str, 1 if must_change else 0, existing["id"]),
                 )
                 conn.commit()
         logger.info("Đã đặt lại mật khẩu cho user: %s", existing["username"])
