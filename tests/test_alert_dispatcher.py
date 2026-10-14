@@ -214,7 +214,7 @@ def test_webhook_urls_are_masked_when_config_is_read():
 def test_portal_catalog_offers_every_channel_as_waiting(cfg):
     from mateai.application.enterprise.integrations import _alert_channel_catalog
     cat = _alert_channel_catalog()
-    assert set(cat) == {"alert_rules", "alert_teams", "alert_email", "alert_outlook", "alert_slack", "alert_webhook"}
+    assert set(cat) == {"alert_rules", "alert_teams", "alert_email", "alert_outlook", "alert_slack", "alert_webhook", "alert_zalo"}
     teams = cat["alert_teams"]
     assert teams["configured"] is False and teams["config_schema"]["properties"]["webhook_url"]["format"] == "secret"
     assert teams["config_schema"]["required"] == ["webhook_url"]
@@ -238,3 +238,27 @@ def test_api_roles(cfg):
     assert _client("admin").post("/api/v1/system/notifications/test", json={"channel": "zalo"}).status_code == 400
     res = _client("admin").post("/api/v1/system/notifications/test", json={"channel": "alert_teams"}).json()
     assert res["status"] == "no_channel"          # chưa kết nối -> nói thẳng, không "đã gửi"
+
+
+async def test_zalo_channel_reads_error_field_not_http_status(monkeypatch):
+    """Zalo OA trả HTTP 200 cả khi lỗi (token hết hạn…) — kênh phải đọc trường `error`, không báo 'đã gửi' sai."""
+    import httpx
+    from mateai.infrastructure.notifications import channels as chn
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        uid = __import__("json").loads(request.content)["recipient"]["user_id"]
+        if uid == "ok1":
+            return httpx.Response(200, json={"error": 0, "message": "Success"})
+        return httpx.Response(200, json={"error": -216, "message": "Access token is invalid"})
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(chn.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler), **kw))
+    alert = {"title": "Ổ đĩa đầy", "message": "C: còn 2%", "severity": "critical", "time": 0}
+    ok, detail = await chn._send_zalo({"access_token": "t", "user_ids": "ok1, bad2"}, alert)
+    assert ok and "đã gửi 1" in detail and "invalid" in detail
+    assert calls[0].headers["access_token"] == "t" and calls[0].url == chn.ZALO_MESSAGE_URL
+    ok2, _ = await chn._send_zalo({"access_token": "t", "user_ids": "bad2"}, alert)
+    assert ok2 is False
+    assert chn.missing_fields("alert_zalo", {"access_token": "", "user_ids": ""}) == ["access_token", "user_ids"]

@@ -99,6 +99,19 @@ CHANNELS: Dict[str, Dict[str, Any]] = {
             "min_severity": ("", "Mức tối thiểu", "info / warning / critical — để trống: theo quy tắc chung.", False),
         },
     },
+    "alert_zalo": {
+        "display_name": "Zalo OA",
+        "description": "Gửi tin cảnh báo tới người quan tâm Official Account (API tin nhắn tư vấn v3). Access token OA hết hạn "
+                       "~25 giờ — cập nhật token mới, hoặc dùng Webhook tuỳ chỉnh qua middleware tự làm mới token.",
+        "node": "notify:zalo",
+        "required": ("access_token", "user_ids"),
+        "fields": {
+            "access_token": ("", "OA access token", "Zalo for Developers → ứng dụng → Official Account → Access Token.", True),
+            "user_ids": ("", "User ID người nhận", "user_id (theo OA) của người đã quan tâm OA, cách nhau dấu phẩy.", False),
+            "enabled": (True, "Bật kênh", "", False),
+            "min_severity": ("", "Mức tối thiểu", "info / warning / critical — để trống: theo quy tắc chung.", False),
+        },
+    },
     "alert_webhook": {
         "display_name": "Webhook tuỳ chỉnh",
         "description": "POST JSON tới hệ thống bất kỳ (ITSM, Jira/ServiceNow automation, Zalo OA qua middleware…).",
@@ -265,6 +278,34 @@ async def _send_slack(s: Dict[str, Any], alert: Dict[str, Any]) -> Tuple[bool, s
     return await _post_json(s["webhook_url"], {"text": format_text(alert)})
 
 
+ZALO_MESSAGE_URL = "https://openapi.zalo.me/v3.0/oa/message/cs"
+
+
+async def _send_zalo(s: Dict[str, Any], alert: Dict[str, Any]) -> Tuple[bool, str]:
+    """Zalo trả HTTP 200 cả khi lỗi — kết quả thật nằm ở trường `error` (0 = thành công)."""
+    text = format_text(alert)[:2000]
+    sent, problems = 0, []
+    for uid in _addresses(s.get("user_ids")):
+        try:
+            async with httpx.AsyncClient(timeout=SEND_TIMEOUT_S) as client:
+                resp = await client.post(ZALO_MESSAGE_URL, headers={"access_token": str(s["access_token"])},
+                                         json={"recipient": {"user_id": uid}, "message": {"text": text}})
+        except httpx.HTTPError as exc:
+            problems.append(f"lỗi mạng ({type(exc).__name__})")
+            continue
+        try:
+            body = resp.json()
+        except ValueError:
+            body = {}
+        if resp.status_code == 200 and int(body.get("error", -1)) == 0:
+            sent += 1
+        else:
+            problems.append(f"{uid}: {body.get('message') or resp.status_code}")
+    if sent and not problems:
+        return True, f"đã gửi {sent} người"
+    return (sent > 0), f"đã gửi {sent}; lỗi: {'; '.join(problems)[:200]}"
+
+
 async def _send_webhook(s: Dict[str, Any], alert: Dict[str, Any]) -> Tuple[bool, str]:
     data = {k: alert.get(k) for k in ("title", "message", "severity", "category", "source", "resolved")}
     data["time"] = datetime.fromtimestamp(alert.get("time") or 0).isoformat(timespec="seconds")
@@ -339,6 +380,7 @@ _SENDERS = {
     "alert_outlook": _send_outlook,
     "alert_slack": _send_slack,
     "alert_webhook": _send_webhook,
+    "alert_zalo": _send_zalo,
 }
 
 

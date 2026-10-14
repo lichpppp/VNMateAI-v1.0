@@ -1394,6 +1394,13 @@ class DatabaseManager:
                 (source,)).fetchone()
             return dict(row) if row else None
 
+    def task_responses_in_month(self, month_prefix: str) -> List[Dict[str, Any]]:
+        """Việc giao máy trạm đã có phản hồi trong tháng `YYYY-MM` (thay logs/kpi_logs.csv): client_id, status, responded_at."""
+        with self._get_connection() as conn:
+            rows = conn.execute("SELECT client_id, status, responded_at FROM tasks "
+                                "WHERE responded_at IS NOT NULL AND responded_at LIKE ?;", (f"{month_prefix}%",)).fetchall()
+        return [dict(r) for r in rows]
+
     def count_tasks(self) -> Dict[str, int]:
         """Thống kê tổng số task theo trạng thái."""
         with self._lock:

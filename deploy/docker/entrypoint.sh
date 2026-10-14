@@ -27,6 +27,8 @@ for f in "$APP"/skills.dist/*.py; do
   esac
 done
 [ -e "$DATA/skills/registry.json" ] || cp "$APP/skills.dist/registry.json" "$DATA/skills/registry.json" 2>/dev/null || true
+# Danh mục kỹ năng (chủ sở hữu, kiểm thử) đi theo bản phát hành — luôn cập nhật theo image.
+cp "$APP/skills.dist/catalog.json" "$DATA/skills/catalog.json" 2>/dev/null || true
 if [ ! -L "$APP/skills" ]; then rm -rf "${APP:?}/skills"; ln -s "$DATA/skills" "$APP/skills"; fi
 
 # Cấu hình: tạo lần đầu (bản sạch — không có bí mật của máy khác), sau đó chỉ sửa trên Portal.

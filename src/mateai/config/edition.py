@@ -41,7 +41,7 @@ DEMO_SKILLS: FrozenSet[str] = frozenset({
     "create_dev_fleet_task", "cancel_dev_fleet_task", "get_dev_fleet_briefing", "get_dev_fleet_status",
     "get_dev_fleet_task", "list_dev_fleet_workers",
     # điều khiển GUI tự trị trên worker riêng — chưa đủ kiểm soát cho bản bán
-    "tool_execute_gui_task",
+    "tool_execute_gui_task", "capture_worker_screen", "get_computer_use_status",
 })
 
 

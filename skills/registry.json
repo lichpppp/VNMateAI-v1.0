@@ -2309,7 +2309,7 @@
     "attr": "summarize_monthly_kpi",
     "meta": {
       "name": "summarize_monthly_kpi",
-      "description": "Đọc file nhật ký kpi_logs.csv để đếm tổng số lượng công việc đã hoàn thành hoặc vướng mắc của nhân viên theo tháng.",
+      "description": "Đếm số việc giao máy trạm đã hoàn thành hoặc vướng mắc theo tháng (từ sổ giao việc trong CSDL).",
       "parameters": {
         "type": "object",
         "properties": {
