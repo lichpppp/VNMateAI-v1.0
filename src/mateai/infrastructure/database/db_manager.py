@@ -600,7 +600,9 @@ class DatabaseManager:
                 conn.commit()
 
     def create_user(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Tạo người dùng mới trong SQLite."""
+        """Tạo người dùng mới trong SQLite. Bản thương mại: không vượt hạn mức người dùng của bản quyền (licensing)."""
+        from mateai.application.licensing import ensure_can_add
+        ensure_can_add("users")
         username = str(data.get("username", "")).strip().lower()
         if not username or len(username) < 3:
             raise ValueError("Tên đăng nhập phải có ít nhất 3 ký tự.")

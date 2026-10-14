@@ -13,6 +13,7 @@ Mã nguồn tham chiếu: nhánh `main`, phiên bản 2.0.0, sau commit có tài
 
 - **Đồng ý với kết luận chính.** Lõi kiểm soát AI là điểm mạnh nên giữ. Các điểm chặn việc bán là: dữ liệu đi ra LLM bên ngoài, độ tin cậy và độ trễ của AI, phạm vi quá rộng, và thiếu hạ tầng thương mại (tenant, bản quyền, phát hành).
 - **Đợt 1 đã làm xong trong mã:** 6 hạng mục, được làm toàn bộ hoặc một phần — P0-2, P0-3, P0-4, P0-6, P0-10, P0-12 — cùng P1-15 và mục "Cao" về kỹ năng chạy trên máy chủ. Tất cả được gom vào một công tắc **phiên bản sản phẩm** (`edition`). Bản giao khách hàng (`commercial`) bật cứng các kiểm soát. Bản nội bộ (`internal`) giữ nguyên các quyết định vận hành đã chốt.
+- **Đợt 2 (cùng ngày):** ẩn công cụ chưa có nguồn dữ liệu, bộ đánh giá 300 câu và cổng phát hành, bắt đổi mật khẩu, duyệt hai người, báo cáo kiểm toán và neo chuỗi băm, tuân thủ dữ liệu cá nhân, danh mục kỹ năng, báo cáo hiệu năng theo tháng, kênh Zalo OA, bản quyền ngoại tuyến và đo lượng sử dụng, SBOM và ký số gói. Trạng thái chi tiết ở §4.
 - **Hai hạng mục P0 trước đây báo cáo đánh giá là thiếu, nay đã có:**
   - P0-8: lõi chạy Linux container, thao tác Windows chuyển xuống Agent máy trạm.
   - P0-13: bộ cài, nâng cấp có migration và sao lưu trước khi nâng cấp.
@@ -89,16 +90,16 @@ Chú thích trạng thái:
 |---|---|---|---|
 | 1 | Đổi tên, logo, tên trợ lý | **Quyết định** | NOTICE chỉ cấm *bên thứ ba* dùng tên "VN-MateAI". Nếu tác giả tự thương mại hoá thì không bắt buộc đổi tên. Chỉ bắt buộc khi đơn vị khác phát triển phái sinh (xem §6). |
 | 2 | Tắt sinh/cài mã AI ở bản bán | **Xong** | `edition=commercial`. |
-| 3 | Loại kỹ năng demo; danh mục có chủ sở hữu và kiểm thử | **Một phần** | Đã ẩn ở bản bán. Còn: thẻ "chủ sở hữu + test" cho từng kỹ năng lõi (đợt 2). |
+| 3 | Loại kỹ năng demo; danh mục có chủ sở hữu và kiểm thử | **Xong** (danh mục) | `skills/catalog.json` + `/api/v1/skills/catalog`: nhóm, đội chủ sở hữu, có test chưa. Test hợp đồng: tham số khai cho LLM khớp hàm ở cả 108 kỹ năng. **Còn 31 kỹ năng bản bán chưa có test hành vi riêng**; danh mục liệt kê đủ để bù dần. |
 | 4 | LLM gateway: lọc PII, chính sách theo mức dữ liệu, chặn model không DPA | **Một phần** | Đã che PII trước LLM và chặn `:free`. Còn: định tuyến theo mức phân loại (`CONFIDENTIAL` trở lên chỉ đi model tự host) và danh sách nhà cung cấp có DPA (đợt 2, sau quyết định về nhà cung cấp). |
 | 5 | Model tự host (vLLM) | **Bên ngoài** | Mã gọi LLM theo chuẩn OpenAI nên trỏ được vào vLLM. Cần GPU và đánh giá chất lượng tiếng Việt bằng bộ ở #11. |
 | 6 | Thay Edge-TTS | **Xong** (bản bán) | Edge bị chặn. Vbee đang là engine chính. Cần hợp đồng Vbee/FPT.AI/Azure cho từng khách hàng. |
 | 7 | Sandbox kỹ năng, khai báo quyền | **Đợt 3** | Bước đầu đã làm: kỹ năng mạnh không chạy trên máy chủ ở bản bán. Sandbox (gVisor/Firecracker) cho kỹ năng còn lại cần thiết kế riêng. |
 | 8 | Tách phần Windows ra agent; lõi Linux | **Xong** | Gói Docker Linux (amd64/arm64), Agent 2.3.0 chạy kỹ năng desktop. |
 | 9 | Multi-tenant (`tenant_id`, RLS, khoá theo tenant) | **Quyết định → Đợt 3** | Phụ thuộc phân khúc đầu tiên (§6). Có bước nâng cấp CSDL theo số thứ tự (`schema_migrations`) để thêm `tenant_id` an toàn. |
-| 10 | Header bảo mật, tắt /docs, health tối giản, bắt đổi mật khẩu + MFA | **Một phần** | Đã làm header, /docs, health-dashboard và MFA cho admin. Còn: bắt đổi mật khẩu ở lần đăng nhập đầu (đợt 2). |
-| 11 | Bộ đánh giá AI 300–500 câu, cổng ≥ 90% | **Đợt 2** | Hiện có `scripts/eval_llm.py` (khoảng 20 câu, chấm chọn công cụ và an toàn). Mở rộng theo vai trò; gắn vào quy trình phát hành. |
-| 12 | Độ trễ | **Một phần** | Đã giới hạn câu đọc to và có chọn công cụ trước. Còn: rút chỉ dẫn hệ thống từ 13.922 xuống khoảng 3.000 ký tự, ẩn công cụ khi nguồn dữ liệu chưa cấu hình (đợt 2). |
+| 10 | Header bảo mật, tắt /docs, health tối giản, bắt đổi mật khẩu + MFA | **Xong** | Header, /docs, health-dashboard, MFA cho admin. Bắt đổi mật khẩu cho tài khoản mặc định, tài khoản admin vừa đặt lại cho người khác, và mật khẩu dev công khai. Chính sách: ≥ 10 ký tự, có chữ và số. |
+| 11 | Bộ đánh giá AI 300–500 câu, cổng ≥ 90% | **Một phần** | Đã có bộ 300 câu theo vai trò (CNTT, lãnh đạo, nhân sự, chung): 218 câu công cụ, 47 câu hội thoại, 35 câu tấn công. Cổng `--gate 0.9` trượt khi dưới 90% hoặc có bất kỳ đề xuất công cụ bị cấm. **Chưa chạy trên LLM thật**, vì 9Router không chạy lúc làm. Câu do đội viết; cần bổ sung câu thật từ nhật ký. |
+| 12 | Độ trễ | **Một phần** | Đã giới hạn câu đọc to, chọn công cụ trước, ẩn công cụ chưa có nguồn dữ liệu. Prompt vận hành HUD giảm từ 14.227 xuống 11.569 ký tự (-19%). Mục tiêu khoảng 3.000 ký tự cần viết lại cả khối quy tắc và đo lại bằng bộ #11. |
 | 13 | Bộ cài, nâng cấp, sao lưu khôi phục được kiểm thử | **Một phần** | Đã cài thật trên Linux/ARM64 giả lập. Còn: kịch bản nâng cấp bản N → N+1 tự động trong CI. |
 | 14 | Pentest độc lập | **Bên ngoài** | — |
 
@@ -106,26 +107,28 @@ Chú thích trạng thái:
 
 | # | Hạng mục | Trạng thái | Còn lại / ghi chú |
 |---|---|---|---|
-| 15 | Số đo lưu bền 13 tháng | **Một phần** | Đã giữ 400 ngày. Còn: màn hình báo cáo theo tháng/quý. |
-| 16 | Chính sách khai báo (OPA/Cedar), duyệt hai người cho L4 | **Đợt 3** | Cổng chính sách hiện là mã Python có test. Duyệt hai người có thể làm trước (đợt 2). |
-| 17 | Neo chuỗi băm audit ra ngoài, xuất báo cáo kiểm toán | **Đợt 2** | Xuất CSV/PDF làm trước. Neo ra ngoài (TSA/WORM) cần chọn dịch vụ. |
+| 15 | Số đo lưu bền 13 tháng | **Xong** (API) | Giữ 400 ngày. `/api/v1/reports/performance/monthly` (JSON/CSV) gồm lượt, p50/p90, rơi dự phòng, thành công, token. Chưa có màn hình biểu đồ riêng. |
+| 16 | Chính sách khai báo (OPA/Cedar), duyệt hai người cho L4 | **Một phần** | Đã có duyệt hai người (`security.dual_approval_min_risk`, mặc định tắt): hai người khác nhau, người yêu cầu không tự duyệt. Chính sách khai báo OPA/Cedar: đợt 3. |
+| 17 | Neo chuỗi băm audit ra ngoài, xuất báo cáo kiểm toán | **Xong** | Xuất CSV và HTML in được, kèm kết quả kiểm chuỗi. Neo đầu chuỗi ra ổ khác và S3 sau mỗi lần sao lưu, kiểm ở `/audit-logs/verify`. Muốn có WORM thật: bật Object Lock ở bucket. Dịch vụ dấu thời gian (TSA) tuỳ chọn. |
 | 18 | SSO OIDC/SAML, vai trò tuỳ biến, phân tách nhiệm vụ | **Một phần** | Đã có OIDC. Còn: SAML, vai trò tuỳ biến, người cấu hình ≠ người duyệt. |
 | 19 | Trình soạn kịch bản trực quan, 20 mẫu | **Đợt 3** | Cần người làm frontend. |
 | 20 | Connector kiểm thử thật | **Bên ngoài** | Cần hệ thống thật của khách hàng thí điểm (Zabbix, GLPI, Jira, ServiceNow, vCenter, Veeam, MISA). |
-| 21 | Teams, Zalo OA, email | **Đợt 2** | Đã có email gateway. Teams và Zalo OA cần tài khoản doanh nghiệp. |
+| 21 | Teams, Zalo OA, email | **Xong** (mã) | Có Teams, Email, Outlook, Slack, Webhook; thêm Zalo OA. Chưa thử với tài khoản thật. Token Zalo hết hạn sau khoảng 25 giờ, chưa tự làm mới. |
 | 22 | Thiết kế lại giao diện theo vai trò | **Đợt 3** | Bao gồm gỡ `onclick` inline để bật CSP chặt. |
-| 23 | Bản quyền và đo lượng sử dụng | **Quyết định** | Phụ thuộc mô hình giá (§6). |
-| 24 | Tuân thủ dữ liệu cá nhân: sổ xử lý, thời hạn lưu, xoá theo yêu cầu | **Đợt 2** | Đã có che PII theo vai trò và hạn lưu trace. Còn: sổ hoạt động xử lý, API xoá theo yêu cầu, mẫu DPIA. |
-| 25 | CI/CD, SBOM, ký số bản phát hành | **Một phần** | CI có sẵn nhưng tài khoản GitHub bị khoá do thanh toán. SBOM và ký số làm ở đợt 2. |
+| 23 | Bản quyền và đo lượng sử dụng | **Xong** (cơ chế) | Tệp bản quyền ký Ed25519, ngoại tuyến (`scripts/issue_license.py`). Hạn mức người dùng và máy trạm, dùng thử 5/5, đo lượng `/api/v1/license/usage`. **Mô hình giá vẫn là quyết định §6**; cơ chế đổi được thước đo. |
+| 24 | Tuân thủ dữ liệu cá nhân: sổ xử lý, thời hạn lưu, xoá theo yêu cầu | **Xong** | Sổ hoạt động xử lý (API + `docs/compliance/`), tra cứu và xoá theo chủ thể có audit (audit chỉ lưu mã băm), mẫu DPIA. Không phải ý kiến pháp lý. |
+| 25 | CI/CD, SBOM, ký số bản phát hành | **Một phần** | Đã có SBOM CycloneDX 1.5 từ image thật. `SHA256SUMS.txt` ký Ed25519; `install.sh` tự kiểm chữ ký và băm; có `verify_release.py`. Gói chặn mọi tệp `.key`/`.pem`. **CI vẫn khoá vì thanh toán GitHub.** |
 | 26 | Tài liệu quản trị, người dùng, kiến trúc an ninh | **Một phần** | Đã có hướng dẫn cài Docker, runbook, tài liệu Agent. Còn: hướng dẫn người dùng theo vai trò, hồ sơ kiến trúc an ninh. |
 
 ### P2
 
 Gồm các mục #27–32: chợ connector, tương quan cảnh báo, HA hai trung tâm dữ liệu, ứng dụng di động duyệt HITL, ROI đo thật, gói trình diễn HUD. Tất cả để sau bản v1, không đổi so với báo cáo.
 
-## 5. Đợt 2 đề xuất
+## 5. Đợt 2 (đã làm 14/10/2026)
 
-Đây là các việc trong mã, không cần quyết định kinh doanh, ước tính khoảng 4–6 tuần cho 1 người:
+Mười việc trong danh sách dưới đây đã làm trong cùng ngày, cùng với #21, #23, #17 (neo) và #25 (ký số) — xem bảng §4. Chưa làm
+được hoặc chỉ một phần: chạy bộ đánh giá trên LLM thật, rút prompt xuống 3.000 ký tự, test hành vi cho 31 kỹ năng.
+Danh sách gốc:
 
 1. Rút gọn chỉ dẫn hệ thống, và ẩn công cụ khi nguồn dữ liệu của nó chưa cấu hình. Đây là nguyên nhân của phần lớn lượt thất bại (#11, #12).
 2. Mở rộng bộ đánh giá lên 300 câu theo vai trò, chạy trước mỗi phát hành, ngưỡng 90% (#11).

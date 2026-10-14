@@ -80,6 +80,10 @@ def scan_for_secrets(out: Path) -> list:
     print(f"  quét {len(secrets)} bí mật của máy build trong gói…")
     hits = []
     for p in out.rglob("*"):
+        # Tệp khoá / chứng chỉ riêng không bao giờ được vào gói (khoá công khai ký gói là .pub — được phép).
+        if p.is_file() and p.suffix.lower() in (".key", ".pem", ".pfx", ".p12"):
+            hits.append(str(p.relative_to(out)))
+            continue
         if not p.is_file() or p.suffix.lower() not in TEXT_EXT or "images" in p.relative_to(out).parts:
             continue
         try:
@@ -220,11 +224,63 @@ def main() -> int:
         f"VN-MateAI {a.version}\ncommit {commit}\nbuild {datetime.now():%Y-%m-%d %H:%M}\n"
         f"images: {', '.join(images) or '(không kèm — install sẽ build từ app/)'}\n"
         "Bản sạch: không kèm dữ liệu, tài khoản, token, khoá của máy build.\n", encoding="utf-8")
+    write_sbom(out, a.version, commit, images)
+    shutil.copy2(ROOT / "deploy" / "keys" / "vendor_signing.pub", out / "vendor_signing.pub")
     sums = [f"{sha256(p)}  {p.relative_to(out).as_posix()}" for p in sorted(out.glob("*")) + sorted(out.glob("images/*"))
-            if p.is_file()]
+            if p.is_file() and p.name not in ("SHA256SUMS.txt", "SHA256SUMS.txt.sig")]
     (out / "SHA256SUMS.txt").write_text("\n".join(sums) + "\n", encoding="utf-8", newline="\n")  # LF: sha256sum -c trên Linux
+    sign_sums(out)
     print(f"XONG → {out}")
     return 0
+
+
+def write_sbom(out: Path, version: str, commit: str, images: list) -> None:
+    """SBOM CycloneDX 1.5 (thẩm định thương mại #25): gói Python THẬT trong image (pip list chạy trong container), image,
+    Agent máy trạm. Không có image (--no-image) thì lấy từ requirements.txt (phiên bản khai báo, không phải đã cài)."""
+    components = []
+    tag = f"vnmateai/app:{version}"
+    pkgs = None
+    if images:
+        r = subprocess.run(["docker", "run", "--rm", "--entrypoint", "python", tag, "-m", "pip", "list", "--format", "json"],
+                           capture_output=True, text=True)
+        if r.returncode == 0:
+            pkgs = json.loads(r.stdout)
+    source = "image" if pkgs is not None else "requirements.txt"
+    if pkgs is None:
+        pkgs = []
+        for ln in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+            m = re.match(r"^\s*([A-Za-z0-9_.\-\[\]]+)\s*(?:[=<>~!]=?\s*([^;\s]+))?", ln)
+            if m and not ln.strip().startswith(("#", "-")):
+                pkgs.append({"name": m.group(1).split("[")[0], "version": m.group(2) or ""})
+    for p in sorted(pkgs, key=lambda x: x["name"].lower()):
+        components.append({"type": "library", "name": p["name"], "version": p.get("version", ""),
+                           "purl": f"pkg:pypi/{p['name'].lower()}@{p.get('version', '')}"})
+    for img in images:
+        components.append({"type": "container", "name": img})
+    for exe in (out / "app" / "dist" / "agent").glob("*/VNMateAgent*"):
+        components.append({"type": "application", "name": f"agent/{exe.parent.name}/{exe.name}",
+                           "hashes": [{"alg": "SHA-256", "content": sha256(exe)}]})
+    sbom = {"bomFormat": "CycloneDX", "specVersion": "1.5", "version": 1,
+            "metadata": {"timestamp": datetime.now().isoformat(timespec="seconds"),
+                         "component": {"type": "application", "name": "VN-MateAI", "version": version,
+                                       "properties": [{"name": "git.commit", "value": commit},
+                                                      {"name": "sbom.source", "value": source}]}},
+            "components": components}
+    (out / "sbom.json").write_text(json.dumps(sbom, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"  SBOM: {len(components)} thành phần (nguồn: {source})")
+
+
+def sign_sums(out: Path) -> None:
+    """Ký SHA256SUMS.txt bằng khoá Ed25519 của nhà cung cấp → SHA256SUMS.txt.sig (thẩm định #25). Không có khoá: cảnh báo."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from mateai.infrastructure.security import signing
+    key = signing.load_private_key(ROOT / signing.PRIVKEY_REL)
+    if key is None:
+        print("  CẢNH BÁO: không có certs/vendor_signing.key — gói KHÔNG được ký (python scripts/vendor_keys.py init).")
+        return
+    data = (out / "SHA256SUMS.txt").read_bytes()
+    (out / "SHA256SUMS.txt.sig").write_bytes(key.sign(data))
+    print("  Đã ký SHA256SUMS.txt (Ed25519) → SHA256SUMS.txt.sig")
 
 
 if __name__ == "__main__":

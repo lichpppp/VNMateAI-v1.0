@@ -28,18 +28,8 @@ MAX_ROWS = 50_000
 def fetch(date_from: Optional[str] = None, date_to: Optional[str] = None, limit: int = MAX_ROWS) -> List[Dict[str, Any]]:
     """Dòng audit trong khoảng [date_from, date_to] (YYYY-MM-DD, tính cả ngày cuối), cũ → mới."""
     from mateai.application.security.pii_guard import mask_text
-    from mateai.infrastructure.database.erp_database import erp_db
-    where, args = [], []
-    if date_from:
-        where.append("timestamp >= ?")
-        args.append(f"{date_from} 00:00:00")
-    if date_to:
-        where.append("timestamp <= ?")
-        args.append(f"{date_to} 23:59:59")
-    sql = (f"SELECT {', '.join(COLUMNS)} FROM audit_logs" + (f" WHERE {' AND '.join(where)}" if where else "")
-           + " ORDER BY id LIMIT ?;")
-    with erp_db.get_connection() as conn:
-        rows = [dict(zip(COLUMNS, tuple(r))) for r in conn.execute(sql, (*args, max(1, min(int(limit), MAX_ROWS)))).fetchall()]
+    from mateai.infrastructure.database import governance_repo
+    rows = governance_repo.audit_rows(date_from, date_to, max(1, min(int(limit), MAX_ROWS)))
     for r in rows:
         if r.get("payload"):
             r["payload"] = mask_text(str(r["payload"]))[0]

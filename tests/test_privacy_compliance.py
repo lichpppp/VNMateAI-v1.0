@@ -29,7 +29,7 @@ def person():
                      (sam, f"Nguyễn Thử {tag}", "IT", "Kỹ sư", email, phone))
         conn.commit()
     db_manager.create_user({"username": sam, "password": "Thu2026xyz!", "role": "viewer", "full_name": f"Nguyễn Thử {tag}"})
-    db_manager.add_voice_trace({"channel": "hud", "outcome": "ok", "query": f"{sam} hỏi lịch họp"})
+    db_manager.add_voice_trace({"trace_id": f"trace_{tag}", "channel": "hud", "outcome": "llm", "query": f"{sam} hỏi lịch họp"})
     return {"sam": sam, "email": email, "phone": phone}
 
 

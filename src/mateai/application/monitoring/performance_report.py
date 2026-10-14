@@ -42,24 +42,24 @@ def _months_back(n: int, now: Optional[datetime] = None) -> List[str]:
 
 
 def monthly(months: int = 13, now: Optional[datetime] = None) -> List[Dict[str, Any]]:
-    from mateai.infrastructure.database.db_manager import db_manager
+    from mateai.infrastructure.database import governance_repo
     keys = _months_back(months, now)
     first = keys[0]
     turns: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
     tasks: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     usage: Dict[str, Dict[str, float]] = defaultdict(lambda: {"tokens": 0, "cost": 0.0})
-    with db_manager._get_connection() as conn:
-        for r in conn.execute("SELECT created_at, data_json FROM voice_traces WHERE created_at >= ?;", (f"{first}-01",)).fetchall():
-            try:
-                turns[str(r[0])[:7]].append(json.loads(r[1]))
-            except (TypeError, ValueError):
-                continue
-        for r in conn.execute("SELECT created_at, status FROM op_tasks WHERE created_at >= ?;", (f"{first}-01",)).fetchall():
-            tasks[str(r[0])[:7]][str(r[1] or "")] += 1
-        for r in conn.execute("SELECT day, total_tokens, cost FROM llm_usage WHERE day >= ?;", (f"{first}-01",)).fetchall():
-            u = usage[str(r[0])[:7]]
-            u["tokens"] += int(r[1] or 0)
-            u["cost"] += float(r[2] or 0)
+    trace_rows, task_rows, usage_rows = governance_repo.performance_rows(f"{first}-01")
+    for created, data_json in trace_rows:
+        try:
+            turns[created[:7]].append(json.loads(data_json))
+        except (TypeError, ValueError):
+            continue
+    for created, st in task_rows:
+        tasks[created[:7]][st] += 1
+    for day, tokens, cost in usage_rows:
+        u = usage[day[:7]]
+        u["tokens"] += tokens
+        u["cost"] += cost
     rows = []
     for k in keys:
         t = turns.get(k, [])

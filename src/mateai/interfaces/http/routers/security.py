@@ -432,9 +432,13 @@ async def export_audit_logs(
 
 @router.get("/api/v1/security/audit-logs/verify", summary="Kiểm tra toàn vẹn chuỗi audit (chỉ admin)")
 async def verify_audit_logs(user: dict = Depends(require_roles(["admin"]))) -> Dict[str, Any]:
-    """Tính lại chuỗi băm của audit_logs (prompt cuối §73): sửa / xoá một dòng là lộ đúng id."""
+    """Tính lại chuỗi băm của audit_logs (prompt cuối §73): sửa / xoá một dòng là lộ đúng id. Kèm kiểm các NEO đã ghi ra
+    ngoài (audit_anchor): sửa rồi tính lại cả chuỗi vẫn lộ vì neo cũ không còn khớp."""
+    from mateai.application.security import audit_anchor
     from mateai.infrastructure.database.erp_database import erp_db
-    return await run_blocking(erp_db.verify_audit_chain)
+    out = await run_blocking(erp_db.verify_audit_chain)
+    out["anchors"] = await run_blocking(audit_anchor.verify)
+    return out
 
 
 # ── Kiểm soát tự trị: kill switch, tắt tác nhân / tool, L5, ngân sách ──────────

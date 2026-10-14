@@ -17,6 +17,24 @@ command -v docker >/dev/null || die "Chưa có Docker. Cài: https://docs.docker
 docker compose version >/dev/null 2>&1 || die "Chưa có Docker Compose v2 (lệnh 'docker compose')."
 docker info >/dev/null 2>&1 || die "Không nói chuyện được với Docker (chạy bằng sudo hoặc thêm user vào nhóm docker)."
 
+# 0. Gói nguyên vẹn + chữ ký nhà cung cấp (SHA256SUMS.txt.sig, Ed25519). So dấu vân tay in ra với dấu vân tay nhà cung cấp
+#    công bố qua kênh riêng — khoá trong gói chỉ chứng minh gói không bị sửa SO VỚI khoá đó.
+if [ -f SHA256SUMS.txt.sig ] && [ -f vendor_signing.pub ]; then
+  if openssl version 2>/dev/null | grep -q '^OpenSSL 3'; then
+    openssl pkeyutl -verify -pubin -inkey vendor_signing.pub -rawin -in SHA256SUMS.txt -sigfile SHA256SUMS.txt.sig >/dev/null 2>&1       || die "CHỮ KÝ GÓI KHÔNG HỢP LỆ — không cài. Tải lại gói từ nhà cung cấp."
+    fp="$(openssl pkey -pubin -in vendor_signing.pub -outform DER 2>/dev/null | openssl dgst -sha256 -r | cut -d' ' -f1)"
+    say "Chữ ký gói hợp lệ. Dấu vân tay khoá (DER): ${fp}"
+  else
+    say "Bỏ qua kiểm chữ ký (cần OpenSSL 3). Kiểm tay: python scripts/verify_release.py <thư mục gói>"
+  fi
+  sha_cmd="sha256sum"; command -v sha256sum >/dev/null || sha_cmd="shasum -a 256"
+  while read -r sum file; do
+    [ -f "$file" ] || continue
+    [ "$($sha_cmd "$file" | cut -d' ' -f1)" = "$sum" ] || die "Tệp $file bị hỏng / bị sửa (băm không khớp) — không cài."
+  done < SHA256SUMS.txt
+  say "Băm các tệp trong gói: khớp."
+fi
+
 # 1. Image dựng sẵn đúng kiến trúc máy: *-arm64-images.tar cho máy ARM (Mac Apple Silicon…), tệp còn lại cho x86_64.
 #    Không chạy image amd64 trên máy ARM (giả lập chậm, model giọng nói có thể lỗi tập lệnh) — thiếu thì build ở bước 3.
 case "$(uname -m)" in arm64|aarch64) arm=1 ;; *) arm=0 ;; esac

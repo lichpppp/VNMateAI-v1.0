@@ -15,7 +15,7 @@ def test_months_back_crosses_year():
 
 def test_monthly_numbers_from_traces():
     for ttl, model, req in ((4000, "a", "a"), (6000, "b", "a"), (20000, "a", "a")):
-        db_manager.add_voice_trace({"channel": "hud", "outcome": "llm", "ttl_ms": ttl, "ttfa_answer_ms": ttl / 2,
+        db_manager.add_voice_trace({"trace_id": f"trace_pr_{ttl}_{model}", "channel": "hud", "outcome": "llm", "ttl_ms": ttl, "ttfa_answer_ms": ttl / 2,
                                     "model": model, "model_requested": req, "prompt_chars": 9000})
     row = pr.monthly(1)[-1]
     assert row["month"] == datetime.now().strftime("%Y-%m") and row["voice_turns"] >= 3

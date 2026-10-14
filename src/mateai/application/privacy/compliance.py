@@ -84,23 +84,13 @@ def lookup(subject: str) -> Dict[str, Any]:
 
 
 def _rows_hr(s: str) -> List[Dict[str, Any]]:
-    from mateai.infrastructure.directory.domain_sync import domain_manager
-    with domain_manager._get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, sam_account_name, full_name, department, title, email, phone FROM employees "
-            "WHERE LOWER(sam_account_name) = ? OR LOWER(email) = ? OR phone = ? OR LOWER(full_name) = ?;",
-            (_norm(s), _norm(s), s, _norm(s))).fetchall()
-    return [dict(r) for r in rows]
+    from mateai.infrastructure.database import governance_repo
+    return governance_repo.hr_people(s)
 
 
 def _rows_erp(s: str) -> List[Dict[str, Any]]:
-    from mateai.infrastructure.database.erp_database import erp_db
-    with erp_db.get_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, dept_id, name, position, email, phone, ad_sam FROM employees "
-            "WHERE LOWER(ad_sam) = ? OR LOWER(email) = ? OR phone = ? OR LOWER(name) = ?;",
-            (_norm(s), _norm(s), s, _norm(s))).fetchall()
-    return [dict(r) for r in rows]
+    from mateai.infrastructure.database import governance_repo
+    return governance_repo.erp_people(s)
 
 
 def _trace_terms(s: str, username: Any) -> List[str]:
@@ -108,12 +98,8 @@ def _trace_terms(s: str, username: Any) -> List[str]:
 
 
 def _count_traces(s: str, username: Any) -> int:
-    from mateai.infrastructure.database.db_manager import db_manager
-    n = 0
-    with db_manager._get_connection() as conn:
-        for t in _trace_terms(s, username):
-            n += int(conn.execute("SELECT COUNT(*) FROM voice_traces WHERE data_json LIKE ?;", (_like(t),)).fetchone()[0])
-    return n
+    from mateai.infrastructure.database import governance_repo
+    return governance_repo.count_traces_mentioning(_trace_terms(s, username))
 
 
 def erase(subject: str, actor: str) -> Dict[str, Any]:
@@ -121,35 +107,16 @@ def erase(subject: str, actor: str) -> Dict[str, Any]:
     found = lookup(subject)
     s = found["subject"]
     done: Dict[str, Any] = {}
+    from mateai.infrastructure.database import governance_repo
     from mateai.infrastructure.database.db_manager import db_manager
     from mateai.infrastructure.database.erp_database import erp_db
-    from mateai.infrastructure.directory.domain_sync import domain_manager
 
-    hr_ids = [r["id"] for r in found["found"]["hr.employees"]]
-    if hr_ids:
-        with domain_manager._get_connection() as conn:
-            for i in hr_ids:
-                conn.execute("UPDATE employees SET full_name = ?, email = NULL, phone = NULL, title = NULL, "
-                             "sam_account_name = ? WHERE id = ?;", (ERASED, f"erased-{i}", i))
-            conn.commit()
-    done["hr.employees_anonymised"] = len(hr_ids)
-
-    erp_ids = [r["id"] for r in found["found"]["employees"]]
-    if erp_ids:
-        with erp_db.get_connection() as conn:
-            for i in erp_ids:
-                conn.execute("UPDATE employees SET name = ?, email = NULL, phone = NULL, ad_sam = NULL WHERE id = ?;", (ERASED, i))
-            conn.commit()
-    done["employees_anonymised"] = len(erp_ids)
+    done["hr.employees_anonymised"] = governance_repo.anonymise_hr([r["id"] for r in found["found"]["hr.employees"]], ERASED)
+    done["employees_anonymised"] = governance_repo.anonymise_erp([r["id"] for r in found["found"]["employees"]], ERASED)
 
     users = found["found"].get("users") or []
     username = users[0]["username"] if users else None
-    deleted = 0
-    with db_manager._get_connection() as conn:
-        for t in _trace_terms(s, username):
-            deleted += conn.execute("DELETE FROM voice_traces WHERE data_json LIKE ?;", (_like(t),)).rowcount or 0
-        conn.commit()
-    done["voice_traces_deleted"] = deleted
+    done["voice_traces_deleted"] = governance_repo.delete_traces_mentioning(_trace_terms(s, username))
 
     from mateai.application.conversation import memory_manager as mm
     cleared = 0
