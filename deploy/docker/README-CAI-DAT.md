@@ -94,7 +94,9 @@ docker compose up -d
 ```
 
 **Cập nhật lên bản mới:** chép gói mới đè lên (giữ nguyên `.env`), rồi chạy lại `./install.sh`. Dữ liệu trong volume được giữ
-nguyên. Kỹ năng có sẵn được cập nhật; kỹ năng AI tự tạo vẫn còn.
+nguyên. Kỹ năng có sẵn được cập nhật; kỹ năng AI tự tạo vẫn còn. Lần khởi động đầu của bản mới tự **sao lưu rồi nâng cấp
+cấu trúc CSDL** nếu cần; kiểm tra: `docker compose exec app python scripts/db_migrate.py status` và `/readyz` (mục `schema`).
+Log ứng dụng: `docker compose logs app` hoặc tệp `/data/logs/vnmateai.log` trong volume.
 
 ## 5. Khác biệt so với bản chạy trên máy Windows
 

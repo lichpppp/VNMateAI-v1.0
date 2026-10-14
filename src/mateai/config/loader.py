@@ -842,8 +842,9 @@ def reload_settings() -> AppSettings:
 
 settings: AppSettings = _build_settings()
 
-from mateai.config.log_setup import configure_logging  # noqa: E402
+from mateai.config.log_setup import configure_logging, default_log_file  # noqa: E402
 
 # Một cấu hình log cho tiến trình (prompt cuối §95): request_id + che bí mật; LOG_FORMAT=json
-# cho hệ thống thu log. VNMATEAI_LOG_FORMAT ghi đè cấu hình.
-configure_logging(settings.LOG_LEVEL, os.environ.get("VNMATEAI_LOG_FORMAT") or settings.LOG_FORMAT)
+# cho hệ thống thu log. VNMATEAI_LOG_FORMAT ghi đè cấu hình. Bản ra tệp: logs/vnmateai.log (VNMATEAI_LOG_FILE).
+configure_logging(settings.LOG_LEVEL, os.environ.get("VNMATEAI_LOG_FORMAT") or settings.LOG_FORMAT,
+                  log_file=default_log_file(_PROJECT_ROOT))

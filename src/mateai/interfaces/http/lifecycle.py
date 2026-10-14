@@ -279,6 +279,16 @@ def _desktop_session(ctx: StepContext) -> str:
     return f"có màn hình ({st.get('reason')})"
 
 
+def _schema_migrations(ctx: StepContext) -> str:
+    """Bước nâng cấp CSDL có số thứ tự (migrations.py) — sao lưu trước khi chạy bước thật trên CSDL có dữ liệu."""
+    from mateai.infrastructure.database import migrations
+    res = migrations.migrate(migrations.main_db_connect)
+    if res.get("unknown"):
+        return f"CSDL mới hơn ứng dụng ({res['unknown'][-1]}) — /readyz báo lỗi"
+    ran = res.get("ran") or []
+    return f"phiên bản {res.get('current')}" + (f", vừa chạy {', '.join(ran)}" if ran else "") +         (f", sao lưu {res['backup']}" if res.get("backup") else "")
+
+
 def _background_workers(ctx: StepContext) -> None:
     from mateai.application.operations.background_workers import background_worker_manager
     spawn(background_worker_manager.start(), "background-workers")
@@ -304,6 +314,7 @@ def _email_gateway(ctx: StepContext) -> str:
 def default_steps() -> List[Step]:
     return [
         Step("core", _core, critical=True),
+        Step("schema_migrations", _schema_migrations),
         Step("tracing", _tracing),
         Step("ephemeral_sweeper", _ephemeral_sweeper),
         Step("telegram", _telegram),
