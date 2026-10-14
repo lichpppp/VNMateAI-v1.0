@@ -88,7 +88,7 @@ docker compose down
 docker volume rm vnmateai_pgdata vnmateai_appdata
 docker compose up -d postgres && sleep 10
 gunzip -c backups/db-<thời điểm>.sql.gz | docker compose exec -T postgres psql -U vnmate -d vnmate
-docker run --rm --user 0 --entrypoint tar -v vnmateai_appdata:/data -v "$PWD/backups:/b" vnmateai/app:1.0.0 \
+docker run --rm --user 0 --entrypoint tar -v vnmateai_appdata:/data -v "$PWD/backups:/b" vnmateai/app:2.0.0 \
   xzf /b/appdata-<thời điểm>.tgz -C /data
 docker compose up -d
 ```
@@ -124,7 +124,7 @@ Tải Agent: mở Portal bằng **địa chỉ LAN của máy chủ** (vd `https
 
 | Thành phần | Image | Dữ liệu (volume) |
 |---|---|---|
-| Ứng dụng VN-MateAI | `vnmateai/app:1.0.0` (Python 3.11, model giọng nói + embedding offline) | `vnmateai_appdata` → `/data` |
+| Ứng dụng VN-MateAI | `vnmateai/app:2.0.0` (Python 3.11, model giọng nói + embedding offline) | `vnmateai_appdata` → `/data` |
 | CSDL | `postgres:16-alpine` (chỉ mạng nội bộ) | `vnmateai_pgdata` |
 | Redis | `redis:7-alpine` (chỉ mạng nội bộ, không lưu đĩa) | — |
 

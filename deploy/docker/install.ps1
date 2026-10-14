@@ -47,7 +47,7 @@ if (-not (GetV "VNMATE_PUBLIC_HOST").Trim()) {   # địa chỉ LAN cho gói "T�
 [System.IO.File]::WriteAllLines((Join-Path $PSScriptRoot ".env"), $envText, (New-Object System.Text.UTF8Encoding($false)))
 
 # 3. Khởi động
-$ver = (GetV "VNMATE_VERSION").Trim(); if (-not $ver) { $ver = "1.0.0" }
+$ver = (GetV "VNMATE_VERSION").Trim(); if (-not $ver) { $ver = "2.0.0" }
 docker image inspect "vnmateai/app:$ver" *> $null
 if ($LASTEXITCODE -eq 0) { docker compose up -d } else { Say "Không thấy image dựng sẵn — build từ mã nguồn (cần Internet, 10-20 phút)..."; docker compose up -d --build }
 if ($LASTEXITCODE -ne 0) { Die "docker compose lỗi — xem thông báo ở trên." }

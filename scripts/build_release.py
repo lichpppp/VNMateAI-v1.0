@@ -3,7 +3,7 @@
 """
 Đóng gói bản chuyển giao VN-MateAI chạy trên Docker (bản SẠCH: không dữ liệu / khoá / token của máy build).
 
-    python scripts/build_release.py D:\\VNmatebuildv1.0 [--version 1.0.0] [--no-image] [--arm64] [--force]
+    python scripts/build_release.py D:\\VNmatebuildv1.0 [--version <pyproject>] [--no-image] [--arm64] [--force]
 
 Kết quả:
     <đích>/app/                 mã nguồn đúng commit HEAD (git archive — chỉ tệp được git theo dõi) + giao diện admin đã build
@@ -93,6 +93,12 @@ def scan_for_secrets(out: Path) -> list:
     return hits
 
 
+def _project_version() -> str:
+    """Một nguồn số phiên bản: pyproject.toml (cũng là mateai.__version__)."""
+    m = re.search(r'^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8"), re.M)
+    return m.group(1) if m else "0.0.0"
+
+
 def export_source(out: Path) -> str:
     commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=ROOT, capture_output=True, text=True,
                             check=True).stdout.strip()
@@ -180,7 +186,7 @@ def sha256(p: Path) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("dest")
-    ap.add_argument("--version", default="1.0.0")
+    ap.add_argument("--version", default=_project_version(), help="mặc định: version trong pyproject.toml")
     ap.add_argument("--no-image", action="store_true", help="không build / xuất image (chỉ mã nguồn + trình cài)")
     ap.add_argument("--arm64", action="store_true", help="kèm image linux/arm64 cho Mac Apple Silicon (build giả lập, chậm)")
     ap.add_argument("--force", action="store_true", help="xoá nội dung thư mục đích nếu có")

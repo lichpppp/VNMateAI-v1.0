@@ -2,7 +2,7 @@
 # Copyright (c) 2026 Dương Thanh Lịch — VN-MateAI. See LICENSE and NOTICE.
 #
 # Image ứng dụng VN-MateAI cho máy chủ Linux / Docker (bản chuyển giao). Ngữ cảnh build = thư mục gốc mã nguồn:
-#   docker build -f deploy/docker/Dockerfile -t vnmateai/app:1.0.0 .
+#   docker build -f deploy/docker/Dockerfile -t vnmateai/app:2.0.0 .
 # Gói sẵn model nhận dạng giọng nói (faster-whisper tiny + small) và model embedding của kho tri thức — khởi động không cần
 # tải gì thêm. Chức năng chỉ có trên Windows (điều khiển màn hình / COM / micro máy chủ / khay hệ thống) không có trong
 # container; máy trạm Windows vẫn điều khiển được qua Agent máy trạm (client_agent).

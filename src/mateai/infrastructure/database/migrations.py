@@ -61,12 +61,9 @@ _LOCK = threading.Lock()
 
 
 def app_version() -> str:
-    try:
-        from importlib.metadata import version
-        return version("mateai")
-    except Exception:  # noqa: BLE001
-        from mateai import __version__
-        return __version__
+    """mateai.__version__ (= version trong pyproject.toml — test_version_is_single_source giữ hai chỗ khớp)."""
+    from mateai import __version__
+    return __version__
 
 
 def _known() -> List[str]:

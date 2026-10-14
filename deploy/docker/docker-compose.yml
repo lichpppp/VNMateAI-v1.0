@@ -9,7 +9,7 @@ name: vnmateai
 
 services:
   app:
-    image: vnmateai/app:${VNMATE_VERSION:-1.0.0}
+    image: vnmateai/app:${VNMATE_VERSION:-2.0.0}
     build:
       context: ./app
       dockerfile: deploy/docker/Dockerfile

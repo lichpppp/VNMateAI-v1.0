@@ -110,3 +110,12 @@ def test_readiness_before_startup_only_reads(db):
 def test_released_steps_are_ordered_and_unique():
     versions = [m.version for m in mig.MIGRATIONS]
     assert versions == sorted(versions) and len(set(versions)) == len(versions) and versions[0] == "0001"
+
+
+def test_version_is_single_source():
+    """pyproject.toml và mateai.__version__ từng lệch (1.0.0 / 2.0.0-enterprise) — bản ghi nâng cấp CSDL cần một số."""
+    import re
+    from pathlib import Path
+    import mateai
+    py = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    assert re.search(r'^version\s*=\s*"([^"]+)"', py, re.M).group(1) == mateai.__version__ == mig.app_version()
