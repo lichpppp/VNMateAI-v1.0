@@ -17,7 +17,7 @@
     "module": "proactive_manager",
     "tier": "core",
     "owner": "Nhân sự & giao việc",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "auto_get_hanoi_weather": {
@@ -66,7 +66,7 @@
     "module": "integration_tools",
     "tier": "integration",
     "owner": "Tích hợp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "check_cashflow_predictive_health": {
@@ -94,7 +94,7 @@
     "module": "integration_tools",
     "tier": "integration",
     "owner": "Tích hợp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "check_oci_metrics": {
@@ -108,7 +108,7 @@
     "module": "monitoring_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "create_dev_fleet_task": {
@@ -129,7 +129,7 @@
     "module": "itsm_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "delegate_to_multi_agent": {
@@ -143,7 +143,7 @@
     "module": "ai_delegation",
     "tier": "core",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "delete_item": {
@@ -185,7 +185,7 @@
     "module": "analytics_engine",
     "tier": "core",
     "owner": "Dữ liệu doanh nghiệp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "get_active_processes": {
@@ -234,7 +234,7 @@
     "module": "pc_control_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "get_computer_use_status": {
@@ -248,7 +248,7 @@
     "module": "auto_check_cpu_ram_performance",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "get_dev_fleet_briefing": {
@@ -346,7 +346,7 @@
     "module": "integration_tools",
     "tier": "integration",
     "owner": "Tích hợp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "get_playbook_plan": {
@@ -374,14 +374,14 @@
     "module": "auto_get_server_uptime",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "get_tickets": {
     "module": "itsm_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "install_skill_from_url": {
@@ -423,7 +423,7 @@
     "module": "file_system",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "list_grafana_dashboards": {
@@ -458,14 +458,14 @@
     "module": "domain_alert_skills",
     "tier": "integration",
     "owner": "Tích hợp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "manage_windows_service": {
     "module": "sysadmin_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "media_control": {
@@ -486,42 +486,42 @@
     "module": "ninerouter_skills",
     "tier": "integration",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "ninerouter_create_embeddings": {
     "module": "ninerouter_skills",
     "tier": "integration",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "ninerouter_generate_image": {
     "module": "ninerouter_skills",
     "tier": "integration",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "ninerouter_text_to_speech": {
     "module": "ninerouter_skills",
     "tier": "integration",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "ninerouter_web_fetch": {
     "module": "ninerouter_skills",
     "tier": "integration",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "ninerouter_web_search": {
     "module": "ninerouter_skills",
     "tier": "integration",
     "owner": "Nền tảng AI",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "open_application": {
@@ -556,21 +556,21 @@
     "module": "enterprise_rag",
     "tier": "core",
     "owner": "Dữ liệu doanh nghiệp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "query_enterprise_graph_rag": {
     "module": "graph_rag",
     "tier": "core",
     "owner": "Dữ liệu doanh nghiệp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "query_organization_data": {
     "module": "erp_organization",
     "tier": "core",
     "owner": "Dữ liệu doanh nghiệp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "query_prometheus": {
@@ -647,21 +647,21 @@
     "module": "proactive_manager",
     "tier": "core",
     "owner": "Nhân sự & giao việc",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "search_einvoices": {
     "module": "integration_tools",
     "tier": "integration",
     "owner": "Tích hợp",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "search_files": {
     "module": "pc_control_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "search_paperless_documents": {
@@ -682,7 +682,7 @@
     "module": "lean_hr_skills",
     "tier": "core",
     "owner": "Nhân sự & giao việc",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "send_telegram_message": {
@@ -696,14 +696,14 @@
     "module": "pc_control_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "set_system_volume": {
     "module": "pc_control_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "simulate_incoming_customer_email": {
@@ -738,7 +738,7 @@
     "module": "itsm_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
-    "tested": false,
+    "tested": true,
     "commercial": true
   },
   "write_file": {
