@@ -26,6 +26,9 @@ services:
       VNMATEAI_DB_PATH: /data/data/vnmateai.db
       VNMATEAI_HR_DB_PATH: /data/data/hr_kpi.db
       VNMATEAI_OTEL_EXPORTER: none
+      # Phiên bản sản phẩm (mateai.config.edition): commercial = bản giao khách hàng (AI không tự sinh mã, ẩn kỹ năng demo,
+      # không model miễn phí, che dữ liệu cá nhân trước khi gửi LLM ngoài, tắt /docs). internal = bản nội bộ.
+      VNMATEAI_EDITION: ${VNMATE_EDITION:-commercial}
       # Địa chỉ LAN của máy chủ ghi vào gói "Tải Agent" khi Portal được mở bằng localhost (IP container không dùng được)
       VNMATEAI_PUBLIC_HOST: ${VNMATE_PUBLIC_HOST:-}
       VNMATEAI_LLM_API_KEY: ${VNMATE_LLM_API_KEY:-}

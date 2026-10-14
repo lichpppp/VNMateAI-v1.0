@@ -1304,7 +1304,15 @@ class DatabaseManager:
 
     # ── Trace thoại bền (trước: chỉ RAM, mất sau mỗi lần khởi động lại) ──
 
-    def add_voice_trace(self, data: Dict[str, Any], retention_days: int = 30) -> None:
+    def add_voice_trace(self, data: Dict[str, Any], retention_days: Optional[int] = None) -> None:
+        """Hạn lưu: `observability.voice_trace_retention_days`, mặc định 400 ngày (~13 tháng — đủ so sánh cùng kỳ năm
+        trước cho báo cáo SLA; thẩm định 14/10/2026 P1-15). Trước: 30 ngày."""
+        if retention_days is None:
+            from mateai.config.loader import get_config_section
+            try:
+                retention_days = max(1, int(get_config_section("observability").get("voice_trace_retention_days", 400)))
+            except (TypeError, ValueError):
+                retention_days = 400
         now = datetime.now()
         with self._lock:
             with self._get_connection() as conn:

@@ -53,6 +53,13 @@ logger = logging.getLogger(__name__)
 # FastAPI application
 # ---------------------------------------------------------------------------
 
+from mateai import __version__ as _APP_VERSION  # noqa: E402
+from mateai.config import edition as _edition  # noqa: E402
+
+# Tài liệu API (/docs, /redoc, /openapi.json) từng mở công khai — lộ toàn bộ 270 API (thẩm định 14/10/2026 §8).
+# Tắt mặc định; bản nội bộ bật bằng security.public_api_docs / VNMATEAI_API_DOCS=1; bản thương mại luôn tắt.
+_API_DOCS = _edition.api_docs_enabled()
+
 app = FastAPI(
     title="VN-MateAI",
     description=(
@@ -60,11 +67,12 @@ app = FastAPI(
         "Supports REST voice commands, streaming TTS, real-time "
         "ESP32 Multi-Node WebSocket audio pipeline, Auth & RBAC Web Portal."
     ),
-    version="2.1.0",
+    version=_APP_VERSION,
     contact={"name": "Dương Thanh Lịch", "url": "https://github.com/lichpppp/VNMateAI-v1.0", "email": "thanhlich.duong@gmail.com"},
     license_info={"name": "Apache-2.0", "url": "https://www.apache.org/licenses/LICENSE-2.0"},
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _API_DOCS else None,
+    redoc_url="/redoc" if _API_DOCS else None,
+    openapi_url="/openapi.json" if _API_DOCS else None,
 )
 
 # Zero-Trust CORS
@@ -141,7 +149,6 @@ async def auth_middleware(request: Request, call_next):
         # SSO (OIDC): chạy trước khi đăng nhập; tự kiểm state / nonce / PKCE / chữ ký id_token (application/security/sso.py)
         "/api/v1/sso/config", "/api/v1/sso/login", "/api/v1/sso/callback", "/api/v1/sso/exchange",
         "/api/v1/config/assistant-name",   # màn hình HUD/đăng nhập
-        "/api/v1/health-dashboard",        # telemetry HUD chế độ xem
         # Agent máy trạm: route tự kiểm mã đăng ký dùng một lần / khoá thiết bị
         # (routers/agent_devices.py) — Agent không có tài khoản người dùng.
         "/api/v1/agent/enroll",
@@ -222,6 +229,40 @@ async def auth_middleware(request: Request, call_next):
                 headers={"WWW-Authenticate": "Bearer"},
             )
     return await call_next(request)
+
+
+#: Header bảo mật cho MỌI phản hồi (thẩm định §8: thiếu CSP / X-Frame-Options…). Giao diện còn 365 `onclick` + script
+#: inline nên CSP tạm cho 'unsafe-inline'; vẫn chặn tải tài nguyên ngoài, nhúng khung, plugin, đổi base / form ra ngoài.
+SECURITY_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data:; "
+        "connect-src 'self' wss: ws:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; "
+        "form-action 'self'; frame-ancestors 'none'"),
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "microphone=(self), camera=(), geolocation=(), payment=(), usb=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+#: HSTS chỉ khi bật `security.hsts` (đã có chứng chỉ CA thật): với chứng chỉ tự ký, HSTS khiến trình duyệt KHÔNG cho
+#: người dùng bấm "Vẫn tiếp tục" — khoá họ ngoài Portal.
+HSTS_VALUE = "max-age=31536000; includeSubDomains"
+
+
+def _hsts_enabled() -> bool:
+    from mateai.config.loader import get_config_section
+    return bool(get_config_section("security").get("hsts", False))
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    if request.url.scheme == "https" and _hsts_enabled():
+        response.headers.setdefault("Strict-Transport-Security", HSTS_VALUE)
+    return response
 
 
 # Khai báo SAU middleware xác thực => bọc NGOÀI cùng: cả phản hồi 401 cũng có X-Request-ID.

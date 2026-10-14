@@ -602,6 +602,11 @@ class AppSettings(BaseSettings):
     # Phase 9: Enterprise Zero-Trust Security
     security: SecurityConfig = Field(default_factory=SecurityConfig)
 
+    # Phiên bản sản phẩm: internal | commercial (mateai.config.edition — VNMATEAI_EDITION ưu tiên)
+    edition: str = Field(default="internal")
+    # Bản thương mại: kỹ năng demo vẫn bật cho khách hàng này (có nguồn dữ liệu thật)
+    edition_allow_skills: List[str] = Field(default_factory=list)
+
     # Supervisor control plane: kill switch, L5, budgets (docs/autonomy/*)
     autonomy: AutonomyConfig = Field(default_factory=AutonomyConfig)
 

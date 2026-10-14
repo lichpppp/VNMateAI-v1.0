@@ -257,6 +257,9 @@ class DirectLLMProvider(BaseLLMProvider):
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         if model_status(self.model) == "BLOCKED":       # model registry §79
             raise RuntimeError(f"Model '{self.model}' bị BLOCKED trong model registry — không gọi.")
+        from mateai.config import edition
+        if not edition.model_allowed(self.model):
+            raise RuntimeError(f"Model '{self.model}' là model miễn phí — bản thương mại không gửi dữ liệu tới.")
         kwargs_api: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -327,6 +330,9 @@ class DirectLLMProvider(BaseLLMProvider):
     ) -> Any:
         if model_status(self.model) == "BLOCKED":       # model registry §79
             raise RuntimeError(f"Model '{self.model}' bị BLOCKED trong model registry — không gọi.")
+        from mateai.config import edition
+        if not edition.model_allowed(self.model):
+            raise RuntimeError(f"Model '{self.model}' là model miễn phí — bản thương mại không gửi dữ liệu tới.")
         kwargs_api: Dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -372,6 +378,11 @@ class NineRouterLLMProvider(BaseLLMProvider):
         if blocked:
             logger.warning("[ModelRegistry] Bỏ model BLOCKED khỏi danh sách thử: %s", blocked)
         ordered = [m for m in ordered if status[m] != "BLOCKED"]
+        from mateai.config import edition
+        free = [m for m in ordered if not edition.model_allowed(m)]
+        if free:                                    # bản thương mại: không gửi dữ liệu khách hàng tới model miễn phí
+            logger.warning("[Edition] Bỏ model miễn phí khỏi danh sách thử: %s", free)
+            ordered = [m for m in ordered if edition.model_allowed(m)]
         now = time.monotonic()
         healthy = [m for m in ordered if _model_down_until.get(m, 0.0) <= now and status[m] != "DEPRECATED"]
         cooling = [m for m in ordered if _model_down_until.get(m, 0.0) > now and status[m] != "DEPRECATED"]
