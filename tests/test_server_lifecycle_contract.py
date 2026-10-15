@@ -35,6 +35,7 @@ NEW_ROUTES = {"/api/v1/health/startup",
               "/api/v1/login/change-password", "/api/v1/security/audit-logs/export", "/api/v1/privacy/register",
               "/api/v1/privacy/subject/lookup", "/api/v1/privacy/subject/erase", "/api/v1/license", "/api/v1/license/usage",
               "/api/v1/reports/performance/monthly", "/api/v1/skills/catalog",
+              "/api/v1/reports/executive-summary",   # tổng quan cho giám đốc (#22)
               "/api/v1/branding",                 # thương hiệu hiển thị (white-label)
               # quên mật khẩu qua quản trị viên
               "/api/v1/login/forgot-password", "/api/v1/auth/password-reset/requests",

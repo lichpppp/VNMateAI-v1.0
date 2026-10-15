@@ -22,3 +22,20 @@ def test_monthly_numbers_from_traces():
     assert row["turn_ms_p50"] is not None and row["model_fallback_rate"] is not None
     csv_bytes = pr.to_csv(pr.monthly(2))
     assert b"turn_ms_p50" in csv_bytes.splitlines()[0]
+
+
+def test_executive_summary_counts_this_month_and_what_waits_for_a_decision():
+    import uuid
+    from mateai.application.security.zero_trust import hitl_manager
+    from mateai.application.tasks import ledger
+    base = pr.executive()
+    tid = ledger.open_task(f"Sự cố thử {uuid.uuid4().hex[:6]}", kind="incident")
+    ledger.transition(tid, ledger.ESCALATED)
+    hitl_manager.request_approval(f"thu_exec_{uuid.uuid4().hex[:6]}", {"x": 1}, requested_by="an", risk_level=4)
+    out = pr.executive()
+    assert out["month"] == datetime.now().strftime("%Y-%m") and out["prev_month"] < out["month"]
+    assert out["incidents_open"] == base["incidents_open"] + 1
+    assert out["approvals_pending"] == base["approvals_pending"] + 1
+    assert out["approvals_high_risk"] == base["approvals_high_risk"] + 1
+    assert out["attention_total"] == base["attention_total"] + 1 and len(out["attention"]) <= 5
+    assert out["hours_saved_est"] == round(out["ai_completed"] * out["hours_per_task"], 1)

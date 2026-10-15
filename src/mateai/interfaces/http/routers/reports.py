@@ -3,7 +3,8 @@
 """
 mateai/interfaces/http/routers/reports.py
 =========================================
-Báo cáo hiệu năng theo tháng (thẩm định thương mại P1-15) — JSON cho màn hình, CSV cho báo cáo SLA. Admin / manager.
+Báo cáo hiệu năng theo tháng (thẩm định thương mại P1-15) — JSON cho màn hình, CSV cho báo cáo SLA — và tổng quan cho
+giám đốc (#22). Admin / manager.
 """
 from __future__ import annotations
 
@@ -29,3 +30,10 @@ async def performance_monthly(months: int = Query(default=13, ge=1, le=36), form
         return Response(performance_report.to_csv(rows), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": 'attachment; filename="hieu_nang_theo_thang.csv"'})
     return {"months": rows}
+
+
+@router.get("/api/v1/reports/executive-summary", summary="Tổng quan cho giám đốc: tháng này so với tháng trước, việc chờ quyết định",
+            tags=["Reports"])
+async def executive_summary(user: Dict[str, Any] = Depends(require_roles(["admin", "manager"]))) -> Dict[str, Any]:
+    from mateai.application.monitoring import performance_report
+    return await run_blocking(performance_report.executive)

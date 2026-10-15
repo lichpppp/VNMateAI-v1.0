@@ -84,6 +84,41 @@ def monthly(months: int = 13, now: Optional[datetime] = None) -> List[Dict[str, 
     return rows
 
 
+def executive(now: Optional[datetime] = None) -> Dict[str, Any]:
+    """Tổng quan cho giám đốc (thẩm định #22): tháng này so với tháng trước bằng ngôn ngữ kinh doanh + việc đang chờ
+    người quyết định. Không số nào ước đoán ngoài `hours_saved_est` (ghi rõ giả định giờ / tác vụ)."""
+    from mateai.application.security.zero_trust import hitl_manager
+    from mateai.application.tasks import ledger
+    from mateai.infrastructure.database.erp_database import HOURS_SAVED_PER_AI_TASK
+
+    prev, cur = monthly(2, now)
+    def _done(r: Dict[str, Any]) -> int:
+        return round((r["ai_success_rate"] or 0) * r["ai_tasks_finished"])
+
+    try:
+        pending = hitl_manager.get_pending_list()
+    except Exception:  # noqa: BLE001 — thiếu HITL không làm hỏng cả trang
+        pending = []
+    since = f"{cur['month']}-01 00:00:00"
+    month_tasks = ledger.list_tasks(since=since, limit=2000)
+    open_incidents = [t for t in ledger.list_tasks(kind="incident", limit=500) if t.get("status") not in ledger.TERMINAL]
+    attention = [t for t in month_tasks if t.get("status") in ("ESCALATED", "FAILED", "WAITING_AUTHORIZATION")]
+    return {
+        "month": cur["month"], "prev_month": prev["month"],
+        "ai_tasks": cur["ai_tasks"], "ai_tasks_prev": prev["ai_tasks"],
+        "ai_completed": _done(cur), "ai_completed_prev": _done(prev),
+        "success_rate": cur["ai_success_rate"], "success_rate_prev": prev["ai_success_rate"],
+        "hours_saved_est": round(_done(cur) * HOURS_SAVED_PER_AI_TASK, 1), "hours_per_task": HOURS_SAVED_PER_AI_TASK,
+        "llm_cost": cur["llm_cost"], "llm_cost_prev": prev["llm_cost"],
+        "approvals_pending": len(pending),
+        "approvals_high_risk": sum(1 for a in pending if int(a.get("risk_level") or 0) >= 4),
+        "incidents_open": len(open_incidents),
+        "attention_total": len(attention),
+        "attention": [{"task_id": t.get("task_id"), "title": t.get("title"), "status": t.get("status"),
+                       "updated_at": t.get("updated_at")} for t in attention[:5]],
+    }
+
+
 def to_csv(rows: List[Dict[str, Any]]) -> bytes:
     buf = io.StringIO()
     if rows:
