@@ -44,6 +44,11 @@ RUN python -c "from faster_whisper import WhisperModel; [WhisperModel(m, device=
 USER root
 
 COPY --chown=vnmate:vnmate . .
+# MCP server tham chiếu chính thức đã rà soát (vendor/mcp-servers: time, fetch, git) — môi trường Python RIÊNG: thư viện `mcp` kéo
+# starlette / uvicorn bản khác, không lẫn vào môi trường ứng dụng (fastapi / starlette ghim). Đăng ký lúc khởi động (entrypoint).
+RUN python -m venv /opt/mcp-venv \
+ && /opt/mcp-venv/bin/pip install --no-cache-dir -c vendor/mcp-servers/constraints.txt \
+      vendor/mcp-servers/time vendor/mcp-servers/fetch vendor/mcp-servers/git
 RUN pip install --no-deps -e . \
  && chmod +x deploy/docker/entrypoint.sh \
  && cp -a skills /app/skills.dist

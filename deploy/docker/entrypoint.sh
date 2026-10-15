@@ -4,15 +4,15 @@
 #
 # Khởi động container VN-MateAI. Mọi thứ cần GIỮ qua các lần cập nhật image nằm trong volume /data:
 #   config.json (tạo lần đầu từ biến môi trường — init_config.py), certs/ (khoá JWT / mã hoá cấu hình / TLS — tự sinh lần
-#   đầu), storage/ (kho tri thức, vector DB, cache giọng), logs/, backups/, memory/, reports/, data/, skills/ (kỹ năng
-#   AI tự tạo). Thư mục cùng tên trong /app trỏ (symlink) vào /data. CSDL nằm ở PostgreSQL (service postgres).
+#   đầu), storage/ (kho tri thức, vector DB, cache giọng), logs/, backups/, memory/, reports/, data/, config/ (nguồn dữ liệu,
+#   MCP server đã khai báo), skills/ (kỹ năng AI tự tạo). Thư mục cùng tên trong /app trỏ (symlink) vào /data. CSDL nằm ở PostgreSQL (service postgres).
 set -eu
 
 DATA="${VNMATEAI_DATA_DIR:-/data}"
 APP=/app
 mkdir -p "$DATA"
 
-for d in certs storage logs backups memory reports data; do
+for d in certs storage logs backups memory reports data config; do
   mkdir -p "$DATA/$d"
   if [ ! -L "$APP/$d" ]; then rm -rf "${APP:?}/$d"; ln -s "$DATA/$d" "$APP/$d"; fi
 done
@@ -54,6 +54,12 @@ for i in range(60):
 print("[entrypoint] Không kết nối được PostgreSQL sau 120 s", file=sys.stderr)
 sys.exit(1)
 PY
+fi
+
+# MCP server tham chiếu (giờ, đọc trang web) — đăng ký lại mỗi lần khởi động (an toàn khi lặp; giữ quy tắc admin đặt trên Portal).
+# Tắt: VNMATE_MCP_REFERENCE=0. Lỗi không chặn khởi động.
+if [ "${VNMATE_MCP_REFERENCE:-1}" = "1" ] && [ -x /opt/mcp-venv/bin/python ]; then
+  python "$APP/scripts/setup_mcp_servers.py" --no-git || echo "[entrypoint] Không đăng ký được MCP server tham chiếu (bỏ qua)" >&2
 fi
 
 exec "$@"

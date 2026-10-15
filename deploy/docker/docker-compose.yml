@@ -38,6 +38,8 @@ services:
       VNMATE_LLM_MODEL: ${VNMATE_LLM_MODEL:-}
       VNMATE_LLM_FALLBACK_MODELS: ${VNMATE_LLM_FALLBACK_MODELS:-}
       VNMATE_ASSISTANT_NAME: ${VNMATE_ASSISTANT_NAME:-Ly Ly}
+      # MCP server tham chiếu chính thức (giờ, đọc trang web công khai) — 0 để tắt
+      VNMATE_MCP_REFERENCE: ${VNMATE_MCP_REFERENCE:-1}
     ports:
       - "${VNMATE_HTTPS_PORT:-443}:8443"      # Portal / HUD / API (HTTPS)
       - "${VNMATE_IOT_PORT:-8000}:8000"       # robot / IoT
