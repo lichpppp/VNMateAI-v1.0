@@ -86,6 +86,9 @@ def save_playbook(raw: Dict[str, Any], *, actor: str, validate_tools: bool = Tru
         # Lượt tự kích hoạt chạy bằng danh tính người đặt trình kích hoạt (admin lưu kịch bản) — RBAC / duyệt áp theo người này.
         defn["triggers_owner"] = actor
     existing = _db().dev_get("pb_playbooks", defn["id"])
+    # Tách nhiệm vụ: những người đã soạn / sửa kịch bản không được duyệt lượt chạy của nó (security.separation_of_duties).
+    prev = _jl(existing["definition_json"], {}).get("edited_by") if existing else None
+    defn["edited_by"] = sorted({*(prev or []), *([existing.get("created_by")] if existing and existing.get("created_by") else []), actor})
     now = _now()
     row = {"name": defn["name"], "definition_json": json.dumps(defn, ensure_ascii=False), "updated_at": now}
     if existing:
@@ -244,7 +247,9 @@ async def start(playbook_id: str, raw_params: Optional[Dict[str, Any]] = None, *
     if pl["needs_approval"]:
         req = hitl_manager.request_approval(action_name=f"playbook:{defn['id']}", params={"run_id": run_id, "plan_hash": pl["plan_hash"]},
                                             requested_by=caller, description=_summary(defn, pl), kind=KIND,
-                                            context={"run_id": run_id, "op_task_id": task_id}, risk_level=pl["max_risk"])
+                                            context={"run_id": run_id, "op_task_id": task_id,
+                                                     "configured_by": list(defn.get("edited_by") or [])},
+                                            risk_level=pl["max_risk"])
         _db().dev_update("pb_runs", run_id, {"status": WAITING_APPROVAL, "approval_id": req.get("id")})
         if task_id:
             led.transition(task_id, led.WAITING_AUTHORIZATION, approval_id=req.get("id"))

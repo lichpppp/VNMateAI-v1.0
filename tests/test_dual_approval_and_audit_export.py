@@ -95,3 +95,34 @@ def test_export_endpoint_admin_only_and_audited():
     from mateai.infrastructure.database.erp_database import erp_db
     with erp_db.get_connection() as conn:
         assert conn.execute("SELECT COUNT(*) FROM audit_logs WHERE action_type = 'AUDIT_EXPORT';").fetchone()[0] >= 2
+
+
+# ── #18 tách nhiệm vụ: người yêu cầu / người cấu hình không tự duyệt (security.separation_of_duties) ──
+
+@pytest.fixture
+def sod(monkeypatch):
+    monkeypatch.setattr(zt, "separation_of_duties", lambda: True)
+
+
+def test_sod_off_by_default_requester_may_approve():
+    assert zt.separation_of_duties() is False
+    aid, ran = _request(risk=2, by="an")
+    assert zt.hitl_manager.approve(aid, approved_by="an")["status"] != "error" and ran == [1]
+
+
+def test_sod_requester_cannot_approve_even_low_risk(sod):
+    aid, ran = _request(risk=2, by="an")
+    res = zt.hitl_manager.approve(aid, approved_by="AN")
+    assert res["status"] == "error" and "tách nhiệm vụ" in res["message"] and ran == []
+    assert zt.hitl_manager.approve(aid, approved_by="boss")["status"] != "error" and ran == [1]
+
+
+def test_sod_configurer_cannot_approve(sod):
+    ran = []
+    item = zt.hitl_manager.request_approval(f"playbook:pb_{uuid.uuid4().hex[:6]}", {"run_id": "r"}, requested_by="trigger",
+                                            action_callback=lambda: ran.append(1) or "ok", risk_level=3,
+                                            context={"configured_by": ["soan_kb", "sua_kb"]})
+    aid = item.get("approval_id") or item.get("id")
+    res = zt.hitl_manager.approve(aid, approved_by="Sua_KB")
+    assert res["status"] == "error" and "người cấu hình" in res["message"] and ran == []
+    assert zt.hitl_manager.approve(aid, approved_by="boss")["status"] != "error" and ran == [1]

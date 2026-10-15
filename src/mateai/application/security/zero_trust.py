@@ -95,6 +95,30 @@ def dual_approval_min_risk() -> int:
         return 0
 
 
+def separation_of_duties() -> bool:
+    """Tách nhiệm vụ (thẩm định 14/10/2026 #18): người yêu cầu và người đã cấu hình việc được duyệt (vd. soạn/sửa kịch bản
+    — `context.configured_by`) không được duyệt nó. Tắt mặc định (một admin thì không duyệt được gì). Bật:
+    `security.separation_of_duties: true`."""
+    try:
+        from mateai.config.loader import get_config_section
+        return bool(get_config_section("security").get("separation_of_duties", False))
+    except Exception:  # noqa: BLE001 — cấu hình hỏng: giữ hành vi cũ
+        return False
+
+
+def _sod_violation(item: Dict[str, Any], approved_by: str) -> Optional[str]:
+    who = str(approved_by or "").strip().lower()
+    if not who or not separation_of_duties():
+        return None
+    if who == str(item.get("requested_by") or "").strip().lower():
+        return f"Yêu cầu {item.get('id')} cần người KHÁC người yêu cầu duyệt (tách nhiệm vụ)."
+    configured = [str(u).strip().lower() for u in ((item.get("context") or {}).get("configured_by") or []) if u]
+    if who in configured:
+        return (f"Bạn đã soạn hoặc sửa nội dung của yêu cầu {item.get('id')} — cần người khác duyệt (tách nhiệm vụ: "
+                "người cấu hình không tự duyệt).")
+    return None
+
+
 def _log_partial_approval(item: Dict[str, Any], approved_by: str) -> None:
     try:
         from mateai.infrastructure.database.erp_database import erp_db
@@ -363,6 +387,9 @@ class HumanInTheLoopManager:
                     f"Yêu cầu {approval_id} đã ở trạng thái: {item['status']}",
                 )
 
+            sod = _sod_violation(item, approved_by)
+            if sod:
+                return None, None, sod
             # Duyệt hai người (thẩm định thương mại 14/10/2026 #16): rủi ro ≥ `security.dual_approval_min_risk` cần HAI người
             # duyệt khác nhau, và người yêu cầu không tự duyệt (tách nhiệm vụ). Lần duyệt đầu chỉ được ghi nhận.
             need = dual_approval_min_risk()
