@@ -51,6 +51,7 @@ VN-MateAI © 2026 Dương Thanh Lịch, giấy phép Apache-2.0 (xem `LICENSE`, 
 | pywinauto | BSD 3-clause |
 | rank-bm25 | Apache2.0 |
 | redis | MIT |
+| segno | BSD License |
 | silero-vad | MIT License |
 | SpeechRecognition | BSD-3-Clause |
 | starlette | BSD-3-Clause |
