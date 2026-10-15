@@ -38,7 +38,7 @@ python scripts/setup_mcp_servers.py --dry-run     # xem sẽ ghi gì
 - **Môi trường Python riêng** (`.mcp-venv`, trong Docker là `/opt/mcp-venv`): thư viện `mcp` kéo starlette / uvicorn bản khác, không được lẫn vào môi trường của ứng dụng. Phiên bản ghim ở `vendor/mcp-servers/constraints.txt`.
 - **Bật `agent_gateway.allow_stdio`**: máy chủ chạy các chương trình cục bộ đã rà soát ở trên.
 - **Chạy lặp lại an toàn**: giữ nguyên quy tắc admin đã đặt trên Portal (công cụ đã tắt vẫn tắt).
-- **Docker**: image cài sẵn; entrypoint đăng ký `time` và `fetch` mỗi lần khởi động. Container không có mã nguồn Git nên không có `git`. Tắt bằng `VNMATE_MCP_REFERENCE=0` trong `.env`.
+- **Docker**: image cài sẵn; entrypoint đăng ký `time` và `fetch` mỗi lần khởi động. Image chỉ cài `time` và `fetch`: container không có mã nguồn Git lẫn chương trình `git`. Tắt bằng `VNMATE_MCP_REFERENCE=0` trong `.env`.
 - **Tiến trình MCP chỉ nhận biến môi trường tối thiểu** (PATH, thư mục tạm, proxy, chứng chỉ…), không nhận mật khẩu, khoá LLM hay chuỗi kết nối CSDL của máy chủ. Biến riêng của từng server khai báo trong `env` của server (được mã hoá khi lưu).
 
 ## Cập nhật bản mới
