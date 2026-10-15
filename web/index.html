@@ -15,7 +15,7 @@
 
   <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/). Trước đây là
        cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở trang, cần Internet. -->
-  <link rel="stylesheet" href="/static/tailwind.css?v=13" />
+  <link rel="stylesheet" href="/static/tailwind.css?v=15" />
   <link rel="stylesheet" href="/static/ui-polish.css?v=3" />
 
   <!-- Theme đặt ngay trong <head> (tránh nháy sáng/tối) + chạy hộ onclick khi CSP chặt -->
@@ -1684,6 +1684,18 @@
             Hủy Bỏ
           </button>
         </div>
+      </div>
+
+      <!-- ─── TỔNG QUAN ĐIỀU HÀNH cho giám đốc (exec-summary.js) ─── -->
+      <div id="exec-summary-card" class="glass-panel p-5 space-y-4" data-min-role="manager">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-bold text-slate-800 dark:text-white">Tổng quan điều hành</h3>
+            <p class="text-[11px] text-slate-500 dark:text-slate-400">AI đã làm được gì cho doanh nghiệp và việc gì đang chờ anh/chị. <span id="exec-summary-month"></span></p>
+          </div>
+          <button type="button" id="exec-summary-refresh" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-slate-200 dark:border-white/10">Làm mới</button>
+        </div>
+        <div id="exec-summary-body" class="space-y-3"><p class="text-xs text-slate-400">Đang tải…</p></div>
       </div>
 
       <!-- ─── AI SUPERVISOR: AI đang làm gì, ai cho phép, cái gì bị chặn / cần người ─── -->
@@ -6737,6 +6749,9 @@
                 </svg>
                 <span>Xuất JSON</span>
               </button>
+              <button type="button" onclick="verifyAuditChain()"
+                class="px-2.5 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700/50 text-xs text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 whitespace-nowrap shadow-sm"
+                title="Tính lại chuỗi băm và so với các điểm neo đã lưu ra ổ khác / S3">Kiểm tra toàn vẹn</button>
               <button type="button" onclick="exportAuditReport('csv')"
                 class="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 whitespace-nowrap shadow-sm"
                 title="Báo cáo kiểm toán đầy đủ (kèm chuỗi băm) dạng CSV cho Excel">Báo cáo kiểm toán CSV</button>
@@ -7892,6 +7907,7 @@
   <script src="/static/server-time.js?v=1"></script>
   <script src="/static/ui-polish.js?v=1"></script>
   <script src="/static/header-inbox.js?v=1"></script>
+  <script src="/static/exec-summary.js?v=1"></script>
   <script src="/static/auth-mfa.js?v=3"></script>
   <script src="/static/auth-sso.js?v=1"></script>
   <script src="/static/infra-monitor.js?v=2"></script>

@@ -939,6 +939,7 @@ function switchTab(tabId) {
   if (tabId === 'dashboard') {
     loadDashboard();
     loadSupervisorOverview();
+    if (typeof ExecSummary !== 'undefined') ExecSummary.onEnter();   // tổng quan cho giám đốc
     // Phase 79: nội dung C.E.O gộp vào Bảng Điều Khiển nên `onEnter` bám theo
     // tab này. Thiếu dòng này thì phần điều hành AI, biểu đồ và cảnh báo an
     // ninh không bao giờ có dữ liệu.
@@ -7911,6 +7912,42 @@ function exportAuditLogsJson() {
   showToast('✅ Đã xuất tệp nhật ký kiểm toán thành công!', 'success');
 }
 
+/** Admin gỡ MFA của một tài khoản (mất điện thoại xác thực). Người đó cài lại ở lần đăng nhập sau nếu vai trò bắt buộc MFA. */
+async function resetUserMfa(userId, username) {
+  if (!confirm(`Gỡ xác thực hai lớp của "${username}"?
+
+Chỉ làm khi đã xác minh đúng người (gọi điện / gặp trực tiếp). Họ sẽ cài lại ở lần đăng nhập sau.`)) return;
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/users/${encodeURIComponent(userId)}/mfa/reset`, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(apiErrorText(data, res.status));
+    showToast(`Đã gỡ xác thực hai lớp của ${username}`, 'success');
+  } catch (err) {
+    showToast(`Không gỡ được MFA: ${err.message}`, 'error');
+  }
+}
+
+/** Kiểm tra toàn vẹn chuỗi audit (tính lại chuỗi băm + so với các điểm neo đã lưu ra ngoài). */
+async function verifyAuditChain() {
+  try {
+    const res = await apiFetch(`${API_BASE}/api/v1/security/audit-logs/verify`);
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(apiErrorText(d, res.status));
+    const anchors = d.anchors || {};
+    const anchorBad = anchors.ok === false;
+    if (d.ok && !anchorBad) {
+      showToast(`Nhật ký kiểm toán nguyên vẹn: ${Number(d.verified || 0).toLocaleString('vi-VN')} dòng khớp chuỗi băm`
+        + (anchors.anchors_checked ? `, ${anchors.anchors_checked} điểm neo khớp` : ''), 'success');
+    } else if (!d.ok) {
+      showToast(`CẢNH BÁO: chuỗi audit bị sửa / xoá từ dòng #${d.first_broken_id}. Báo ngay cho người phụ trách an ninh.`, 'error');
+    } else {
+      showToast(`CẢNH BÁO: chuỗi audit không khớp ${(anchors.broken || []).length} điểm neo đã lưu ngoài — có người đã sửa rồi tính lại cả chuỗi.`, 'error');
+    }
+  } catch (err) {
+    showToast(`Không kiểm tra được: ${err.message}`, 'error');
+  }
+}
+
 /** Báo cáo kiểm toán "AI đã làm gì, ai duyệt" (thẩm định thương mại #17): CSV tải về, HTML mở tab mới để In → Lưu PDF. */
 async function exportAuditReport(fmt) {
   try {
@@ -10013,6 +10050,10 @@ function renderUsersTable(users) {
             <!-- Đổi Pass (Icon Chìa khóa) -->
             <button onclick="openChangePasswordModal('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')" title="Cấp lại mật khẩu mới" class="w-8 h-8 rounded-lg bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/20 hover:border-purple-400/50 text-purple-300 flex items-center justify-center transition shadow-sm">
               <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
+            </button>
+            <!-- Gỡ MFA (mất điện thoại xác thực) -->
+            <button onclick="resetUserMfa('${escapeHtml(u.id)}', '${escapeHtml(u.username)}')" title="Gỡ xác thực hai lớp (người dùng mất điện thoại) — họ cài lại ở lần đăng nhập sau" class="w-8 h-8 rounded-lg bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 hover:border-amber-400/50 text-amber-400 flex items-center justify-center transition shadow-sm">
+              <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
             </button>
             <!-- Xóa (Icon Thùng rác đỏ) -->
             ${isCurrent
