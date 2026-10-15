@@ -119,12 +119,28 @@ def looks_like_retired_model_reply(text: str) -> bool:
 
 
 _QUOTA_RE = re.compile(r"RESOURCE_EXHAUSTED|QUOTA_EXHAUSTED|quota reached", re.IGNORECASE)
+#: Cổng báo lúc model dùng lại được, vd. 9Router "Unavailable (reset after 122h 12m 17s)" / "reset after 2m".
+_RESET_AFTER_RE = re.compile(r"reset(?:s)? (?:after|in) (?:(\d+)\s*h)?\s*(?:(\d+)\s*m)?\s*(?:(\d+)\s*s)?", re.IGNORECASE)
+#: Trần cho thời gian gác theo gợi ý của cổng — vẫn thử lại định kỳ phòng khi hạn mức được nâng / cấu hình đổi.
+MODEL_RESET_HINT_MAX_S = 6 * 3600.0
+
+
+def reset_hint_seconds(reason: Any) -> Optional[float]:
+    m = _RESET_AFTER_RE.search(str(reason))
+    if not m or not any(m.groups()):
+        return None
+    h, mi, se = (int(g or 0) for g in m.groups())
+    return float(h * 3600 + mi * 60 + se)
 
 
 def _mark_model_failed(model: str, reason: Any, cooldown_s: float = MODEL_COOLDOWN_S) -> None:
     # Hết quota (vd. "Resets in 101h") không tự khỏi sau 120 s: xếp cuối lâu như model đã ngừng.
     if _QUOTA_RE.search(str(reason)):
         cooldown_s = max(cooldown_s, MODEL_RETIRED_COOLDOWN_S)
+    # Cổng nói rõ khi nào dùng lại được: gác đúng chừng đó (đo 15/10: model chính hết hạn mức 122 h vẫn bị thử lại mỗi 2 phút).
+    hint = reset_hint_seconds(reason)
+    if hint is not None:
+        cooldown_s = max(cooldown_s, min(hint, MODEL_RESET_HINT_MAX_S))
     _model_down_until[model] = time.monotonic() + cooldown_s
     logger.warning("[LLMProvider] Tạm xếp cuối model '%s' trong %.0fs: %s", model, cooldown_s, reason)
 
@@ -589,7 +605,11 @@ class NineRouterLLMProvider(BaseLLMProvider):
                     raise TimeoutError(f"Model {model_name} timed out after {timeout_s:.0f}s") from None
                 _u = getattr(response, "usage", None)
                 set_attrs(_sp, **{"llm.total_tokens": getattr(_u, "total_tokens", None)})
-            msg = response.choices[0].message if getattr(response, "choices", None) else None
+            if not getattr(response, "choices", None):
+                # Cổng trả 200 nhưng không có câu trả lời (bộ lọc an toàn của nhà cung cấp…) — đánh giá 15/10: vòng agent
+                # chết vì `choices[0]` trên None. Coi như model lỗi, thử model khác.
+                raise RuntimeError(f"Model {model_name} trả về không có câu trả lời (choices rỗng)")
+            msg = response.choices[0].message
             content = getattr(msg, "content", "") or ""
             if msg is not None and not getattr(msg, "tool_calls", None) and looks_like_retired_model_reply(content):
                 raise _RetiredModel(f"Model {model_name} đã ngừng: {content[:120]}")

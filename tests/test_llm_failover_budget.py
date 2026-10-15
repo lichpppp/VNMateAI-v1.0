@@ -70,7 +70,7 @@ class SlowThenFastClient:
         async def create(**kw):
             self.tried.append(kw["model"])
             await asyncio.sleep(10 if kw["model"] in self.slow else 0.1)
-            return SimpleNamespace(model=kw["model"], choices=[])
+            return SimpleNamespace(model=kw["model"], choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None))])
 
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=create))
 
