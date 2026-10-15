@@ -378,6 +378,47 @@ class DatabaseManager:
                             created_by TEXT,
                             created_at TEXT NOT NULL
                         );
+                        CREATE TABLE IF NOT EXISTS orch_executors (
+                            executor_id TEXT PRIMARY KEY,
+                            kind TEXT NOT NULL,
+                            name TEXT NOT NULL,
+                            description TEXT,
+                            capabilities_json TEXT NOT NULL,
+                            tools_json TEXT,
+                            ref TEXT,
+                            max_risk INTEGER NOT NULL DEFAULT 2,
+                            max_concurrent INTEGER NOT NULL DEFAULT 2,
+                            status TEXT NOT NULL,
+                            version INTEGER NOT NULL DEFAULT 1,
+                            created_by TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
+                        CREATE TABLE IF NOT EXISTS orch_orders (
+                            order_id TEXT PRIMARY KEY,
+                            task_id TEXT,
+                            executor_id TEXT,
+                            capability TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            attempt INTEGER NOT NULL DEFAULT 0,
+                            risk INTEGER NOT NULL DEFAULT 2,
+                            requested_by TEXT NOT NULL,
+                            channel TEXT,
+                            idempotency_key TEXT UNIQUE,
+                            approval_id TEXT,
+                            spec_json TEXT NOT NULL,
+                            routing_json TEXT,
+                            report_json TEXT,
+                            verification_json TEXT,
+                            history_json TEXT,
+                            error TEXT,
+                            created_at TEXT NOT NULL,
+                            updated_at TEXT NOT NULL,
+                            dispatched_at TEXT,
+                            finished_at TEXT
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_orch_orders_status ON orch_orders(status);
+                        CREATE INDEX IF NOT EXISTS idx_orch_orders_executor ON orch_orders(executor_id);
                         CREATE TABLE IF NOT EXISTS agent_directory (
                             agent_id TEXT PRIMARY KEY,
                             kind TEXT NOT NULL,
@@ -1209,7 +1250,8 @@ class DatabaseManager:
     _DEV_TABLES = {"dev_projects": "project_id", "dev_runs": "run_id", "dev_events": "event_id",
                    "pb_playbooks": "playbook_id", "pb_runs": "run_id", "rag_doc_acl": "doc_name",
                    "llm_usage": "usage_id", "ai_eval_sets": "set_id", "ai_eval_runs": "run_id",
-                   "agent_directory": "agent_id", "pb_webhook_tokens": "playbook_id"}
+                   "agent_directory": "agent_id", "pb_webhook_tokens": "playbook_id",
+                   "orch_executors": "executor_id", "orch_orders": "order_id"}
 
     def dev_insert(self, table: str, row: Dict[str, Any]) -> None:
         if table not in self._DEV_TABLES:

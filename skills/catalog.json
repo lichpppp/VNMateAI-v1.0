@@ -153,6 +153,13 @@
     "tested": true,
     "commercial": true
   },
+  "dispatch_work_order": {
+    "module": "orchestration_tools",
+    "tier": "core",
+    "owner": "Nền tảng AI",
+    "tested": true,
+    "commercial": true
+  },
   "display_visual_data": {
     "module": "visual_skills",
     "tier": "core",
@@ -384,6 +391,13 @@
     "tested": true,
     "commercial": true
   },
+  "get_work_order_status": {
+    "module": "orchestration_tools",
+    "tier": "core",
+    "owner": "Nền tảng AI",
+    "tested": true,
+    "commercial": true
+  },
   "install_skill_from_url": {
     "module": "ninerouter_skills",
     "tier": "integration",
@@ -395,6 +409,13 @@
     "module": "pc_control_skills",
     "tier": "core",
     "owner": "Vận hành CNTT",
+    "tested": true,
+    "commercial": true
+  },
+  "list_agent_capabilities": {
+    "module": "orchestration_tools",
+    "tier": "core",
+    "owner": "Nền tảng AI",
     "tested": true,
     "commercial": true
   },

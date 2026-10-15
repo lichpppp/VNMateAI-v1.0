@@ -28,6 +28,7 @@ OWNERS = {
     "custom_skills": ("core", "Vận hành CNTT"), "workstation_tools": ("core", "Vận hành CNTT"),
     "auto_check_cpu_ram_performance": ("core", "Vận hành CNTT"), "auto_get_server_uptime": ("core", "Vận hành CNTT"),
     "itsm_skills": ("core", "Vận hành CNTT"), "playbook_tools": ("core", "Vận hành CNTT"),
+    "orchestration_tools": ("core", "Nền tảng AI"),
     "infra_monitor_tools": ("integration", "Tích hợp"), "integration_tools": ("integration", "Tích hợp"),
     "data_source_tools": ("integration", "Tích hợp"), "domain_alert_skills": ("integration", "Tích hợp"),
     "ninerouter_skills": ("integration", "Nền tảng AI"),

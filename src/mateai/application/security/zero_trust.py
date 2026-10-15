@@ -170,6 +170,17 @@ class HumanInTheLoopManager:
                 return None
             return {k: v for k, v in item.items() if not k.startswith("_")}
 
+    def get_status(self, approval_id: str) -> Optional[str]:
+        """pending | approved | rejected | expired — hoặc None nếu không có phiếu này (vd. đã dọn sau khi khởi động lại).
+        Cho nơi giao việc đối soát: phiếu bị từ chối / hết hạn không gọi lại executor."""
+        with self._lock:
+            item = self._pending_approvals.get(str(approval_id or ""))
+            if not item:
+                return None
+            if item.get("status") == "pending" and time.time() - item.get("_created_ts", 0) >= _APPROVAL_TTL_SECONDS:
+                item["status"] = "expired"
+            return str(item.get("status") or "") or None
+
     def get_risk_level(
         self,
         action_name: str,

@@ -958,6 +958,7 @@ function switchTab(tabId) {
   if (tabId === 'compliance' && typeof ComplianceUI !== 'undefined') ComplianceUI.onEnter();
   if (tabId === 'config' && typeof Branding !== 'undefined') Branding.renderAdmin();
   if (tabId === 'agent-gateway' && typeof AgentDirectoryUI !== 'undefined') AgentDirectoryUI.onEnter();
+  if (tabId === 'agent-gateway' && typeof OrchestrationUI !== 'undefined') OrchestrationUI.onEnter();   // đội agent + phiếu việc
   if (tabId === 'agent-gateway' && typeof AgentGatewayUI !== 'undefined') AgentGatewayUI.onEnter();
   if (tabId === 'system-integration') loadSystemIntegration();
   if (tabId === 'ai-manager') { loadAIManagerConfig(); initAISubTabs(); }

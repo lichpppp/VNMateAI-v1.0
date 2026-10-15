@@ -15,7 +15,7 @@
 
   <!-- Tailwind CSS: build sẵn (scripts/build_portal_css.py, cấu hình web/tailwind/). Trước đây là
        cdn.tailwindcss.com — trình duyệt tự biên dịch CSS mỗi lần mở trang, cần Internet. -->
-  <link rel="stylesheet" href="/static/tailwind.css?v=15" />
+  <link rel="stylesheet" href="/static/tailwind.css?v=16" />
   <link rel="stylesheet" href="/static/ui-polish.css?v=3" />
 
   <!-- Theme đặt ngay trong <head> (tránh nháy sáng/tối) + chạy hộ onclick khi CSP chặt -->
@@ -1005,6 +1005,7 @@
     <!-- ─── TAB: TÍCH HỢP HỆ THỐNG & BÁO CÁO ─────────────────────── -->
     <section class="tab-pane space-y-5" id="tab-agent-gateway">
       <div id="agent-directory-root" class="space-y-4"></div>
+      <div id="orchestration-root" class="space-y-4"></div>
       <div id="agent-gateway-root" class="space-y-4"></div>
     </section>
 
@@ -7915,6 +7916,7 @@
   <script src="/static/compliance.js?v=1"></script>
   <script src="/static/llmops.js?v=1"></script>
   <script src="/static/agent-directory.js?v=2"></script>
+  <script src="/static/orchestration.js?v=1"></script>
   <script src="/static/agent-gateway.js?v=2"></script>
   <script src="/static/dev-fleet.js?v=4"></script>
   <script src="/static/app.js?v=60.0"></script>

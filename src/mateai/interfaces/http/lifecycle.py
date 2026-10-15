@@ -229,6 +229,14 @@ def _playbooks(ctx: StepContext) -> str:
     return f"{n} lượt chạy bị gián đoạn được đánh dấu" if n else "ok"
 
 
+def _orchestration(ctx: StepContext) -> str:
+    """Lõi điều phối: phiếu đang giao dở khi máy chủ chết -> INTERRUPTED; vòng nền đối soát duyệt + giao hàng đợi."""
+    from mateai.application.orchestration import service
+    n = service.recover_interrupted()
+    spawn(service.background_loop(), "orchestration-pump")
+    return f"{n} phiếu việc bị gián đoạn được đánh dấu" if n else "ok"
+
+
 def _acoustic_ack(ctx: StepContext) -> None:
     from mateai.application.commands.fast_command_router import STATIC_REPLIES
     from mateai.infrastructure.tts.acoustic_ack import warmup_acoustic_ack_cache
@@ -343,6 +351,7 @@ def default_steps() -> List[Step]:
         Step("dev_fleet", _dev_fleet),
         Step("infra_monitor", _infra_monitor),
         Step("playbooks", _playbooks),
+        Step("orchestration", _orchestration),
         Step("computer_use_tool", _computer_use),
         Step("desktop_session", _desktop_session),
         Step("mcp_gateway", _mcp_gateway),
